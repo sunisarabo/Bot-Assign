@@ -34,14 +34,41 @@ function runDailyRosterReport() { rbRunForDate_(new Date()); }
 function runRosterForDate(y, m, d) { rbRunForDate_(new Date(y, m - 1, d)); }
 
 /**
- * Simplest manual test: read ONE PSA roster spreadsheet by ID, write the reports.
+ * Open any spreadsheet by id whether it is a native Google Sheet OR an uploaded
+ * .xlsx (which SpreadsheetApp.openById cannot read). Returns { ss, tempId }.
+ * Requires the Drive API advanced service for the .xlsx case.
+ */
+function rbOpenAnyById_(id) {
+  var file = DriveApp.getFileById(id);
+  var mime = file.getMimeType();
+  if (mime === MimeType.GOOGLE_SHEETS) return { ss: SpreadsheetApp.openById(id), tempId: null };
+  if (mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      || /\.xlsx$/i.test(file.getName())) {
+    var tmp = Drive.Files.copy({ title: '_TEMP_' + Date.now(), mimeType: MimeType.GOOGLE_SHEETS }, id, { convert: true });
+    return { ss: SpreadsheetApp.openById(tmp.id), tempId: tmp.id };
+  }
+  throw new Error('ไฟล์นี้ไม่ใช่ Spreadsheet (mime=' + mime + ') — ต้องชี้ไปที่ไฟล์ assignment PSA');
+}
+
+/**
+ * Simplest manual test: read ONE PSA roster file by ID, write the reports.
+ * Works on a native Google Sheet OR an .xlsx assignment file.
  * Pass an LL file id + date to include the LL department, e.g.
  *   testRosterFromId('<psaId>', '<llId>', 2026, 6, 6);
  */
 function testRosterFromId(ssId, llId, y, m, d) {
   ssId = ssId || 'PUT_A_ROSTER_SPREADSHEET_ID_HERE';
-  var roster = SpreadsheetApp.openById(ssId);
+  var opened = rbOpenAnyById_(ssId);
+  var roster = opened.ss;
+  Logger.log('📄 ไฟล์: %s | ชีต: %s', roster.getName(),
+             roster.getSheets().map(function (s) { return s.getName(); }).join(', '));
   var res = readRosterFromSpreadsheet(roster);
+  Logger.log('➡️ เจอ %s ทีม, รวม %s คน (working %s)',
+             Object.keys(res.teams).length, res.totals.staff, res.totals.working);
+  if (res.totals.staff === 0) {
+    Logger.log('⚠️ อ่านไม่เจอพนักงาน — ตรวจว่าไฟล์นี้เป็นไฟล์ assignment PSA (มีแท็บ EK/SQ/QR/...) ' +
+               'และมีหัวตาราง ID/NAME/SHIFT ใช่ไหม');
+  }
   var ll = null;
   if (llId) {
     var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
@@ -52,8 +79,9 @@ function testRosterFromId(ssId, llId, y, m, d) {
   var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
   rbWriteDashboard_(out, res, roster.getName(), ll, master);
   rbWriteTimetable_(out, res, roster.getName());
-  var cleanup = out.getSheetByName('Sheet1');
+  var cleanup = out.getSheetByName('Sheet1') || out.getSheetByName('ชีต1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
+  if (opened.tempId) { try { DriveApp.getFileById(opened.tempId).setTrashed(true); } catch (e) {} }
   Logger.log('✅ Report written: %s', out.getUrl());
   return out.getUrl();
 }
