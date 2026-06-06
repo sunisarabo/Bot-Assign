@@ -47,8 +47,10 @@ function testRosterFromId(ssId, llId, y, m, d) {
     var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
     try { ll = readLLForDate(llId, date); } catch (e) { Logger.log('⚠️ LL: ' + e.message); }
   }
+  var master = null;
+  try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) { Logger.log('⚠️ Master: ' + e.message); }
   var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
-  rbWriteDashboard_(out, res, roster.getName(), ll);
+  rbWriteDashboard_(out, res, roster.getName(), ll, master);
   rbWriteTimetable_(out, res, roster.getName());
   var cleanup = out.getSheetByName('Sheet1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
@@ -65,94 +67,138 @@ function rbRunForDate_(date) {
   try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); }
   catch (e) { Logger.log('⚠️ LL: ' + e.message); }
 
+  var master = null;
+  try { master = readMasterHeadcount(MASTER_FILE_ID_RB); }
+  catch (e) { Logger.log('⚠️ Master: ' + e.message); }
+
   var be = date.getFullYear() + 543;
   var mon = MON_RB[date.getMonth()];
   var dateStr = date.getDate() + ' ' + mon + ' ' + be;
 
   var out = rbGetMonthlyOutput_(mon, be);
-  rbWriteDashboard_(out, res, dateStr, ll);
+  rbWriteDashboard_(out, res, dateStr, ll, master);
   rbWriteTimetable_(out, res, dateStr);
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
 
-  rbPostChat_(res, dateStr, out.getUrl(), ll);
+  rbPostChat_(res, dateStr, out.getUrl(), ll, master);
   Logger.log('✅ Done: %s', out.getUrl());
 }
 
-// ─── DASHBOARD TAB ──────────────────────────────────────────────────────────
-function rbAggRow_(label, b) {
-  return [label, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights || 0];
+// ─── DASHBOARD TAB (KPI cards — JUN_2569 style) ─────────────────────────────
+var KPI_BG_ = ['#e8f0fe', '#e6f4ea', '#f5f5f5', '#fff8e1', '#fff3e0', '#fce4ec'];
+var KPI_FC_ = ['#1a237e', '#1b5e20', '#424242', '#e65100', '#bf360c', '#880e4f'];
+
+/** Write a row of KPI cards: label row + big value row, one card per column. */
+function rbCards_(sh, top, labels, values) {
+  for (var i = 0; i < labels.length; i++) {
+    sh.getRange(top, i + 1).setValue(labels[i]).setBackground(KPI_BG_[i % 6]).setFontColor(KPI_FC_[i % 6])
+      .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle');
+    sh.getRange(top + 1, i + 1).setValue(values[i]).setBackground(KPI_BG_[i % 6]).setFontColor(KPI_FC_[i % 6])
+      .setFontWeight('bold').setFontSize(20).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  }
+  sh.setRowHeight(top, 22); sh.setRowHeight(top + 1, 40);
 }
 
-function rbWriteDashboard_(ss, res, dateStr, ll) {
+/** Manpower-by-X table: X | Total | Working | OT คน | OT ชั่วโมง | %Working */
+function rbManpowerTable_(sh, top, title, rowsData, headColor) {
+  sh.getRange(top, 1, 1, 6).merge().setValue(title)
+    .setBackground(headColor).setFontColor('#fff').setFontWeight('bold').setFontSize(12);
+  sh.setRowHeight(top, 24);
+  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OT คน', 'OT ชั่วโมง', '%Working'];
+  sh.getRange(top + 1, 1, 1, 6).setValues([head]).setBackground('#2e75b6').setFontColor('#fff')
+    .setFontWeight('bold').setHorizontalAlignment('center');
+  var body = rowsData.map(function (d) {
+    var b = d.agg, work = b.working + b.ot_off;
+    var pct = b.staff > 0 ? Math.round(work / b.staff * 100) + '%' : '-';
+    return [d.label, b.staff, work, b.otPeople, b.otHours, pct];
+  });
+  if (body.length) sh.getRange(top + 2, 1, body.length, 6).setValues(body);
+  return top + 2 + body.length;
+}
+
+function rbWriteDashboard_(ss, res, dateStr, ll, master) {
   var sh = ss.getSheetByName('📊 Dashboard');
   if (sh) { sh.clear(); } else { sh = ss.insertSheet('📊 Dashboard', 0); }
 
-  var head = ['Team', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs', 'Flights'];
-  var rows = [head];
-  var order = Object.keys(res.teams).sort(function (a, b) {
-    return res.teams[b].working - res.teams[a].working;
-  });
-  order.forEach(function (t) {
-    var b = res.teams[t];
-    rows.push([t, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights]);
-  });
-  var T = res.totals;
-  rows.push(['GRAND TOTAL', T.staff, T.working, T.ot_off, T.off, T.sick, T.leave, T.otPeople, T.otHours, T.flights]);
+  var P = res.totals;
+  var L = ll && ll.totals.staff > 0 ? ll.totals : null;
+  var combStaff = P.staff + (L ? L.staff : 0);
+  var combWork  = (P.working + P.ot_off) + (L ? L.working + L.ot_off : 0);
+  var combOff   = P.off + (L ? L.off : 0);
+  var combOtOff = P.ot_off + (L ? L.ot_off : 0);
+  var combOtPpl = P.otPeople + (L ? L.otPeople : 0);
+  var combOtHrs = Math.round((P.otHours + (L ? L.otHours : 0)) * 10) / 10;
 
-  sh.getRange(1, 1, 1, head.length).setValues([['📊 Daily Manpower — ' + dateStr].concat(new Array(head.length - 1).fill('')) ]);
-  sh.getRange(1, 1, 1, head.length).merge().setBackground('#0d2137').setFontColor('#fff')
-    .setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
-  sh.getRange(2, 1, rows.length, head.length).setValues(rows);
-  sh.getRange(2, 1, 1, head.length).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
-  sh.getRange(1 + rows.length, 1, 1, head.length).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
+  // Title
+  sh.getRange(1, 1, 1, 6).merge().setValue('📊 Daily Manpower Dashboard  —  ' + dateStr)
+    .setBackground('#002060').setFontColor('#fff').setFontWeight('bold').setFontSize(14)
+    .setHorizontalAlignment('center');
+  sh.setRowHeight(1, 34);
 
-  // by-position-group block (exact counts from the assignment file)
-  var pr = rows.length + 3;
-  sh.getRange(pr, 1, 1, head.length).merge().setValue('โดยตำแหน่ง (By position group)')
-    .setBackground('#7f6000').setFontColor('#fff').setFontWeight('bold');
-  var phead = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs', 'Flights'];
-  sh.getRange(pr + 1, 1, 1, phead.length).setValues([phead])
-    .setBackground('#bf8f00').setFontColor('#fff').setFontWeight('bold');
-  var prows = [];
-  ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign', 'DIR', 'MGR', 'Assist'].forEach(function (p) {
-    var b = res.positions[p]; if (!b) return;
-    prows.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights]);
-  });
-  if (prows.length) sh.getRange(pr + 2, 1, prows.length, phead.length).setValues(prows);
-  var row = pr + 2 + prows.length;
+  // KPI cards (PSA + LL combined) — exact JUN_2569 fields
+  rbCards_(sh, 3,
+    ['👥 Total Staff', '🟢 Working', '⬛ OFF', '🟡 OT OFF (XX)', '⏰ OT คน', '⏱️ OT ชั่วโมง'],
+    [combStaff, combWork, combOff, combOtOff, combOtPpl, combOtHrs]);
 
-  // ── LL department (ติดตามสัมภาระ) ──
-  if (ll && ll.totals.staff > 0) {
+  // Active establishment headcount (both departments) from MASTER file
+  var row = 6;
+  if (master) {
+    var both = master.PSA.total + master.LL.total;
+    sh.getRange(row, 1, 1, 6).merge()
+      .setValue('👥 จำนวนพนักงานทั้งหมด (Active) — PSA ' + master.PSA.total +
+                '  +  LL ' + master.LL.total + '  =  ' + both + ' คน')
+      .setBackground('#37474f').setFontColor('#fff').setFontWeight('bold').setFontSize(11)
+      .setHorizontalAlignment('center');
+    sh.setRowHeight(row, 22);
     row += 2;
-    sh.getRange(row, 1, 1, head.length).merge()
-      .setValue('🟡 LL (ติดตามสัมภาระ) — tab ' + (ll.tabName || ''))
-      .setBackground('#7f6000').setFontColor('#fff').setFontWeight('bold').setFontSize(12);
-    row++;
-    sh.getRange(row, 1, 1, head.length).setValues([['Section/Pos', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs', 'Flights']])
-      .setBackground('#bf8f00').setFontColor('#fff').setFontWeight('bold');
-    row++;
-    var llRows = [];
-    Object.keys(ll.sections).forEach(function (s) { llRows.push(rbAggRow_('• ' + s, ll.sections[s])); });
-    llRows.push(['— by position —', '', '', '', '', '', '', '', '', '']);
-    ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee'].forEach(function (p) {
-      if (ll.positions[p]) llRows.push(rbAggRow_(p, ll.positions[p]));
-    });
-    llRows.push(rbAggRow_('LL TOTAL', ll.totals));
-    sh.getRange(row, 1, llRows.length, head.length).setValues(llRows);
-    sh.getRange(row + llRows.length - 1, 1, 1, head.length).setBackground('#7f6000').setFontColor('#fff').setFontWeight('bold');
-    row += llRows.length;
-
-    // ── combined PSA + LL grand total ──
-    var P = res.totals, L = ll.totals;
-    var comb = ['🏢 PSA + LL', P.staff + L.staff, P.working + L.working, P.ot_off + L.ot_off,
-                P.off + L.off, P.sick + L.sick, P.leave + L.leave, P.otPeople + L.otPeople,
-                Math.round((P.otHours + L.otHours) * 10) / 10, P.flights];
+  } else {
     row += 1;
-    sh.getRange(row, 1, 1, head.length).setValues([comb])
-      .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
   }
 
-  for (var c = 1; c <= head.length; c++) sh.autoResizeColumn(c);
+  // 📌 Manpower by Team (PSA)
+  var teamRows = Object.keys(res.teams).sort(function (a, b) {
+    return (res.teams[b].working + res.teams[b].ot_off) - (res.teams[a].working + res.teams[a].ot_off);
+  }).map(function (t) { return { label: t, agg: res.teams[t] }; });
+  teamRows.push({ label: '🔵 PSA TOTAL', agg: P });
+  row = rbManpowerTable_(sh, row, '📌 Manpower by Team (PSA)', teamRows, '#1f4e79') + 1;
+
+  // 📌 Manpower by Section (LL)
+  if (L) {
+    var secRows = Object.keys(ll.sections).map(function (s) { return { label: s, agg: ll.sections[s] }; });
+    secRows.push({ label: '🟡 LL TOTAL', agg: L });
+    row = rbManpowerTable_(sh, row, '📌 Manpower by Section (LL)', secRows, '#7f6000') + 1;
+  }
+
+  // 📌 By position group (PSA then LL) — full detail
+  var ph = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs'];
+  function posBlock(title, positions, orderList, bg) {
+    sh.getRange(row, 1, 1, ph.length).merge().setValue(title)
+      .setBackground(bg).setFontColor('#fff').setFontWeight('bold'); row++;
+    sh.getRange(row, 1, 1, ph.length).setValues([ph]).setBackground('#888').setFontColor('#fff').setFontWeight('bold'); row++;
+    var body = [];
+    orderList.forEach(function (p) {
+      var b = positions[p]; if (!b) return;
+      body.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours]);
+    });
+    if (body.length) { sh.getRange(row, 1, body.length, ph.length).setValues(body); row += body.length; }
+    row += 1;
+  }
+  posBlock('🔵 PSA by position', res.positions,
+           ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign', 'DIR', 'MGR', 'Assist'], '#1f4e79');
+  if (L) posBlock('🟡 LL by position', ll.positions, ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee'], '#7f6000');
+
+  // Combined PSA + LL working KPI footer
+  if (L) {
+    sh.getRange(row, 1, 1, 6).merge()
+      .setValue('🏢 รวม PSA + LL  —  มาทำงาน ' + combWork + ' / ' + combStaff +
+                ' คน  •  OFF ' + combOff + '  •  OT ' + combOtPpl + ' คน (' + combOtHrs + 'h)')
+      .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(11)
+      .setHorizontalAlignment('center');
+    sh.setRowHeight(row, 24);
+  }
+
+  [110, 70, 75, 65, 70, 80].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  for (var c = 7; c <= 9; c++) sh.setColumnWidth(c, 60);
   sh.setFrozenRows(2);
 }
 
@@ -202,15 +248,19 @@ function rbWriteTimetable_(ss, res, dateStr) {
 }
 
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
-function rbPostChat_(res, dateStr, url, ll) {
+function rbPostChat_(res, dateStr, url, ll, master) {
   var webhook = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP);
   if (!webhook) { Logger.log('⚠️ no webhook set in property %s', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
   var T = res.totals;
   var lines = [
     '📊 *Daily Manpower* — ' + dateStr,
-    '🔵 *PSA* — 👥 *' + T.staff + '*  🟢 *' + (T.working + T.ot_off) + '*  ⬛ *' + T.off +
-      '*  🤒 *' + T.sick + '*  🌴 *' + T.leave + '*  ⏰ *' + T.otPeople + '* (' + T.otHours + 'h)  ✈️ *' + T.flights + '*',
   ];
+  if (master) {
+    lines.push('👥 *พนักงานทั้งหมด (Active):* PSA ' + master.PSA.total + ' + LL ' + master.LL.total +
+               ' = *' + (master.PSA.total + master.LL.total) + '* คน');
+  }
+  lines.push('🔵 *PSA* — 👥 *' + T.staff + '*  🟢 *' + (T.working + T.ot_off) + '*  ⬛ *' + T.off +
+      '*  🤒 *' + T.sick + '*  🌴 *' + T.leave + '*  ⏰ *' + T.otPeople + '* (' + T.otHours + 'h)  ✈️ *' + T.flights + '*');
   if (ll && ll.totals.staff > 0) {
     var L = ll.totals;
     lines.push('🟡 *LL* — 👥 *' + L.staff + '*  🟢 *' + (L.working + L.ot_off) + '*  ⬛ *' + L.off +

@@ -8,6 +8,7 @@ optional Google Chat summary.
 | File | Role |
 |------|------|
 | `RosterReader.gs` | Core reader. Header-driven + REMARK-driven parsing of every team (standard layout, TR variant, PORTER, PORTER CREWSIGN, ADMIN DOC, and both SU template generations). `readRosterFromSpreadsheet(ss) → { teams, totals }`. |
+| `MasterReader.gs` | Reads the Pax Manpower master (`Total` sheet) for the total **active** headcount per department (PSA + LL) — the establishment count shown on the dashboard. `readMasterHeadcount(id) → { PSA, LL, active }`. |
 | `LLReader.gs` | LL (ติดตามสัมภาระ) daily reader. The LL tab is sectioned by job area (SOD/CENTER/RUSH BAG/…); attendance comes from SCHEDULE (OFF vs time range). `readLLForDate(llFileId, date) → { sections, positions, totals }`. |
 | `RosterBot.gs` | Integration: reads PSA **and** LL, writes the Dashboard (PSA by team + by position, LL by section + by position, combined PSA+LL total) + Timetable tabs, posts the Chat summary. Finds today's files on Drive (converts `.xlsx` automatically). |
 | `reference_parser.py` | Standalone offline validator / spec. PSA: `python3 reference_parser.py <file.xlsx> [TEAM]`. LL: `python3 reference_parser.py --ll <ll.xlsx> [TAB]`. |
