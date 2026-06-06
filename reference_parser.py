@@ -159,7 +159,9 @@ def parse_standard(rows, team):
         name = cv(row[cm['name']]) if cm['name'] < len(row) else ''
         if not name or not (6 <= len(idd) <= 8):
             continue
-        if name.upper() in ('NAME', 'REMARK', 'SUPPORT') or idd in seen:
+        if name.upper() in ('NAME', 'REMARK', 'SUPPORT', 'JAIDEE') or idd in seen:
+            continue
+        if up(row[cm['id']]).startswith('EX'):       # template "Ex. 212121" sample row
             continue
         seen.add(idd)
 
@@ -355,7 +357,8 @@ def parse_sheet(ws, name):
     if 'ADMIN' in n and 'DOC' in n:
         return parse_admindoc(rows, name)
     if n == 'SU' or n.startswith('SU '):
-        return parse_su(rows, name)
+        std = parse_standard(rows, name)          # new SU template = standard table
+        return std if std else parse_su(rows, name)  # else old counter-rotation grid
     return parse_standard(rows, name)
 
 

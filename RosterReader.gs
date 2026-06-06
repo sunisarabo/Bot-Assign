@@ -151,7 +151,8 @@ function rrParseStandard_(rows, team) {
     var name = cm.name < row.length ? rrClean_(row[cm.name]) : '';
     if (!name || idd.length < 6 || idd.length > 8) continue;
     var nU = name.toUpperCase();
-    if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || seen[idd]) continue;
+    if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE' || seen[idd]) continue;
+    if (rrUp_(row[cm.id]).indexOf('EX') === 0) continue;     // template "Ex. 212121" sample row
     seen[idd] = true;
 
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
@@ -366,7 +367,14 @@ function rrParseSheet_(ws) {
   if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) return rrParseCrewsign_(rows, name);
   if (n === 'PORTER') return rrParsePorter_(rows, name);
   if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) return rrParseAdminDoc_(rows, name);
-  if (n === 'SU' || n.indexOf('SU ') === 0) return rrParseSU_(rows, name);
+  if (n === 'SU' || n.indexOf('SU ') === 0) {
+    // New SU template (effective 08 JUN) is a standard ID/REMARK staff table
+    // (with inline Counter/Gate sections); the old SU sheet is a counter-rotation
+    // grid with no ID column. Prefer the standard reader; fall back to the grid.
+    var std = rrParseStandard_(rows, name);
+    if (std && std.length) return std;
+    return rrParseSU_(rows, name);
+  }
   return rrParseStandard_(rows, name);
 }
 

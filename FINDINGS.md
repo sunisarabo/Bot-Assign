@@ -66,10 +66,25 @@ Classification order (REMARK first, shift only when REMARK is blank):
   an assignment carrying the flight's `STA/STD/OP/CL` times — this drives the
   "how many flights, doing what, from when to when" view.
 
-## SU is a special 3-section template
+## SU has two template generations — both handled
 
-SU does not use the standard layout. Its sheet has three stacked sections and a
-staff member appears in several of them:
+**New SU template (effective 08 JUN, `Template_Assignment`).** The sheet now
+leads with a **standard** `ID·Position·NAME·SHIFT·…·REMARK·FLIGHT` staff table
+(the *CHECK IN* section), so headcount is read exactly like every other team
+from the REMARK column. Below it are: inline `Counter G2…G10` assignment
+columns, a second *GATE ASSIGNMENT* staff table (same people → de-duplicated by
+ID), a flight table (`NO·FLIGHT·STA·STD·OP·CL`), and a pre-built Manpower
+summary block. The template's `Ex. 212121 / Jaidee` sample row is skipped.
+Verified on the template: 36 staff → 23 working / 11 off / 2 leave.
+
+> Per-flight Counter/Gate *assignment* extraction for the new template is wired
+> to the standard flight columns; the supplied template has those cells empty,
+> so that part will be validated against the first real filled SU file.
+
+**Old SU template (3-section grid).** Used in the 01–04 JUN files; no ID column.
+Routing tries the standard reader first and falls back to this grid parser:
+
+SU's old sheet has three stacked sections and a staff member appears in several:
 
 1. **CHECK-IN COUNTER rotation** — `FLT | TIME | H2 H3 G2…G10`. Staff names fill
    each counter for each time slot; the same person recurs across consecutive
