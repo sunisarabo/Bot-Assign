@@ -869,20 +869,21 @@ function rbCards_(sh, top, labels, values) {
 
 function rbOtCell_(people, hrs) { return people > 0 ? (people + ' (' + hrs + 'h)') : '-'; }
 
-/** Manpower-by-X table: X | Total | Working | OT ก่อนกะ | OT หลังกะ | %Working */
+/** Manpower-by-X table: X | Total | Working | OT-Off | OT ก่อนกะ | OT หลังกะ | %Working */
 function rbManpowerTable_(sh, top, title, rowsData, headColor) {
-  sh.getRange(top, 1, 1, 6).merge().setValue(title)
+  var W = 7;
+  sh.getRange(top, 1, 1, W).merge().setValue(title)
     .setBackground(headColor).setFontColor('#fff').setFontWeight('bold').setFontSize(12);
   sh.setRowHeight(top, 24);
-  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OT ก่อนกะ', 'OT หลังกะ', '%Working'];
-  sh.getRange(top + 1, 1, 1, 6).setValues([head]).setBackground('#2e75b6').setFontColor('#fff')
+  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OT-Off', 'OT ก่อนกะ', 'OT หลังกะ', '%Working'];
+  sh.getRange(top + 1, 1, 1, W).setValues([head]).setBackground('#2e75b6').setFontColor('#fff')
     .setFontWeight('bold').setHorizontalAlignment('center');
   var body = rowsData.map(function (d) {
     var b = d.agg, work = b.working + b.ot_off;
     var pct = b.staff > 0 ? Math.round(work / b.staff * 100) + '%' : '-';
-    return [d.label, b.staff, work, rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
+    return [d.label, b.staff, work, b.ot_off, rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
   });
-  if (body.length) sh.getRange(top + 2, 1, body.length, 6).setValues(body);
+  if (body.length) sh.getRange(top + 2, 1, body.length, W).setValues(body);
   return top + 2 + body.length;
 }
 
@@ -1224,7 +1225,7 @@ function rbAggRowHtml_(label, b, fillClass) {
   var work = b.working + b.ot_off;
   var pct = b.staff > 0 ? Math.round(work / b.staff * 100) : 0;
   return '<tr><td class="tm">' + rbEsc_(label) + '</td><td>' + b.staff + '</td><td><b>' + work +
-    '</b></td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) +
+    '</b></td><td>' + (b.ot_off || '·') + '</td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) +
     '</td><td style="width:150px"><div class="bar"><div class="fill ' + (fillClass || '') +
     '" style="width:' + pct + '%"></div><span>' + pct + '%</span></div></td></tr>';
 }
@@ -1267,7 +1268,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     var llSecRows = Object.keys(ll.sections).map(function (s) { return rbAggRowHtml_(s, ll.sections[s], 'llf'); }).join('');
     llBlock =
       '<div class="card"><h2>🟡 LL by Section</h2><table><thead>' +
-      '<tr><th>ส่วนงาน</th><th>Total</th><th>Working</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
+      '<tr><th>ส่วนงาน</th><th>Total</th><th>Working</th><th>OT-Off</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
       '</thead><tbody>' + llSecRows + '</tbody></table></div>' +
       '<div class="card"><h2>🟡 LL by Position</h2><table><thead>' + posHead + '</thead><tbody>' +
       rbPosRows_(ll.positions, ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee']) + '</tbody></table></div>';
@@ -1323,7 +1324,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     '<div class="card"><h2>🧭 ภาพรวมสถานะ</h2><canvas id="c2" height="150"></canvas></div></div>' +
     '<div class="grid">' +
     '<div class="card"><h2>📌 Manpower by Team (PSA)</h2><table><thead>' +
-    '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
+    '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OT-Off</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
     '</thead><tbody>' + rbTeamRows_(res.teams, teamOrder) + '</tbody></table></div>' +
     '<div class="card"><h2>👥 PSA by Position</h2><table><thead>' + posHead + '</thead><tbody>' +
     rbPosRows_(res.positions, ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign']) +
