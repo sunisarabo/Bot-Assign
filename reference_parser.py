@@ -83,6 +83,53 @@ def hours_from_range(s):
     return round((b - a) / 60, 1)
 
 
+def _to_min(v):
+    s = cv(v)
+    m = re.match(r'^(\d{1,2})[:.](\d{2})', s)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    m = re.match(r'^(\d{2})(\d{2})$', s)
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+
+def _range_str(s):
+    m = re.search(r'(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?', cv(s))
+    if m:
+        return [int(m.group(1)) * 60 + (int(m.group(2)) if m.group(2) else 0),
+                int(m.group(3)) * 60 + (int(m.group(4)) if m.group(4) else 0)]
+    return [None, None]
+
+
+def _range_cells(row, col):
+    if col is None or col < 0 or col >= len(row):
+        return [None, None]
+    r = _range_str(row[col])
+    if r[0] is not None:
+        return r
+    return [_to_min(row[col]), _to_min(row[col + 1]) if col + 1 < len(row) else None]
+
+
+def ot_type(srng, orng, is_off):
+    if is_off:
+        return 'POST'
+    si, so = srng
+    oi, oo = orng
+    if oi is None:
+        return 'POST'
+    if so is not None and si is not None and so <= si:
+        so += 1440
+    if oo is not None and oo <= oi:
+        oo += 1440
+    TOL = 30
+    if si is not None and oo is not None and oo <= si + TOL:
+        return 'PRE'
+    if so is not None and oi >= so - TOL:
+        return 'POST'
+    if si is not None and oi < si:
+        return 'PRE'
+    return 'POST'
+
+
 def ot_hours(v):
     """OT 'Total Hrs' cell -> decimal hours. Accepts 1.5 / '1:30' / '17-21'."""
     s = cv(v).upper()
@@ -172,10 +219,14 @@ def parse_standard(rows, team):
 
         assigns = [dict(flight=nm, task=cv(row[c]), **flights.get(nm, {}))
                    for c, nm in fltcols if c < len(row) and cv(row[c])]
+        oth = ot_hours(otv)
+        bkt = classify(shift or timev, remark)
+        otype = ot_type(_range_cells(row, cm['time']), _range_cells(row, cm['ot']),
+                        bkt == 'ot_off') if oth > 0 else None
         recs.append(dict(team=team, id=idd, name=name,
                          pos=cv(row[cm['pos']]) if cm['pos'] >= 0 else '',
-                         shift=shift or timev, bucket=classify(shift or timev, remark),
-                         ot=ot_hours(otv), assigns=assigns))
+                         shift=shift or timev, bucket=bkt,
+                         ot=oth, ot_type=otype, assigns=assigns))
     return recs
 
 
@@ -411,9 +462,10 @@ def report(path, only_team=None):
     names = filter_rev(wb.sheetnames)
     print("=" * 74)
     print("FILE:", path)
-    hdr = f"{'TEAM':18}{'staff':>6}{'work':>6}{'otoff':>6}{'off':>5}{'sick':>5}{'leave':>6}{'otppl':>6}{'oth':>7}{'flts':>6}"
+    hdr = f"{'TEAM':16}{'staff':>5}{'work':>5}{'off':>5}{'sick':>5}{'leave':>6}{'OTก่อน':>9}{'OTหลัง':>9}"
     print(hdr)
-    tot = dict(staff=0, work=0, otoff=0, off=0, sick=0, leave=0, otp=0, oth=0.0)
+    tot = dict(staff=0, work=0, otoff=0, off=0, sick=0, leave=0, otp=0, oth=0.0,
+               otpre=0, otpreh=0.0, otpost=0, otposth=0.0)
     for nm in names:
         recs = parse_sheet(wb[nm], nm)
         if recs is None:
@@ -431,12 +483,18 @@ def report(path, only_team=None):
             c['leave'] += b == 'vac'
         otp = sum(1 for r in recs if r['ot'] > 0)
         oth = round(sum(r['ot'] for r in recs), 1)
-        flts = sum(len(r['assigns']) for r in recs)
-        print(f"{nm[:18]:18}{len(recs):>6}{c['work']:>6}{c['otoff']:>6}{c['off']:>5}"
-              f"{c['sick']:>5}{c['leave']:>6}{otp:>6}{oth:>7}{flts:>6}")
+        otpre = sum(1 for r in recs if r['ot'] > 0 and r.get('ot_type') == 'PRE')
+        otpreh = round(sum(r['ot'] for r in recs if r.get('ot_type') == 'PRE'), 1)
+        otpost = sum(1 for r in recs if r['ot'] > 0 and r.get('ot_type') != 'PRE')
+        otposth = round(sum(r['ot'] for r in recs if r['ot'] > 0 and r.get('ot_type') != 'PRE'), 1)
+        pre_s = f"{otpre}({otpreh}h)" if otpre else '·'
+        post_s = f"{otpost}({otposth}h)" if otpost else '·'
+        print(f"{nm[:16]:16}{len(recs):>5}{c['work']:>5}{c['off']:>5}"
+              f"{c['sick']:>5}{c['leave']:>6}{pre_s:>9}{post_s:>9}")
         for k in c:
             tot[k] += c[k]
         tot['staff'] += len(recs); tot['otp'] += otp; tot['oth'] += oth
+        tot['otpre'] += otpre; tot['otpreh'] += otpreh; tot['otpost'] += otpost; tot['otposth'] += otposth
 
         if only_team and nm.strip().upper() == only_team.strip().upper():
             print(f"  --- per-employee flights/times for {nm} ---")
@@ -448,8 +506,10 @@ def report(path, only_team=None):
                 print(f"  {r['name'][:20]:20} {r['shift']:10} OT={r['ot']:>4}  "
                       f"flts={len(r['assigns']):>2}  {fl}")
     print("-" * 74)
-    print(f"{'TOTAL':18}{tot['staff']:>6}{tot['work']:>6}{tot['otoff']:>6}{tot['off']:>5}"
-          f"{tot['sick']:>5}{tot['leave']:>6}{tot['otp']:>6}{round(tot['oth'],1):>7}")
+    pre_s = f"{tot['otpre']}({round(tot['otpreh'],1)}h)"
+    post_s = f"{tot['otpost']}({round(tot['otposth'],1)}h)"
+    print(f"{'TOTAL':16}{tot['staff']:>5}{tot['work']:>5}{tot['off']:>5}"
+          f"{tot['sick']:>5}{tot['leave']:>6}{pre_s:>9}{post_s:>9}")
 
     # by-position-group rollup (exact counts from the assignment file)
     pos = {}

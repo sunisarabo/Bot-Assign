@@ -55,10 +55,12 @@ function readLLFromTab(ss, tabName) {
     seen[key] = true;
 
     var sched = rrClean_(r[4]), resked = rrClean_(r[5]), remark = rrClean_(r[6]), ot = rrClean_(r[8]);
+    var oth = rrOtHours_(ot);
     var rec = {
       section: section, name: name, pos: pos, posGroup: rrLLPosGroup_(pos),
       shift: resked || sched, bucket: rrLLClassify_(sched, remark),
-      ot: rrOtHours_(ot), assignments: [],
+      ot: oth, otType: oth > 0 ? rrOtType_(rrRangeStr_(resked || sched), rrRangeStr_(ot), false) : null,
+      assignments: [],
     };
     var sk = section || '(none)';
     if (!sections[sk]) { sections[sk] = rrNewAgg_(); sections[sk].records = []; }
@@ -69,9 +71,9 @@ function readLLFromTab(ss, tabName) {
     rrAddBucket_(totals, rec);
   });
 
-  Object.keys(sections).forEach(function (s) { sections[s].otHours = Math.round(sections[s].otHours * 10) / 10; });
-  Object.keys(positions).forEach(function (p) { positions[p].otHours = Math.round(positions[p].otHours * 10) / 10; });
-  totals.otHours = Math.round(totals.otHours * 10) / 10;
+  Object.keys(sections).forEach(function (s) { rrRoundAgg_(sections[s]); });
+  Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
+  rrRoundAgg_(totals);
   delete totals.records;
   return { sections: sections, positions: positions, totals: totals };
 }

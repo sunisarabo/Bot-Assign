@@ -62,17 +62,21 @@ function rbKpiCards_(P, L) {
   }).join('');
 }
 
+function rbOtTxt_(people, hrs) { return people > 0 ? (people + ' <span class="h">(' + hrs + 'h)</span>') : '·'; }
+
+function rbAggRowHtml_(label, b, fillClass) {
+  var work = b.working + b.ot_off;
+  var pct = b.staff > 0 ? Math.round(work / b.staff * 100) : 0;
+  return '<tr><td class="tm">' + rbEsc_(label) + '</td><td>' + b.staff + '</td><td><b>' + work +
+    '</b></td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) +
+    '</td><td style="width:150px"><div class="bar"><div class="fill ' + (fillClass || '') +
+    '" style="width:' + pct + '%"></div><span>' + pct + '%</span></div></td></tr>';
+}
+
 function rbTeamRows_(teams) {
   return Object.keys(teams).sort(function (a, b) {
     return (teams[b].working + teams[b].ot_off) - (teams[a].working + teams[a].ot_off);
-  }).map(function (t) {
-    var b = teams[t], work = b.working + b.ot_off;
-    var pct = b.staff > 0 ? Math.round(work / b.staff * 100) : 0;
-    return '<tr><td class="tm">' + rbEsc_(t) + '</td><td>' + b.staff + '</td><td><b>' + work +
-      '</b></td><td>' + b.otPeople + '</td><td>' + b.otHours +
-      '</td><td style="width:150px"><div class="bar"><div class="fill" style="width:' + pct +
-      '%"></div><span>' + pct + '%</span></div></td></tr>';
-  }).join('');
+  }).map(function (t) { return rbAggRowHtml_(t, teams[t], ''); }).join('');
 }
 
 function rbPosRows_(positions, order) {
@@ -95,16 +99,11 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr) {
   var llBlock = '';
   if (L) {
     var llSecRows = Object.keys(ll.sections).map(function (s) {
-      var b = ll.sections[s], work = b.working + b.ot_off;
-      var pct = b.staff > 0 ? Math.round(work / b.staff * 100) : 0;
-      return '<tr><td class="tm">' + rbEsc_(s) + '</td><td>' + b.staff + '</td><td><b>' + work +
-        '</b></td><td>' + b.otPeople + '</td><td>' + b.otHours +
-        '</td><td style="width:150px"><div class="bar"><div class="fill llf" style="width:' + pct +
-        '%"></div><span>' + pct + '%</span></div></td></tr>';
+      return rbAggRowHtml_(s, ll.sections[s], 'llf');
     }).join('');
     llBlock =
       '<div class="card"><h2>🟡 LL by Section</h2><table><thead>' +
-      '<tr><th>ส่วนงาน</th><th>Total</th><th>Working</th><th>OT คน</th><th>OT ชม.</th><th>%Working</th></tr>' +
+      '<tr><th>ส่วนงาน</th><th>Total</th><th>Working</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
       '</thead><tbody>' + llSecRows + '</tbody></table></div>' +
       '<div class="card"><h2>🟡 LL by Position</h2><table><thead>' + posHead + '</thead><tbody>' +
       rbPosRows_(ll.positions, ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee']) + '</tbody></table></div>';
@@ -117,6 +116,8 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr) {
     '.head{background:linear-gradient(135deg,#13315c,#0b2545);border-radius:16px;padding:22px 26px;margin-bottom:18px;box-shadow:0 8px 30px rgba(0,0,0,.35)}' +
     '.head h1{font-size:22px;font-weight:800}.head p{color:#9fb3d1;margin-top:4px;font-size:13px}' +
     '.hc{margin:0 0 18px;background:#1b2640;border:1px solid #2a3a5e;border-radius:10px;padding:10px 16px;color:#cfe0f5;font-size:13px}' +
+    '.otbar{margin:0 0 16px;background:#241c33;border:1px solid #4a3a66;border-radius:10px;padding:10px 16px;color:#f5c542;font-size:13px;font-weight:600;text-align:center}' +
+    '.h{color:#8aa0c2;font-weight:400;font-size:11px}' +
     '.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:22px}' +
     '.kpi{background:#172036;border:1px solid #243049;border-top:4px solid var(--c);border-radius:14px;padding:16px;text-align:center}' +
     '.kpi .ico{font-size:22px}.kpi .val{font-size:32px;font-weight:800;color:var(--c);margin:4px 0}.kpi .lbl{font-size:12px;color:#9fb3d1;font-weight:600}' +
@@ -137,10 +138,14 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr) {
     '<div class="head"><h1>📊 Daily Manpower Dashboard</h1><p>' + rbEsc_(dateStr) +
     ' &nbsp;·&nbsp; อ่านจากไฟล์ assignment จริง</p></div>' +
     '<div class="kpis">' + rbKpiCards_(P, L) + '</div>' +
+    '<div class="otbar">⏱️ OT ก่อนกะ: <b>' + (P.otPre + (L ? L.otPre : 0)) + '</b> คน (' +
+      (Math.round((P.otPreHrs + (L ? L.otPreHrs : 0)) * 10) / 10) + 'h) &nbsp;&nbsp;|&nbsp;&nbsp; ' +
+      'OT หลังกะ: <b>' + (P.otPost + (L ? L.otPost : 0)) + '</b> คน (' +
+      (Math.round((P.otPostHrs + (L ? L.otPostHrs : 0)) * 10) / 10) + 'h)</div>' +
     masterLine +
     '<div class="grid">' +
     '<div class="card"><h2>📌 Manpower by Team (PSA)</h2><table><thead>' +
-    '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OT คน</th><th>OT ชม.</th><th>%Working</th></tr>' +
+    '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
     '</thead><tbody>' + rbTeamRows_(res.teams) + '</tbody></table></div>' +
     '<div class="card"><h2>👥 PSA by Position</h2><table><thead>' + posHead + '</thead><tbody>' +
     rbPosRows_(res.positions, ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign']) +

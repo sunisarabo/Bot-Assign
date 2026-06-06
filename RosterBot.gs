@@ -127,18 +127,20 @@ function rbCards_(sh, top, labels, values) {
   sh.setRowHeight(top, 22); sh.setRowHeight(top + 1, 40);
 }
 
-/** Manpower-by-X table: X | Total | Working | OT คน | OT ชั่วโมง | %Working */
+function rbOtCell_(people, hrs) { return people > 0 ? (people + ' (' + hrs + 'h)') : '-'; }
+
+/** Manpower-by-X table: X | Total | Working | OT ก่อนกะ | OT หลังกะ | %Working */
 function rbManpowerTable_(sh, top, title, rowsData, headColor) {
   sh.getRange(top, 1, 1, 6).merge().setValue(title)
     .setBackground(headColor).setFontColor('#fff').setFontWeight('bold').setFontSize(12);
   sh.setRowHeight(top, 24);
-  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OT คน', 'OT ชั่วโมง', '%Working'];
+  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OT ก่อนกะ', 'OT หลังกะ', '%Working'];
   sh.getRange(top + 1, 1, 1, 6).setValues([head]).setBackground('#2e75b6').setFontColor('#fff')
     .setFontWeight('bold').setHorizontalAlignment('center');
   var body = rowsData.map(function (d) {
     var b = d.agg, work = b.working + b.ot_off;
     var pct = b.staff > 0 ? Math.round(work / b.staff * 100) + '%' : '-';
-    return [d.label, b.staff, work, b.otPeople, b.otHours, pct];
+    return [d.label, b.staff, work, rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
   });
   if (body.length) sh.getRange(top + 2, 1, body.length, 6).setValues(body);
   return top + 2 + body.length;
@@ -168,8 +170,17 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master) {
     ['👥 Total Staff', '🟢 Working', '⬛ OFF', '🟡 OT OFF (XX)', '⏰ OT คน', '⏱️ OT ชั่วโมง'],
     [combStaff, combWork, combOff, combOtOff, combOtPpl, combOtHrs]);
 
+  // Overall OT split (ก่อนกะ / หลังกะ) — combined PSA + LL
+  var otPre = P.otPre + (L ? L.otPre : 0), otPreHrs = Math.round((P.otPreHrs + (L ? L.otPreHrs : 0)) * 10) / 10;
+  var otPost = P.otPost + (L ? L.otPost : 0), otPostHrs = Math.round((P.otPostHrs + (L ? L.otPostHrs : 0)) * 10) / 10;
+  sh.getRange(5, 1, 1, 6).merge()
+    .setValue('⏱️ OT ก่อนกะ: ' + otPre + ' คน (' + otPreHrs + 'h)   |   OT หลังกะ: ' + otPost + ' คน (' + otPostHrs + 'h)')
+    .setBackground('#241c33').setFontColor('#f5c542').setFontWeight('bold').setFontSize(11)
+    .setHorizontalAlignment('center');
+  sh.setRowHeight(5, 22);
+
   // Active establishment headcount (both departments) from MASTER file
-  var row = 6;
+  var row = 7;
   if (master) {
     var both = master.PSA.total + master.LL.total;
     sh.getRange(row, 1, 1, 6).merge()
@@ -295,6 +306,11 @@ function rbPostChat_(res, dateStr, url, ll, master) {
       '*  🤒 *' + L.sick + '*  🌴 *' + L.leave + '*  ⏰ *' + L.otPeople + '* (' + L.otHours + 'h)');
     lines.push('🏢 *รวม PSA+LL working: *' + (T.working + T.ot_off + L.working + L.ot_off) + '* / ' + (T.staff + L.staff) + ' คน*');
   }
+  var oPre = T.otPre + (ll && ll.totals.staff ? ll.totals.otPre : 0);
+  var oPreH = Math.round((T.otPreHrs + (ll && ll.totals.staff ? ll.totals.otPreHrs : 0)) * 10) / 10;
+  var oPost = T.otPost + (ll && ll.totals.staff ? ll.totals.otPost : 0);
+  var oPostH = Math.round((T.otPostHrs + (ll && ll.totals.staff ? ll.totals.otPostHrs : 0)) * 10) / 10;
+  lines.push('⏱️ *OT ก่อนกะ:* ' + oPre + ' คน (' + oPreH + 'h)  |  *OT หลังกะ:* ' + oPost + ' คน (' + oPostH + 'h)');
   lines.push('', '*Top teams (working):*');
   Object.keys(res.teams).sort(function (a, b) { return res.teams[b].working - res.teams[a].working; })
     .slice(0, 8).forEach(function (t) {

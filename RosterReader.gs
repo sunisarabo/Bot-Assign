@@ -87,6 +87,41 @@ function rrOtHours_(v) {
   return rrRangeHours_(s);
 }
 
+// ── OT pre/post (ก่อนกะ / หลังกะ) classification ────────────────────────────
+function rrMin_(v) {
+  var s = rrClean_(v); if (!s) return null;
+  var m = s.match(/^(\d{1,2})[:.](\d{2})/); if (m) return +m[1] * 60 + +m[2];
+  m = s.match(/^(\d{2})(\d{2})$/); if (m) return +m[1] * 60 + +m[2];
+  return null;
+}
+/** [start,end] minutes from a 'HH-HH' range string, else [null,null]. */
+function rrRangeStr_(s) {
+  s = rrClean_(s);
+  var m = s.match(/(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
+  if (m) return [(+m[1]) * 60 + (m[2] ? +m[2] : 0), (+m[3]) * 60 + (m[4] ? +m[4] : 0)];
+  return [null, null];
+}
+/** [start,end] minutes from a clock-in cell (+ next col), or a range cell. */
+function rrRangeCells_(row, col) {
+  if (col < 0 || col >= row.length) return [null, null];
+  var r = rrRangeStr_(row[col]);
+  if (r[0] != null) return r;
+  return [rrMin_(row[col]), col + 1 < row.length ? rrMin_(row[col + 1]) : null];
+}
+/** 'PRE' (OT before shift) or 'POST' (OT after shift). Defaults POST. */
+function rrOtType_(srng, orng, isOff) {
+  if (isOff) return 'POST';
+  var si = srng[0], so = srng[1], oi = orng[0], oo = orng[1];
+  if (oi == null) return 'POST';
+  if (so != null && si != null && so <= si) so += 1440;
+  if (oo != null && oo <= oi) oo += 1440;
+  var TOL = 30;
+  if (si != null && oo != null && oo <= si + TOL) return 'PRE';
+  if (so != null && oi >= so - TOL) return 'POST';
+  if (si != null && oi < si) return 'PRE';
+  return 'POST';
+}
+
 // ─── header detection (standard + TR NO/ID/NAME/TIME/SHIFT/OT variant) ──────
 function rrFindHeader_(rows) {
   for (var r = 0; r < Math.min(8, rows.length); r++) {
@@ -169,12 +204,17 @@ function rrParseStandard_(rows, team) {
       }
     });
 
+    var oth = rrOtHours_(otv);
+    var bkt = rrClassify_(shift || timev, remark);
+    var otType = null;
+    if (oth > 0) {
+      otType = rrOtType_(rrRangeCells_(row, cm.time), rrRangeCells_(row, cm.ot), bkt === 'ot_off');
+    }
     recs.push({
       team: team, id: idd, name: name,
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
       shift: shift || timev,
-      bucket: rrClassify_(shift || timev, remark),
-      ot: rrOtHours_(otv), assignments: assigns,
+      bucket: bkt, ot: oth, otType: otType, assignments: assigns,
     });
   }
   return recs;
@@ -419,13 +459,19 @@ function rrAddBucket_(agg, r) {
   else if (r.bucket === 'off') agg.off++;
   else if (r.bucket === 'sick') agg.sick++;
   else if (r.bucket === 'vac') agg.leave++;
-  if (r.ot > 0) { agg.otPeople++; agg.otHours += r.ot; }
-  agg.flights += r.assignments.length;
+  if (r.ot > 0) {
+    agg.otPeople++; agg.otHours += r.ot;
+    if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
+    else { agg.otPost++; agg.otPostHrs += r.ot; }
+  }
+  agg.flights += (r.assignments ? r.assignments.length : 0);
   agg.staff++;
 }
 function rrNewAgg_() {
-  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0, flights: 0 };
+  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
+           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, flights: 0 };
 }
+function rrRoundAgg_(a) { a.otHours = Math.round(a.otHours * 10) / 10; a.otPreHrs = Math.round(a.otPreHrs * 10) / 10; a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; return a; }
 
 function readRosterFromSpreadsheet(ss) {
   var teams = {};
@@ -443,11 +489,11 @@ function readRosterFromSpreadsheet(ss) {
       rrAddBucket_(positions[r.posGroup], r);
       rrAddBucket_(totals, r);
     });
-    t.otHours = Math.round(t.otHours * 10) / 10;
+    rrRoundAgg_(t);
     teams[ws.getName().trim()] = t;
   });
-  Object.keys(positions).forEach(function (p) { positions[p].otHours = Math.round(positions[p].otHours * 10) / 10; });
-  totals.otHours = Math.round(totals.otHours * 10) / 10;
+  Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
+  rrRoundAgg_(totals);
   delete totals.records;
   return { teams: teams, positions: positions, totals: totals };
 }
