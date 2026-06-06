@@ -384,12 +384,21 @@ function rbFindDayFile_(folder, dd, mon, yr2) {
 }
 
 function rbGetMonthlyOutput_(mon, be) {
-  var name = mon + ' ' + be;
-  var folder = DriveApp.getFolderById(CONFIG_RB.OUTPUT_FOLDER_ID);
-  var it = folder.getFilesByName(name);
+  var name = 'Roster Report ' + mon + ' ' + be;
+  var folder = null;
+  if (CONFIG_RB.OUTPUT_FOLDER_ID) {
+    try { folder = DriveApp.getFolderById(CONFIG_RB.OUTPUT_FOLDER_ID); }
+    catch (e) { Logger.log('⚠️ OUTPUT_FOLDER_ID เข้าไม่ได้ (' + e.message + ') → สร้างไฟล์ใน My Drive แทน'); }
+  }
+  var it = folder ? folder.getFilesByName(name) : DriveApp.getFilesByName(name);
   if (it.hasNext()) return SpreadsheetApp.openById(it.next().getId());
   var ss = SpreadsheetApp.create(name);
-  var file = DriveApp.getFileById(ss.getId());
-  folder.addFile(file); DriveApp.getRootFolder().removeFile(file);
+  if (folder) {
+    try {
+      var file = DriveApp.getFileById(ss.getId());
+      folder.addFile(file);
+      DriveApp.getRootFolder().removeFile(file);
+    } catch (e2) { Logger.log('⚠️ ย้ายไฟล์เข้าโฟลเดอร์ไม่ได้: ' + e2.message); }
+  }
   return ss;
 }
