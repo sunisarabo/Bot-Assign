@@ -84,7 +84,7 @@ function rbPosRows_(positions, order) {
     var b = positions[p]; if (!b) return '';
     return '<tr><td class="tm">' + p + '</td><td>' + b.staff + '</td><td><b>' + b.working +
       '</b></td><td>' + b.ot_off + '</td><td>' + b.off + '</td><td>' + b.sick + '</td><td>' +
-      b.leave + '</td><td>' + b.otPeople + '</td></tr>';
+      b.leave + '</td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) + '</td></tr>';
   }).join('');
 }
 
@@ -95,7 +95,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr) {
     masterLine = '<div class="hc">👥 พนักงานทั้งหมด (Active): PSA <b>' + master.PSA.total +
       '</b> + LL <b>' + master.LL.total + '</b> = <b>' + (master.PSA.total + master.LL.total) + '</b> คน</div>';
   }
-  var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT คน</th></tr>';
+  var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT ก่อน</th><th>OT หลัง</th></tr>';
   var llBlock = '';
   if (L) {
     var llSecRows = Object.keys(ll.sections).map(function (s) {

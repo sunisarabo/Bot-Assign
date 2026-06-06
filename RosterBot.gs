@@ -208,8 +208,8 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master) {
     row = rbManpowerTable_(sh, row, '📌 Manpower by Section (LL)', secRows, '#7f6000') + 1;
   }
 
-  // 📌 By position group (PSA then LL) — full detail
-  var ph = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs'];
+  // 📌 By position group (PSA then LL) — full detail, with OT ก่อน/หลังกะ
+  var ph = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ก่อนกะ', 'OT หลังกะ'];
   function posBlock(title, positions, orderList, bg) {
     sh.getRange(row, 1, 1, ph.length).merge().setValue(title)
       .setBackground(bg).setFontColor('#fff').setFontWeight('bold'); row++;
@@ -217,7 +217,8 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master) {
     var body = [];
     orderList.forEach(function (p) {
       var b = positions[p]; if (!b) return;
-      body.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours]);
+      body.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave,
+                 rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs)]);
     });
     if (body.length) { sh.getRange(row, 1, body.length, ph.length).setValues(body); row += body.length; }
     row += 1;

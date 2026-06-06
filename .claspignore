@@ -1,7 +1,10 @@
-**/**
-!RosterReader.gs
-!MasterReader.gs
-!LLReader.gs
-!RosterBot.gs
-!WebDashboard.gs
+Code.gs
+*.md
+*.py
+*.txt
+*.html
+*.xlsx
+*.json
 !appsscript.json
+.git/**
+.clasp.json

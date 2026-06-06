@@ -1,20 +1,10 @@
 /**
- * ============================================================================
  * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard)
- * วางไฟล์นี้ไฟล์เดียวใน Apps Script project ได้เลย (เช่น Code.gs)
- * ก่อนใช้:  1) Extensions > Services > เพิ่ม Drive API
- *           2) แก้ CONFIG_RB (ID โฟลเดอร์/ไฟล์) ในส่วน RosterBot
- *           3) (ถ้าใช้ Chat) Script Properties: GCHAT_WEBHOOK_REPORT = webhook url
- * ทดสอบ:    testRosterFromId('<PSA file id>', '<LL file id>', 2026, 6, 6)
- * รายงาน:   ตั้ง Trigger -> runDailyRosterReport
- * หน้าเว็บ:  Deploy > New deployment > Web app  (ฟังก์ชัน doGet)
- * ============================================================================
+ * วางไฟล์เดียวใน Apps Script | เปิด Drive API | แก้ CONFIG_RB | doGet=หน้าเว็บ
  */
 
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  RosterReader.gs                                                         ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
+// ===== RosterReader.gs =====
 
 /**
  * RosterReader.gs — unified roster reader for Google Apps Script
@@ -544,9 +534,7 @@ function debugDumpRoster(ssId) {
 }
 
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  MasterReader.gs                                                         ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
+// ===== MasterReader.gs =====
 
 /**
  * MasterReader.gs — total active-headcount per department from the MASTER file
@@ -609,9 +597,7 @@ function debugDumpMaster(masterFileId) {
 }
 
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  LLReader.gs                                                             ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
+// ===== LLReader.gs =====
 
 /**
  * LLReader.gs — LL (ติดตามสัมภาระ / baggage tracing) daily assignment reader
@@ -742,9 +728,7 @@ function debugDumpLL(llFileId, y, m, d) {
 }
 
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  RosterBot.gs                                                            ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
+// ===== RosterBot.gs =====
 
 /**
  * RosterBot.gs — integration layer on top of RosterReader.gs
@@ -956,8 +940,8 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master) {
     row = rbManpowerTable_(sh, row, '📌 Manpower by Section (LL)', secRows, '#7f6000') + 1;
   }
 
-  // 📌 By position group (PSA then LL) — full detail
-  var ph = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs'];
+  // 📌 By position group (PSA then LL) — full detail, with OT ก่อน/หลังกะ
+  var ph = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ก่อนกะ', 'OT หลังกะ'];
   function posBlock(title, positions, orderList, bg) {
     sh.getRange(row, 1, 1, ph.length).merge().setValue(title)
       .setBackground(bg).setFontColor('#fff').setFontWeight('bold'); row++;
@@ -965,7 +949,8 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master) {
     var body = [];
     orderList.forEach(function (p) {
       var b = positions[p]; if (!b) return;
-      body.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours]);
+      body.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave,
+                 rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs)]);
     });
     if (body.length) { sh.getRange(row, 1, body.length, ph.length).setValues(body); row += body.length; }
     row += 1;
@@ -1142,9 +1127,7 @@ function rbGetMonthlyOutput_(mon, be) {
 }
 
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  WebDashboard.gs                                                         ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
+// ===== WebDashboard.gs =====
 
 /**
  * WebDashboard.gs — serve the manpower dashboard as a real web page (Web App).
@@ -1232,7 +1215,7 @@ function rbPosRows_(positions, order) {
     var b = positions[p]; if (!b) return '';
     return '<tr><td class="tm">' + p + '</td><td>' + b.staff + '</td><td><b>' + b.working +
       '</b></td><td>' + b.ot_off + '</td><td>' + b.off + '</td><td>' + b.sick + '</td><td>' +
-      b.leave + '</td><td>' + b.otPeople + '</td></tr>';
+      b.leave + '</td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) + '</td></tr>';
   }).join('');
 }
 
@@ -1243,7 +1226,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr) {
     masterLine = '<div class="hc">👥 พนักงานทั้งหมด (Active): PSA <b>' + master.PSA.total +
       '</b> + LL <b>' + master.LL.total + '</b> = <b>' + (master.PSA.total + master.LL.total) + '</b> คน</div>';
   }
-  var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT คน</th></tr>';
+  var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT ก่อน</th><th>OT หลัง</th></tr>';
   var llBlock = '';
   if (L) {
     var llSecRows = Object.keys(ll.sections).map(function (s) {
