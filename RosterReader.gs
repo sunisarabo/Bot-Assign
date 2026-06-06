@@ -144,6 +144,7 @@ function rrFindHeader_(rows) {
     cm.time   = u.indexOf('TIME');
     cm.pos    = u.indexOf('POSITION') >= 0 ? u.indexOf('POSITION') : u.indexOf('POS.');
     cm.remark = u.indexOf('REMARK');
+    cm.re     = u.indexOf('RE');
     cm.ot     = u.indexOf('OT');
     cm.ottot  = -1;
     for (var c = 0; c < u.length; c++) {
@@ -219,9 +220,11 @@ function rrParseStandard_(rows, team) {
     recs.push({
       team: team, id: idd, name: name,
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
+      re: (cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : '',
       shift: shift || timev,
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
+      shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
       bucket: bkt, ot: oth, otType: otType, otTime: oth > 0 ? rrFmtRange_(orng) : '',
       assignments: assigns,
     });

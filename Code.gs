@@ -152,6 +152,7 @@ function rrFindHeader_(rows) {
     cm.time   = u.indexOf('TIME');
     cm.pos    = u.indexOf('POSITION') >= 0 ? u.indexOf('POSITION') : u.indexOf('POS.');
     cm.remark = u.indexOf('REMARK');
+    cm.re     = u.indexOf('RE');
     cm.ot     = u.indexOf('OT');
     cm.ottot  = -1;
     for (var c = 0; c < u.length; c++) {
@@ -227,9 +228,11 @@ function rrParseStandard_(rows, team) {
     recs.push({
       team: team, id: idd, name: name,
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
+      re: (cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : '',
       shift: shift || timev,
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
+      shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
       bucket: bkt, ot: oth, otType: otType, otTime: oth > 0 ? rrFmtRange_(orng) : '',
       assignments: assigns,
     });
@@ -998,64 +1001,91 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master) {
   sh.setFrozenRows(2);
 }
 
-// ─── TIMETABLE TAB ──────────────────────────────────────────────────────────
-function rbFlightCell_(a) {
-  var t = a.task ? (' [' + a.task + ']') : '';
-  var sta = (a.STA || a.STD) ? (' STA/STD ' + (a.STA || '-') + '/' + (a.STD || '-')) : '';
-  var op = (a.OP || a.CL) ? (' OP-CL ' + (a.OP || '-') + '-' + (a.CL || '-')) : '';
-  return a.flight + t + sta + op;
-}
+// ─── TIMETABLE TAB (wide flight-form layout, 3 OT columns) ──────────────────
 function rbShiftCell_(r) {
   var code = r.shift || '';
   return (r.shiftTime && r.shiftTime !== code) ? (code + ' (' + r.shiftTime + ')') : code;
 }
-function rbOtTimeCell_(r) {
-  if (!r.ot) return '';
-  return (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ') + ' ' + (r.otTime || '') + ' (' + r.ot + 'h)';
+/** [OT ก่อนกะ, OT หลังกะ, OT OFF] cell strings for one record. */
+function rbOtCols_(r) {
+  var cell = (r.otTime ? r.otTime + ' ' : '') + (r.ot ? '(' + r.ot + 'h)' : '');
+  if (r.bucket === 'ot_off') return ['', '', r.ot ? cell : '✔'];
+  if (r.ot > 0) return r.otType === 'PRE' ? [cell, '', ''] : ['', cell, ''];
+  return ['', '', ''];
 }
 
 function rbWriteTimetable_(ss, res, dateStr, ll) {
   var sh = ss.getSheetByName('🕓 Timetable');
   if (sh) { sh.clear(); } else { sh = ss.insertSheet('🕓 Timetable'); }
+  var MAXFL = 4, F = 6, B = 9, TOTAL = B + MAXFL * F + 1;   // 34 columns
 
-  var head = ['Team', 'Name', 'Position', 'กะ (เข้า-ออก)', 'OT (ก่อน/หลังกะ)', '#Flt', 'เที่ยวบิน (task · STA/STD · OP-CL)'];
-  var rows = [head];
-  var meta = [{ type: 'title' }];
-  rows.push(['🕓 Timetable / Scheduling — ' + dateStr, '', '', '', '', '', '']);
-  meta.push({ type: 'title2' });
-
-  function emitGroup(label, records, headColor) {
-    var working = records.filter(function (r) { return r.bucket === 'working' || r.bucket === 'ot_off'; });
-    if (!working.length) return;
-    var flts = working.reduce(function (n, r) { return n + (r.assignments ? r.assignments.length : 0); }, 0);
-    rows.push(['▶ ' + label + '  —  flights: ' + flts + '  •  working: ' + working.length, '', '', '', '', '', '']);
-    meta.push({ type: 'team', color: headColor });
-    working.forEach(function (r) {
-      var flights = (r.assignments || []).map(rbFlightCell_).join('  •  ');
-      rows.push([r.team || label, r.name, r.pos || '', rbShiftCell_(r), rbOtTimeCell_(r), (r.assignments ? r.assignments.length : 0), flights]);
-      meta.push({ type: 'data' });
+  // flatten working records: PSA teams then LL sections
+  var recsAll = [];
+  Object.keys(res.teams).forEach(function (team) {
+    if (CONFIG_RB.SKIP_TIMETABLE_TEAMS.indexOf(team) >= 0) return;
+    res.teams[team].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
+  });
+  if (ll && ll.totals.staff > 0) {
+    Object.keys(ll.sections).forEach(function (s) {
+      ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
     });
   }
 
-  Object.keys(res.teams).forEach(function (team) {
-    if (CONFIG_RB.SKIP_TIMETABLE_TEAMS.indexOf(team) >= 0) return;
-    emitGroup(team, res.teams[team].records, '#2e75b6');
+  // Title
+  sh.getRange(1, 1, 1, TOTAL).merge().setValue('🕓 Timetable / ตารางงานรายคน — ' + dateStr)
+    .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 28);
+
+  // Group headers (rows 2-3)
+  var baseHdr = ['Team', 'รหัสพนักงาน', 'ตำแหน่ง', 'ชื่อ', 'SHIFT เวลากะ', 'RE', 'OT ก่อนกะ', 'OT หลังกะ', 'OT OFF'];
+  baseHdr.forEach(function (h, i) {
+    sh.getRange(2, i + 1, 2, 1).merge().setValue(h).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+      .setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
   });
-  if (ll && ll.totals.staff > 0) {
-    Object.keys(ll.sections).forEach(function (s) { emitGroup('LL · ' + s, ll.sections[s].records, '#bf8f00'); });
+  var flClr = ['#0d3d6b', '#145a32', '#6e2f8e', '#784212'];
+  for (var fi = 0; fi < MAXFL; fi++) {
+    var base = B + fi * F + 1;
+    sh.getRange(2, base, 1, F).merge().setValue('ไฟลท์ที่ ' + (fi + 1)).setBackground(flClr[fi]).setFontColor('#fff')
+      .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
+    ['ชื่อไฟลท์', 'หน้าที่/Task', 'STA', 'OP', 'CL', 'STD'].forEach(function (h, k) {
+      sh.getRange(3, base + k).setValue(h).setBackground(flClr[fi]).setFontColor('#fff').setFontWeight('bold')
+        .setFontSize(9).setHorizontalAlignment('center').setWrap(true);
+    });
+  }
+  sh.getRange(2, TOTAL, 2, 1).merge().setValue('ชั่วโมงรวม').setBackground('#1f4e79').setFontColor('#fff')
+    .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
+  sh.setRowHeight(2, 20); sh.setRowHeight(3, 30);
+
+  // Data rows
+  var data = recsAll.map(function (r) {
+    var ot = rbOtCols_(r);
+    var row = [r.team || '', r.id || '', r.pos || '', r.name || '', rbShiftCell_(r), r.re || '', ot[0], ot[1], ot[2]];
+    for (var fi = 0; fi < MAXFL; fi++) {
+      var a = r.assignments && r.assignments[fi];
+      row.push(a ? a.flight : '', a ? (a.task || '') : '', a ? (a.STA || '') : '', a ? (a.OP || '') : '', a ? (a.CL || '') : '', a ? (a.STD || '') : '');
+    }
+    var total = (r.shiftHrs || 0) + (r.ot || 0);
+    row.push(total ? Math.round(total * 10) / 10 : '');
+    return row;
+  });
+  if (data.length) {
+    sh.getRange(4, 1, data.length, TOTAL).setValues(data).setFontSize(9).setVerticalAlignment('middle');
+    for (var i = 0; i < data.length; i++) {
+      if (i % 2) sh.getRange(4 + i, 1, 1, TOTAL).setBackground('#f3f7fc');
+      var ro = recsAll[i];
+      if (ro.bucket === 'ot_off') sh.getRange(4 + i, 9).setBackground('#fff3cd');  // highlight OT OFF
+    }
+    sh.getRange(4, 1, data.length, 4).setFontWeight('bold');
   }
 
-  sh.getRange(1, 1, rows.length, 7).setValues(rows);
-  sh.getRange(1, 1, 1, 7).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
-  sh.getRange(2, 1, 1, 7).merge().setBackground('#0d2137').setFontColor('#fff')
-    .setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
-  for (var i = 0; i < meta.length; i++) {
-    if (meta[i].type === 'team') {
-      sh.getRange(i + 1, 1, 1, 7).merge().setBackground(meta[i].color).setFontColor('#fff').setFontWeight('bold');
-    }
+  // Column widths
+  [90, 90, 70, 140, 120, 50, 95, 95, 80].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  for (var f2 = 0; f2 < MAXFL; f2++) {
+    var b2 = B + f2 * F + 1;
+    [120, 130, 52, 52, 52, 52].forEach(function (w, k) { sh.setColumnWidth(b2 + k, w); });
   }
-  [90, 150, 70, 130, 150, 45, 620].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
-  sh.setFrozenRows(2);
+  sh.setColumnWidth(TOTAL, 70);
+  sh.setFrozenRows(3); sh.setFrozenColumns(4);
 }
 
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
