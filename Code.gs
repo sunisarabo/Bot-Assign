@@ -1,5 +1,5 @@
 /**
- * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard)
+ * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard, AOTGA CI)
  * วางไฟล์เดียวใน Apps Script | เปิด Drive API | แก้ CONFIG_RB | doGet=หน้าเว็บ
  */
 
@@ -1141,13 +1141,25 @@ function rbGetMonthlyOutput_(mon, be) {
 /**
  * WebDashboard.gs — serve the manpower dashboard as a real web page (Web App).
  * =============================================================================
- * Deploy:  Apps Script → Deploy → New deployment → type "Web app" →
- *          Execute as "Me", Access "Anyone with the link" (or your org) → Deploy.
- * Open the Web-app URL → live HTML dashboard. Optional date: ?date=2026-06-06
+ * Branded to the AOTGA corporate CI (Royal Blue #1D428A, Sky Blue #4EC3E0,
+ * Kanit font, "Driving Excellence" tagline).
  *
- * Features: KPI cards, OT ก่อน/หลังกะ, charts (Chart.js), date picker, Export PDF.
+ * Deploy: Apps Script → Deploy → New deployment → Web app → Execute as Me,
+ *         Access Anyone → Deploy → copy the /exec URL. Optional ?date=YYYY-MM-DD.
  * Requires RosterReader.gs / LLReader.gs / MasterReader.gs / RosterBot.gs.
  */
+
+// Optional: host the official AOTGA logo (PNG, white bg ok) and put its direct
+// image URL here to show the real logo instead of the CSS emblem. Leave '' to
+// use the built-in emblem.
+var AOTGA_LOGO_URL = '';
+
+// AOTGA brand palette
+var CI = {
+  royal: '#1D428A', sky: '#4EC3E0', grey: '#7C878F', yellow: '#FEC909',
+  teal: '#3FBCBE', red: '#D92526', bosch: '#236192',
+  bg: '#eef3f9', card: '#ffffff', text: '#16243f', sub: '#5b6b86', line: '#dde6f1',
+};
 
 function doGet(e) {
   var p = (e && e.parameter) || {};
@@ -1168,12 +1180,12 @@ function doGet(e) {
     var dateStr = date.getDate() + ' ' + MON_RB[date.getMonth()] + ' ' + (date.getFullYear() + 543);
     html = rbBuildDashboardHtml_(res, ll, master, dateStr, iso);
   } catch (err) {
-    html = '<body style="font-family:sans-serif;background:#0f1626;color:#e9eef5;padding:40px">' +
+    html = '<body style="font-family:Kanit,sans-serif;background:' + CI.bg + ';color:' + CI.text + ';padding:40px">' +
            '<h2>⚠️ โหลด dashboard ไม่ได้</h2><p>' + rbEsc_(err.message) + '</p>' +
            '<p>ตรวจว่ามีไฟล์ assignment ของวันที่ ' + iso + ' ในโฟลเดอร์ และตั้งค่า CONFIG_RB แล้ว</p></body>';
   }
   return HtmlService.createHtmlOutput(html)
-    .setTitle('Roster Dashboard')
+    .setTitle('AOTGA · Roster Dashboard')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -1190,9 +1202,9 @@ function rbKpiCards_(P, L) {
   var otp = P.otPeople + (L ? L.otPeople : 0);
   var oth = Math.round((P.otHours + (L ? L.otHours : 0)) * 10) / 10;
   var defs = [
-    ['👥', staff, 'Total Staff', '#4f6df5'], ['🟢', work, 'Working', '#19a974'],
-    ['⬛', off, 'OFF', '#7b8794'], ['🟡', otoff, 'OT OFF (XX)', '#f5a623'],
-    ['⏰', otp, 'OT คน', '#e8590c'], ['⏱️', oth, 'OT ชั่วโมง', '#c0392b'],
+    ['👥', staff, 'Total Staff', CI.royal], ['🟢', work, 'Working', CI.teal],
+    ['⬛', off, 'OFF', CI.grey], ['🟡', otoff, 'OT OFF (XX)', CI.yellow],
+    ['⏰', otp, 'OT คน', CI.red], ['⏱️', oth, 'OT ชั่วโมง', CI.sky],
   ];
   return defs.map(function (d) {
     return '<div class="kpi" style="--c:' + d[3] + '"><div class="ico">' + d[0] +
@@ -1208,9 +1220,7 @@ function rbAggRowHtml_(label, b, fillClass) {
     '</td><td style="width:150px"><div class="bar"><div class="fill ' + (fillClass || '') +
     '" style="width:' + pct + '%"></div><span>' + pct + '%</span></div></td></tr>';
 }
-function rbTeamRows_(teams, order) {
-  return order.map(function (t) { return rbAggRowHtml_(t, teams[t], ''); }).join('');
-}
+function rbTeamRows_(teams, order) { return order.map(function (t) { return rbAggRowHtml_(t, teams[t], ''); }).join(''); }
 function rbPosRows_(positions, order) {
   return order.map(function (p) {
     var b = positions[p]; if (!b) return '';
@@ -1220,20 +1230,19 @@ function rbPosRows_(positions, order) {
   }).join('');
 }
 
+function rbLogo_() {
+  if (AOTGA_LOGO_URL) return '<img src="' + AOTGA_LOGO_URL + '" alt="AOTGA" style="height:46px">';
+  return '<span class="emblem"></span>';
+}
+
 function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
   var P = res.totals, L = ll && ll.totals.staff > 0 ? ll.totals : null;
   var teamOrder = Object.keys(res.teams).sort(function (a, b) {
     return (res.teams[b].working + res.teams[b].ot_off) - (res.teams[a].working + res.teams[a].ot_off);
   });
+  var masterLine = master ? ('<div class="hc">👥 พนักงานทั้งหมด (Active): PSA <b>' + master.PSA.total +
+    '</b> + LL <b>' + master.LL.total + '</b> = <b>' + (master.PSA.total + master.LL.total) + '</b> คน</div>') : '';
 
-  // master headcount line
-  var masterLine = '';
-  if (master) {
-    masterLine = '<div class="hc">👥 พนักงานทั้งหมด (Active): PSA <b>' + master.PSA.total +
-      '</b> + LL <b>' + master.LL.total + '</b> = <b>' + (master.PSA.total + master.LL.total) + '</b> คน</div>';
-  }
-
-  // chart data
   var cd = {
     tn: teamOrder, tw: teamOrder.map(function (t) { return res.teams[t].working + res.teams[t].ot_off; }),
     tt: teamOrder.map(function (t) { return res.teams[t].staff; }),
@@ -1241,6 +1250,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     off: P.off + (L ? L.off : 0), sick: P.sick + (L ? L.sick : 0), leave: P.leave + (L ? L.leave : 0),
     otPreH: Math.round((P.otPreHrs + (L ? L.otPreHrs : 0)) * 10) / 10,
     otPostH: Math.round((P.otPostHrs + (L ? L.otPostHrs : 0)) * 10) / 10,
+    c: CI,
   };
 
   var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT ก่อน</th><th>OT หลัง</th></tr>';
@@ -1256,38 +1266,44 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
   }
 
   return '' +
-    '<!doctype html><html lang="th"><head><meta charset="utf-8"><style>' +
+    '<!doctype html><html lang="th"><head><meta charset="utf-8">' +
+    '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;800&display=swap" rel="stylesheet">' +
+    '<style>' +
     '*{box-sizing:border-box;margin:0;padding:0}' +
-    "body{font-family:-apple-system,'Segoe UI',Roboto,'Noto Sans Thai',sans-serif;background:#0f1626;color:#e9eef5;padding:22px}" +
-    '.head{background:linear-gradient(135deg,#13315c,#0b2545);border-radius:16px;padding:20px 26px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}' +
-    '.head h1{font-size:22px;font-weight:800}.head p{color:#9fb3d1;margin-top:4px;font-size:13px}' +
+    "body{font-family:'Kanit',-apple-system,'Segoe UI',sans-serif;background:" + CI.bg + ";color:" + CI.text + ";padding:22px}" +
+    '.head{background:linear-gradient(120deg,' + CI.royal + ',' + CI.bosch + ');border-radius:16px;padding:18px 26px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;box-shadow:0 8px 24px rgba(29,66,138,.25)}' +
+    '.brand{display:flex;align-items:center;gap:14px}' +
+    '.emblem{width:46px;height:46px;border-radius:50%;border:2px solid #fff;background:repeating-linear-gradient(' + CI.sky + ' 0 3px,#fff 3px 6px);position:relative;overflow:hidden;flex:0 0 auto}' +
+    '.emblem::after{content:"";position:absolute;left:0;right:0;bottom:0;height:46%;background:' + CI.sky + '}' +
+    '.brand h1{font-size:22px;font-weight:800;color:#fff;letter-spacing:.5px;line-height:1}' +
+    '.brand p{color:#cfe6f6;font-size:12px;margin-top:3px}' +
     '.ctrl{display:flex;gap:8px;align-items:center}' +
-    '.ctrl input{background:#0b1322;border:1px solid #2a3a5e;color:#e9eef5;border-radius:8px;padding:8px 10px;font-size:13px}' +
-    '.ctrl button{background:#2e75b6;border:0;color:#fff;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer}' +
-    '.ctrl button.pdf{background:#c0392b}' +
-    '.hc{margin:0 0 16px;background:#1b2640;border:1px solid #2a3a5e;border-radius:10px;padding:10px 16px;color:#cfe0f5;font-size:13px}' +
-    '.otbar{margin:0 0 16px;background:#241c33;border:1px solid #4a3a66;border-radius:10px;padding:10px 16px;color:#f5c542;font-size:13px;font-weight:600;text-align:center}' +
-    '.h{color:#8aa0c2;font-weight:400;font-size:11px}' +
+    '.ctrl input{font-family:inherit;background:#fff;border:1px solid ' + CI.line + ';color:' + CI.text + ';border-radius:8px;padding:8px 10px;font-size:13px}' +
+    '.ctrl button{font-family:inherit;background:' + CI.sky + ';border:0;color:' + CI.royal + ';border-radius:8px;padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer}' +
+    '.ctrl button.pdf{background:' + CI.yellow + ';color:#5a4a00}' +
+    '.hc{margin:0 0 14px;background:#fff;border:1px solid ' + CI.line + ';border-left:4px solid ' + CI.royal + ';border-radius:10px;padding:10px 16px;color:' + CI.text + ';font-size:13px}' +
+    '.otbar{margin:0 0 16px;background:#fff8e1;border:1px solid ' + CI.yellow + ';border-radius:10px;padding:10px 16px;color:#7a5b00;font-size:13px;font-weight:600;text-align:center}' +
+    '.h{color:' + CI.sub + ';font-weight:300;font-size:11px}' +
     '.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:16px}' +
-    '.kpi{background:#172036;border:1px solid #243049;border-top:4px solid var(--c);border-radius:14px;padding:16px;text-align:center}' +
-    '.kpi .ico{font-size:22px}.kpi .val{font-size:32px;font-weight:800;color:var(--c);margin:4px 0}.kpi .lbl{font-size:12px;color:#9fb3d1;font-weight:600}' +
+    '.kpi{background:#fff;border:1px solid ' + CI.line + ';border-top:4px solid var(--c);border-radius:14px;padding:16px;text-align:center;box-shadow:0 3px 10px rgba(22,36,63,.06)}' +
+    '.kpi .ico{font-size:20px}.kpi .val{font-size:32px;font-weight:800;color:var(--c);margin:2px 0}.kpi .lbl{font-size:12px;color:' + CI.sub + ';font-weight:600}' +
     '.grid{display:grid;grid-template-columns:1.3fr 1fr;gap:18px}.grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:18px;margin-bottom:18px}' +
     '@media(max-width:900px){.kpis{grid-template-columns:repeat(3,1fr)}.grid,.grid2{grid-template-columns:1fr}}' +
-    '.card{background:#141c2f;border:1px solid #243049;border-radius:14px;padding:18px 20px;margin-bottom:18px}' +
-    '.card h2{font-size:15px;font-weight:700;margin-bottom:12px;color:#cde}' +
+    '.card{background:#fff;border:1px solid ' + CI.line + ';border-radius:14px;padding:18px 20px;margin-bottom:18px;box-shadow:0 3px 10px rgba(22,36,63,.05)}' +
+    '.card h2{font-size:15px;font-weight:600;margin-bottom:12px;color:' + CI.royal + '}' +
     'table{width:100%;border-collapse:collapse;font-size:13px}' +
-    'th{text-align:right;color:#8aa0c2;font-weight:600;padding:7px 8px;border-bottom:2px solid #243049;font-size:11px;text-transform:uppercase}' +
-    'th:first-child,td:first-child{text-align:left}' +
-    'td{text-align:right;padding:7px 8px;border-bottom:1px solid #1d2742}td.tm{font-weight:600;color:#dbe7f5}' +
-    'tr:hover td{background:#19233a}' +
-    '.bar{position:relative;height:18px;background:#22304d;border-radius:9px;overflow:hidden}' +
-    '.bar .fill{height:100%;background:linear-gradient(90deg,#19a974,#3fbf7f)}.bar .fill.llf{background:linear-gradient(90deg,#bf8f00,#f5c542)}' +
-    '.bar span{position:absolute;right:8px;top:0;font-size:11px;line-height:18px;color:#fff;font-weight:700}' +
-    '.foot{margin-top:14px;text-align:center;color:#5f7290;font-size:11px}' +
-    '@media print{body{background:#fff;color:#000;padding:0}.ctrl{display:none}.card,.kpi,.hc,.otbar,.head{background:#fff;border-color:#ccc;color:#000;box-shadow:none}.head h1,.kpi .val{color:#000}td.tm{color:#000}}' +
+    'th{text-align:right;color:#fff;background:' + CI.royal + ';font-weight:600;padding:8px;font-size:11px}' +
+    'th:first-child{text-align:left;border-radius:6px 0 0 6px}th:last-child{border-radius:0 6px 6px 0}' +
+    'td{text-align:right;padding:7px 8px;border-bottom:1px solid #eef2f8}td:first-child{text-align:left}td.tm{font-weight:600;color:' + CI.text + '}' +
+    'tbody tr:nth-child(even){background:#f6f9fd}tbody tr:hover td{background:#eaf4fb}' +
+    '.bar{position:relative;height:18px;background:#e6edf6;border-radius:9px;overflow:hidden}' +
+    '.bar .fill{height:100%;background:linear-gradient(90deg,' + CI.teal + ',' + CI.sky + ')}.bar .fill.llf{background:linear-gradient(90deg,#e0a500,' + CI.yellow + ')}' +
+    '.bar span{position:absolute;right:8px;top:0;font-size:11px;line-height:18px;color:' + CI.royal + ';font-weight:700}' +
+    '.foot{margin-top:14px;text-align:center;color:' + CI.sub + ';font-size:11px}' +
+    '@media print{body{background:#fff;padding:0}.ctrl{display:none}.card,.kpi{box-shadow:none}}' +
     '</style></head><body>' +
-    '<div class="head"><div><h1>📊 Daily Manpower Dashboard</h1><p>' + rbEsc_(dateStr) +
-    ' &nbsp;·&nbsp; อ่านจากไฟล์ assignment จริง</p></div>' +
+    '<div class="head"><div class="brand">' + rbLogo_() +
+    '<div><h1>AOTGA</h1><p>Daily Manpower Dashboard · ' + rbEsc_(dateStr) + ' · “Driving Excellence”</p></div></div>' +
     '<div class="ctrl"><input type="date" id="dt" value="' + iso + '">' +
     '<button onclick="go()">ดูข้อมูล</button><button class="pdf" onclick="window.print()">⬇️ Export PDF</button></div></div>' +
     '<div class="kpis">' + rbKpiCards_(P, L) + '</div>' +
@@ -1296,8 +1312,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     masterLine +
     '<div class="grid2">' +
     '<div class="card"><h2>📊 Working / Total ต่อทีม</h2><canvas id="c1" height="150"></canvas></div>' +
-    '<div class="card"><h2>🧭 ภาพรวมสถานะ</h2><canvas id="c2" height="150"></canvas></div>' +
-    '</div>' +
+    '<div class="card"><h2>🧭 ภาพรวมสถานะ</h2><canvas id="c2" height="150"></canvas></div></div>' +
     '<div class="grid">' +
     '<div class="card"><h2>📌 Manpower by Team (PSA)</h2><table><thead>' +
     '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
@@ -1305,18 +1320,18 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     '<div class="card"><h2>👥 PSA by Position</h2><table><thead>' + posHead + '</thead><tbody>' +
     rbPosRows_(res.positions, ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign']) +
     '</tbody></table>' + llBlock + '</div></div>' +
-    '<div class="foot">SmartShift Roster · live จาก Apps Script</div>' +
+    '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';' +
     'function go(){var d=document.getElementById("dt").value;if(d)window.location.search="?date="+d;}' +
     'window.addEventListener("load",function(){if(!window.Chart)return;' +
-    'Chart.defaults.color="#9fb3d1";Chart.defaults.font.family="Noto Sans Thai,sans-serif";' +
+    'Chart.defaults.color="' + CI.sub + '";Chart.defaults.font.family="Kanit,sans-serif";' +
     'new Chart(document.getElementById("c1"),{type:"bar",data:{labels:CD.tn,datasets:[' +
-    '{label:"Working",data:CD.tw,backgroundColor:"#19a974",borderRadius:4},' +
-    '{label:"Total",data:CD.tt,backgroundColor:"#33415e",borderRadius:4}]},' +
-    'options:{responsive:true,plugins:{legend:{labels:{boxWidth:12}}},scales:{x:{grid:{display:false}},y:{grid:{color:"#1d2742"},beginAtZero:true}}}});' +
+    '{label:"Working",data:CD.tw,backgroundColor:CD.c.teal,borderRadius:4},' +
+    '{label:"Total",data:CD.tt,backgroundColor:"#c9d6e8",borderRadius:4}]},' +
+    'options:{responsive:true,plugins:{legend:{labels:{boxWidth:12}}},scales:{x:{grid:{display:false}},y:{grid:{color:"#eef2f8"},beginAtZero:true}}}});' +
     'new Chart(document.getElementById("c2"),{type:"doughnut",data:{labels:["Working","OFF","Sick","Leave"],' +
-    'datasets:[{data:[CD.work,CD.off,CD.sick,CD.leave],backgroundColor:["#19a974","#7b8794","#c0392b","#f5a623"],borderColor:"#141c2f",borderWidth:2}]},' +
+    'datasets:[{data:[CD.work,CD.off,CD.sick,CD.leave],backgroundColor:[CD.c.teal,CD.c.grey,CD.c.red,CD.c.yellow],borderColor:"#fff",borderWidth:2}]},' +
     'options:{responsive:true,plugins:{legend:{position:"bottom",labels:{boxWidth:12}}}}});});' +
     '</script></body></html>';
 }
