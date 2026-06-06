@@ -11,6 +11,7 @@ optional Google Chat summary.
 | `MasterReader.gs` | Reads the Pax Manpower master (`Total` sheet) for the total **active** headcount per department (PSA + LL) — the establishment count shown on the dashboard. `readMasterHeadcount(id) → { PSA, LL, active }`. |
 | `LLReader.gs` | LL (ติดตามสัมภาระ) daily reader. The LL tab is sectioned by job area (SOD/CENTER/RUSH BAG/…); attendance comes from SCHEDULE (OFF vs time range). `readLLForDate(llFileId, date) → { sections, positions, totals }`. |
 | `RosterBot.gs` | Integration: reads PSA **and** LL, writes the Dashboard (PSA by team + by position, LL by section + by position, combined PSA+LL total) + Timetable tabs, posts the Chat summary. Finds today's files on Drive (converts `.xlsx` automatically). |
+| `WebDashboard.gs` | Serves the dashboard as a live **web page** (`doGet` Web App). Deploy → New deployment → Web app → open the URL. Optional `?date=YYYY-MM-DD`. |
 | `reference_parser.py` | Standalone offline validator / spec. PSA: `python3 reference_parser.py <file.xlsx> [TEAM]`. LL: `python3 reference_parser.py --ll <ll.xlsx> [TAB]`. |
 | `FINDINGS.md` | Data layouts, column maps, classification rules, SU templates, caveats. |
 
