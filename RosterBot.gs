@@ -337,7 +337,7 @@ function rbWriteTimetable_(ss, res, dateStr, ll) {
     [120, 130, 52, 52, 52, 52].forEach(function (w, k) { sh.setColumnWidth(b2 + k, w); });
   }
   sh.setColumnWidth(TOTAL, 70);
-  sh.setFrozenRows(3); sh.setFrozenColumns(4);
+  sh.setFrozenRows(3);
 }
 
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
