@@ -1,6 +1,7 @@
 /**
  * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard + Timetable, AOTGA CI)
  * วางไฟล์เดียวใน Apps Script | เปิด Drive API | แก้ CONFIG_RB | doGet=หน้าเว็บ
+ * PSA ใช้ได้เลย; LL/Master ต้องใส่ ID + แชร์ไฟล์ให้บัญชีที่รัน
  */
 
 
@@ -561,44 +562,49 @@ function debugDumpRoster(ssId) {
  *   1 ID | 2 Team | 4 NameTH | 6 Dept | 7 Position | 10 NameEN | 12 ResignDate | 13 Status
  */
 
-var MASTER_FILE_ID_RB = '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8';
+// ใส่ ID ไฟล์ Pax Manpower ถ้าบัญชีที่รันมีสิทธิ์เข้า (เว้นว่าง = ข้าม ไม่แสดงจำนวนพนักงานรวม)
+// ของเดิม: '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8'
+var MASTER_FILE_ID_RB = '';
 var DEPT_PSA_TH = 'การโดยสาร';
 var DEPT_LL_TH  = 'ติดตามสัมภาระ';
 
 function readMasterHeadcount(masterFileId) {
-  var ss;
-  try { ss = SpreadsheetApp.openById(masterFileId || MASTER_FILE_ID_RB); }
-  catch (e) { Logger.log('⚠️ Master: เปิดไฟล์ไม่ได้ (' + e.message + ') → ข้าม'); return null; }
-  var ws = ss.getSheetByName('Total');
-  if (!ws) { Logger.log('⚠️ Master: ไม่พบชีต "Total" → ข้าม'); return null; }
-  var data = ws.getDataRange().getValues();
+  try {
+    var ss = SpreadsheetApp.openById(masterFileId || MASTER_FILE_ID_RB);
+    var ws = ss.getSheetByName('Total');
+    if (!ws) { Logger.log('⚠️ Master: ไม่พบชีต "Total" → ข้าม'); return null; }
+    var data = ws.getDataRange().getValues();
 
-  var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0 };
-  var now = new Date();
+    var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0 };
+    var now = new Date();
 
-  for (var i = 1; i < data.length; i++) {
-    var row = data[i];
-    var idStr = String(row[1] == null ? '' : row[1]).replace(/\.0*$/, '').trim();
-    if (!/^\d{6,8}$/.test(idStr.replace(/\D/g, ''))) continue;
+    for (var i = 1; i < data.length; i++) {
+      var row = data[i];
+      var idStr = String(row[1] == null ? '' : row[1]).replace(/\.0*$/, '').trim();
+      if (!/^\d{6,8}$/.test(idStr.replace(/\D/g, ''))) continue;
 
-    var status = String(row[13] || '').trim();
-    if (status === 'Resigned') continue;
-    if (status !== 'Active') {
-      var rd = row[12];
-      if (rd instanceof Date && rd < now) continue;        // already left
+      var status = String(row[13] || '').trim();
+      if (status === 'Resigned') continue;
+      if (status !== 'Active') {
+        var rd = row[12];
+        if (rd instanceof Date && rd < now) continue;        // already left
+      }
+
+      var dept = String(row[6] || '');
+      var deptKey = dept.indexOf(DEPT_PSA_TH) >= 0 ? 'PSA' : (dept.indexOf(DEPT_LL_TH) >= 0 ? 'LL' : null);
+      if (!deptKey) continue;
+
+      var team = String(row[2] || '');
+      var grp = (deptKey === 'LL') ? rrLLPosGroup_(row[7]) : rrPosGroup_(row[7], team);
+      hc[deptKey].total++;
+      hc[deptKey].byPos[grp] = (hc[deptKey].byPos[grp] || 0) + 1;
+      hc.active++;
     }
-
-    var dept = String(row[6] || '');
-    var deptKey = dept.indexOf(DEPT_PSA_TH) >= 0 ? 'PSA' : (dept.indexOf(DEPT_LL_TH) >= 0 ? 'LL' : null);
-    if (!deptKey) continue;
-
-    var team = String(row[2] || '');
-    var grp = (deptKey === 'LL') ? rrLLPosGroup_(row[7]) : rrPosGroup_(row[7], team);
-    hc[deptKey].total++;
-    hc[deptKey].byPos[grp] = (hc[deptKey].byPos[grp] || 0) + 1;
-    hc.active++;
+    return hc;
+  } catch (e) {
+    Logger.log('⚠️ Master: เข้าไฟล์ไม่ได้ (' + e.message + ') → ข้าม (รายงานยังออกได้)');
+    return null;
   }
-  return hc;
 }
 
 function debugDumpMaster(masterFileId) {
@@ -769,7 +775,7 @@ function debugDumpLL(llFileId, y, m, d) {
 var CONFIG_RB = {
   ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
   OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
-  LL_FILE_ID:       '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg', // ไฟล์ LL — ถ้าบัญชีไม่มีสิทธิ์ ให้แชร์ไฟล์ หรือใส่ '' เพื่อข้าม
+  LL_FILE_ID:       '', // ไฟล์ LL — ใส่ ID ถ้าบัญชีที่รันมีสิทธิ์เข้า (ของเดิม '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg'); เว้นว่าง = ข้าม LL
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
