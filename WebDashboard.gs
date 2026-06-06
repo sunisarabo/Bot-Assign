@@ -35,8 +35,8 @@ function doGet(e) {
     var res = readRosterFromSpreadsheet(roster.ss);
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e2) {} }
     var ll = null, master = null;
-    try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e3) {}
-    try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e4) {}
+    if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e3) {} }
+    if (MASTER_FILE_ID_RB) { try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e4) {} }
     var dateStr = date.getDate() + ' ' + MON_RB[date.getMonth()] + ' ' + (date.getFullYear() + 543);
     html = rbBuildDashboardHtml_(res, ll, master, dateStr, iso);
   } catch (err) {

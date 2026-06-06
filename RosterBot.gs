@@ -20,8 +20,8 @@
 
 var CONFIG_RB = {
   ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
-  OUTPUT_FOLDER_ID: '17UuLV9sDovyDWK4s8O3IRBJM2a4jGORM',   // where monthly output files live
-  LL_FILE_ID:       '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg', // LL daily-assignment file (daily tabs)
+  OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
+  LL_FILE_ID:       '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg', // ไฟล์ LL — ถ้าบัญชีไม่มีสิทธิ์ ให้แชร์ไฟล์ หรือใส่ '' เพื่อข้าม
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
@@ -98,12 +98,16 @@ function rbRunForDate_(date) {
   var res = readRosterFromSpreadsheet(roster.ss);
 
   var ll = null;
-  try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); }
-  catch (e) { Logger.log('⚠️ LL: ' + e.message); }
+  if (CONFIG_RB.LL_FILE_ID) {
+    try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); }
+    catch (e) { Logger.log('⚠️ LL: ' + e.message); }
+  }
 
   var master = null;
-  try { master = readMasterHeadcount(MASTER_FILE_ID_RB); }
-  catch (e) { Logger.log('⚠️ Master: ' + e.message); }
+  if (MASTER_FILE_ID_RB) {
+    try { master = readMasterHeadcount(MASTER_FILE_ID_RB); }
+    catch (e) { Logger.log('⚠️ Master: ' + e.message); }
+  }
 
   var be = date.getFullYear() + 543;
   var mon = MON_RB[date.getMonth()];
