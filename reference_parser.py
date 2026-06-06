@@ -1,0 +1,314 @@
+#!/usr/bin/env python3
+"""
+Roster reference parser / offline validator
+===========================================
+Reads the daily roster .xlsx files (01JUN..04JUN style) and reports, for EVERY
+team: headcount (working / off / sick / personal+vacation / OT people + OT hours)
+and per-employee flight assignments with shift and flight times.
+
+This is the ground-truth spec that RosterReader.gs mirrors in Google Apps Script.
+The single most important rule discovered from the real data:
+
+    *** The REMARK column is the source of truth for attendance. ***
+
+A staff row may carry a shift code such as "X9" (00:00-09:00) yet REMARK says
+"OFF" / "OFF (NO RQ OT)" / "OT OFF" — they are NOT working. Never infer
+attendance from the shift code when REMARK is present.
+
+Usage:  python3 reference_parser.py <file.xlsx> [TEAM]
+"""
+import openpyxl, re, sys
+
+
+# ── cell helpers ────────────────────────────────────────────────────────────
+def cv(v):
+    """Clean a cell to a trimmed string; times -> HH:MM; strip trailing .0"""
+    if v is None:
+        return ''
+    if hasattr(v, 'hour'):                       # datetime / time object
+        return f"{v.hour:02d}:{v.minute:02d}" if (v.hour or v.minute) else ''
+    s = str(v).strip()
+    return s[:-2] if s.endswith('.0') else s
+
+
+def up(v):
+    return cv(v).upper()
+
+
+SKIP = {'MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'}
+
+
+# ── attendance classification (REMARK-driven) ──────────────────────────────
+def classify(shift, remark):
+    rm = cv(remark).upper().strip()
+    sh = cv(shift).upper().strip()
+    core = re.sub(r'\(.*?\)', '', rm).strip()    # drop "(NO RQ OT)" notes
+
+    if core.startswith('SICK') or core in ('SL', 'MC') or sh in ('SICK', 'SL', 'MC'):
+        return 'sick'
+    if core.startswith('VAC') or core in ('BL', 'AL', 'VACATION'):
+        return 'vac'
+    if core.startswith('OT OFF') or core.startswith('OT-OFF'):
+        return 'ot_off'
+    if core.startswith('ONDUTY') or core.startswith('ON DUTY'):
+        return 'working'
+    if core.startswith('OFF') or core == 'X':
+        return 'off'
+    if core == '':                               # no REMARK -> fall back to shift
+        if 'VAC' in sh or sh == 'BL':
+            return 'vac'
+        if sh in ('SL', 'SICK', 'MC'):
+            return 'sick'
+        if sh in ('', 'X', 'XX', 'OFF', '-') or sh.startswith('OFF'):
+            return 'off'
+        return 'working'
+    return 'working'
+
+
+# ── time / OT helpers ──────────────────────────────────────────────────────
+def parse_time_pair(s):
+    m = re.search(r'(\d{1,2})[:.]?(\d{2})', cv(s))
+    return f"{m.group(1).zfill(2)}:{m.group(2)}" if m else ''
+
+
+def hours_from_range(s):
+    s = cv(s).replace('.', ':')
+    m = re.match(r'^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?', s)
+    if not m:
+        return 0.0
+    a = int(m.group(1)) * 60 + (int(m.group(2)) if m.group(2) else 0)
+    b = int(m.group(3)) * 60 + (int(m.group(4)) if m.group(4) else 0)
+    if b <= a:
+        b += 1440
+    return round((b - a) / 60, 1)
+
+
+def ot_hours(v):
+    """OT 'Total Hrs' cell -> decimal hours. Accepts 1.5 / '1:30' / '17-21'."""
+    s = cv(v).upper()
+    if not s or s in ('-', 'NO OT', 'VAC', 'X'):
+        return 0.0
+    m = re.match(r'^(\d{1,2}):(\d{2})(:\d{2})?$', s)        # duration H:MM[:SS]
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2))
+        return round(h + mi / 60, 1) if h <= 14 else 0.0   # >14 => clock time
+    try:
+        f = float(s)
+        return f if 0 < f <= 14 else 0.0
+    except ValueError:
+        pass
+    return hours_from_range(s)
+
+
+# ── header detection (works for standard AND the TR NO/ID/NAME/TIME variant) ─
+def find_header(rows):
+    for r in range(min(8, len(rows))):
+        u = [up(c) for c in rows[r]]
+        if 'NAME' not in u:
+            continue
+        if not ({'ID', 'NO', 'NO.'} & set(u)):
+            continue
+        cm = {'hdr': r, 'name': u.index('NAME')}
+        cm['id']     = u.index('ID') if 'ID' in u else (u.index('NO') if 'NO' in u else u.index('NO.'))
+        cm['shift']  = u.index('SHIFT') if 'SHIFT' in u else -1
+        cm['time']   = u.index('TIME') if 'TIME' in u else -1
+        cm['pos']    = u.index('POSITION') if 'POSITION' in u else (u.index('POS.') if 'POS.' in u else -1)
+        cm['remark'] = u.index('REMARK') if 'REMARK' in u else -1
+        cm['ot']     = u.index('OT') if 'OT' in u else -1
+        # OT total-hours column = a "Total Hrs" header within 3 cols after OT
+        tothrs = [c for c, h in enumerate(u)
+                  if h.replace('.', '').replace('  ', ' ').strip().startswith('TOTAL')]
+        cm['ottot'] = next((c for c in tothrs if cm['ot'] >= 0 and 0 < c - cm['ot'] <= 3), -1)
+        cm['flt'] = u.index('FLIGHT') + 1 if 'FLIGHT' in u else -1
+        return r, cm
+    return None, None
+
+
+# ── parsers ────────────────────────────────────────────────────────────────
+def parse_standard(rows, team):
+    hi, cm = find_header(rows)
+    if hi is None:
+        return None
+
+    flights, fltcols = {}, []
+    if cm['flt'] >= 0:
+        hdr = rows[hi]
+        for c in range(cm['flt'], len(hdr)):
+            nm = cv(hdr[c])
+            if nm and not nm.startswith('=') and nm.upper() not in (
+                    'STA / STD', 'OP / CL', 'REMARK', 'RE', 'OT', 'COUNTER'):
+                fltcols.append((c, nm))
+        sta = rows[hi + 1] if hi + 1 < len(rows) else []
+        opn = rows[hi + 2] if hi + 2 < len(rows) else []
+        for c, nm in fltcols:
+            flights[nm] = {
+                'STA': parse_time_pair(sta[c]) if c < len(sta) else '',
+                'STD': parse_time_pair(sta[c + 1]) if c + 1 < len(sta) else '',
+                'OP':  parse_time_pair(opn[c]) if c < len(opn) else '',
+                'CL':  parse_time_pair(opn[c + 1]) if c + 1 < len(opn) else '',
+            }
+
+    recs, seen = [], set()
+    for r in range(hi + 1, len(rows)):
+        row = rows[r]
+        idd = re.sub(r'\D', '', cv(row[cm['id']])) if cm['id'] < len(row) else ''
+        if len(idd) < 6 and cm['id'] + 1 < len(row):          # WY has a seq col first
+            alt = re.sub(r'\D', '', cv(row[cm['id'] + 1]))
+            if 6 <= len(alt) <= 8:
+                idd = alt
+        name = cv(row[cm['name']]) if cm['name'] < len(row) else ''
+        if not name or not (6 <= len(idd) <= 8):
+            continue
+        if name.upper() in ('NAME', 'REMARK', 'SUPPORT') or idd in seen:
+            continue
+        seen.add(idd)
+
+        shift  = cv(row[cm['shift']]) if 0 <= cm['shift'] < len(row) else ''
+        timev  = cv(row[cm['time']]) if 0 <= cm['time'] < len(row) else ''
+        remark = cv(row[cm['remark']]) if 0 <= cm['remark'] < len(row) else ''
+        otv    = cv(row[cm['ottot']]) if 0 <= cm['ottot'] < len(row) else ''
+
+        assigns = [dict(flight=nm, task=cv(row[c]), **flights.get(nm, {}))
+                   for c, nm in fltcols if c < len(row) and cv(row[c])]
+        recs.append(dict(team=team, id=idd, name=name,
+                         pos=cv(row[cm['pos']]) if cm['pos'] >= 0 else '',
+                         shift=shift or timev, bucket=classify(shift or timev, remark),
+                         ot=ot_hours(otv), assigns=assigns))
+    return recs
+
+
+def parse_porter(rows, team):
+    recs = []
+    for r in range(2, len(rows)):
+        row = rows[r]
+        for base in (0, 6):                       # two staff columns per row
+            if base + 4 >= len(row):
+                continue
+            nm, sched, ot = cv(row[base]), cv(row[base + 3]), cv(row[base + 4])
+            if (not nm or len(nm) < 2 or nm[0].isdigit()
+                    or nm.upper() in ('NAME', '(INTER)', '(DOM)') or 'STBY' in nm.upper()):
+                continue
+            recs.append(dict(team=team, id='', name=nm, pos='PORTER', shift=sched,
+                             bucket=classify(sched, ''), ot=ot_hours(ot), assigns=[]))
+    return recs
+
+
+def parse_admindoc(rows, team):
+    recs = []
+    for r in range(2, len(rows)):
+        row = rows[r]
+        nm = cv(row[0])
+        sched = cv(row[1]) if len(row) > 1 else ''
+        if not nm or len(nm) < 2 or nm.upper() in ('NAME', 'SCHEDULE'):
+            continue
+        flts = [cv(c) for c in row[2:] if cv(c)]
+        recs.append(dict(team=team, id='', name=nm, pos='ADMINDOC', shift=sched,
+                         bucket='off' if not sched or sched.upper() == 'OFF' else 'working',
+                         ot=0.0, assigns=[dict(flight=f, task='') for f in flts]))
+    return recs
+
+
+def parse_crewsign(rows, team):
+    recs, hi = [], -1
+    for r in range(min(20, len(rows))):
+        u = [up(c) for c in rows[r]]
+        if 'STAFF NAME' in u or ('SHIFT' in u and 'REMARK' in u):
+            hi = r
+            break
+    if hi < 0:
+        return recs
+    for r in range(hi + 1, len(rows)):
+        row = rows[r]
+        shift = cv(row[0])
+        name = cv(row[1]) if len(row) > 1 else ''
+        flt = cv(row[3]) if len(row) > 3 else ''
+        if not name or len(name) < 2 or name.upper() in ('STAFF NAME', 'NAME'):
+            continue
+        actual = shift.split('/')[-1].strip() if '/' in shift else shift
+        recs.append(dict(team=team, id='', name=name, pos='CREWSIGN', shift=shift,
+                         bucket=classify(actual, ''), ot=0.0,
+                         assigns=[dict(flight=flt, task='')] if flt else []))
+    return recs
+
+
+def parse_sheet(ws, name):
+    n = name.strip().upper()
+    if any(s in n for s in SKIP):
+        return None
+    rows = list(ws.iter_rows(values_only=True))
+    if 'PORTER' in n and 'CREW' in n:
+        return parse_crewsign(rows, name)
+    if n == 'PORTER':
+        return parse_porter(rows, name)
+    if 'ADMIN' in n and 'DOC' in n:
+        return parse_admindoc(rows, name)
+    return parse_standard(rows, name)
+
+
+def filter_rev(names):
+    """When both 'WY' and 'WY REV.01' (etc.) exist, keep only the REV version."""
+    skip = set()
+    for nm in names:
+        if 'REV' in nm.upper():
+            base = re.sub(r'REV\.?\d*', '', nm, flags=re.I).strip(' ._').upper().replace(' ', '')
+            for o in names:
+                if o == nm or 'REV' in o.upper():
+                    continue
+                if o.upper().replace(' ', '') == base:
+                    skip.add(o)
+    return [n for n in names if n not in skip]
+
+
+# ── report ─────────────────────────────────────────────────────────────────
+def report(path, only_team=None):
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    names = filter_rev(wb.sheetnames)
+    print("=" * 74)
+    print("FILE:", path)
+    hdr = f"{'TEAM':18}{'staff':>6}{'work':>6}{'otoff':>6}{'off':>5}{'sick':>5}{'leave':>6}{'otppl':>6}{'oth':>7}{'flts':>6}"
+    print(hdr)
+    tot = dict(staff=0, work=0, otoff=0, off=0, sick=0, leave=0, otp=0, oth=0.0)
+    for nm in names:
+        recs = parse_sheet(wb[nm], nm)
+        if recs is None:
+            continue
+        if not recs:
+            print(f"{nm[:18]:18}{'  (no records parsed)':>40}")
+            continue
+        c = dict(work=0, otoff=0, off=0, sick=0, leave=0)
+        for r in recs:
+            b = r['bucket']
+            c['work'] += b == 'working'
+            c['otoff'] += b == 'ot_off'
+            c['off'] += b == 'off'
+            c['sick'] += b == 'sick'
+            c['leave'] += b == 'vac'
+        otp = sum(1 for r in recs if r['ot'] > 0)
+        oth = round(sum(r['ot'] for r in recs), 1)
+        flts = sum(len(r['assigns']) for r in recs)
+        print(f"{nm[:18]:18}{len(recs):>6}{c['work']:>6}{c['otoff']:>6}{c['off']:>5}"
+              f"{c['sick']:>5}{c['leave']:>6}{otp:>6}{oth:>7}{flts:>6}")
+        for k in c:
+            tot[k] += c[k]
+        tot['staff'] += len(recs); tot['otp'] += otp; tot['oth'] += oth
+
+        if only_team and nm.strip().upper() == only_team.strip().upper():
+            print(f"  --- per-employee flights/times for {nm} ---")
+            for r in recs:
+                if r['bucket'] not in ('working', 'ot_off'):
+                    continue
+                fl = "  ".join(f"{a['flight'].strip()}[{a['task'][:8]}]"
+                               f"{a.get('OP','')}/{a.get('CL','')}" for a in r['assigns'])
+                print(f"  {r['name'][:20]:20} {r['shift']:10} OT={r['ot']:>4}  "
+                      f"flts={len(r['assigns']):>2}  {fl}")
+    print("-" * 74)
+    print(f"{'TOTAL':18}{tot['staff']:>6}{tot['work']:>6}{tot['otoff']:>6}{tot['off']:>5}"
+          f"{tot['sick']:>5}{tot['leave']:>6}{tot['otp']:>6}{round(tot['oth'],1):>7}")
+    wb.close()
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(1)
+    report(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
