@@ -19,8 +19,9 @@
  */
 
 var CONFIG_RB = {
-  ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // year folder (drill month→day)
+  ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
   OUTPUT_FOLDER_ID: '17UuLV9sDovyDWK4s8O3IRBJM2a4jGORM',   // where monthly output files live
+  LL_FILE_ID:       '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg', // LL daily-assignment file (daily tabs)
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
@@ -32,13 +33,22 @@ function runDailyRosterReport() { rbRunForDate_(new Date()); }
 
 function runRosterForDate(y, m, d) { rbRunForDate_(new Date(y, m - 1, d)); }
 
-/** Simplest manual test: read ONE roster spreadsheet by ID, write the reports. */
-function testRosterFromId(ssId) {
+/**
+ * Simplest manual test: read ONE PSA roster spreadsheet by ID, write the reports.
+ * Pass an LL file id + date to include the LL department, e.g.
+ *   testRosterFromId('<psaId>', '<llId>', 2026, 6, 6);
+ */
+function testRosterFromId(ssId, llId, y, m, d) {
   ssId = ssId || 'PUT_A_ROSTER_SPREADSHEET_ID_HERE';
   var roster = SpreadsheetApp.openById(ssId);
   var res = readRosterFromSpreadsheet(roster);
+  var ll = null;
+  if (llId) {
+    var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+    try { ll = readLLForDate(llId, date); } catch (e) { Logger.log('⚠️ LL: ' + e.message); }
+  }
   var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
-  rbWriteDashboard_(out, res, roster.getName());
+  rbWriteDashboard_(out, res, roster.getName(), ll);
   rbWriteTimetable_(out, res, roster.getName());
   var cleanup = out.getSheetByName('Sheet1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
@@ -51,21 +61,29 @@ function rbRunForDate_(date) {
   var roster = rbOpenTodayRoster_(date);
   var res = readRosterFromSpreadsheet(roster.ss);
 
+  var ll = null;
+  try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); }
+  catch (e) { Logger.log('⚠️ LL: ' + e.message); }
+
   var be = date.getFullYear() + 543;
   var mon = MON_RB[date.getMonth()];
   var dateStr = date.getDate() + ' ' + mon + ' ' + be;
 
   var out = rbGetMonthlyOutput_(mon, be);
-  rbWriteDashboard_(out, res, dateStr);
+  rbWriteDashboard_(out, res, dateStr, ll);
   rbWriteTimetable_(out, res, dateStr);
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
 
-  rbPostChat_(res, dateStr, out.getUrl());
+  rbPostChat_(res, dateStr, out.getUrl(), ll);
   Logger.log('✅ Done: %s', out.getUrl());
 }
 
 // ─── DASHBOARD TAB ──────────────────────────────────────────────────────────
-function rbWriteDashboard_(ss, res, dateStr) {
+function rbAggRow_(label, b) {
+  return [label, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights || 0];
+}
+
+function rbWriteDashboard_(ss, res, dateStr, ll) {
   var sh = ss.getSheetByName('📊 Dashboard');
   if (sh) { sh.clear(); } else { sh = ss.insertSheet('📊 Dashboard', 0); }
 
@@ -101,6 +119,38 @@ function rbWriteDashboard_(ss, res, dateStr) {
     prows.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights]);
   });
   if (prows.length) sh.getRange(pr + 2, 1, prows.length, phead.length).setValues(prows);
+  var row = pr + 2 + prows.length;
+
+  // ── LL department (ติดตามสัมภาระ) ──
+  if (ll && ll.totals.staff > 0) {
+    row += 2;
+    sh.getRange(row, 1, 1, head.length).merge()
+      .setValue('🟡 LL (ติดตามสัมภาระ) — tab ' + (ll.tabName || ''))
+      .setBackground('#7f6000').setFontColor('#fff').setFontWeight('bold').setFontSize(12);
+    row++;
+    sh.getRange(row, 1, 1, head.length).setValues([['Section/Pos', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs', 'Flights']])
+      .setBackground('#bf8f00').setFontColor('#fff').setFontWeight('bold');
+    row++;
+    var llRows = [];
+    Object.keys(ll.sections).forEach(function (s) { llRows.push(rbAggRow_('• ' + s, ll.sections[s])); });
+    llRows.push(['— by position —', '', '', '', '', '', '', '', '', '']);
+    ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee'].forEach(function (p) {
+      if (ll.positions[p]) llRows.push(rbAggRow_(p, ll.positions[p]));
+    });
+    llRows.push(rbAggRow_('LL TOTAL', ll.totals));
+    sh.getRange(row, 1, llRows.length, head.length).setValues(llRows);
+    sh.getRange(row + llRows.length - 1, 1, 1, head.length).setBackground('#7f6000').setFontColor('#fff').setFontWeight('bold');
+    row += llRows.length;
+
+    // ── combined PSA + LL grand total ──
+    var P = res.totals, L = ll.totals;
+    var comb = ['🏢 PSA + LL', P.staff + L.staff, P.working + L.working, P.ot_off + L.ot_off,
+                P.off + L.off, P.sick + L.sick, P.leave + L.leave, P.otPeople + L.otPeople,
+                Math.round((P.otHours + L.otHours) * 10) / 10, P.flights];
+    row += 1;
+    sh.getRange(row, 1, 1, head.length).setValues([comb])
+      .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(11);
+  }
 
   for (var c = 1; c <= head.length; c++) sh.autoResizeColumn(c);
   sh.setFrozenRows(2);
@@ -152,18 +202,22 @@ function rbWriteTimetable_(ss, res, dateStr) {
 }
 
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
-function rbPostChat_(res, dateStr, url) {
+function rbPostChat_(res, dateStr, url, ll) {
   var webhook = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP);
   if (!webhook) { Logger.log('⚠️ no webhook set in property %s', CONFIG_RB.CHAT_WEBHOOK_PROP); return; }
   var T = res.totals;
   var lines = [
     '📊 *Daily Manpower* — ' + dateStr,
-    '👥 Total *' + T.staff + '*  |  🟢 Working *' + (T.working + T.ot_off) + '*  |  ⬛ Off *' + T.off + '*',
-    '🤒 Sick *' + T.sick + '*  |  🌴 Leave *' + T.leave + '*  |  ⏰ OT *' + T.otPeople + ' ppl* (' + T.otHours + 'h)',
-    '✈️ Flight assignments *' + T.flights + '*',
-    '',
-    '*Top teams (working):*',
+    '🔵 *PSA* — 👥 *' + T.staff + '*  🟢 *' + (T.working + T.ot_off) + '*  ⬛ *' + T.off +
+      '*  🤒 *' + T.sick + '*  🌴 *' + T.leave + '*  ⏰ *' + T.otPeople + '* (' + T.otHours + 'h)  ✈️ *' + T.flights + '*',
   ];
+  if (ll && ll.totals.staff > 0) {
+    var L = ll.totals;
+    lines.push('🟡 *LL* — 👥 *' + L.staff + '*  🟢 *' + (L.working + L.ot_off) + '*  ⬛ *' + L.off +
+      '*  🤒 *' + L.sick + '*  🌴 *' + L.leave + '*  ⏰ *' + L.otPeople + '* (' + L.otHours + 'h)');
+    lines.push('🏢 *รวม PSA+LL working: *' + (T.working + T.ot_off + L.working + L.ot_off) + '* / ' + (T.staff + L.staff) + ' คน*');
+  }
+  lines.push('', '*Top teams (working):*');
   Object.keys(res.teams).sort(function (a, b) { return res.teams[b].working - res.teams[a].working; })
     .slice(0, 8).forEach(function (t) {
       var b = res.teams[t];

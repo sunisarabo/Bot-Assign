@@ -8,8 +8,9 @@ optional Google Chat summary.
 | File | Role |
 |------|------|
 | `RosterReader.gs` | Core reader. Header-driven + REMARK-driven parsing of every team (standard layout, TR variant, PORTER, PORTER CREWSIGN, ADMIN DOC, and both SU template generations). `readRosterFromSpreadsheet(ss) → { teams, totals }`. |
-| `RosterBot.gs` | Integration: writes the Dashboard + Timetable tabs and posts the Chat summary. Finds today's file on Drive (converts `.xlsx` automatically). |
-| `reference_parser.py` | Standalone offline validator / spec: `python3 reference_parser.py <file.xlsx> [TEAM]`. |
+| `LLReader.gs` | LL (ติดตามสัมภาระ) daily reader. The LL tab is sectioned by job area (SOD/CENTER/RUSH BAG/…); attendance comes from SCHEDULE (OFF vs time range). `readLLForDate(llFileId, date) → { sections, positions, totals }`. |
+| `RosterBot.gs` | Integration: reads PSA **and** LL, writes the Dashboard (PSA by team + by position, LL by section + by position, combined PSA+LL total) + Timetable tabs, posts the Chat summary. Finds today's files on Drive (converts `.xlsx` automatically). |
+| `reference_parser.py` | Standalone offline validator / spec. PSA: `python3 reference_parser.py <file.xlsx> [TEAM]`. LL: `python3 reference_parser.py --ll <ll.xlsx> [TAB]`. |
 | `FINDINGS.md` | Data layouts, column maps, classification rules, SU templates, caveats. |
 
 ## Set up in Google Apps Script
@@ -28,7 +29,9 @@ The fastest sanity check — no Drive navigation needed:
 
 ```js
 // In RosterBot.gs, run this from the editor:
-testRosterFromId('<roster spreadsheet ID>');
+testRosterFromId('<PSA roster spreadsheet ID>');
+// include LL too:
+testRosterFromId('<PSA id>', '<LL file id>', 2026, 6, 6);
 ```
 
 It writes a fresh output spreadsheet with **📊 Dashboard** and **🕓 Timetable**

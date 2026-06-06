@@ -480,8 +480,95 @@ def report(path, only_team=None):
     wb.close()
 
 
+# ── LL (baggage tracing) daily reader ───────────────────────────────────────
+def ll_pos_group(pos):
+    u = re.sub(r'ACT\.?\s*', '', str(pos or '').upper()).strip()
+    if u.startswith('PSS') or 'SUPERVISOR' in u:
+        return 'PSS'
+    if u.startswith('SNR') or 'SENIOR' in u:
+        return 'SNR'
+    if 'TRAINEE' in u:
+        return 'Trainee'
+    if 'PORTER' in u:
+        return 'Porter'
+    if 'ADMIN' in u:
+        return 'Admin'
+    if u.startswith('PSA') or 'AGENT' in u:
+        return 'PSA'
+    return 'PSA'
+
+
+def ll_classify(sched, remark):
+    s = str(sched or '').upper().strip()
+    rm = str(remark or '').upper()
+    if s in ('SL', 'SICK', 'MC') or 'SICK' in rm:
+        return 'sick'
+    if s in ('VAC', 'BL', 'AL') or 'VAC' in s:
+        return 'vac'
+    if s in ('', 'OFF', 'X', 'XX') or s.startswith('OFF'):
+        return 'off'
+    return 'working'
+
+
+def read_ll_tab(rows):
+    recs, section, seen = [], '', set()
+    for r in rows:
+        c0 = cv(r[0]) if len(r) > 0 else ''
+        if c0 and up(r[1] if len(r) > 1 else '') == 'NO' and up(r[2] if len(r) > 2 else '') == 'NAME':
+            section = c0.replace('\n', ' ')
+            continue
+        no = cv(r[1]) if len(r) > 1 else ''
+        name = cv(r[2]) if len(r) > 2 else ''
+        pos = cv(r[3]) if len(r) > 3 else ''
+        if not name or not pos or name.upper() == 'NAME' or not re.match(r'^\d+(\.\d+)?$', no):
+            continue
+        if name.upper() in seen:
+            continue
+        seen.add(name.upper())
+        sched = cv(r[4]) if len(r) > 4 else ''
+        remark = cv(r[6]) if len(r) > 6 else ''
+        ot = cv(r[8]) if len(r) > 8 else ''
+        recs.append(dict(section=section, name=name, pos=pos, posgroup=ll_pos_group(pos),
+                         bucket=ll_classify(sched, remark), ot=ot_hours(ot)))
+    return recs
+
+
+def report_ll(path, tab=None):
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    if tab is None:
+        tab = next((s for s in wb.sheetnames if re.match(r'^\d{1,2}\s*[A-Z]{3}', s, re.I)), wb.sheetnames[0])
+    recs = read_ll_tab(list(wb[tab].iter_rows(values_only=True)))
+    wb.close()
+    print("=" * 60)
+    print(f"LL FILE: {path}  TAB: {tab}  staff: {len(recs)}")
+    agg = {}
+    for r in recs:
+        p = agg.setdefault(r['posgroup'], dict(staff=0, work=0, off=0, sick=0, leave=0, otp=0, oth=0.0))
+        p['staff'] += 1
+        p['work'] += r['bucket'] == 'working'
+        p['off'] += r['bucket'] == 'off'
+        p['sick'] += r['bucket'] == 'sick'
+        p['leave'] += r['bucket'] == 'vac'
+        if r['ot'] > 0:
+            p['otp'] += 1
+            p['oth'] += r['ot']
+    print(f"{'POSITION':10}{'staff':>6}{'work':>6}{'off':>5}{'sick':>5}{'leave':>6}{'otppl':>6}{'oth':>6}")
+    tot = dict(staff=0, work=0, off=0, sick=0, leave=0, otp=0, oth=0.0)
+    for g in ['PSS', 'SNR', 'PSA', 'Porter', 'Admin', 'Trainee']:
+        if g not in agg:
+            continue
+        p = agg[g]
+        print(f"{g:10}{p['staff']:>6}{p['work']:>6}{p['off']:>5}{p['sick']:>5}{p['leave']:>6}{p['otp']:>6}{round(p['oth'],1):>6}")
+        for k in tot:
+            tot[k] += p[k]
+    print(f"{'TOTAL':10}{tot['staff']:>6}{tot['work']:>6}{tot['off']:>5}{tot['sick']:>5}{tot['leave']:>6}{tot['otp']:>6}{round(tot['oth'],1):>6}")
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
-    report(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
+    if sys.argv[1] == '--ll':
+        report_ll(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    else:
+        report(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
