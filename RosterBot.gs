@@ -29,9 +29,15 @@ var CONFIG_RB = {
 var MON_RB = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 
 // ─── ENTRY POINTS ───────────────────────────────────────────────────────────
-function runDailyRosterReport() { rbRunForDate_(new Date()); }
+function runDailyRosterReport() {
+  try { rbRunForDate_(new Date()); }
+  catch (e) { Logger.log('❌ runDailyRosterReport: ' + e.message + '\n' + (e.stack || '')); }
+}
 
-function runRosterForDate(y, m, d) { rbRunForDate_(new Date(y, m - 1, d)); }
+function runRosterForDate(y, m, d) {
+  try { rbRunForDate_(new Date(y, m - 1, d)); }
+  catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
+}
 
 /**
  * Open any spreadsheet by id whether it is a native Google Sheet OR an uploaded

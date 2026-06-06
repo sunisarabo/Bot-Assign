@@ -16,9 +16,11 @@ var DEPT_PSA_TH = 'การโดยสาร';
 var DEPT_LL_TH  = 'ติดตามสัมภาระ';
 
 function readMasterHeadcount(masterFileId) {
-  var ss = SpreadsheetApp.openById(masterFileId || MASTER_FILE_ID_RB);
+  var ss;
+  try { ss = SpreadsheetApp.openById(masterFileId || MASTER_FILE_ID_RB); }
+  catch (e) { Logger.log('⚠️ Master: เปิดไฟล์ไม่ได้ (' + e.message + ') → ข้าม'); return null; }
   var ws = ss.getSheetByName('Total');
-  if (!ws) throw new Error('ไม่พบชีต "Total" ใน master file');
+  if (!ws) { Logger.log('⚠️ Master: ไม่พบชีต "Total" → ข้าม'); return null; }
   var data = ws.getDataRange().getValues();
 
   var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0 };
