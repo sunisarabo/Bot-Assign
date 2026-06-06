@@ -87,6 +87,21 @@ function rbWriteDashboard_(ss, res, dateStr) {
   sh.getRange(2, 1, rows.length, head.length).setValues(rows);
   sh.getRange(2, 1, 1, head.length).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
   sh.getRange(1 + rows.length, 1, 1, head.length).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
+
+  // by-position-group block (exact counts from the assignment file)
+  var pr = rows.length + 3;
+  sh.getRange(pr, 1, 1, head.length).merge().setValue('โดยตำแหน่ง (By position group)')
+    .setBackground('#7f6000').setFontColor('#fff').setFontWeight('bold');
+  var phead = ['Position', 'Total', 'Working', 'OT-Off', 'Off', 'Sick', 'Leave', 'OT ppl', 'OT hrs', 'Flights'];
+  sh.getRange(pr + 1, 1, 1, phead.length).setValues([phead])
+    .setBackground('#bf8f00').setFontColor('#fff').setFontWeight('bold');
+  var prows = [];
+  ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign', 'DIR', 'MGR', 'Assist'].forEach(function (p) {
+    var b = res.positions[p]; if (!b) return;
+    prows.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights]);
+  });
+  if (prows.length) sh.getRange(pr + 2, 1, prows.length, phead.length).setValues(prows);
+
   for (var c = 1; c <= head.length; c++) sh.autoResizeColumn(c);
   sh.setFrozenRows(2);
 }

@@ -394,31 +394,62 @@ function rrFilterRev_(sheets) {
 }
 
 // ─── public entry point ─────────────────────────────────────────────────────
+// Map a roster Position + team to an operational position group (exact, from
+// the assignment file — no master/manpower lookup needed).
+function rrPosGroup_(pos, team) {
+  var t = String(team || '').toUpperCase();
+  if (t.indexOf('CREW') >= 0) return 'Crewsign';
+  if (t.indexOf('PORTER') >= 0) return 'Porter';
+  if (t.indexOf('ADMIN') >= 0 && t.indexOf('DOC') >= 0) return 'AdminD';
+  if (t.indexOf('GLOB') >= 0) return 'Globlex';
+  var c = String(pos || '').toUpperCase().replace(/ACT\.?\s*/g, '').trim();
+  if (c.indexOf('DIRECTOR') >= 0) return 'DIR';
+  if (c.indexOf('ASSIST') >= 0 && c.indexOf('MANAGER') >= 0) return 'Assist';
+  if (c.indexOf('MANAGER') >= 0) return 'MGR';
+  if (c.indexOf('SUP') >= 0 || c === 'PSS') return 'PSS';
+  if (c.indexOf('SNR') >= 0 || c.indexOf('SENIOR') >= 0) return 'SNR';
+  if (c.indexOf('ADMIN') >= 0) return 'AdminD';
+  if (c.indexOf('PORTER') >= 0) return 'Porter';
+  return 'PSA';                                              // Agent / blank default
+}
+
+function rrAddBucket_(agg, r) {
+  if (r.bucket === 'working') agg.working++;
+  else if (r.bucket === 'ot_off') agg.ot_off++;
+  else if (r.bucket === 'off') agg.off++;
+  else if (r.bucket === 'sick') agg.sick++;
+  else if (r.bucket === 'vac') agg.leave++;
+  if (r.ot > 0) { agg.otPeople++; agg.otHours += r.ot; }
+  agg.flights += r.assignments.length;
+  agg.staff++;
+}
+function rrNewAgg_() {
+  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0, flights: 0 };
+}
+
 function readRosterFromSpreadsheet(ss) {
   var teams = {};
-  var totals = { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0,
-                 otPeople: 0, otHours: 0, flights: 0 };
+  var positions = {};                                        // exact per-position-group rollup
+  var totals = rrNewAgg_();
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
     if (!recs || !recs.length) return;
-    var t = { staff: recs.length, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0,
-              otPeople: 0, otHours: 0, flights: 0, records: recs };
+    var t = rrNewAgg_();
+    t.records = recs;
     recs.forEach(function (r) {
-      if (r.bucket === 'working') t.working++;
-      else if (r.bucket === 'ot_off') t.ot_off++;
-      else if (r.bucket === 'off') t.off++;
-      else if (r.bucket === 'sick') t.sick++;
-      else if (r.bucket === 'vac') t.leave++;
-      if (r.ot > 0) { t.otPeople++; t.otHours += r.ot; }
-      t.flights += r.assignments.length;
+      r.posGroup = rrPosGroup_(r.pos, ws.getName());
+      rrAddBucket_(t, r);
+      if (!positions[r.posGroup]) positions[r.posGroup] = rrNewAgg_();
+      rrAddBucket_(positions[r.posGroup], r);
+      rrAddBucket_(totals, r);
     });
     t.otHours = Math.round(t.otHours * 10) / 10;
     teams[ws.getName().trim()] = t;
-    ['staff', 'working', 'ot_off', 'off', 'sick', 'leave', 'otPeople', 'flights'].forEach(function (k) { totals[k] += t[k]; });
-    totals.otHours += t.otHours;
   });
+  Object.keys(positions).forEach(function (p) { positions[p].otHours = Math.round(positions[p].otHours * 10) / 10; });
   totals.otHours = Math.round(totals.otHours * 10) / 10;
-  return { teams: teams, totals: totals };
+  delete totals.records;
+  return { teams: teams, positions: positions, totals: totals };
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────
@@ -436,6 +467,14 @@ function debugDumpRoster(ssId) {
   lines.push('TOTAL             ' +
     [T.staff, T.working, T.ot_off, T.off, T.sick, T.leave, T.otPeople, T.otHours, T.flights]
       .map(function (n) { return ('     ' + n).slice(-6); }).join(''));
+  lines.push('');
+  lines.push('BY POSITION       staff work otoff off sick leave otppl   oth  flts');
+  ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign', 'DIR', 'MGR', 'Assist'].forEach(function (p) {
+    var b = res.positions[p]; if (!b) return;
+    lines.push((p + '                  ').slice(0, 18) +
+      [b.staff, b.working, b.ot_off, b.off, b.sick, b.leave, b.otPeople, b.otHours, b.flights]
+        .map(function (n) { return ('     ' + n).slice(-6); }).join(''));
+  });
   Logger.log(lines.join('\n'));
   return res;
 }

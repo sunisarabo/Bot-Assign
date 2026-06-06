@@ -362,6 +362,35 @@ def parse_sheet(ws, name):
     return parse_standard(rows, name)
 
 
+def pos_group(pos, team):
+    """Map Position + team to an operational position group (exact, from file)."""
+    t = str(team or '').upper()
+    if 'CREW' in t:
+        return 'Crewsign'
+    if 'PORTER' in t:
+        return 'Porter'
+    if 'ADMIN' in t and 'DOC' in t:
+        return 'AdminD'
+    if 'GLOB' in t:
+        return 'Globlex'
+    c = re.sub(r'ACT\.?\s*', '', str(pos or '').upper()).strip()
+    if 'DIRECTOR' in c:
+        return 'DIR'
+    if 'ASSIST' in c and 'MANAGER' in c:
+        return 'Assist'
+    if 'MANAGER' in c:
+        return 'MGR'
+    if 'SUP' in c or c == 'PSS':
+        return 'PSS'
+    if 'SNR' in c or 'SENIOR' in c:
+        return 'SNR'
+    if 'ADMIN' in c:
+        return 'AdminD'
+    if 'PORTER' in c:
+        return 'Porter'
+    return 'PSA'
+
+
 def filter_rev(names):
     """When both 'WY' and 'WY REV.01' (etc.) exist, keep only the REV version."""
     skip = set()
@@ -421,6 +450,33 @@ def report(path, only_team=None):
     print("-" * 74)
     print(f"{'TOTAL':18}{tot['staff']:>6}{tot['work']:>6}{tot['otoff']:>6}{tot['off']:>5}"
           f"{tot['sick']:>5}{tot['leave']:>6}{tot['otp']:>6}{round(tot['oth'],1):>7}")
+
+    # by-position-group rollup (exact counts from the assignment file)
+    pos = {}
+    for nm in names:
+        recs = parse_sheet(wb[nm], nm)
+        if not recs:
+            continue
+        for r in recs:
+            g = pos_group(r['pos'], nm)
+            p = pos.setdefault(g, dict(staff=0, work=0, otoff=0, off=0, sick=0, leave=0, otp=0, oth=0.0))
+            p['staff'] += 1
+            p['work'] += r['bucket'] == 'working'
+            p['otoff'] += r['bucket'] == 'ot_off'
+            p['off'] += r['bucket'] == 'off'
+            p['sick'] += r['bucket'] == 'sick'
+            p['leave'] += r['bucket'] == 'vac'
+            if r['ot'] > 0:
+                p['otp'] += 1
+                p['oth'] += r['ot']
+    print("\nBY POSITION GROUP")
+    print(f"{'POS':10}{'staff':>6}{'work':>6}{'otoff':>6}{'off':>5}{'sick':>5}{'leave':>6}{'otppl':>6}{'oth':>7}")
+    for g in ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign', 'DIR', 'MGR', 'Assist']:
+        if g not in pos:
+            continue
+        p = pos[g]
+        print(f"{g:10}{p['staff']:>6}{p['work']:>6}{p['otoff']:>6}{p['off']:>5}"
+              f"{p['sick']:>5}{p['leave']:>6}{p['otp']:>6}{round(p['oth'],1):>7}")
     wb.close()
 
 
