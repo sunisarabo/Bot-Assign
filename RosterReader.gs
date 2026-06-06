@@ -108,6 +108,13 @@ function rrRangeCells_(row, col) {
   if (r[0] != null) return r;
   return [rrMin_(row[col]), col + 1 < row.length ? rrMin_(row[col + 1]) : null];
 }
+function rrFmtMin_(m) {
+  if (m == null) return '';
+  var h = Math.floor(m / 60) % 24, mm = ((m % 60) + 60) % 60;
+  return ('0' + h).slice(-2) + ':' + ('0' + mm).slice(-2);
+}
+function rrFmtRange_(r) { return (r[0] != null && r[1] != null) ? (rrFmtMin_(r[0]) + '-' + rrFmtMin_(r[1])) : ''; }
+
 /** 'PRE' (OT before shift) or 'POST' (OT after shift). Defaults POST. */
 function rrOtType_(srng, orng, isOff) {
   if (isOff) return 'POST';
@@ -206,15 +213,17 @@ function rrParseStandard_(rows, team) {
 
     var oth = rrOtHours_(otv);
     var bkt = rrClassify_(shift || timev, remark);
-    var otType = null;
-    if (oth > 0) {
-      otType = rrOtType_(rrRangeCells_(row, cm.time), rrRangeCells_(row, cm.ot), bkt === 'ot_off');
-    }
+    var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : [null, null];
+    var orng = cm.ot >= 0 ? rrRangeCells_(row, cm.ot) : [null, null];
+    var otType = oth > 0 ? rrOtType_(srng, orng, bkt === 'ot_off') : null;
     recs.push({
       team: team, id: idd, name: name,
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
       shift: shift || timev,
-      bucket: bkt, ot: oth, otType: otType, assignments: assigns,
+      shiftTime: rrFmtRange_(srng) || (shift || timev),
+      shiftStart: srng[0],
+      bucket: bkt, ot: oth, otType: otType, otTime: oth > 0 ? rrFmtRange_(orng) : '',
+      assignments: assigns,
     });
   }
   return recs;

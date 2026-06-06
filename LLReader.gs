@@ -56,10 +56,12 @@ function readLLFromTab(ss, tabName) {
 
     var sched = rrClean_(r[4]), resked = rrClean_(r[5]), remark = rrClean_(r[6]), ot = rrClean_(r[8]);
     var oth = rrOtHours_(ot);
+    var srng = rrRangeStr_(resked || sched), orng = rrRangeStr_(ot);
     var rec = {
-      section: section, name: name, pos: pos, posGroup: rrLLPosGroup_(pos),
-      shift: resked || sched, bucket: rrLLClassify_(sched, remark),
-      ot: oth, otType: oth > 0 ? rrOtType_(rrRangeStr_(resked || sched), rrRangeStr_(ot), false) : null,
+      section: section, name: name, pos: pos, posGroup: rrLLPosGroup_(pos), team: section,
+      shift: resked || sched, shiftTime: rrFmtRange_(srng) || (resked || sched), shiftStart: srng[0],
+      bucket: rrLLClassify_(sched, remark),
+      ot: oth, otType: oth > 0 ? rrOtType_(srng, orng, false) : null, otTime: oth > 0 ? rrFmtRange_(orng) : '',
       assignments: [],
     };
     var sk = section || '(none)';

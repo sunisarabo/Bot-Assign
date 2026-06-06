@@ -1,5 +1,5 @@
 /**
- * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard, AOTGA CI)
+ * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard + Timetable, AOTGA CI)
  * วางไฟล์เดียวใน Apps Script | เปิด Drive API | แก้ CONFIG_RB | doGet=หน้าเว็บ
  */
 
@@ -116,6 +116,13 @@ function rrRangeCells_(row, col) {
   if (r[0] != null) return r;
   return [rrMin_(row[col]), col + 1 < row.length ? rrMin_(row[col + 1]) : null];
 }
+function rrFmtMin_(m) {
+  if (m == null) return '';
+  var h = Math.floor(m / 60) % 24, mm = ((m % 60) + 60) % 60;
+  return ('0' + h).slice(-2) + ':' + ('0' + mm).slice(-2);
+}
+function rrFmtRange_(r) { return (r[0] != null && r[1] != null) ? (rrFmtMin_(r[0]) + '-' + rrFmtMin_(r[1])) : ''; }
+
 /** 'PRE' (OT before shift) or 'POST' (OT after shift). Defaults POST. */
 function rrOtType_(srng, orng, isOff) {
   if (isOff) return 'POST';
@@ -214,15 +221,17 @@ function rrParseStandard_(rows, team) {
 
     var oth = rrOtHours_(otv);
     var bkt = rrClassify_(shift || timev, remark);
-    var otType = null;
-    if (oth > 0) {
-      otType = rrOtType_(rrRangeCells_(row, cm.time), rrRangeCells_(row, cm.ot), bkt === 'ot_off');
-    }
+    var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : [null, null];
+    var orng = cm.ot >= 0 ? rrRangeCells_(row, cm.ot) : [null, null];
+    var otType = oth > 0 ? rrOtType_(srng, orng, bkt === 'ot_off') : null;
     recs.push({
       team: team, id: idd, name: name,
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
       shift: shift || timev,
-      bucket: bkt, ot: oth, otType: otType, assignments: assigns,
+      shiftTime: rrFmtRange_(srng) || (shift || timev),
+      shiftStart: srng[0],
+      bucket: bkt, ot: oth, otType: otType, otTime: oth > 0 ? rrFmtRange_(orng) : '',
+      assignments: assigns,
     });
   }
   return recs;
@@ -659,10 +668,12 @@ function readLLFromTab(ss, tabName) {
 
     var sched = rrClean_(r[4]), resked = rrClean_(r[5]), remark = rrClean_(r[6]), ot = rrClean_(r[8]);
     var oth = rrOtHours_(ot);
+    var srng = rrRangeStr_(resked || sched), orng = rrRangeStr_(ot);
     var rec = {
-      section: section, name: name, pos: pos, posGroup: rrLLPosGroup_(pos),
-      shift: resked || sched, bucket: rrLLClassify_(sched, remark),
-      ot: oth, otType: oth > 0 ? rrOtType_(rrRangeStr_(resked || sched), rrRangeStr_(ot), false) : null,
+      section: section, name: name, pos: pos, posGroup: rrLLPosGroup_(pos), team: section,
+      shift: resked || sched, shiftTime: rrFmtRange_(srng) || (resked || sched), shiftStart: srng[0],
+      bucket: rrLLClassify_(sched, remark),
+      ot: oth, otType: oth > 0 ? rrOtType_(srng, orng, false) : null, otTime: oth > 0 ? rrFmtRange_(orng) : '',
       assignments: [],
     };
     var sk = section || '(none)';
@@ -1243,6 +1254,49 @@ function rbPosRows_(positions, order) {
   }).join('');
 }
 
+// ── Timetable (per-employee scheduling) ─────────────────────────────────────
+function rbFlightChips_(assigns) {
+  if (!assigns || !assigns.length) return '<span class="h">—</span>';
+  return assigns.map(function (a) {
+    var task = a.task ? (' <span class="tk">[' + rbEsc_(a.task) + ']</span>') : '';
+    var sta = (a.STA || a.STD) ? (' <span class="t1">STA/STD ' + (a.STA || '–') + '/' + (a.STD || '–') + '</span>') : '';
+    var op = (a.OP || a.CL) ? (' <span class="t2">OP-CL ' + (a.OP || '–') + '-' + (a.CL || '–') + '</span>') : '';
+    return '<span class="flt">' + rbEsc_(a.flight) + task + sta + op + '</span>';
+  }).join(' ');
+}
+function rbOtCellTT_(b) {
+  if (!b.ot) return '<span class="h">—</span>';
+  var lbl = b.otType === 'PRE' ? '<span class="pre">ก่อนกะ</span>' : '<span class="post">หลังกะ</span>';
+  return lbl + ' ' + (b.otTime || '') + ' <span class="h">(' + b.ot + 'h)</span>';
+}
+function rbTimetableRows_(res, ll) {
+  var rows = [];
+  Object.keys(res.teams).forEach(function (t) {
+    res.teams[t].records.forEach(function (r) {
+      if (r.bucket === 'working' || r.bucket === 'ot_off') rows.push(r);
+    });
+  });
+  if (ll && ll.totals.staff > 0) {
+    Object.keys(ll.sections).forEach(function (s) {
+      ll.sections[s].records.forEach(function (r) {
+        if (r.bucket === 'working' || r.bucket === 'ot_off') rows.push(r);
+      });
+    });
+  }
+  rows.sort(function (a, b) {
+    return String(a.team).localeCompare(String(b.team)) ||
+      ((a.shiftStart == null ? 99999 : a.shiftStart) - (b.shiftStart == null ? 99999 : b.shiftStart));
+  });
+  return rows.map(function (r) {
+    var st = r.shiftStart == null ? 99999 : r.shiftStart;
+    var shiftCol = rbEsc_(r.shift || '') + (r.shiftTime && r.shiftTime !== r.shift ? ' <span class="h">' + r.shiftTime + '</span>' : '');
+    return '<tr data-team="' + rbEsc_(r.team) + '" data-start="' + st + '" data-name="' + rbEsc_(r.name) + '">' +
+      '<td class="tm">' + rbEsc_(r.team) + '</td><td>' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.pos || '') + '</td>' +
+      '<td>' + shiftCol + '</td><td>' + rbOtCellTT_(r) + '</td><td>' + (r.assignments ? r.assignments.length : 0) + '</td>' +
+      '<td class="fl">' + rbFlightChips_(r.assignments) + '</td></tr>';
+  }).join('');
+}
+
 function rbLogo_() {
   if (AOTGA_LOGO_URL) return '<img src="' + AOTGA_LOGO_URL + '" alt="AOTGA" style="height:46px">';
   return '<span class="emblem"></span>';
@@ -1312,6 +1366,15 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     '.bar{position:relative;height:18px;background:#e6edf6;border-radius:9px;overflow:hidden}' +
     '.bar .fill{height:100%;background:linear-gradient(90deg,' + CI.teal + ',' + CI.sky + ')}.bar .fill.llf{background:linear-gradient(90deg,#e0a500,' + CI.yellow + ')}' +
     '.bar span{position:absolute;right:8px;top:0;font-size:11px;line-height:18px;color:' + CI.royal + ';font-weight:700}' +
+    '.tthead{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px}' +
+    '.ttbar{display:flex;gap:8px;flex-wrap:wrap}' +
+    '.ttbar input{font-family:inherit;border:1px solid ' + CI.line + ';border-radius:8px;padding:7px 10px;font-size:13px}' +
+    '.ttbar button{font-family:inherit;background:' + CI.royal + ';color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer;font-size:12px;font-weight:600}' +
+    '.ttwrap{overflow-x:auto}table.tt{font-size:12px}table.tt th{cursor:pointer;white-space:nowrap}table.tt td{vertical-align:top}' +
+    'td.fl{text-align:left;line-height:1.9}' +
+    '.flt{display:inline-block;background:#f0f5fb;border:1px solid #e1eaf5;border-radius:6px;padding:1px 7px;margin:1px 2px;white-space:nowrap}' +
+    '.tk{color:' + CI.royal + ';font-weight:600}.t1{color:#1b8a5a}.t2{color:#b06a00}' +
+    '.pre{color:#b06a00;font-weight:700}.post{color:' + CI.royal + ';font-weight:700}' +
     '.foot{margin-top:14px;text-align:center;color:' + CI.sub + ';font-size:11px}' +
     '@media print{body{background:#fff;padding:0}.ctrl{display:none}.card,.kpi{box-shadow:none}}' +
     '</style></head><body>' +
@@ -1333,10 +1396,24 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     '<div class="card"><h2>👥 PSA by Position</h2><table><thead>' + posHead + '</thead><tbody>' +
     rbPosRows_(res.positions, ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign']) +
     '</tbody></table>' + llBlock + '</div></div>' +
+    '<div class="card"><div class="tthead"><h2>🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT ก่อน/หลัง · STA/STD เที่ยวบิน)</h2>' +
+    '<div class="ttbar"><input id="ttq" placeholder="🔎 ค้นหา ชื่อ/ทีม/เที่ยวบิน" oninput="filterTT()">' +
+    '<button onclick="sortTT(\'team\')">↕ เรียงตามทีม</button>' +
+    '<button onclick="sortTT(\'start\')">↕ เรียงตามเวลาเข้ากะ</button></div></div>' +
+    '<div class="ttwrap"><table class="tt"><thead><tr>' +
+    '<th onclick="sortTT(\'team\')">ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th onclick="sortTT(\'start\')">กะ (เข้า-ออก)</th>' +
+    '<th>OT (ก่อน/หลังกะ)</th><th>#</th><th>เที่ยวบิน · task · STA/STD · OP-CL</th>' +
+    '</tr></thead><tbody id="ttbody">' + rbTimetableRows_(res, ll) + '</tbody></table></div></div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';' +
     'function go(){var d=document.getElementById("dt").value;if(d)window.location.search="?date="+d;}' +
+    'function sortTT(k){var tb=document.getElementById("ttbody");var rs=[].slice.call(tb.children);' +
+    'rs.sort(function(a,b){if(k==="start"){return (+a.dataset.start-+b.dataset.start)||a.dataset.team.localeCompare(b.dataset.team);}' +
+    'return a.dataset.team.localeCompare(b.dataset.team)||(+a.dataset.start-+b.dataset.start);});' +
+    'rs.forEach(function(r){tb.appendChild(r);});}' +
+    'function filterTT(){var q=document.getElementById("ttq").value.toLowerCase();' +
+    '[].forEach.call(document.getElementById("ttbody").children,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
     'window.addEventListener("load",function(){if(!window.Chart)return;' +
     'Chart.defaults.color="' + CI.sub + '";Chart.defaults.font.family="Kanit,sans-serif";' +
     'new Chart(document.getElementById("c1"),{type:"bar",data:{labels:CD.tn,datasets:[' +

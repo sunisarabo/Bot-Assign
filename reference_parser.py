@@ -221,12 +221,16 @@ def parse_standard(rows, team):
                    for c, nm in fltcols if c < len(row) and cv(row[c])]
         oth = ot_hours(otv)
         bkt = classify(shift or timev, remark)
-        otype = ot_type(_range_cells(row, cm['time']), _range_cells(row, cm['ot']),
-                        bkt == 'ot_off') if oth > 0 else None
+        srng = _range_cells(row, cm['time']); orng = _range_cells(row, cm['ot'])
+        otype = ot_type(srng, orng, bkt == 'ot_off') if oth > 0 else None
+        fmt = lambda m: ('%02d:%02d' % ((m // 60) % 24, m % 60)) if m is not None else ''
+        srng_s = ('%s-%s' % (fmt(srng[0]), fmt(srng[1]))) if srng[0] is not None and srng[1] is not None else ''
+        orng_s = ('%s-%s' % (fmt(orng[0]), fmt(orng[1]))) if oth > 0 and orng[0] is not None and orng[1] is not None else ''
         recs.append(dict(team=team, id=idd, name=name,
                          pos=cv(row[cm['pos']]) if cm['pos'] >= 0 else '',
-                         shift=shift or timev, bucket=bkt,
-                         ot=oth, ot_type=otype, assigns=assigns))
+                         shift=shift or timev, shift_time=srng_s or (shift or timev),
+                         shift_start=srng[0] if srng[0] is not None else 99999,
+                         bucket=bkt, ot=oth, ot_type=otype, ot_time=orng_s, assigns=assigns))
     return recs
 
 
