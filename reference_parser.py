@@ -231,6 +231,118 @@ def parse_crewsign(rows, team):
     return recs
 
 
+def _su_name(raw):
+    """Clean an SU cell to a real staff name, or None for codes/roles/porters."""
+    n = re.sub(r'\s+(WK|TRN|EK|WY|QR|JQ|KC|ZF|FC|BOGO|PVT)\b.*$', '', str(raw or '').strip(), flags=re.I).strip()
+    if not n or len(n) < 2 or n == '-':
+        return None
+    u = n.upper()
+    if re.search(r'\d', u) or 'PORTER' in u:
+        return None
+    if u in ('SPVR', 'SOD', 'OB', 'ONBOARD', 'RF', 'CS', 'ARR', 'PSC', 'STBY',
+             'SCAN', 'FILE', 'MONITOR', 'BRIEF', 'NIL', 'REMARK', 'GATE', 'AGENT', 'PREPARED'):
+        return None
+    return n
+
+
+def parse_su(rows, team):
+    """SU bespoke 3-section template: counter rotation + gate + job detail."""
+    staff, info = {}, {}
+
+    def get(raw):
+        n = _su_name(raw)
+        if not n:
+            return None
+        staff.setdefault(n, {'counter': [], 'flights': []})
+        return n
+
+    ci = ga = jb = -1
+    for r in range(min(40, len(rows))):
+        row = rows[r]
+        c1 = up(row[1]) if len(row) > 1 else ''
+        c2 = up(row[2]) if len(row) > 2 else ''
+        c3 = up(row[3]) if len(row) > 3 else ''
+        c5 = up(row[5]) if len(row) > 5 else ''
+        if ci < 0 and c1 == 'FLT' and c2 in ('TIME', 'SCHEDULE'):
+            ci = r
+        elif ga < 0 and c1 == 'FLT' and 'GATE' in c3:
+            ga = r
+        elif jb < 0 and c1 == 'FLT' and 'SOD' in c5:
+            jb = r
+
+    if ci >= 0:                                              # counter rotation
+        curflt = ''
+        for r in range(ci + 1, len(rows)):
+            row = rows[r]
+            f = cv(row[1]) if len(row) > 1 else ''
+            slot = cv(row[2]) if len(row) > 2 else ''
+            if up(row[1]).startswith('ARRIVAL') or up(row[1]) == 'FLT':
+                break
+            if not slot:
+                continue
+            if f:
+                curflt = f.replace('\n', ' ')
+            for c in range(3, len(row)):
+                for part in re.split(r'[,/]', cv(row[c])):
+                    nm = get(part)
+                    if nm:
+                        staff[nm]['counter'].append({'flts': curflt, 'time': slot})
+
+    if ga >= 0:                                              # gate per-flight
+        groles = [cv(x) for x in rows[ga][3:]]
+        for r in range(ga + 1, len(rows)):
+            row = rows[r]
+            flt = cv(row[1]) if len(row) > 1 else ''
+            if not re.search(r'SU\d', flt, re.I):
+                continue
+            sta = cv(row[2]) if len(row) > 2 else ''
+            info.setdefault(flt, {}).update(STA=sta.split('/')[0], STD=sta.split('/')[1] if '/' in sta else '')
+            for c in range(3, len(row)):
+                role = groles[c - 3] if c - 3 < len(groles) else 'GATE'
+                for part in re.split(r'[,/]', cv(row[c])):
+                    if up(part) == 'SPVR':
+                        continue
+                    nm = get(part)
+                    if nm:
+                        staff[nm]['flights'].append(dict(flight=flt, task=role, **info.get(flt, {})))
+
+    if jb >= 0:                                              # job detail
+        jroles = [cv(x) for x in rows[jb][5:]]
+        for r in range(jb + 1, len(rows)):
+            row = rows[r]
+            flt = cv(row[1]) if len(row) > 1 else ''
+            if not re.search(r'SU\d', flt, re.I):
+                continue
+            opcls = cv(row[4]) if len(row) > 4 else ''
+            if '/' in opcls:
+                p = opcls.split('/')
+                info.setdefault(flt, {}).update(OP=p[0], CL=p[1])
+            for c in range(5, len(row)):
+                role = jroles[c - 5] if c - 5 < len(jroles) else ''
+                for part in re.split(r'[,/]', cv(row[c])):
+                    if up(part) == 'PORTER CS':
+                        continue
+                    nm = get(part)
+                    if nm:
+                        staff[nm]['flights'].append(dict(flight=flt, task=role, **info.get(flt, {})))
+
+    recs = []
+    for nm, d in staff.items():
+        shift = ''
+        if d['counter']:
+            ts = [s['time'] for s in d['counter'] if re.search(r'[-–:]', s['time'])]
+            if ts:
+                shift = re.split(r'[-–]', ts[0])[0].strip() + '-' + re.split(r'[-–]', ts[-1])[-1].strip()
+        assigns = list(d['flights'])
+        if d['counter']:
+            fset = sorted({x for s in d['counter'] for x in re.findall(r'SU\d+(?:/\d+)?', s['flts'], re.I)})
+            assigns.insert(0, dict(flight='CHECK-IN COMMON', task=' '.join(fset),
+                                   OP=d['counter'][0]['time'], CL=d['counter'][-1]['time']))
+        recs.append(dict(team=team, id='', name=nm, pos='', shift=shift,
+                         bucket='working' if (assigns or shift) else 'off', ot=0.0, assigns=assigns))
+    return recs
+
+
 def parse_sheet(ws, name):
     n = name.strip().upper()
     if any(s in n for s in SKIP):
@@ -242,6 +354,8 @@ def parse_sheet(ws, name):
         return parse_porter(rows, name)
     if 'ADMIN' in n and 'DOC' in n:
         return parse_admindoc(rows, name)
+    if n == 'SU' or n.startswith('SU '):
+        return parse_su(rows, name)
     return parse_standard(rows, name)
 
 

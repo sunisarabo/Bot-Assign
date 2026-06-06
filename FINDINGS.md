@@ -66,6 +66,26 @@ Classification order (REMARK first, shift only when REMARK is blank):
   an assignment carrying the flight's `STA/STD/OP/CL` times — this drives the
   "how many flights, doing what, from when to when" view.
 
+## SU is a special 3-section template
+
+SU does not use the standard layout. Its sheet has three stacked sections and a
+staff member appears in several of them:
+
+1. **CHECK-IN COUNTER rotation** — `FLT | TIME | H2 H3 G2…G10`. Staff names fill
+   each counter for each time slot; the same person recurs across consecutive
+   slots = one long "check-in common" sitting that covers **many** flights.
+2. **ARRIVAL & DEPARTURE GATE** — `FLT | STA/STD | GATE MONITOR | ARR | CS |
+   GATE AGENT…`. One row per flight → gate roles are **per-flight**.
+3. **JOB DETAIL** — `FLT | ROUTE | STA/STD | OP/CLS | SOD | OB | RF | …`. One row
+   per flight → job roles per-flight, and supplies each flight's OP/CL times.
+
+`rrParseSU_` reads all three: each staff member gets **one** `CHECK-IN COMMON`
+assignment (covering the counter flights, with the counter time span as OP/CL)
+plus their per-flight gate/job assignments with STA/STD/OP/CL. Names borrowed
+from other teams carry a suffix (`TANADON PVT`, `ANUTTRI JQ`) which is stripped;
+flight codes (`SU637`), role words (`SOD`, `CS`, `SPVR`) and `PORTER CS` are
+rejected as names. Routed by sheet name `SU` (and `SU REV.xx`).
+
 ## OT-hours total caveat (a real surprise in the data)
 
 The per-team flight/job sheets only record OT **duration** for some teams. The

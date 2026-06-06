@@ -233,6 +233,129 @@ function rrParseCrewsign_(rows, team) {
   return recs;
 }
 
+/**
+ * SU has a bespoke 3-section template (rolls out for SU specifically):
+ *   1) CHECK-IN COUNTER rotation  — staff sit a long stretch ("check-in
+ *      common") rotating across time slots, covering MANY flights.
+ *   2) ARRIVAL & DEPARTURE GATE   — per-flight gate roles.
+ *   3) JOB DETAIL                 — per-flight job roles (SOD/OB/RF/...).
+ * A staff member therefore gets ONE long CHECK-IN block plus per-flight
+ * gate/job assignments — matching how SU actually schedules.
+ */
+function rrIsSuName_(raw) {
+  var n = String(raw || '').trim();
+  // strip a trailing borrowed-team / status suffix (e.g. "TANADON PVT", "ANUTTRI JQ")
+  n = n.replace(/\s+(WK|TRN|EK|WY|QR|JQ|KC|ZF|FC|BOGO|PVT|ZF)\b.*$/i, '').trim();
+  if (!n || n.length < 2 || n === '-') return null;
+  var u = n.toUpperCase();
+  if (/\d/.test(u)) return null;                              // flight codes (SU637)
+  if (u.indexOf('PORTER') >= 0) return null;
+  var stop = ['SPVR', 'SOD', 'OB', 'ONBOARD', 'RF', 'CS', 'ARR', 'PSC', 'STBY',
+              'SCAN', 'FILE', 'MONITOR', 'BRIEF', 'NIL', 'REMARK', 'GATE', 'AGENT', 'PREPARED'];
+  for (var i = 0; i < stop.length; i++) if (u === stop[i]) return null;
+  return n;
+}
+
+function rrParseSU_(rows, team) {
+  var staff = {};
+  function get(raw) {
+    var n = rrIsSuName_(raw);
+    if (!n) return null;
+    if (!staff[n]) staff[n] = { counter: [], flights: [] };
+    return n;
+  }
+  function split(v) { return rrClean_(v).split(/[,\/]/); }
+
+  var ci = -1, ga = -1, jb = -1;
+  for (var r = 0; r < Math.min(40, rows.length); r++) {
+    var row = rows[r];
+    var c1 = rrUp_(row[1]), c2 = rrUp_(row[2]), c3 = rrUp_(row[3]), c5 = rrUp_(row[5]);
+    if (ci < 0 && c1 === 'FLT' && (c2 === 'TIME' || c2 === 'SCHEDULE')) ci = r;
+    else if (ga < 0 && c1 === 'FLT' && c3.indexOf('GATE') >= 0) ga = r;
+    else if (jb < 0 && c1 === 'FLT' && c5.indexOf('SOD') >= 0) jb = r;
+  }
+  var info = {};
+
+  // 1) counter rotation
+  if (ci >= 0) {
+    var curflt = '';
+    for (var r1 = ci + 1; r1 < rows.length; r1++) {
+      var row1 = rows[r1];
+      var f = rrClean_(row1[1]), slot = rrClean_(row1[2]);
+      if (rrUp_(row1[1]).indexOf('ARRIVAL') === 0 || rrUp_(row1[1]) === 'FLT') break;
+      if (!slot) continue;
+      if (f) curflt = f.replace(/\n/g, ' ');
+      for (var c = 3; c < row1.length; c++) {
+        split(row1[c]).forEach(function (p) {
+          var nm = get(p); if (nm) staff[nm].counter.push({ flts: curflt, time: slot });
+        });
+      }
+    }
+  }
+  // 2) gate per-flight
+  if (ga >= 0) {
+    var groles = rows[ga].slice(3).map(rrClean_);
+    for (var r2 = ga + 1; r2 < rows.length; r2++) {
+      var row2 = rows[r2], flt2 = rrClean_(row2[1]);
+      if (!/SU\d/i.test(flt2)) continue;
+      var sta = rrClean_(row2[2]);
+      info[flt2] = info[flt2] || {};
+      info[flt2].STA = sta.split('/')[0] || ''; info[flt2].STD = sta.indexOf('/') >= 0 ? sta.split('/')[1] : '';
+      for (var c2 = 3; c2 < row2.length; c2++) {
+        var role2 = groles[c2 - 3] || 'GATE';
+        split(row2[c2]).forEach(function (p) {
+          if (rrUp_(p) === 'SPVR') return;
+          var nm = get(p);
+          if (nm) staff[nm].flights.push({ flight: flt2, task: role2, STA: info[flt2].STA, STD: info[flt2].STD, OP: '', CL: '' });
+        });
+      }
+    }
+  }
+  // 3) job detail
+  if (jb >= 0) {
+    var jroles = rows[jb].slice(5).map(rrClean_);
+    for (var r3 = jb + 1; r3 < rows.length; r3++) {
+      var row3 = rows[r3], flt3 = rrClean_(row3[1]);
+      if (!/SU\d/i.test(flt3)) continue;
+      var opcls = rrClean_(row3[4]);
+      info[flt3] = info[flt3] || {};
+      if (opcls.indexOf('/') >= 0) { info[flt3].OP = opcls.split('/')[0]; info[flt3].CL = opcls.split('/')[1]; }
+      for (var c3 = 5; c3 < row3.length; c3++) {
+        var role3 = jroles[c3 - 5] || '';
+        split(row3[c3]).forEach(function (p) {
+          if (rrUp_(p) === 'PORTER CS') return;
+          var nm = get(p);
+          if (nm) staff[nm].flights.push({ flight: flt3, task: role3,
+            STA: info[flt3].STA || '', STD: info[flt3].STD || '', OP: info[flt3].OP || '', CL: info[flt3].CL || '' });
+        });
+      }
+    }
+  }
+
+  var recs = [];
+  Object.keys(staff).forEach(function (nm) {
+    var d = staff[nm], shift = '';
+    if (d.counter.length) {
+      var ts = d.counter.map(function (s) { return s.time; }).filter(function (t) { return /[-–:]/.test(t); });
+      if (ts.length) {
+        var first = ts[0].split(/[-–]/)[0].trim();
+        var last = ts[ts.length - 1].split(/[-–]/).pop().trim();
+        shift = first + '-' + last;
+      }
+    }
+    var assigns = d.flights.slice();
+    if (d.counter.length) {
+      var fset = {};
+      d.counter.forEach(function (s) { (s.flts.match(/SU\d+(?:\/\d+)?/ig) || []).forEach(function (x) { fset[x] = 1; }); });
+      assigns.unshift({ flight: 'CHECK-IN COMMON', task: Object.keys(fset).join(' '),
+        STA: '', STD: '', OP: d.counter[0].time, CL: d.counter[d.counter.length - 1].time });
+    }
+    recs.push({ team: team, id: '', name: nm, pos: '', shift: shift,
+      bucket: (assigns.length || shift) ? 'working' : 'off', ot: 0, assignments: assigns });
+  });
+  return recs;
+}
+
 function rrParseSheet_(ws) {
   var name = ws.getName();
   var n = name.trim().toUpperCase();
@@ -243,6 +366,7 @@ function rrParseSheet_(ws) {
   if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) return rrParseCrewsign_(rows, name);
   if (n === 'PORTER') return rrParsePorter_(rows, name);
   if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) return rrParseAdminDoc_(rows, name);
+  if (n === 'SU' || n.indexOf('SU ') === 0) return rrParseSU_(rows, name);
   return rrParseStandard_(rows, name);
 }
 
