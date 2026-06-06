@@ -84,7 +84,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
   try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) { Logger.log('⚠️ Master: ' + e.message); }
   var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
   rbWriteDashboard_(out, res, roster.getName(), ll, master);
-  rbWriteTimetable_(out, res, roster.getName());
+  rbWriteTimetable_(out, res, roster.getName(), ll);
   var cleanup = out.getSheetByName('Sheet1') || out.getSheetByName('ชีต1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
   if (opened.tempId) { try { DriveApp.getFileById(opened.tempId).setTrashed(true); } catch (e) {} }
@@ -115,7 +115,7 @@ function rbRunForDate_(date) {
 
   var out = rbGetMonthlyOutput_(mon, be);
   rbWriteDashboard_(out, res, dateStr, ll, master);
-  rbWriteTimetable_(out, res, dateStr);
+  rbWriteTimetable_(out, res, dateStr, ll);
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
 
   rbPostChat_(res, dateStr, out.getUrl(), ll, master);
@@ -255,35 +255,50 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master) {
 
 // ─── TIMETABLE TAB ──────────────────────────────────────────────────────────
 function rbFlightCell_(a) {
-  var open = a.OP || a.STA || '';
-  var close = a.CL || a.STD || '';
   var t = a.task ? (' [' + a.task + ']') : '';
-  var time = (open || close) ? (' ' + open + '-' + close) : '';
-  return a.flight + t + time;
+  var sta = (a.STA || a.STD) ? (' STA/STD ' + (a.STA || '-') + '/' + (a.STD || '-')) : '';
+  var op = (a.OP || a.CL) ? (' OP-CL ' + (a.OP || '-') + '-' + (a.CL || '-')) : '';
+  return a.flight + t + sta + op;
+}
+function rbShiftCell_(r) {
+  var code = r.shift || '';
+  return (r.shiftTime && r.shiftTime !== code) ? (code + ' (' + r.shiftTime + ')') : code;
+}
+function rbOtTimeCell_(r) {
+  if (!r.ot) return '';
+  return (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ') + ' ' + (r.otTime || '') + ' (' + r.ot + 'h)';
 }
 
-function rbWriteTimetable_(ss, res, dateStr) {
+function rbWriteTimetable_(ss, res, dateStr, ll) {
   var sh = ss.getSheetByName('🕓 Timetable');
   if (sh) { sh.clear(); } else { sh = ss.insertSheet('🕓 Timetable'); }
 
-  var rows = [['Team', 'Name', 'Position', 'Shift', 'OT', '#Flt', 'Flights (task @ open-close)']];
+  var head = ['Team', 'Name', 'Position', 'กะ (เข้า-ออก)', 'OT (ก่อน/หลังกะ)', '#Flt', 'เที่ยวบิน (task · STA/STD · OP-CL)'];
+  var rows = [head];
   var meta = [{ type: 'title' }];
   rows.push(['🕓 Timetable / Scheduling — ' + dateStr, '', '', '', '', '', '']);
   meta.push({ type: 'title2' });
 
-  Object.keys(res.teams).forEach(function (team) {
-    if (CONFIG_RB.SKIP_TIMETABLE_TEAMS.indexOf(team) >= 0) return;
-    var b = res.teams[team];
-    rows.push(['▶ ' + team + '  —  flights handled: ' + b.flights + '  •  working: ' + (b.working + b.ot_off),
-               '', '', '', '', '', '']);
-    meta.push({ type: 'team' });
-    b.records.forEach(function (r) {
-      if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
-      var flights = r.assignments.map(rbFlightCell_).join('  •  ');
-      rows.push([team, r.name, r.pos || '', r.shift || '', r.ot || '', r.assignments.length, flights]);
+  function emitGroup(label, records, headColor) {
+    var working = records.filter(function (r) { return r.bucket === 'working' || r.bucket === 'ot_off'; });
+    if (!working.length) return;
+    var flts = working.reduce(function (n, r) { return n + (r.assignments ? r.assignments.length : 0); }, 0);
+    rows.push(['▶ ' + label + '  —  flights: ' + flts + '  •  working: ' + working.length, '', '', '', '', '', '']);
+    meta.push({ type: 'team', color: headColor });
+    working.forEach(function (r) {
+      var flights = (r.assignments || []).map(rbFlightCell_).join('  •  ');
+      rows.push([r.team || label, r.name, r.pos || '', rbShiftCell_(r), rbOtTimeCell_(r), (r.assignments ? r.assignments.length : 0), flights]);
       meta.push({ type: 'data' });
     });
+  }
+
+  Object.keys(res.teams).forEach(function (team) {
+    if (CONFIG_RB.SKIP_TIMETABLE_TEAMS.indexOf(team) >= 0) return;
+    emitGroup(team, res.teams[team].records, '#2e75b6');
   });
+  if (ll && ll.totals.staff > 0) {
+    Object.keys(ll.sections).forEach(function (s) { emitGroup('LL · ' + s, ll.sections[s].records, '#bf8f00'); });
+  }
 
   sh.getRange(1, 1, rows.length, 7).setValues(rows);
   sh.getRange(1, 1, 1, 7).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
@@ -291,10 +306,10 @@ function rbWriteTimetable_(ss, res, dateStr) {
     .setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
   for (var i = 0; i < meta.length; i++) {
     if (meta[i].type === 'team') {
-      sh.getRange(i + 1, 1, 1, 7).merge().setBackground('#2e75b6').setFontColor('#fff').setFontWeight('bold');
+      sh.getRange(i + 1, 1, 1, 7).merge().setBackground(meta[i].color).setFontColor('#fff').setFontWeight('bold');
     }
   }
-  [90, 150, 70, 70, 40, 45, 600].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  [90, 150, 70, 130, 150, 45, 620].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   sh.setFrozenRows(2);
 }
 
