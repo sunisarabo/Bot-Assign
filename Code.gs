@@ -1,6 +1,6 @@
 /**
  * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard + Timetable, AOTGA CI)
- * ไฟล์รายเดือน + แท็บรายวัน | เว็บ: tab Dashboard/Timetable + เลือกวัน ±7 วัน | doGet
+ * ไฟล์รายเดือน + แท็บรายวัน | เว็บ: tab + เลือกวัน ±7 วัน | doGet
  */
 
 
@@ -1534,7 +1534,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var BASE=' + JSON.stringify(base || '') + ';' +
-    'function go(d){d=d||document.getElementById("dt").value;if(!d)return;var u=BASE+"?date="+d;try{window.top.location.href=u;}catch(e){window.location.href=u;}}' +
+    'function go(d){d=d||document.getElementById("dt").value;if(!d)return;var a=document.createElement("a");a.href=BASE+"?date="+d;a.target="_top";a.rel="noopener";document.body.appendChild(a);a.click();}' +
     'function showView(v){document.getElementById("view-dash").style.display=v==="dash"?"":"none";' +
     'document.getElementById("view-tt").style.display=v==="tt"?"":"none";' +
     'document.getElementById("tab-dash").className="tab"+(v==="dash"?" active":"");' +

@@ -31,13 +31,18 @@ jobs:
           CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
         run: |
           if [ -z "$CLASPRC_JSON" ]; then
-            echo "::error::ยังไม่ได้ตั้ง secret CLASPRC_JSON (หรือค่าว่าง). ทำตามขั้นตอนในหัวไฟล์ workflow: clasp login แล้ว copy ~/.clasprc.json ทั้งไฟล์ไปใส่เป็น secret ชื่อ CLASPRC_JSON"
+            echo "::error::ยังไม่ได้ตั้ง secret CLASPRC_JSON (หรือค่าว่าง). ทำตามขั้นตอนในหัวไฟล์ workflow"
             exit 1
           fi
+          case "$CLASPRC_JSON" in
+            '~/'*|'cat '*|'%USERPROFILE%'*|*.clasprc.json)
+              echo "::error::secret มีค่าเป็น 'ชื่อ path' ไม่ใช่ 'เนื้อหาไฟล์'. ต้องวางผลลัพธ์ของ 'cat ~/.clasprc.json' (เริ่มด้วย {\"token\":...) ไม่ใช่ตัวอักษร ~/.clasprc.json"
+              exit 1;;
+          esac
           printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
-          # validate it is real JSON, fail early with a clear message otherwise
-          node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8'))" \
-            || { echo "::error::CLASPRC_JSON ไม่ใช่ JSON ที่ถูกต้อง — ต้อง copy เนื้อหาไฟล์ ~/.clasprc.json ทั้งไฟล์ (ขึ้นต้นด้วย {\"token\":...})"; exit 1; }
+          node -e "var o=JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8')); if(!o.token&&!o.tokens)throw new Error('no token field')" \
+            || { echo "::error::CLASPRC_JSON ไม่ใช่ JSON ของ ~/.clasprc.json — ต้อง copy เนื้อหาทั้งไฟล์ (ขึ้นต้นด้วย {\"token\":...}) จากเครื่องที่ clasp login แล้ว"; exit 1; }
+          echo "✅ creds JSON OK"
 
       - uses: actions/setup-node@v4
         with:
