@@ -1,6 +1,6 @@
 /**
  * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard + Timetable, AOTGA CI)
- * วางไฟล์เดียวใน Apps Script | เปิด Drive API | แก้ CONFIG_RB | doGet=หน้าเว็บ
+ * ไฟล์รายเดือน 1 ไฟล์ + แท็บรายวัน (📊/🕓 DD MON) เก็บประวัติ | doGet=หน้าเว็บ
  */
 
 
@@ -883,11 +883,16 @@ function rbRunForDate_(date) {
 
   var be = date.getFullYear() + 543;
   var mon = MON_RB[date.getMonth()];
+  var dd = ('0' + date.getDate()).slice(-2);
   var dateStr = date.getDate() + ' ' + mon + ' ' + be;
 
+  // one monthly file, two tabs PER DAY → keeps history (📊 06 JUN / 🕓 06 JUN)
   var out = rbGetMonthlyOutput_(mon, be);
-  rbWriteDashboard_(out, res, dateStr, ll, master);
-  rbWriteTimetable_(out, res, dateStr, ll);
+  rbWriteDashboard_(out, res, dateStr, ll, master, '📊 ' + dd + ' ' + mon);
+  rbWriteTimetable_(out, res, dateStr, ll, '🕓 ' + dd + ' ' + mon);
+  ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
+    var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
+  });
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
 
   rbPostChat_(res, dateStr, out.getUrl(), ll, master);
@@ -929,10 +934,11 @@ function rbManpowerTable_(sh, top, title, rowsData, headColor) {
   return top + 2 + body.length;
 }
 
-function rbWriteDashboard_(ss, res, dateStr, ll, master) {
-  var oldD = ss.getSheetByName('📊 Dashboard');
+function rbWriteDashboard_(ss, res, dateStr, ll, master, tabName) {
+  tabName = tabName || '📊 Dashboard';
+  var oldD = ss.getSheetByName(tabName);
   if (oldD) ss.deleteSheet(oldD);                            // recreate fresh (clears stale freeze/merges)
-  var sh = ss.insertSheet('📊 Dashboard', 0);
+  var sh = ss.insertSheet(tabName, 0);
 
   var P = res.totals;
   var L = ll && ll.totals.staff > 0 ? ll.totals : null;
@@ -1039,10 +1045,11 @@ function rbOtCols_(r) {
   return ['', '', ''];
 }
 
-function rbWriteTimetable_(ss, res, dateStr, ll) {
-  var old = ss.getSheetByName('🕓 Timetable');
+function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
+  tabName = tabName || '🕓 Timetable';
+  var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);                              // recreate fresh (clears stale freeze/merges)
-  var sh = ss.insertSheet('🕓 Timetable');
+  var sh = ss.insertSheet(tabName, 1);
   var MAXFL = 4, F = 6, B = 9, TOTAL = B + MAXFL * F + 1;   // 34 columns
 
   // flatten working records: PSA teams then LL sections
