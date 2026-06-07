@@ -173,7 +173,7 @@ function rbManpowerTable_(sh, top, title, rowsData, headColor) {
   var body = rowsData.map(function (d) {
     var b = d.agg, work = b.working + b.ot_off;
     var pct = b.staff > 0 ? Math.round(work / b.staff * 100) + '%' : '-';
-    return [d.label, b.staff, work, b.ot_off, rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
+    return [d.label, b.staff, work, rbOtCell_(b.ot_off, b.otOffHrs), rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
   });
   if (body.length) sh.getRange(top + 2, 1, body.length, W).setValues(body);
   return top + 2 + body.length;
@@ -205,11 +205,14 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master, tabName) {
     ['👥 Total Staff', '🟢 Working', '⬛ OFF', '🟡 OT OFF (XX)', '⏰ OT คน', '⏱️ OT ชั่วโมง'],
     [combStaff, combWork, combOff, combOtOff, combOtPpl, combOtHrs]);
 
-  // Overall OT split (ก่อนกะ / หลังกะ) — combined PSA + LL
+  // Overall OT split (ก่อนกะ / หลังกะ / OT OFF) — combined PSA + LL, คน + ชม.
   var otPre = P.otPre + (L ? L.otPre : 0), otPreHrs = Math.round((P.otPreHrs + (L ? L.otPreHrs : 0)) * 10) / 10;
   var otPost = P.otPost + (L ? L.otPost : 0), otPostHrs = Math.round((P.otPostHrs + (L ? L.otPostHrs : 0)) * 10) / 10;
+  var otOff = P.ot_off + (L ? L.ot_off : 0), otOffHrs = Math.round((P.otOffHrs + (L ? L.otOffHrs : 0)) * 10) / 10;
   sh.getRange(5, 1, 1, 6).merge()
-    .setValue('⏱️ OT ก่อนกะ: ' + otPre + ' คน (' + otPreHrs + 'h)   |   OT หลังกะ: ' + otPost + ' คน (' + otPostHrs + 'h)')
+    .setValue('⏱️ OT ก่อนกะ: ' + otPre + ' คน (' + otPreHrs + 'h)  |  OT หลังกะ: ' + otPost + ' คน (' + otPostHrs +
+              'h)  |  OT OFF: ' + otOff + ' คน (' + otOffHrs + 'h)  |  รวม OT: ' + (P.otPeople + (L ? L.otPeople : 0)) +
+              ' คน (' + Math.round((P.otHours + (L ? L.otHours : 0)) * 10) / 10 + 'h)')
     .setBackground('#241c33').setFontColor('#f5c542').setFontWeight('bold').setFontSize(11)
     .setHorizontalAlignment('center');
   sh.setRowHeight(5, 22);
@@ -252,7 +255,7 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master, tabName) {
     var body = [];
     orderList.forEach(function (p) {
       var b = positions[p]; if (!b) return;
-      body.push([p, b.staff, b.working, b.ot_off, b.off, b.sick, b.leave,
+      body.push([p, b.staff, b.working, rbOtCell_(b.ot_off, b.otOffHrs), b.off, b.sick, b.leave,
                  rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs)]);
     });
     if (body.length) { sh.getRange(row, 1, body.length, ph.length).setValues(body); row += body.length; }
@@ -386,11 +389,12 @@ function rbPostChat_(res, dateStr, url, ll, master) {
       '*  🤒 *' + L.sick + '*  🌴 *' + L.leave + '*  ⏰ *' + L.otPeople + '* (' + L.otHours + 'h)');
     lines.push('🏢 *รวม PSA+LL working: *' + (T.working + T.ot_off + L.working + L.ot_off) + '* / ' + (T.staff + L.staff) + ' คน*');
   }
-  var oPre = T.otPre + (ll && ll.totals.staff ? ll.totals.otPre : 0);
-  var oPreH = Math.round((T.otPreHrs + (ll && ll.totals.staff ? ll.totals.otPreHrs : 0)) * 10) / 10;
-  var oPost = T.otPost + (ll && ll.totals.staff ? ll.totals.otPost : 0);
-  var oPostH = Math.round((T.otPostHrs + (ll && ll.totals.staff ? ll.totals.otPostHrs : 0)) * 10) / 10;
-  lines.push('⏱️ *OT ก่อนกะ:* ' + oPre + ' คน (' + oPreH + 'h)  |  *OT หลังกะ:* ' + oPost + ' คน (' + oPostH + 'h)');
+  var lt = (ll && ll.totals.staff) ? ll.totals : { otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, ot_off: 0, otOffHrs: 0 };
+  var oPre = T.otPre + lt.otPre, oPreH = Math.round((T.otPreHrs + lt.otPreHrs) * 10) / 10;
+  var oPost = T.otPost + lt.otPost, oPostH = Math.round((T.otPostHrs + lt.otPostHrs) * 10) / 10;
+  var oOff = T.ot_off + lt.ot_off, oOffH = Math.round((T.otOffHrs + lt.otOffHrs) * 10) / 10;
+  lines.push('⏱️ *OT ก่อนกะ:* ' + oPre + ' คน (' + oPreH + 'h)  |  *OT หลังกะ:* ' + oPost + ' คน (' + oPostH +
+             'h)  |  *OT OFF:* ' + oOff + ' คน (' + oOffH + 'h)');
   lines.push('', '*Top teams (working):*');
   Object.keys(res.teams).sort(function (a, b) { return res.teams[b].working - res.teams[a].working; })
     .slice(0, 8).forEach(function (t) {

@@ -83,7 +83,7 @@ function rbAggRowHtml_(label, b, fillClass) {
   var work = b.working + b.ot_off;
   var pct = b.staff > 0 ? Math.round(work / b.staff * 100) : 0;
   return '<tr><td class="tm">' + rbEsc_(label) + '</td><td>' + b.staff + '</td><td><b>' + work +
-    '</b></td><td>' + (b.ot_off || '·') + '</td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) +
+    '</b></td><td>' + rbOtTxt_(b.ot_off, b.otOffHrs) + '</td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) +
     '</td><td style="width:150px"><div class="bar"><div class="fill ' + (fillClass || '') +
     '" style="width:' + pct + '%"></div><span>' + pct + '%</span></div></td></tr>';
 }
@@ -92,7 +92,7 @@ function rbPosRows_(positions, order) {
   return order.map(function (p) {
     var b = positions[p]; if (!b) return '';
     return '<tr><td class="tm">' + p + '</td><td>' + b.staff + '</td><td><b>' + b.working +
-      '</b></td><td>' + b.ot_off + '</td><td>' + b.off + '</td><td>' + b.sick + '</td><td>' +
+      '</b></td><td>' + rbOtTxt_(b.ot_off, b.otOffHrs) + '</td><td>' + b.off + '</td><td>' + b.sick + '</td><td>' +
       b.leave + '</td><td>' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td>' + rbOtTxt_(b.otPost, b.otPostHrs) + '</td></tr>';
   }).join('');
 }
@@ -273,7 +273,10 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     '<div id="view-dash">' +
     '<div class="kpis">' + rbKpiCards_(P, L) + '</div>' +
     '<div class="otbar">⏱️ OT ก่อนกะ: <b>' + (P.otPre + (L ? L.otPre : 0)) + '</b> คน (' + cd.otPreH +
-      'h) &nbsp;&nbsp;|&nbsp;&nbsp; OT หลังกะ: <b>' + (P.otPost + (L ? L.otPost : 0)) + '</b> คน (' + cd.otPostH + 'h)</div>' +
+      'h) &nbsp;|&nbsp; OT หลังกะ: <b>' + (P.otPost + (L ? L.otPost : 0)) + '</b> คน (' + cd.otPostH +
+      'h) &nbsp;|&nbsp; OT OFF: <b>' + (P.ot_off + (L ? L.ot_off : 0)) + '</b> คน (' +
+      (Math.round((P.otOffHrs + (L ? L.otOffHrs : 0)) * 10) / 10) + 'h) &nbsp;|&nbsp; รวม OT: <b>' +
+      (P.otPeople + (L ? L.otPeople : 0)) + '</b> คน (' + (Math.round((P.otHours + (L ? L.otHours : 0)) * 10) / 10) + 'h)</div>' +
     masterLine +
     '<div class="grid2">' +
     '<div class="card"><h2>📊 Working / Total ต่อทีม</h2><canvas id="c1" height="150"></canvas></div>' +

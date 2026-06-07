@@ -492,7 +492,8 @@ function rrAddBucket_(agg, r) {
   else if (r.bucket === 'vac') agg.leave++;
   if (r.ot > 0) {
     agg.otPeople++; agg.otHours += r.ot;
-    if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
+    if (r.bucket === 'ot_off') { agg.otOffHrs += r.ot; }       // OT OFF hours (count = ot_off)
+    else if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
     else { agg.otPost++; agg.otPostHrs += r.ot; }
   }
   agg.flights += (r.assignments ? r.assignments.length : 0);
@@ -500,9 +501,12 @@ function rrAddBucket_(agg, r) {
 }
 function rrNewAgg_() {
   return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
-           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, flights: 0 };
+           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, flights: 0 };
 }
-function rrRoundAgg_(a) { a.otHours = Math.round(a.otHours * 10) / 10; a.otPreHrs = Math.round(a.otPreHrs * 10) / 10; a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; return a; }
+function rrRoundAgg_(a) {
+  a.otHours = Math.round(a.otHours * 10) / 10; a.otPreHrs = Math.round(a.otPreHrs * 10) / 10;
+  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10; return a;
+}
 
 function readRosterFromSpreadsheet(ss) {
   var teams = {};
