@@ -1,6 +1,6 @@
 /**
  * SmartShift Roster Bot — All-in-One (PSA + LL + Master + Web Dashboard + Timetable, AOTGA CI)
- * ไฟล์รายเดือน 1 ไฟล์ + แท็บรายวัน (📊/🕓 DD MON) เก็บประวัติ | doGet=หน้าเว็บ
+ * ไฟล์รายเดือน + แท็บรายวัน | เว็บ: tab Dashboard/Timetable + เลือกวัน ±7 วัน | doGet
  */
 
 
@@ -812,6 +812,19 @@ function runRosterForDate(y, m, d) {
 }
 
 /**
+ * รันครั้งเดียวเพื่อบันทึก Google Chat webhook ลง Script Properties
+ * (อย่าใส่ URL ลงในโค้ดที่ commit ขึ้น GitHub — เป็นความลับ)
+ * วิธีใช้: วาง URL ในตัวแปร url ด้านล่าง → Run setupChatWebhook → แล้วลบ URL ออก
+ * หรือไปที่ Project Settings → Script Properties → เพิ่ม GCHAT_WEBHOOK_REPORT เอง
+ */
+function setupChatWebhook() {
+  var url = 'PASTE_GOOGLE_CHAT_WEBHOOK_URL_HERE';
+  if (url.indexOf('http') !== 0) { Logger.log('⚠️ วาง URL webhook ในฟังก์ชัน setupChatWebhook ก่อน'); return; }
+  PropertiesService.getScriptProperties().setProperty(CONFIG_RB.CHAT_WEBHOOK_PROP, url);
+  Logger.log('✅ บันทึก webhook แล้ว → รายงานรายวันจะส่งเข้า Google Chat');
+}
+
+/**
  * Open any spreadsheet by id whether it is a native Google Sheet OR an uploaded
  * .xlsx (which SpreadsheetApp.openById cannot read). Returns { ss, tempId }.
  * Requires the Drive API advanced service for the .xlsx case.
@@ -1270,7 +1283,10 @@ function doGet(e) {
     var a = p.date.split('-');
     date = new Date(+a[0], +a[1] - 1, +a[2]);
   }
-  var iso = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var iso = Utilities.formatDate(date, tz, 'yyyy-MM-dd');
+  var base = '';
+  try { base = ScriptApp.getService().getUrl() || ''; } catch (eb) {}
   var html;
   try {
     var roster = rbOpenTodayRoster_(date);
@@ -1280,11 +1296,15 @@ function doGet(e) {
     if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e3) {} }
     if (MASTER_FILE_ID_RB) { try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e4) {} }
     var dateStr = date.getDate() + ' ' + MON_RB[date.getMonth()] + ' ' + (date.getFullYear() + 543);
-    html = rbBuildDashboardHtml_(res, ll, master, dateStr, iso);
+    html = rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz);
   } catch (err) {
-    html = '<body style="font-family:Kanit,sans-serif;background:' + CI.bg + ';color:' + CI.text + ';padding:40px">' +
-           '<h2>⚠️ โหลด dashboard ไม่ได้</h2><p>' + rbEsc_(err.message) + '</p>' +
-           '<p>ตรวจว่ามีไฟล์ assignment ของวันที่ ' + iso + ' ในโฟลเดอร์ และตั้งค่า CONFIG_RB แล้ว</p></body>';
+    html = '<!doctype html><html><head><meta charset="utf-8">' +
+      '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;600;800&display=swap" rel="stylesheet"></head>' +
+      '<body style="font-family:Kanit,sans-serif;background:' + CI.bg + ';color:' + CI.text + ';padding:30px;text-align:center">' +
+      rbWeekNavBar_(date, iso, base, tz) +
+      '<h2 style="margin-top:30px">⚠️ ไม่มีข้อมูลของวันที่ ' + rbEsc_(iso) + '</h2>' +
+      '<p style="color:' + CI.sub + '">' + rbEsc_(err.message) + '</p>' +
+      '<p style="color:' + CI.sub + '">ยังไม่มีไฟล์ assignment ของวันนี้ หรือบัญชีไม่มีสิทธิ์ — เลือกวันอื่นจากแถบด้านบนได้</p></body></html>';
   }
   return HtmlService.createHtmlOutput(html)
     .setTitle('AOTGA · Roster Dashboard')
@@ -1380,7 +1400,23 @@ function rbLogo_() {
   return '<span class="emblem"></span>';
 }
 
-function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
+var DOW_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+/** Date picker + week strip (-7..+7 days) that navigate to ?date=ISO. */
+function rbWeekNavBar_(date, iso, base, tz) {
+  var chips = [];
+  for (var off = -7; off <= 7; off++) {
+    var d = new Date(date.getFullYear(), date.getMonth(), date.getDate() + off);
+    var i = Utilities.formatDate(d, tz || 'Asia/Bangkok', 'yyyy-MM-dd');
+    var href = (base || '') + '?date=' + i;
+    chips.push('<a class="wk' + (i === iso ? ' sel' : '') + '" href="' + href + '" target="_top">' +
+      '<span class="wd">' + DOW_TH[d.getDay()] + '</span>' + d.getDate() +
+      '<span class="wm">' + MON_RB[d.getMonth()] + '</span></a>');
+  }
+  return '<div class="navbar"><input type="date" id="dt" value="' + iso + '" onchange="go(this.value)">' +
+    '<div class="wkstrip">' + chips.join('') + '</div></div>';
+}
+
+function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
   var P = res.totals, L = ll && ll.totals.staff > 0 ? ll.totals : null;
   var teamOrder = Object.keys(res.teams).sort(function (a, b) {
     return (res.teams[b].working + res.teams[b].ot_off) - (res.teams[a].working + res.teams[a].ot_off);
@@ -1453,13 +1489,25 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     '.flt{display:inline-block;background:#f0f5fb;border:1px solid #e1eaf5;border-radius:6px;padding:1px 7px;margin:1px 2px;white-space:nowrap}' +
     '.tk{color:' + CI.royal + ';font-weight:600}.t1{color:#1b8a5a}.t2{color:#b06a00}' +
     '.pre{color:#b06a00;font-weight:700}.post{color:' + CI.royal + ';font-weight:700}' +
+    '.navbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}' +
+    '.navbar input{font-family:inherit;background:#fff;border:1px solid ' + CI.line + ';border-radius:8px;padding:8px 10px;font-size:13px}' +
+    '.wkstrip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;flex:1}' +
+    '.wk{flex:0 0 auto;text-decoration:none;color:' + CI.text + ';background:#fff;border:1px solid ' + CI.line + ';border-radius:10px;padding:5px 9px;text-align:center;font-size:13px;font-weight:600;line-height:1.15}' +
+    '.wk .wd,.wk .wm{display:block;font-size:9px;color:' + CI.sub + ';font-weight:400}' +
+    '.wk.sel{background:' + CI.royal + ';color:#fff;border-color:' + CI.royal + '}.wk.sel .wd,.wk.sel .wm{color:#cfe6f6}' +
+    '.tabs{display:flex;gap:8px;margin-bottom:16px}' +
+    '.tab{font-family:inherit;cursor:pointer;background:#fff;border:1px solid ' + CI.line + ';color:' + CI.royal + ';border-radius:10px;padding:9px 18px;font-weight:600;font-size:14px}' +
+    '.tab.active{background:' + CI.royal + ';color:#fff;border-color:' + CI.royal + '}' +
     '.foot{margin-top:14px;text-align:center;color:' + CI.sub + ';font-size:11px}' +
-    '@media print{body{background:#fff;padding:0}.ctrl{display:none}.card,.kpi{box-shadow:none}}' +
+    '@media print{body{background:#fff;padding:0}.ctrl,.navbar,.tabs,.ttbar{display:none}.card,.kpi{box-shadow:none}#view-tt,#view-dash{display:block!important}}' +
     '</style></head><body>' +
     '<div class="head"><div class="brand">' + rbLogo_() +
     '<div><h1>AOTGA</h1><p>Daily Manpower Dashboard · ' + rbEsc_(dateStr) + ' · “Driving Excellence”</p></div></div>' +
-    '<div class="ctrl"><input type="date" id="dt" value="' + iso + '">' +
-    '<button onclick="go()">ดูข้อมูล</button><button class="pdf" onclick="window.print()">⬇️ Export PDF</button></div></div>' +
+    '<div class="ctrl"><button class="pdf" onclick="window.print()">⬇️ Export PDF</button></div></div>' +
+    rbWeekNavBar_(date, iso, base, tz) +
+    '<div class="tabs"><button class="tab active" id="tab-dash" onclick="showView(\'dash\')">📊 Dashboard</button>' +
+    '<button class="tab" id="tab-tt" onclick="showView(\'tt\')">🕓 Timetable</button></div>' +
+    '<div id="view-dash">' +
     '<div class="kpis">' + rbKpiCards_(P, L) + '</div>' +
     '<div class="otbar">⏱️ OT ก่อนกะ: <b>' + (P.otPre + (L ? L.otPre : 0)) + '</b> คน (' + cd.otPreH +
       'h) &nbsp;&nbsp;|&nbsp;&nbsp; OT หลังกะ: <b>' + (P.otPost + (L ? L.otPost : 0)) + '</b> คน (' + cd.otPostH + 'h)</div>' +
@@ -1473,7 +1521,8 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     '</thead><tbody>' + rbTeamRows_(res.teams, teamOrder) + '</tbody></table></div>' +
     '<div class="card"><h2>👥 PSA by Position</h2><table><thead>' + posHead + '</thead><tbody>' +
     rbPosRows_(res.positions, ['PSS', 'SNR', 'PSA', 'Globlex', 'AdminD', 'Porter', 'Crewsign']) +
-    '</tbody></table>' + llBlock + '</div></div>' +
+    '</tbody></table>' + llBlock + '</div></div></div>' +
+    '<div id="view-tt" style="display:none">' +
     '<div class="card"><div class="tthead"><h2>🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT ก่อน/หลัง · STA/STD เที่ยวบิน)</h2>' +
     '<div class="ttbar"><input id="ttq" placeholder="🔎 ค้นหา ชื่อ/ทีม/เที่ยวบิน" oninput="filterTT()">' +
     '<button onclick="sortTT(\'team\')">↕ เรียงตามทีม</button>' +
@@ -1481,11 +1530,15 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso) {
     '<div class="ttwrap"><table class="tt"><thead><tr>' +
     '<th onclick="sortTT(\'team\')">ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th onclick="sortTT(\'start\')">กะ (เข้า-ออก)</th>' +
     '<th>OT (ก่อน/หลังกะ)</th><th>#</th><th>เที่ยวบิน · task · STA/STD · OP-CL</th>' +
-    '</tr></thead><tbody id="ttbody">' + rbTimetableRows_(res, ll) + '</tbody></table></div></div>' +
+    '</tr></thead><tbody id="ttbody">' + rbTimetableRows_(res, ll) + '</tbody></table></div></div></div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
-    '<script>var CD=' + JSON.stringify(cd) + ';' +
-    'function go(){var d=document.getElementById("dt").value;if(d)window.location.search="?date="+d;}' +
+    '<script>var CD=' + JSON.stringify(cd) + ';var BASE=' + JSON.stringify(base || '') + ';' +
+    'function go(d){d=d||document.getElementById("dt").value;if(!d)return;var u=BASE+"?date="+d;try{window.top.location.href=u;}catch(e){window.location.href=u;}}' +
+    'function showView(v){document.getElementById("view-dash").style.display=v==="dash"?"":"none";' +
+    'document.getElementById("view-tt").style.display=v==="tt"?"":"none";' +
+    'document.getElementById("tab-dash").className="tab"+(v==="dash"?" active":"");' +
+    'document.getElementById("tab-tt").className="tab"+(v==="tt"?" active":"");}' +
     'function sortTT(k){var tb=document.getElementById("ttbody");var rs=[].slice.call(tb.children);' +
     'rs.sort(function(a,b){if(k==="start"){return (+a.dataset.start-+b.dataset.start)||a.dataset.team.localeCompare(b.dataset.team);}' +
     'return a.dataset.team.localeCompare(b.dataset.team)||(+a.dataset.start-+b.dataset.start);});' +

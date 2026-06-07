@@ -40,6 +40,19 @@ function runRosterForDate(y, m, d) {
 }
 
 /**
+ * รันครั้งเดียวเพื่อบันทึก Google Chat webhook ลง Script Properties
+ * (อย่าใส่ URL ลงในโค้ดที่ commit ขึ้น GitHub — เป็นความลับ)
+ * วิธีใช้: วาง URL ในตัวแปร url ด้านล่าง → Run setupChatWebhook → แล้วลบ URL ออก
+ * หรือไปที่ Project Settings → Script Properties → เพิ่ม GCHAT_WEBHOOK_REPORT เอง
+ */
+function setupChatWebhook() {
+  var url = 'PASTE_GOOGLE_CHAT_WEBHOOK_URL_HERE';
+  if (url.indexOf('http') !== 0) { Logger.log('⚠️ วาง URL webhook ในฟังก์ชัน setupChatWebhook ก่อน'); return; }
+  PropertiesService.getScriptProperties().setProperty(CONFIG_RB.CHAT_WEBHOOK_PROP, url);
+  Logger.log('✅ บันทึก webhook แล้ว → รายงานรายวันจะส่งเข้า Google Chat');
+}
+
+/**
  * Open any spreadsheet by id whether it is a native Google Sheet OR an uploaded
  * .xlsx (which SpreadsheetApp.openById cannot read). Returns { ss, tempId }.
  * Requires the Drive API advanced service for the .xlsx case.

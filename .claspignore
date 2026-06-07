@@ -7,4 +7,5 @@ Code.gs
 *.json
 !appsscript.json
 .git/**
+.github/**
 .clasp.json

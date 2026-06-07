@@ -1,0 +1,31 @@
+name: Push to Apps Script
+
+# Auto-deploy the .gs modules to the linked Apps Script project on every push.
+# One-time setup (does NOT commit any secret):
+#   1) locally:  npm i -g @google/clasp  &&  clasp login
+#   2) copy the contents of ~/.clasprc.json
+#   3) GitHub repo → Settings → Secrets and variables → Actions → New secret
+#        name:  CLASPRC_JSON      value: <paste ~/.clasprc.json contents>
+# After that, every push that touches the .gs files redeploys them automatically.
+
+on:
+  push:
+    branches: [claude/blissful-clarke-TEW22, main]
+    paths: ['**.gs', 'appsscript.json', '.clasp.json', '.claspignore']
+  workflow_dispatch: {}
+
+jobs:
+  clasp-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install -g @google/clasp
+      - name: Authenticate clasp
+        run: printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      - name: Push to Apps Script
+        run: clasp push --force
