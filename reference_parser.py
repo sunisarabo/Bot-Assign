@@ -161,6 +161,7 @@ def find_header(rows):
         cm['time']   = u.index('TIME') if 'TIME' in u else -1
         cm['pos']    = u.index('POSITION') if 'POSITION' in u else (u.index('POS.') if 'POS.' in u else -1)
         cm['remark'] = u.index('REMARK') if 'REMARK' in u else -1
+        cm['resked'] = u.index('RE-SKED') if 'RE-SKED' in u else (u.index('RESKED') if 'RESKED' in u else -1)
         cm['ot']     = u.index('OT') if 'OT' in u else -1
         # OT total-hours column = a "Total Hrs" header within 3 cols after OT
         tothrs = [c for c, h in enumerate(u)
@@ -187,13 +188,21 @@ def parse_standard(rows, team):
                 fltcols.append((c, nm))
         sta = rows[hi + 1] if hi + 1 < len(rows) else []
         opn = rows[hi + 2] if hi + 2 < len(rows) else []
-        for c, nm in fltcols:
-            flights[nm] = {
-                'STA': parse_time_pair(sta[c]) if c < len(sta) else '',
-                'STD': parse_time_pair(sta[c + 1]) if c + 1 < len(sta) else '',
-                'OP':  parse_time_pair(opn[c]) if c < len(opn) else '',
-                'CL':  parse_time_pair(opn[c + 1]) if c + 1 < len(opn) else '',
-            }
+        spans = []
+        for i, (c, nm) in enumerate(fltcols):
+            c1 = fltcols[i + 1][0] if i + 1 < len(fltcols) else len(hdr)
+            spans.append((c, c1, nm))
+            st, oc = [], []
+            for cc in range(c, c1):
+                tv = parse_time_pair(sta[cc]) if cc < len(sta) else ''
+                if tv:
+                    st.append(tv)
+                ov = parse_time_pair(opn[cc]) if cc < len(opn) else ''
+                if ov:
+                    oc.append(ov)
+            flights[nm] = {'STA': st[0] if st else '', 'STD': st[1] if len(st) > 1 else '',
+                           'OP': oc[0] if oc else '', 'CL': oc[1] if len(oc) > 1 else ''}
+        fltcols = spans  # (c, c_end, name)
 
     recs, seen = [], set()
     for r in range(hi + 1, len(rows)):
@@ -217,17 +226,30 @@ def parse_standard(rows, team):
         remark = cv(row[cm['remark']]) if 0 <= cm['remark'] < len(row) else ''
         otv    = cv(row[cm['ottot']]) if 0 <= cm['ottot'] < len(row) else ''
 
-        assigns = [dict(flight=nm, task=cv(row[c]), **flights.get(nm, {}))
-                   for c, nm in fltcols if c < len(row) and cv(row[c])]
+        assigns = []
+        for c, c1, nm in fltcols:
+            tasks = [cv(row[cc]) for cc in range(c, c1) if cc < len(row) and cv(row[cc])]
+            if tasks:
+                assigns.append(dict(flight=nm, task='/'.join(tasks), **flights.get(nm, {})))
         oth = ot_hours(otv)
         bkt = classify(shift or timev, remark)
-        srng = _range_cells(row, cm['time']); orng = _range_cells(row, cm['ot'])
+        srng = _range_cells(row, cm['time'])
+        re_time = ''
+        if cm.get('resked', -1) >= 0:                         # Re-Sked overrides shift time
+            rs = _range_cells(row, cm['resked'])
+            if rs[0] is not None:
+                srng = rs
+        orng = _range_cells(row, cm['ot'])
         otype = ot_type(srng, orng, bkt == 'ot_off') if oth > 0 else None
         fmt = lambda m: ('%02d:%02d' % ((m // 60) % 24, m % 60)) if m is not None else ''
         srng_s = ('%s-%s' % (fmt(srng[0]), fmt(srng[1]))) if srng[0] is not None and srng[1] is not None else ''
         orng_s = ('%s-%s' % (fmt(orng[0]), fmt(orng[1]))) if oth > 0 and orng[0] is not None and orng[1] is not None else ''
+        if cm.get('resked', -1) >= 0:
+            rs2 = _range_cells(row, cm['resked'])
+            if rs2[0] is not None:
+                re_time = '%s-%s' % (fmt(rs2[0]), fmt(rs2[1])) if rs2[1] is not None else fmt(rs2[0])
         recs.append(dict(team=team, id=idd, name=name,
-                         pos=cv(row[cm['pos']]) if cm['pos'] >= 0 else '',
+                         pos=cv(row[cm['pos']]) if cm['pos'] >= 0 else '', re=re_time,
                          shift=shift or timev, shift_time=srng_s or (shift or timev),
                          shift_start=srng[0] if srng[0] is not None else 99999,
                          bucket=bkt, ot=oth, ot_type=otype, ot_time=orng_s, assigns=assigns))

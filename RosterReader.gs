@@ -145,6 +145,9 @@ function rrFindHeader_(rows) {
     cm.pos    = u.indexOf('POSITION') >= 0 ? u.indexOf('POSITION') : u.indexOf('POS.');
     cm.remark = u.indexOf('REMARK');
     cm.re     = u.indexOf('RE');
+    cm.resked = u.indexOf('RE-SKED');
+    if (cm.resked < 0) cm.resked = u.indexOf('RESKED');
+    if (cm.resked < 0) cm.resked = u.indexOf('RE-SKED.');
     cm.ot     = u.indexOf('OT');
     cm.ottot  = -1;
     for (var c = 0; c < u.length; c++) {
@@ -175,12 +178,17 @@ function rrParseStandard_(rows, team) {
       }
     }
     var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
-    fltcols.forEach(function (fc) {
-      flights[fc.name] = {
-        STA: rrTimePair_(sta[fc.col]), STD: rrTimePair_(sta[fc.col + 1]),
-        OP:  rrTimePair_(opn[fc.col]), CL:  rrTimePair_(opn[fc.col + 1]),
-      };
-    });
+    for (var fi = 0; fi < fltcols.length; fi++) {
+      var c0 = fltcols[fi].col;
+      var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
+      fltcols[fi].end = c1;                                  // flight occupies cols c0..c1-1
+      var st = [], oc = [];
+      for (var cc = c0; cc < c1; cc++) {
+        var tv = rrTimePair_(sta[cc]); if (tv) st.push(tv);
+        var ov = rrTimePair_(opn[cc]); if (ov) oc.push(ov);
+      }
+      flights[fltcols[fi].name] = { STA: st[0] || '', STD: st[1] || '', OP: oc[0] || '', CL: oc[1] || '' };
+    }
   }
 
   var recs = [], seen = {};
@@ -205,9 +213,14 @@ function rrParseStandard_(rows, team) {
 
     var assigns = [];
     fltcols.forEach(function (fc) {
-      if (fc.col < row.length && rrClean_(row[fc.col])) {
+      var tasks = [];
+      for (var cc = fc.col; cc < (fc.end || fc.col + 1); cc++) {
+        var v = cc < row.length ? rrClean_(row[cc]) : '';
+        if (v) tasks.push(v);
+      }
+      if (tasks.length) {
         var info = flights[fc.name] || {};
-        assigns.push({ flight: fc.name, task: rrClean_(row[fc.col]),
+        assigns.push({ flight: fc.name, task: tasks.join('/'),
                        STA: info.STA || '', STD: info.STD || '', OP: info.OP || '', CL: info.CL || '' });
       }
     });
@@ -215,12 +228,18 @@ function rrParseStandard_(rows, team) {
     var oth = rrOtHours_(otv);
     var bkt = rrClassify_(shift || timev, remark);
     var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : [null, null];
+    // Re-Sked overrides the shift time when filled (เปลี่ยนเวลาเข้างาน)
+    var reTime = '';
+    if (cm.resked >= 0) {
+      var rs = rrRangeCells_(row, cm.resked);
+      if (rs[0] != null) { srng = rs; reTime = rrFmtRange_(rs); }
+    }
     var orng = cm.ot >= 0 ? rrRangeCells_(row, cm.ot) : [null, null];
     var otType = oth > 0 ? rrOtType_(srng, orng, bkt === 'ot_off') : null;
     recs.push({
       team: team, id: idd, name: name,
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
-      re: (cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : '',
+      re: reTime || ((cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : ''),
       shift: shift || timev,
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
