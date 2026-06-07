@@ -1,6 +1,6 @@
 /**
- * SmartShift Roster Bot — All-in-One (AOTGA design web app, lazy tabs)
- * doGet หน้าหลักเบา (Dashboard) + lazy-load Timetable/Flights/OT | /exec?ping=1 ทดสอบ
+ * SmartShift Roster Bot — All-in-One (AOTGA design web app, online, lazy tabs)
+ * doGet หน้าหลักเบา + lazy-load Timetable/Flights/OT | /exec?ping=1 ทดสอบ deployment
  */
 
 
@@ -1819,7 +1819,7 @@ function rbTblCard_(title, headHtml, bodyHtml, extraHd) {
     '<div style="overflow-x:auto"><table class="tbl"><thead>'+headHtml+'</thead><tbody>'+bodyHtml+'</tbody></table></div></div>';
 }
 
-function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz) {
+function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode) {
   var P = res.totals, L = ll && ll.totals.staff>0 ? ll.totals : null;
   function comb(k){ return P[k] + (L?L[k]:0); }
   var C = { staff:comb('staff'), working:comb('working')+comb('ot_off'), off:comb('off'), sick:comb('sick'),
@@ -1849,6 +1849,20 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz) {
     '<div class="otrow"><span>⏱️ OT OFF</span><b class="tnum">'+C.ot_off+' คน · '+C.otOffHrs+'h</b></div>' +
     '<div class="otrow"><span>รวม OT</span><b class="tnum">'+C.otPeople+' คน · '+C.otHours+'h</b></div></div>';
 
+  // tab contents: inline (offline file) or lazy placeholders (web app)
+  var ttInner = staticMode
+    ? rbTblCard_('🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT · STA/STD)',
+        '<tr><th>ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
+        rbTtRows_(res, ll), '<input id="ttq" class="search" placeholder="🔎 ค้นหา ชื่อ/ทีม/เที่ยวบิน" oninput="filterTT()">')
+    : '<div id="ttbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Timetable…</div></div>';
+  var fltInner = staticMode
+    ? rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
+        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
+        rbFltRows_(res, ll))
+    : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
+  var otInner = staticMode ? rbWeeklyOTHtml(iso)
+    : '<div id="otbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังคำนวณ OT รายสัปดาห์ (อ่านไฟล์หลายวัน อาจใช้เวลาสักครู่)…</div></div>';
+
   return '<!doctype html><html lang="th" data-theme="corporate"><head><meta charset="utf-8">' +
     '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">' +
     '<style>' + rbDesignCss_() + '</style></head><body><div class="wrap">' +
@@ -1866,17 +1880,16 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz) {
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
     (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +
     '</div>' +
-    '<div id="view-tt" style="display:none"><div id="ttbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Timetable…</div></div></div>' +
-    '<div id="view-flt" style="display:none"><div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div></div>' +
-    '<div id="view-ot" style="display:none"><div id="otbox"><div class="panel muted" style="text-align:center;padding:34px">' +
-    '⏳ กำลังคำนวณ OT รายสัปดาห์ (อ่านไฟล์หลายวัน อาจใช้เวลาสักครู่)…</div></div></div>' +
+    '<div id="view-tt" style="display:none">' + ttInner + '</div>' +
+    '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
+    '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
-    '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var OTLD=false;' +
+    '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
     'function showView(v){["dash","tt","flt","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
-    'var LD={};function lazy(box,fn,id){if(LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
+    'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}' +
     'function filterTT(){var q=document.getElementById("ttq").value.toLowerCase();var t=document.querySelectorAll("#view-tt tbody tr");[].forEach.call(t,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
