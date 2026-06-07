@@ -1,11 +1,17 @@
 name: Push to Apps Script
 
 # Auto-deploy the .gs modules to the linked Apps Script project on every push.
-# One-time setup (does NOT commit any secret):
-#   1) locally:  npm i -g @google/clasp  &&  clasp login
-#   2) copy the contents of ~/.clasprc.json
-#   3) GitHub repo → Settings → Secrets and variables → Actions → New secret
-#        name:  CLASPRC_JSON      value: <paste ~/.clasprc.json contents>
+#
+# ONE-TIME SETUP (no secret is committed to the repo):
+#   1) on your computer:   npm i -g @google/clasp@2.4.2   then   clasp login
+#   2) open the file it created and copy ALL of its contents:
+#        macOS/Linux:  cat ~/.clasprc.json
+#        Windows:      type %USERPROFILE%\.clasprc.json
+#      (it must be valid JSON starting with {"token": ... } )
+#   3) GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+#        Name:  CLASPRC_JSON
+#        Value: <paste the full ~/.clasprc.json contents>
+#
 # After that, every push that touches the .gs files redeploys them automatically.
 
 on:
@@ -19,13 +25,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check CLASPRC_JSON secret
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "::error::ยังไม่ได้ตั้ง secret CLASPRC_JSON (หรือค่าว่าง). ทำตามขั้นตอนในหัวไฟล์ workflow: clasp login แล้ว copy ~/.clasprc.json ทั้งไฟล์ไปใส่เป็น secret ชื่อ CLASPRC_JSON"
+            exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+          # validate it is real JSON, fail early with a clear message otherwise
+          node -e "JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8'))" \
+            || { echo "::error::CLASPRC_JSON ไม่ใช่ JSON ที่ถูกต้อง — ต้อง copy เนื้อหาไฟล์ ~/.clasprc.json ทั้งไฟล์ (ขึ้นต้นด้วย {\"token\":...})"; exit 1; }
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install -g @google/clasp
-      - name: Authenticate clasp
-        run: printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
-        env:
-          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+
+      - name: Install clasp (pinned)
+        run: npm install -g @google/clasp@2.4.2
+
       - name: Push to Apps Script
         run: clasp push --force
