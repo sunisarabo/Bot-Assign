@@ -1,6 +1,6 @@
 /**
- * SmartShift Roster Bot — All-in-One (AOTGA design system web app)
- * แท็บเว็บ: Dashboard / Timetable / Flights+SLA / OT สัปดาห์(>36h, lazy)
+ * SmartShift Roster Bot — All-in-One (AOTGA design web app, lazy tabs)
+ * doGet หน้าหลักเบา (Dashboard) + lazy-load Timetable/Flights/OT | /exec?ping=1 ทดสอบ
  */
 
 
@@ -1618,6 +1618,9 @@ var DOWW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
 function doGet(e) {
   var p = (e && e.parameter) || {};
+  if (p.ping) {  // deployment self-test: /exec?ping=1
+    return HtmlService.createHtmlOutput('<body style="font-family:sans-serif;padding:30px">✅ Web app OK · ' + new Date() + '</body>');
+  }
   var date = new Date();
   if (p.date && /^\d{4}-\d{2}-\d{2}$/.test(p.date)) { var a = p.date.split('-'); date = new Date(+a[0], +a[1]-1, +a[2]); }
   var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
@@ -1625,13 +1628,10 @@ function doGet(e) {
   var base = ''; try { base = ScriptApp.getService().getUrl() || ''; } catch (eb) {}
   var html;
   try {
-    var roster = rbOpenTodayRoster_(date);
-    var res = readRosterFromSpreadsheet(roster.ss);
-    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e2) {} }
-    var ll = null, master = null;
-    if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e3) {} }
+    var d = rbLoadResLL_(date);
+    var master = null;
     if (MASTER_FILE_ID_RB) { try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e4) {} }
-    html = rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz);
+    html = rbBuildDashboardHtml_(d.res, d.ll, master, date, iso, base, tz);
   } catch (err) {
     html = '<!doctype html><html><head><meta charset="utf-8"><style>' + rbDesignCss_() + '</style></head>' +
       '<body><div class="wrap">' + rbWeekNav_(date, iso, base, tz) +
@@ -1641,6 +1641,37 @@ function doGet(e) {
   }
   return HtmlService.createHtmlOutput(html).setTitle('AOTGA · Manpower Dashboard')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/** Load the PSA roster (+ LL) for a date. Used by doGet and the lazy tab loaders. */
+function rbLoadResLL_(date) {
+  var roster = rbOpenTodayRoster_(date);
+  var res = readRosterFromSpreadsheet(roster.ss);
+  if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
+  var ll = null;
+  if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  return { res: res, ll: ll };
+}
+function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+
+/** Lazy tab: Timetable HTML (called from client via google.script.run). */
+function rbTimetableHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    return rbTblCard_('🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT · STA/STD)',
+      '<tr><th>ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
+      rbTtRows_(d.res, d.ll),
+      '<input id="ttq" class="search" placeholder="🔎 ค้นหา ชื่อ/ทีม/เที่ยวบิน" oninput="filterTT()">');
+  } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+/** Lazy tab: Flights & SLA HTML. */
+function rbFlightsHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    return rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
+      rbFltRows_(d.res, d.ll));
+  } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
 function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -1678,8 +1709,8 @@ function rbWeekNav_(date, iso, base, tz) {
 function rbTabs_(shortCount) {
   return '<div class="tabs">' +
     '<button class="tab active" id="tab-dash" onclick="showView(\'dash\')">▦ Dashboard</button>' +
-    '<button class="tab" id="tab-tt" onclick="showView(\'tt\')">☰ Timetable</button>' +
-    '<button class="tab" id="tab-flt" onclick="showView(\'flt\')">✈ Flights &amp; SLA' +
+    '<button class="tab" id="tab-tt" onclick="showView(\'tt\');loadTT()">☰ Timetable</button>' +
+    '<button class="tab" id="tab-flt" onclick="showView(\'flt\');loadFlt()">✈ Flights &amp; SLA' +
     (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
     '<button class="tab" id="tab-ot" onclick="showView(\'ot\');loadOT()">⏱️ OT สัปดาห์</button></div>';
 }
@@ -1835,17 +1866,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz) {
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
     (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +
     '</div>' +
-    '<div id="view-tt" style="display:none"><div style="margin-top:4px">' +
-      rbTblCard_('🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT · STA/STD)',
-        '<tr><th>ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
-        rbTtRows_(res, ll),
-        '<input id="ttq" class="search" placeholder="🔎 ค้นหา ชื่อ/ทีม/เที่ยวบิน" oninput="filterTT()">') +
-    '</div></div>' +
-    '<div id="view-flt" style="display:none"><div style="margin-top:4px">' +
-      rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
-        rbFltRows_(res, ll)) +
-    '</div></div>' +
+    '<div id="view-tt" style="display:none"><div id="ttbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Timetable…</div></div></div>' +
+    '<div id="view-flt" style="display:none"><div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div></div>' +
     '<div id="view-ot" style="display:none"><div id="otbox"><div class="panel muted" style="text-align:center;padding:34px">' +
     '⏳ กำลังคำนวณ OT รายสัปดาห์ (อ่านไฟล์หลายวัน อาจใช้เวลาสักครู่)…</div></div></div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
@@ -1854,8 +1876,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz) {
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var OTLD=false;' +
     'function showView(v){["dash","tt","flt","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
-    'function loadOT(){if(OTLD)return;OTLD=true;if(!(window.google&&google.script&&google.script.run)){document.getElementById("otbox").innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App (/exec) เพื่อดู OT รายสัปดาห์</div>";return;}' +
-    'google.script.run.withSuccessHandler(function(h){document.getElementById("otbox").innerHTML=h;}).withFailureHandler(function(e){OTLD=false;document.getElementById("otbox").innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";}).rbWeeklyOTHtml(ISO);}' +
+    'var LD={};function lazy(box,fn,id){if(LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
+    'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}' +
     'function filterTT(){var q=document.getElementById("ttq").value.toLowerCase();var t=document.querySelectorAll("#view-tt tbody tr");[].forEach.call(t,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
     'window.addEventListener("load",function(){if(!window.Chart)return;if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
     'Chart.defaults.color="'+CI.sub+'";Chart.defaults.font.family="Kanit,sans-serif";Chart.defaults.font.weight="600";' +
