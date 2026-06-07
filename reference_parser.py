@@ -209,9 +209,9 @@ def parse_standard(rows, team):
         row = rows[r]
         idd = re.sub(r'\D', '', cv(row[cm['id']])) if cm['id'] < len(row) else ''
         if len(idd) < 6 and cm['id'] + 1 < len(row):          # WY has a seq col first
-            alt = re.sub(r'\D', '', cv(row[cm['id'] + 1]))
-            if 6 <= len(alt) <= 8:
-                idd = alt
+            raw_next = re.sub(r'\.0+$', '', cv(row[cm['id'] + 1]))
+            if re.fullmatch(r'\d{6,8}', raw_next):            # only a PURE numeric id (not a flight code like PG251/252)
+                idd = raw_next
         name = cv(row[cm['name']]) if cm['name'] < len(row) else ''
         if not name or not (6 <= len(idd) <= 8):
             continue

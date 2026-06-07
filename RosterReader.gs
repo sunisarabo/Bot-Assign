@@ -196,8 +196,8 @@ function rrParseStandard_(rows, team) {
     var row = rows[rr];
     var idd = (cm.id < row.length ? rrClean_(row[cm.id]) : '').replace(/\D/g, '');
     if (idd.length < 6 && cm.id + 1 < row.length) {          // WY leading seq column
-      var alt = rrClean_(row[cm.id + 1]).replace(/\D/g, '');
-      if (alt.length >= 6 && alt.length <= 8) idd = alt;
+      var rawNext = rrClean_(row[cm.id + 1]).replace(/\.0+$/, '');
+      if (/^\d{6,8}$/.test(rawNext)) idd = rawNext;           // only a PURE numeric id (not a flight code like PG251/252)
     }
     var name = cm.name < row.length ? rrClean_(row[cm.name]) : '';
     if (!name || idd.length < 6 || idd.length > 8) continue;
