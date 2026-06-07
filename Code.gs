@@ -1468,7 +1468,7 @@ function rbWriteWeeklyOT_(ss, date, mon, tabName) {
     sh.getRange(3, 1, 1, W).merge().setValue('ยังไม่มีข้อมูล OT ในสัปดาห์นี้').setHorizontalAlignment('center');
   }
   [130, 90, 60].concat(dayCols.map(function () { return 40; })).concat([95, 90]).forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
-  sh.setFrozenRows(2); sh.setFrozenColumns(1);
+  sh.setFrozenRows(2);
 }
 
 /** Standalone: build the weekly-OT tab for a date into the monthly file. */
