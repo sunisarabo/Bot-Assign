@@ -260,7 +260,7 @@ function rbWriteDashboard_(ss, res, dateStr, ll, master, tabName) {
     var body = [];
     orderList.forEach(function (p) {
       var b = positions[p]; if (!b) return;
-      body.push([p, b.staff, b.working, rbOtCell_(b.ot_off, b.otOffHrs), b.off, b.sick, b.leave,
+      body.push([p, b.staff, b.working + b.ot_off, rbOtCell_(b.ot_off, b.otOffHrs), b.off, b.sick, b.leave,
                  rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs)]);
     });
     if (body.length) { sh.getRange(row, 1, body.length, ph.length).setValues(body); row += body.length; }

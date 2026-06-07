@@ -171,7 +171,7 @@ function rbTeamRows_(teams, order){ return order.map(function(t){ return rbAggRo
 function rbPosRows_(positions, order) {
   return order.map(function (p) {
     var b = positions[p]; if (!b) return '';
-    return '<tr><td class="b">' + p + '</td><td class="tnum">' + b.staff + '</td><td class="tnum"><b>' + b.working +
+    return '<tr><td class="b">' + p + '</td><td class="tnum">' + b.staff + '</td><td class="tnum"><b>' + (b.working + b.ot_off) +
       '</b></td><td class="tnum">' + rbOtTxt_(b.ot_off, b.otOffHrs) + '</td><td class="tnum">' + b.off + '</td><td class="tnum">' + b.sick +
       '</td><td class="tnum">' + b.leave + '</td><td class="tnum">' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td class="tnum">' +
       rbOtTxt_(b.otPost, b.otPostHrs) + '</td></tr>';

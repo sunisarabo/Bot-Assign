@@ -291,16 +291,22 @@ function rrParseCrewsign_(rows, team) {
     if (u.indexOf('STAFF NAME') >= 0 || (u.indexOf('SHIFT') >= 0 && u.indexOf('REMARK') >= 0)) { hi = r; break; }
   }
   if (hi < 0) return recs;
+  var seen = {};
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
     var shift = rrClean_(row[0]), name = row.length > 1 ? rrClean_(row[1]) : '';
     var flt = row.length > 3 ? rrClean_(row[3]) : '';
     var nU = name.toUpperCase();
     if (!name || name.length < 2 || nU === 'STAFF NAME' || nU === 'NAME') continue;
+    var key = nU.replace(/[\s\.]+/g, '');
+    if (seen[key]) continue;                                  // dedup roster vs assignment blocks
+    seen[key] = true;
     var actual = shift.indexOf('/') >= 0 ? shift.split('/').pop().trim() : shift;
+    // block has SHIFT (assignment) → classify by shift; roster block (no shift) → REMARK col
+    var bkt = shift ? rrClassify_(actual, '') : rrClassify_('', flt);
     recs.push({ team: team, id: '', name: name, pos: 'CREWSIGN', shift: shift,
-                bucket: rrClassify_(actual, ''), ot: 0,
-                assignments: flt ? [{ flight: flt, task: '' }] : [] });
+                bucket: bkt, ot: 0,
+                assignments: (flt && rrUp_(flt) !== 'OFF') ? [{ flight: flt, task: '' }] : [] });
   }
   return recs;
 }
@@ -436,7 +442,13 @@ function rrParseSheet_(ws) {
   if (last < 3) return null;
   var rows = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 60)).getValues();
   if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) return rrParseCrewsign_(rows, name);
-  if (n === 'PORTER') return rrParsePorter_(rows, name);
+  if (n === 'PORTER') {
+    // New PORTER sheets use the standard ID/REMARK layout; old ones are a
+    // 2-column name list. Prefer standard; fall back to the 2-column parser.
+    var pstd = rrParseStandard_(rows, name);
+    if (pstd && pstd.length) return pstd;
+    return rrParsePorter_(rows, name);
+  }
   if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) return rrParseAdminDoc_(rows, name);
   if (n === 'SU' || n.indexOf('SU ') === 0) {
     // New SU template (effective 08 JUN) is a standard ID/REMARK staff table

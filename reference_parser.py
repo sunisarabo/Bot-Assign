@@ -288,7 +288,7 @@ def parse_admindoc(rows, team):
 
 
 def parse_crewsign(rows, team):
-    recs, hi = [], -1
+    recs, hi, seen = [], -1, set()
     for r in range(min(20, len(rows))):
         u = [up(c) for c in rows[r]]
         if 'STAFF NAME' in u or ('SHIFT' in u and 'REMARK' in u):
@@ -303,10 +303,15 @@ def parse_crewsign(rows, team):
         flt = cv(row[3]) if len(row) > 3 else ''
         if not name or len(name) < 2 or name.upper() in ('STAFF NAME', 'NAME'):
             continue
+        key = re.sub(r'[\s.]+', '', name.upper())
+        if key in seen:
+            continue
+        seen.add(key)
         actual = shift.split('/')[-1].strip() if '/' in shift else shift
+        bkt = classify(actual, '') if shift else classify('', flt)
         recs.append(dict(team=team, id='', name=name, pos='CREWSIGN', shift=shift,
-                         bucket=classify(actual, ''), ot=0.0,
-                         assigns=[dict(flight=flt, task='')] if flt else []))
+                         bucket=bkt, ot=0.0,
+                         assigns=[dict(flight=flt, task='')] if (flt and flt.upper() != 'OFF') else []))
     return recs
 
 
@@ -430,7 +435,8 @@ def parse_sheet(ws, name):
     if 'PORTER' in n and 'CREW' in n:
         return parse_crewsign(rows, name)
     if n == 'PORTER':
-        return parse_porter(rows, name)
+        std = parse_standard(rows, name)
+        return std if std else parse_porter(rows, name)
     if 'ADMIN' in n and 'DOC' in n:
         return parse_admindoc(rows, name)
     if n == 'SU' or n.startswith('SU '):
