@@ -71,6 +71,18 @@ var SLA_DB = {
 };
 var SLA_ALIAS = { '8M':'QZ', 'HB':'DEFAULT', 'G2':'DEFAULT', 'H4':'DEFAULT', 'WZ':'ZF', 'N4':'DEFAULT', 'C6':'DEFAULT', 'EO':'ZF', 'S7':'ZF', 'LO':'ZF', 'HH':'ZF', 'OM':'DE', 'OV':'LJ' };
 
+// Official establishment requirement per team (SUP/SNR/PSA) from the AOTGA
+// Manpower Meeting file — the FULL roster needed, not the daily on-duty count.
+// (Used for HR headcount planning vs the master active headcount, not the daily
+// flight SLA above.)
+var TEAM_SLA_RQ = {
+  'SQ':{SUP:8,SNR:8,PSA:46,total:62}, 'QR':{SUP:8,SNR:8,PSA:92,total:108}, 'PG':{SUP:4,SNR:4,PSA:28,total:36},
+  'AK':{SUP:7,SNR:6,PSA:27,total:40}, 'SU':{SUP:10,SNR:10,PSA:44,total:64}, 'KE':{SUP:7,SNR:9,PSA:63,total:79},
+  'EY':{SUP:5,SNR:5,PSA:51,total:61}, 'JQ':{SUP:6,SNR:7,PSA:32,total:45}, 'TK':{SUP:6,SNR:7,PSA:30,total:43},
+  'TR':{SUP:9,SNR:12,PSA:38,total:59}, 'WY':{SUP:9,SNR:12,PSA:36,total:57}, 'EK':{SUP:7,SNR:7,PSA:39,total:53},
+  'WK':{SUP:4,SNR:6,PSA:30,total:40}, 'CHN':{SUP:11,SNR:10,PSA:58,total:79},
+};
+
 function slaGet_(airline) {
   var c = String(airline || '').trim().toUpperCase();
   if (SLA_DB[c]) return SLA_DB[c];
