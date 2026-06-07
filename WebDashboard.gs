@@ -192,6 +192,8 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     off: P.off + (L ? L.off : 0), sick: P.sick + (L ? L.sick : 0), leave: P.leave + (L ? L.leave : 0),
     otPreH: Math.round((P.otPreHrs + (L ? L.otPreHrs : 0)) * 10) / 10,
     otPostH: Math.round((P.otPostHrs + (L ? L.otPostHrs : 0)) * 10) / 10,
+    otOffH: Math.round((P.otOffHrs + (L ? L.otOffHrs : 0)) * 10) / 10,
+    otPreN: P.otPre + (L ? L.otPre : 0), otPostN: P.otPost + (L ? L.otPost : 0), otOffN: P.ot_off + (L ? L.ot_off : 0),
     c: CI,
   };
 
@@ -281,6 +283,9 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     '<div class="grid2">' +
     '<div class="card"><h2>📊 Working / Total ต่อทีม</h2><canvas id="c1" height="150"></canvas></div>' +
     '<div class="card"><h2>🧭 ภาพรวมสถานะ</h2><canvas id="c2" height="150"></canvas></div></div>' +
+    '<div class="grid2">' +
+    '<div class="card"><h2>⏱️ OT แยกประเภท (จำนวนคน)</h2><canvas id="c3" height="150"></canvas></div>' +
+    '<div class="card"><h2>⏱️ OT แยกประเภท (ชั่วโมง)</h2><canvas id="c4" height="150"></canvas></div></div>' +
     '<div class="grid">' +
     '<div class="card"><h2>📌 Manpower by Team (PSA)</h2><table><thead>' +
     '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OT-Off</th><th>OT ก่อนกะ</th><th>OT หลังกะ</th><th>%Working</th></tr>' +
@@ -303,6 +308,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     '<tbody>' + rbFlightSLARows_(res, ll) + '</tbody></table></div></div></div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
+    '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var BASE=' + JSON.stringify(base || '') + ';' +
     'function go(d){d=d||document.getElementById("dt").value;if(!d)return;var a=document.createElement("a");a.href=BASE+"?date="+d;a.target="_top";a.rel="noopener";document.body.appendChild(a);a.click();}' +
     'function showView(v){["dash","tt","flt"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
@@ -313,13 +319,22 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     'function filterTT(){var q=document.getElementById("ttq").value.toLowerCase();' +
     '[].forEach.call(document.getElementById("ttbody").children,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
     'window.addEventListener("load",function(){if(!window.Chart)return;' +
+    'if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
     'Chart.defaults.color="' + CI.sub + '";Chart.defaults.font.family="Kanit,sans-serif";' +
+    'Chart.defaults.font.weight="600";' +
+    'var DL={color:"#16243f",font:{weight:"700"},formatter:function(v){return v||"";}};' +
+    'var DLW={color:"#fff",font:{weight:"700"},formatter:function(v){return v||"";}};' +
     'new Chart(document.getElementById("c1"),{type:"bar",data:{labels:CD.tn,datasets:[' +
     '{label:"Working",data:CD.tw,backgroundColor:CD.c.teal,borderRadius:4},' +
     '{label:"Total",data:CD.tt,backgroundColor:"#c9d6e8",borderRadius:4}]},' +
-    'options:{responsive:true,plugins:{legend:{labels:{boxWidth:12}}},scales:{x:{grid:{display:false}},y:{grid:{color:"#eef2f8"},beginAtZero:true}}}});' +
+    'options:{responsive:true,plugins:{legend:{labels:{boxWidth:12}},datalabels:{anchor:"end",align:"end",font:{size:9,weight:"700"},color:"#16243f",formatter:function(v){return v||"";}}},scales:{x:{grid:{display:false}},y:{grid:{color:"#eef2f8"},beginAtZero:true,suggestedMax:Math.max.apply(null,CD.tt)+3}}}});' +
     'new Chart(document.getElementById("c2"),{type:"doughnut",data:{labels:["Working","OFF","Sick","Leave"],' +
     'datasets:[{data:[CD.work,CD.off,CD.sick,CD.leave],backgroundColor:[CD.c.teal,CD.c.grey,CD.c.red,CD.c.yellow],borderColor:"#fff",borderWidth:2}]},' +
-    'options:{responsive:true,plugins:{legend:{position:"bottom",labels:{boxWidth:12}}}}});});' +
+    'options:{responsive:true,plugins:{legend:{position:"bottom",labels:{boxWidth:12}},datalabels:DLW}}});' +
+    'var OTL=["ก่อนกะ","หลังกะ","OT OFF"];var OTC=[CD.c.yellow,CD.c.royal,CD.c.red];' +
+    'new Chart(document.getElementById("c3"),{type:"bar",data:{labels:OTL,datasets:[{label:"จำนวนคน",data:[CD.otPreN,CD.otPostN,CD.otOffN],backgroundColor:OTC,borderRadius:5}]},' +
+    'options:{responsive:true,plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#16243f",font:{weight:"700"},formatter:function(v){return v+" คน";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});' +
+    'new Chart(document.getElementById("c4"),{type:"bar",data:{labels:OTL,datasets:[{label:"ชั่วโมง",data:[CD.otPreH,CD.otPostH,CD.otOffH],backgroundColor:OTC,borderRadius:5}]},' +
+    'options:{responsive:true,plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#16243f",font:{weight:"700"},formatter:function(v){return v+"h";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});});' +
     '</script></body></html>';
 }

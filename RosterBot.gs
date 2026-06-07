@@ -135,6 +135,11 @@ function rbRunForDate_(date) {
   rbWriteTimetable_(out, res, dateStr, ll, '🕓 ' + dd + ' ' + mon);
   rbWriteFlightSLA_(out, res, dateStr, ll, '✈️ ' + dd + ' ' + mon);
   rbWriteSupport_(out, res, dateStr, ll, '🆘 ' + dd + ' ' + mon);
+  // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
+  try {
+    var wr = rbWeekRange_(date);
+    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
+  } catch (e) { Logger.log('⚠️ Weekly OT: ' + e.message); }
   ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
     var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
   });
@@ -367,6 +372,104 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   }
   sh.setColumnWidth(TOTAL, 70);
   sh.setFrozenRows(3);
+}
+
+// ─── WEEKLY OT (>36h/week check) ────────────────────────────────────────────
+var OT_WEEK_LIMIT = 36;
+
+/** 7-day week block within the month, starting day 1 (1-7, 8-14, …). */
+function rbWeekRange_(date) {
+  var d = date.getDate();
+  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
+  var daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  return { startDay: startDay, endDay: Math.min(startDay + 6, daysInMonth) };
+}
+
+/** Accumulate OT hours per employee across the week (week-to-date up to `date`). */
+function rbWeeklyOT_(date) {
+  var wr = rbWeekRange_(date);
+  var upto = Math.min(date.getDate(), wr.endDay);
+  var people = {}, daysRead = [];
+  for (var day = wr.startDay; day <= upto; day++) {
+    var dt = new Date(date.getFullYear(), date.getMonth(), day);
+    var roster;
+    try { roster = rbOpenTodayRoster_(dt); } catch (e) { continue; }
+    var res;
+    try { res = readRosterFromSpreadsheet(roster.ss); } catch (e2) { res = null; }
+    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
+    if (!res) continue;
+    daysRead.push(day);
+    var ll = null;
+    if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, dt); } catch (e4) {} }
+
+    function tally(team, r) {
+      if ((r.bucket !== 'working' && r.bucket !== 'ot_off') || !(r.ot > 0)) return;
+      var key = r.id ? ('#' + r.id) : (String(r.name).toUpperCase() + '|' + team);
+      if (!people[key]) people[key] = { name: r.name, team: team, pos: r.pos || '', daily: {}, total: 0 };
+      people[key].daily[day] = Math.round(((people[key].daily[day] || 0) + r.ot) * 10) / 10;
+      people[key].total += r.ot;
+    }
+    Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { tally(t, r); }); });
+    if (ll && ll.totals.staff > 0) {
+      Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tally('LL·' + s, r); }); });
+    }
+  }
+  var list = Object.keys(people).map(function (k) { people[k].total = Math.round(people[k].total * 10) / 10; return people[k]; })
+    .sort(function (a, b) { return b.total - a.total; });
+  return { startDay: wr.startDay, endDay: wr.endDay, daysRead: daysRead, people: list,
+           over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
+}
+
+/** Sheet tab: ⏱️ OT รายสัปดาห์ — per-person weekly OT + >36h flag. */
+function rbWriteWeeklyOT_(ss, date, mon, tabName) {
+  tabName = tabName || '⏱️ OT สัปดาห์';
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+  var wk = rbWeeklyOT_(date);
+  var dayCols = [];
+  for (var d = wk.startDay; d <= wk.endDay; d++) dayCols.push(d);
+  var W = 3 + dayCols.length + 2;
+
+  sh.getRange(1, 1, 1, W).merge()
+    .setValue('⏱️ OT รายสัปดาห์ (' + wk.startDay + '-' + wk.endDay + ' ' + mon + ')  •  เกิน ' + OT_WEEK_LIMIT +
+              ' ชม./สัปดาห์: ' + wk.over.length + ' คน  •  อ่าน ' + wk.daysRead.length + ' วัน')
+    .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 26);
+
+  var head = ['ชื่อ', 'ทีม', 'ตำแหน่ง'].concat(dayCols.map(function (d) { return String(d); })).concat(['OT รวม/สัปดาห์', 'สถานะ']);
+  sh.getRange(2, 1, 1, W).setValues([head]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+    .setHorizontalAlignment('center');
+
+  var body = wk.people.map(function (p) {
+    var row = [p.name, p.team, p.pos];
+    dayCols.forEach(function (d) { row.push(p.daily[d] || ''); });
+    var status = p.total > OT_WEEK_LIMIT ? '🔴 เกิน ' + OT_WEEK_LIMIT : (p.total >= 30 ? '🟡 ใกล้' : '');
+    row.push(p.total, status);
+    return row;
+  });
+  if (body.length) {
+    sh.getRange(3, 1, body.length, W).setValues(body).setFontSize(9);
+    for (var i = 0; i < wk.people.length; i++) {
+      if (wk.people[i].total > OT_WEEK_LIMIT) sh.getRange(3 + i, 1, 1, W).setBackground('#fdecec');
+      else if (wk.people[i].total >= 30) sh.getRange(3 + i, 1, 1, W).setBackground('#fff8e1');
+    }
+  } else {
+    sh.getRange(3, 1, 1, W).merge().setValue('ยังไม่มีข้อมูล OT ในสัปดาห์นี้').setHorizontalAlignment('center');
+  }
+  [130, 90, 60].concat(dayCols.map(function () { return 40; })).concat([95, 90]).forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(2); sh.setFrozenColumns(1);
+}
+
+/** Standalone: build the weekly-OT tab for a date into the monthly file. */
+function runWeeklyOTReport(y, m, d) {
+  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+  var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
+  var out = rbGetMonthlyOutput_(mon, be);
+  var wr = rbWeekRange_(date);
+  rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
+  Logger.log('✅ Weekly OT: %s', out.getUrl());
+  return out.getUrl();
 }
 
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
