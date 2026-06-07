@@ -930,8 +930,9 @@ function rbManpowerTable_(sh, top, title, rowsData, headColor) {
 }
 
 function rbWriteDashboard_(ss, res, dateStr, ll, master) {
-  var sh = ss.getSheetByName('📊 Dashboard');
-  if (sh) { sh.clear(); } else { sh = ss.insertSheet('📊 Dashboard', 0); }
+  var oldD = ss.getSheetByName('📊 Dashboard');
+  if (oldD) ss.deleteSheet(oldD);                            // recreate fresh (clears stale freeze/merges)
+  var sh = ss.insertSheet('📊 Dashboard', 0);
 
   var P = res.totals;
   var L = ll && ll.totals.staff > 0 ? ll.totals : null;
@@ -1039,8 +1040,9 @@ function rbOtCols_(r) {
 }
 
 function rbWriteTimetable_(ss, res, dateStr, ll) {
-  var sh = ss.getSheetByName('🕓 Timetable');
-  if (sh) { sh.clear(); } else { sh = ss.insertSheet('🕓 Timetable'); }
+  var old = ss.getSheetByName('🕓 Timetable');
+  if (old) ss.deleteSheet(old);                              // recreate fresh (clears stale freeze/merges)
+  var sh = ss.insertSheet('🕓 Timetable');
   var MAXFL = 4, F = 6, B = 9, TOTAL = B + MAXFL * F + 1;   // 34 columns
 
   // flatten working records: PSA teams then LL sections
