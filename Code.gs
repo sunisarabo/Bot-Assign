@@ -1,6 +1,6 @@
 /**
  * SmartShift Roster Bot — All-in-One (AOTGA design system web app)
- * แท็บ: Dashboard / Timetable / Flights+SLA / Support / OT รายสัปดาห์ | ดีไซน์ AOTGA
+ * แท็บเว็บ: Dashboard / Timetable / Flights+SLA / OT สัปดาห์(>36h, lazy)
  */
 
 
@@ -1680,7 +1680,35 @@ function rbTabs_(shortCount) {
     '<button class="tab active" id="tab-dash" onclick="showView(\'dash\')">▦ Dashboard</button>' +
     '<button class="tab" id="tab-tt" onclick="showView(\'tt\')">☰ Timetable</button>' +
     '<button class="tab" id="tab-flt" onclick="showView(\'flt\')">✈ Flights &amp; SLA' +
-    (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button></div>';
+    (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
+    '<button class="tab" id="tab-ot" onclick="showView(\'ot\');loadOT()">⏱️ OT สัปดาห์</button></div>';
+}
+
+/** Called from the client (google.script.run) when the OT-week tab is opened.
+ *  Computes weekly OT (reads the week's files) and returns the table HTML. */
+function rbWeeklyOTHtml(iso) {
+  try {
+    var a = String(iso).split('-');
+    var date = new Date(+a[0], +a[1] - 1, +a[2]);
+    var wk = rbWeeklyOT_(date);
+    var dayCols = [];
+    for (var d = wk.startDay; d <= wk.endDay; d++) dayCols.push(d);
+    var th = '<tr><th>ชื่อ</th><th>ทีม</th><th>ตำแหน่ง</th>' +
+      dayCols.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '<th>OT รวม/สัปดาห์</th><th>สถานะ</th></tr>';
+    var rows = wk.people.map(function (p) {
+      var tds = dayCols.map(function (x) { return '<td class="tnum">' + (p.daily[x] || '') + '</td>'; }).join('');
+      var status = p.total > OT_WEEK_LIMIT ? '<span class="badd">🔴 เกิน ' + OT_WEEK_LIMIT + '</span>'
+                 : (p.total >= 30 ? '<span class="muted">🟡 ใกล้</span>' : '');
+      return '<tr class="' + (p.total > OT_WEEK_LIMIT ? 'rowbad' : '') + '"><td class="b">' + rbEsc_(p.name) + '</td><td>' +
+        rbEsc_(p.team) + '</td><td>' + rbEsc_(p.pos) + '</td>' + tds + '<td class="tnum"><b>' + p.total + 'h</b></td><td>' + status + '</td></tr>';
+    }).join('');
+    var hd = '<div class="sectionlabel">สัปดาห์ ' + wk.startDay + '-' + wk.endDay + ' · อ่าน ' + wk.daysRead.length +
+      ' วัน · <b class="badd">เกิน ' + OT_WEEK_LIMIT + ' ชม.: ' + wk.over.length + ' คน</b></div>';
+    return hd + '<div class="tablecard"><div class="tablecard__hd"><h3>⏱️ OT รายสัปดาห์ (เกิน ' + OT_WEEK_LIMIT + ' ชม./สัปดาห์)</h3></div>' +
+      '<div style="overflow-x:auto"><table class="tbl"><thead>' + th + '</thead><tbody>' +
+      (rows || '<tr><td colspan="' + (dayCols.length + 5) + '" class="muted">ยังไม่มีข้อมูล OT ในสัปดาห์นี้</td></tr>') +
+      '</tbody></table></div></div>';
+  } catch (e) { return '<div class="panel">โหลด OT รายสัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
 // ── KPI hero ────────────────────────────────────────────────────────────────
@@ -1818,12 +1846,16 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz) {
         '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
         rbFltRows_(res, ll)) +
     '</div></div>' +
+    '<div id="view-ot" style="display:none"><div id="otbox"><div class="panel muted" style="text-align:center;padding:34px">' +
+    '⏳ กำลังคำนวณ OT รายสัปดาห์ (อ่านไฟล์หลายวัน อาจใช้เวลาสักครู่)…</div></div></div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
-    '<script>var CD=' + JSON.stringify(cd) + ';' +
-    'function showView(v){["dash","tt","flt"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var OTLD=false;' +
+    'function showView(v){["dash","tt","flt","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    'function loadOT(){if(OTLD)return;OTLD=true;if(!(window.google&&google.script&&google.script.run)){document.getElementById("otbox").innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App (/exec) เพื่อดู OT รายสัปดาห์</div>";return;}' +
+    'google.script.run.withSuccessHandler(function(h){document.getElementById("otbox").innerHTML=h;}).withFailureHandler(function(e){OTLD=false;document.getElementById("otbox").innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";}).rbWeeklyOTHtml(ISO);}' +
     'function filterTT(){var q=document.getElementById("ttq").value.toLowerCase();var t=document.querySelectorAll("#view-tt tbody tr");[].forEach.call(t,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
     'window.addEventListener("load",function(){if(!window.Chart)return;if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
     'Chart.defaults.color="'+CI.sub+'";Chart.defaults.font.family="Kanit,sans-serif";Chart.defaults.font.weight="600";' +
