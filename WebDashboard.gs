@@ -145,6 +145,22 @@ function rbLogo_() {
   return '<span class="emblem"></span>';
 }
 
+function rbFlightSLARows_(res, ll) {
+  var flights = slaCollectFlights_(res, ll);
+  return flights.map(function (f) {
+    function c(ph) {
+      var s = f.short[ph] ? ('<span class="bad">' + f.assigned[ph] + '/' + f.req[ph] + ' ▼' + f.short[ph] + '</span>')
+                          : ('<span class="ok">' + f.assigned[ph] + '/' + f.req[ph] + '</span>');
+      return '<td>' + s + '</td>';
+    }
+    var st = f.ok ? '<span class="ok">✅ ครบ</span>' : '<span class="bad">⚠️ ' + rbEsc_(slaShortText_(f)) + '</span>';
+    return '<tr class="' + (f.ok ? '' : 'rowbad') + '"><td class="tm">' + rbEsc_(f.flight) + '</td><td>' + f.airline +
+      '</td><td>' + rbEsc_(f.teamList) + '</td><td>' + (f.STA || '') + '</td><td>' + (f.STD || '') + '</td>' +
+      '<td><b>' + f.assigned.total + '</b>/' + f.req.total + '</td>' + c('SUP') + c('CI') + c('GATE') + c('ARR') +
+      '<td style="text-align:left">' + st + '</td></tr>';
+  }).join('');
+}
+
 var DOW_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 /** Date picker + week strip (-7..+7 days) that navigate to ?date=ISO. */
 function rbWeekNavBar_(date, iso, base, tz) {
@@ -234,6 +250,7 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     '.flt{display:inline-block;background:#f0f5fb;border:1px solid #e1eaf5;border-radius:6px;padding:1px 7px;margin:1px 2px;white-space:nowrap}' +
     '.tk{color:' + CI.royal + ';font-weight:600}.t1{color:#1b8a5a}.t2{color:#b06a00}' +
     '.pre{color:#b06a00;font-weight:700}.post{color:' + CI.royal + ';font-weight:700}' +
+    '.ok{color:#1b8a5a;font-weight:600}.bad{color:' + CI.red + ';font-weight:700}tr.rowbad td{background:#fdecec}' +
     '.navbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}' +
     '.navbar input{font-family:inherit;background:#fff;border:1px solid ' + CI.line + ';border-radius:8px;padding:8px 10px;font-size:13px}' +
     '.wkstrip{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;flex:1}' +
@@ -251,7 +268,8 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     '<div class="ctrl"><button class="pdf" onclick="window.print()">⬇️ Export PDF</button></div></div>' +
     rbWeekNavBar_(date, iso, base, tz) +
     '<div class="tabs"><button class="tab active" id="tab-dash" onclick="showView(\'dash\')">📊 Dashboard</button>' +
-    '<button class="tab" id="tab-tt" onclick="showView(\'tt\')">🕓 Timetable</button></div>' +
+    '<button class="tab" id="tab-tt" onclick="showView(\'tt\')">🕓 Timetable</button>' +
+    '<button class="tab" id="tab-flt" onclick="showView(\'flt\')">✈️ Flights / SLA</button></div>' +
     '<div id="view-dash">' +
     '<div class="kpis">' + rbKpiCards_(P, L) + '</div>' +
     '<div class="otbar">⏱️ OT ก่อนกะ: <b>' + (P.otPre + (L ? L.otPre : 0)) + '</b> คน (' + cd.otPreH +
@@ -276,14 +294,15 @@ function rbBuildDashboardHtml_(res, ll, master, dateStr, iso, date, base, tz) {
     '<th onclick="sortTT(\'team\')">ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th onclick="sortTT(\'start\')">กะ (เข้า-ออก)</th>' +
     '<th>OT (ก่อน/หลังกะ)</th><th>#</th><th>เที่ยวบิน · task · STA/STD · OP-CL</th>' +
     '</tr></thead><tbody id="ttbody">' + rbTimetableRows_(res, ll) + '</tbody></table></div></div></div>' +
+    '<div id="view-flt" style="display:none"><div class="card"><h2>✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน (ส่งคนครบไหม)</h2>' +
+    '<div class="ttwrap"><table class="tt"><thead><tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th>' +
+    '<th>ส่งไป/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr></thead>' +
+    '<tbody>' + rbFlightSLARows_(res, ll) + '</tbody></table></div></div></div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var BASE=' + JSON.stringify(base || '') + ';' +
     'function go(d){d=d||document.getElementById("dt").value;if(!d)return;var a=document.createElement("a");a.href=BASE+"?date="+d;a.target="_top";a.rel="noopener";document.body.appendChild(a);a.click();}' +
-    'function showView(v){document.getElementById("view-dash").style.display=v==="dash"?"":"none";' +
-    'document.getElementById("view-tt").style.display=v==="tt"?"":"none";' +
-    'document.getElementById("tab-dash").className="tab"+(v==="dash"?" active":"");' +
-    'document.getElementById("tab-tt").className="tab"+(v==="tt"?" active":"");}' +
+    'function showView(v){["dash","tt","flt"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
     'function sortTT(k){var tb=document.getElementById("ttbody");var rs=[].slice.call(tb.children);' +
     'rs.sort(function(a,b){if(k==="start"){return (+a.dataset.start-+b.dataset.start)||a.dataset.team.localeCompare(b.dataset.team);}' +
     'return a.dataset.team.localeCompare(b.dataset.team)||(+a.dataset.start-+b.dataset.start);});' +

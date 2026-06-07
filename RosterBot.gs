@@ -98,6 +98,8 @@ function testRosterFromId(ssId, llId, y, m, d) {
   var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
   rbWriteDashboard_(out, res, roster.getName(), ll, master);
   rbWriteTimetable_(out, res, roster.getName(), ll);
+  rbWriteFlightSLA_(out, res, roster.getName(), ll);
+  rbWriteSupport_(out, res, roster.getName(), ll);
   var cleanup = out.getSheetByName('Sheet1') || out.getSheetByName('ชีต1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
   if (opened.tempId) { try { DriveApp.getFileById(opened.tempId).setTrashed(true); } catch (e) {} }
@@ -127,10 +129,12 @@ function rbRunForDate_(date) {
   var dd = ('0' + date.getDate()).slice(-2);
   var dateStr = date.getDate() + ' ' + mon + ' ' + be;
 
-  // one monthly file, two tabs PER DAY → keeps history (📊 06 JUN / 🕓 06 JUN)
+  // one monthly file, tabs PER DAY → keeps history
   var out = rbGetMonthlyOutput_(mon, be);
   rbWriteDashboard_(out, res, dateStr, ll, master, '📊 ' + dd + ' ' + mon);
   rbWriteTimetable_(out, res, dateStr, ll, '🕓 ' + dd + ' ' + mon);
+  rbWriteFlightSLA_(out, res, dateStr, ll, '✈️ ' + dd + ' ' + mon);
+  rbWriteSupport_(out, res, dateStr, ll, '🆘 ' + dd + ' ' + mon);
   ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
     var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
   });
