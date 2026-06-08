@@ -2408,7 +2408,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
             otPre:comb('otPre'), otPreHrs:Math.round(comb('otPreHrs')*10)/10,
             otPost:comb('otPost'), otPostHrs:Math.round(comb('otPostHrs')*10)/10 };
   var teamOrder = Object.keys(res.teams).sort(function(a,b){ return (res.teams[b].working+res.teams[b].ot_off)-(res.teams[a].working+res.teams[a].ot_off); });
-  var shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok;}).length;
+  var shortCount = 0; try { shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok;}).length; } catch (esc) {}
   var acCount = 0; try { acCount = acAnalyze_(res, ll).summary.bad; } catch (eac) {}
 
   var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
