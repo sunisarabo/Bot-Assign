@@ -91,7 +91,7 @@ function rbAssignHtml(iso) {
     }).join('');
     if (!rows) rows = '<tr><td colspan="13" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
     return hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
-      '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>ไฟลท์</th><th>Job (หน้าที่)</th>' +
+      '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>ไฟลท์</th><th>ไฟลท์ที่ทำ</th>' +
       '<th>ไฟลท์นอกเวลา</th><th>ช่วงว่าง</th><th>OT เหมาะสม?</th><th>ปัญหา/คำแนะนำ</th></tr>',
       rows, rbCtrls_('view-ac', true));
   } catch (e) { return '<div class="panel">โหลดตรวจ Assign ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
@@ -99,6 +99,30 @@ function rbAssignHtml(iso) {
 
 function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
+
+/** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
+function rbSupportHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    var rows = slaSupportRows_(d.res, d.ll);
+    var nF = {}; rows.forEach(function (r) { nF[r.flight] = 1; });
+    var hd = '<div class="sectionlabel">ไฟลท์ที่คนไม่ครบตาม SLA: <b class="badd">' + Object.keys(nF).length +
+      ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + rows.length + ' รายการ — แนะนำคนที่ <b>ว่างช่วงนั้น + รู้ระบบเช็คอิน</b></div>';
+    var body = rows.map(function (r) {
+      var who = r.cands.length
+        ? r.cands.map(function (c) { return '<span class="chip chip--duty">' + rbEsc_(c) + '</span>'; }).join(' ')
+        : '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
+      return '<tr class="' + (r.cands.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
+        '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
+        '</td><td class="badd">' + rbEsc_(r.phase) + ' ขาด ' + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
+        '</td><td class="tnum">' + rbEsc_(r.win) + '</td><td>' + who + '</td></tr>';
+    }).join('');
+    if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA</td></tr>';
+    return hd + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + คนที่มาช่วยได้',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>คนที่มาช่วยได้ (ว่าง + ระบบตรง)</th></tr>',
+      body, rbCtrls_('view-sup', true));
+  } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
 /** ตัวกรองหัวการ์ด: ช่องค้นหา + dropdown เลือกทีม (เติม option ด้วย JS หลังโหลด) */
 function rbCtrls_(viewId, withSearch){
   return (withSearch ? '<input class="search" placeholder="🔎 ค้นหา" oninput="applyFilter(\''+viewId+'\')">' : '') +
@@ -139,6 +163,8 @@ function rbTabs_(shortCount, acCount) {
     '<button class="tab active" id="tab-dash" onclick="showView(\'dash\')">▦ Dashboard</button>' +
     '<button class="tab" id="tab-tt" onclick="showView(\'tt\');loadTT()">☰ Timetable</button>' +
     '<button class="tab" id="tab-flt" onclick="showView(\'flt\');loadFlt()">✈ Flights &amp; SLA' +
+    (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
+    '<button class="tab" id="tab-sup" onclick="showView(\'sup\');loadSup()">🆘 Support' +
     (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
     '<button class="tab" id="tab-ac" onclick="showView(\'ac\');loadAC()">🧭 ตรวจ Assign' +
     (acCount ? '<span class="badge tnum">' + acCount + '</span>' : '') + '</button>' +
@@ -309,6 +335,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     : '<div id="otbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังคำนวณ OT รายสัปดาห์ (อ่านไฟล์หลายวัน อาจใช้เวลาสักครู่)…</div></div>';
   var acInner = staticMode ? rbAssignHtml(iso)
     : '<div id="acbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจการ Assign…</div></div>';
+  var supInner = staticMode ? rbSupportHtml(iso)
+    : '<div id="supbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังหาคนซัพพอร์ต…</div></div>';
 
   return '<!doctype html><html lang="th" data-theme="corporate"><head><meta charset="utf-8">' +
     '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">' +
@@ -329,6 +357,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '</div>' +
     '<div id="view-tt" style="display:none">' + ttInner + '</div>' +
     '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
+    '<div id="view-sup" style="display:none">' + supInner + '</div>' +
     '<div id="view-ac" style="display:none">' + acInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
@@ -336,10 +365,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","ac","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    'function showView(v){["dash","tt","flt","sup","ac","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
-    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}function loadAC(){lazy("acbox","rbAssignHtml","ac");}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}' +
     'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";[].forEach.call(v.querySelectorAll("tbody tr"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;r.style.display=(okT&&okQ)?"":"none";});}' +
     'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function makeSortable(){[].forEach.call(document.querySelectorAll("table.tbl"),function(tb){if(tb.getAttribute("data-srt"))return;tb.setAttribute("data-srt","1");var hs=tb.tHead?tb.tHead.rows[tb.tHead.rows.length-1].cells:[];[].forEach.call(hs,function(th,ci){th.style.cursor="pointer";th.title="คลิกเพื่อเรียง";th.addEventListener("click",function(){sortTbl(tb,ci,th);});});});}' +
