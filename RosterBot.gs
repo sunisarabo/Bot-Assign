@@ -185,17 +185,17 @@ function rbOtCell_(people, hrs) { return people > 0 ? (people + ' (' + hrs + 'h)
 
 /** Manpower-by-X table: X | Total | Working | OT-Off | OT ก่อนกะ | OT หลังกะ | %Working */
 function rbManpowerTable_(sh, top, title, rowsData, headColor) {
-  var W = 7;
+  var W = 9;
   sh.getRange(top, 1, 1, W).merge().setValue(title)
     .setBackground(headColor).setFontColor('#fff').setFontWeight('bold').setFontSize(12);
   sh.setRowHeight(top, 24);
-  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OT-Off', 'OT ก่อนกะ', 'OT หลังกะ', '%Working'];
+  var head = ['ทีม/ส่วน', 'Total', 'Working', 'OFF', 'Vac', 'OT-Off', 'OT ก่อนกะ', 'OT หลังกะ', '%Working'];
   sh.getRange(top + 1, 1, 1, W).setValues([head]).setBackground('#2e75b6').setFontColor('#fff')
     .setFontWeight('bold').setHorizontalAlignment('center');
   var body = rowsData.map(function (d) {
     var b = d.agg, work = b.working + b.ot_off;
     var pct = b.staff > 0 ? Math.round(work / b.staff * 100) + '%' : '-';
-    return [d.label, b.staff, work, rbOtCell_(b.ot_off, b.otOffHrs), rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
+    return [d.label, b.staff, work, b.off, b.leave, rbOtCell_(b.ot_off, b.otOffHrs), rbOtCell_(b.otPre, b.otPreHrs), rbOtCell_(b.otPost, b.otPostHrs), pct];
   });
   if (body.length) sh.getRange(top + 2, 1, body.length, W).setValues(body);
   return top + 2 + body.length;
