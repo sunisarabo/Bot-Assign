@@ -208,12 +208,13 @@ function rbPosRows_(positions, order) {
 }
 function rbFlightChips_(assigns) {
   if (!assigns || !assigns.length) return '<span class="muted">—</span>';
-  return assigns.map(function (a) {
+  var chips = assigns.map(function (a) {
     var t = a.task ? (' <span class="tag">'+rbEsc_(a.task)+'</span>') : '';
     var sta = (a.STA||a.STD) ? (' '+(a.STA||'–')+'/'+(a.STD||'–')) : '';
     var op = (a.OP||a.CL) ? (' <span class="muted">'+(a.OP||'–')+'-'+(a.CL||'–')+'</span>') : '';
     return '<span class="chip" style="cursor:default">' + rbEsc_(a.flight) + t + sta + op + '</span>';
-  }).join(' ');
+  }).join('');
+  return '<div class="chipgroup">' + chips + '</div>';      // flex-wrap container กันชิปซ้อนกัน
 }
 function rbTtRows_(res, ll) {
   var rows = [];
@@ -654,8 +655,9 @@ body {
 .search input { width: 100%; font-family: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px 11px 38px; font-size: 13.5px; background: var(--card); color: var(--ink); }
 .search input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, white); border-color: var(--accent); }
 .search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-3); }
-.chipgroup { display: flex; gap: 6px; flex-wrap: wrap; }
-.chip { font-family: inherit; cursor: pointer; font-size: 12px; font-weight: 600; padding: 8px 13px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; }
+.chipgroup { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+.tbl td .chipgroup { min-width: 320px; }
+.chip { display: inline-block; line-height: 1.35; font-family: inherit; cursor: pointer; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; white-space: normal; }
 .chip:hover { border-color: var(--accent); }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
