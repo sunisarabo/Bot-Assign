@@ -146,6 +146,13 @@ function slaPhaseOf_(task) {
   return 'CI';   // check-in default (CT, C, Y, J, W, F, WEB, KIOSK, PSM, FC, GK, SD...)
 }
 
+/** ทีมที่ไม่เกี่ยวกับ SLA เช็คอิน/เกท — ไม่นับใน Flights & SLA / Support */
+function slaSkipTeam_(team) {
+  var t = String(team || '').toUpperCase();
+  return t.indexOf('PORTER') >= 0 || t.indexOf('CREWSIGN') >= 0 || t.indexOf('CREW SIGN') >= 0 ||
+         (t.indexOf('ADMIN') >= 0 && t.indexOf('DOC') >= 0);
+}
+
 /** collect all flights from the day's roster (PSA + LL), with assigned staff. */
 function slaCollectFlights_(res, ll) {
   var flights = {};
@@ -168,6 +175,7 @@ function slaCollectFlights_(res, ll) {
     });
   }
   Object.keys(res.teams).forEach(function (t) {
+    if (slaSkipTeam_(t)) return;                              // ข้าม Porter / Crewsign / Admin Doc
     res.teams[t].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') add(t, r); });
   });
   if (ll && ll.totals.staff > 0) {
@@ -218,6 +226,7 @@ function slaSupportPool_(res, ll, teamSys) {
   var pool = [];
   function add(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    if (slaSkipTeam_(team)) return;                          // Porter / Crewsign / Admin Doc ไม่เป็นคนช่วย
     var d = acDuty_(r);
     if (d.ds == null || d.de == null) return;
     var busy = [];
