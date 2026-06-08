@@ -321,17 +321,23 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   if (old) ss.deleteSheet(old);                              // recreate fresh (clears stale freeze/merges)
   var sh = ss.insertSheet(tabName, 1);
 
-  // flatten working records: PSA teams then LL sections
+  // flatten ALL records (working first, then OFF/SL/ลา) — PSA teams then LL sections
   var recsAll = [];
   Object.keys(res.teams).forEach(function (team) {
     if (CONFIG_RB.SKIP_TIMETABLE_TEAMS.indexOf(team) >= 0) return;
-    res.teams[team].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
+    res.teams[team].records.forEach(function (r) { recsAll.push(r); });
   });
   if (ll && ll.totals.staff > 0) {
     Object.keys(ll.sections).forEach(function (s) {
-      ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
+      ll.sections[s].records.forEach(function (r) { recsAll.push(r); });
     });
   }
+  var bkOrd = { working: 0, ot_off: 1, off: 2, vac: 3, sick: 4 };
+  recsAll.sort(function (a, b) {
+    return String(a.team).localeCompare(String(b.team)) ||
+           ((bkOrd[a.bucket] || 0) - (bkOrd[b.bucket] || 0)) ||
+           ((a.shiftStart == null ? 99999 : a.shiftStart) - (b.shiftStart == null ? 99999 : b.shiftStart));
+  });
 
   // จำนวนคอลัมน์ไฟลท์ = มากสุดที่พนักงานคนใดได้รับ (ขั้นต่ำ 4 · เพดาน 20 กันกว้างเกิน)
   var maxFl = 4;
@@ -365,7 +371,15 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   sh.setRowHeight(2, 20); sh.setRowHeight(3, 30);
 
   // Data rows
+  var ST_LB = { off: '⬛ OFF', sick: '🔴 SL (ป่วย)', vac: '🌴 ลา' };
+  var ST_BG = { off: '#e8eaed', sick: '#f8d7da', vac: '#fff3cd' };
   var data = recsAll.map(function (r) {
+    var st = ST_LB[r.bucket];                               // off / sick / vac
+    if (st) {                                               // non-working: show status, blank flights/OT
+      var row0 = [r.team || '', r.id || '', r.pos || '', r.name || '', st, '', '', '', ''];
+      for (var z = 0; z < MAXFL * F + 1; z++) row0.push('');
+      return row0;
+    }
     var ot = rbOtCols_(r);
     var row = [r.team || '', r.id || '', r.pos || '', r.name || '', rbShiftCell_(r), r.re || '', ot[0], ot[1], ot[2]];
     for (var fi = 0; fi < MAXFL; fi++) {
@@ -379,8 +393,9 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   if (data.length) {
     sh.getRange(4, 1, data.length, TOTAL).setValues(data).setFontSize(9).setVerticalAlignment('middle');
     for (var i = 0; i < data.length; i++) {
-      if (i % 2) sh.getRange(4 + i, 1, 1, TOTAL).setBackground('#f3f7fc');
       var ro = recsAll[i];
+      if (ST_BG[ro.bucket]) sh.getRange(4 + i, 1, 1, TOTAL).setBackground(ST_BG[ro.bucket]);   // OFF เทา · SL แดง · ลา เหลือง
+      else if (i % 2) sh.getRange(4 + i, 1, 1, TOTAL).setBackground('#f3f7fc');
       if (ro.bucket === 'ot_off') sh.getRange(4 + i, 9).setBackground('#fff3cd');  // highlight OT OFF
     }
     sh.getRange(4, 1, data.length, 4).setFontWeight('bold');

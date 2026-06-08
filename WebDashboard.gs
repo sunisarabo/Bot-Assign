@@ -222,11 +222,19 @@ function rbFltCount_(assigns) {                              // นับเฉ�
 }
 function rbTtRows_(res, ll) {
   var rows = [];
-  Object.keys(res.teams).forEach(function (t){ res.teams[t].records.forEach(function(r){ if(r.bucket==='working'||r.bucket==='ot_off') rows.push(r); }); });
-  if (ll && ll.totals.staff>0) Object.keys(ll.sections).forEach(function(s){ ll.sections[s].records.forEach(function(r){ if(r.bucket==='working'||r.bucket==='ot_off') rows.push(r); }); });
-  rows.sort(function(a,b){ return String(a.team).localeCompare(String(b.team)) || ((a.shiftStart==null?99999:a.shiftStart)-(b.shiftStart==null?99999:b.shiftStart)); });
+  Object.keys(res.teams).forEach(function (t){ res.teams[t].records.forEach(function(r){ rows.push(r); }); });
+  if (ll && ll.totals.staff>0) Object.keys(ll.sections).forEach(function(s){ ll.sections[s].records.forEach(function(r){ rows.push(r); }); });
+  var ord={working:0,ot_off:1,off:2,vac:3,sick:4};
+  rows.sort(function(a,b){ return String(a.team).localeCompare(String(b.team)) || ((ord[a.bucket]||0)-(ord[b.bucket]||0)) || ((a.shiftStart==null?99999:a.shiftStart)-(b.shiftStart==null?99999:b.shiftStart)); });
+  var STLB={off:'⬛ OFF',sick:'🔴 SL (ป่วย)',vac:'🌴 ลา'}, STCLS={off:'row-off',sick:'row-sl',vac:'row-vac'};
   return rows.map(function (r) {
     var st = r.shiftStart==null?99999:r.shiftStart;
+    var lbl = STLB[r.bucket];
+    if (lbl) {   // OFF / SL / ลา — แสดงสถานะ ไฮไลท์สี ไม่มีไฟลท์/OT
+      return '<tr class="'+STCLS[r.bucket]+'" data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+
+        '</td><td class="tnum">'+rbEsc_(r.id||'')+'</td><td>'+rbEsc_(r.name)+'</td><td>'+rbEsc_(r.pos||'')+'</td><td class="b">'+lbl+
+        '</td><td class="muted">—</td><td class="tnum">0</td><td class="muted">—</td></tr>';
+    }
     var sh = rbEsc_(r.shift||'') + (r.shiftTime&&r.shiftTime!==r.shift ? ' <span class="muted">'+r.shiftTime+'</span>' : '');
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.id||'')+
@@ -664,6 +672,9 @@ body {
 .chip { display: inline-block; line-height: 1.35; font-family: inherit; cursor: pointer; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; white-space: normal; }
 .chip:hover { border-color: var(--accent); }
 .chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
+.tbl tbody tr.row-off td { background: #eceff1 !important; color: #7c878f; }
+.tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
+.tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
 .ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }

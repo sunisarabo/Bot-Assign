@@ -1638,17 +1638,23 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   if (old) ss.deleteSheet(old);                              // recreate fresh (clears stale freeze/merges)
   var sh = ss.insertSheet(tabName, 1);
 
-  // flatten working records: PSA teams then LL sections
+  // flatten ALL records (working first, then OFF/SL/ลา) — PSA teams then LL sections
   var recsAll = [];
   Object.keys(res.teams).forEach(function (team) {
     if (CONFIG_RB.SKIP_TIMETABLE_TEAMS.indexOf(team) >= 0) return;
-    res.teams[team].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
+    res.teams[team].records.forEach(function (r) { recsAll.push(r); });
   });
   if (ll && ll.totals.staff > 0) {
     Object.keys(ll.sections).forEach(function (s) {
-      ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
+      ll.sections[s].records.forEach(function (r) { recsAll.push(r); });
     });
   }
+  var bkOrd = { working: 0, ot_off: 1, off: 2, vac: 3, sick: 4 };
+  recsAll.sort(function (a, b) {
+    return String(a.team).localeCompare(String(b.team)) ||
+           ((bkOrd[a.bucket] || 0) - (bkOrd[b.bucket] || 0)) ||
+           ((a.shiftStart == null ? 99999 : a.shiftStart) - (b.shiftStart == null ? 99999 : b.shiftStart));
+  });
 
   // จำนวนคอลัมน์ไฟลท์ = มากสุดที่พนักงานคนใดได้รับ (ขั้นต่ำ 4 · เพดาน 20 กันกว้างเกิน)
   var maxFl = 4;
@@ -1682,7 +1688,15 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   sh.setRowHeight(2, 20); sh.setRowHeight(3, 30);
 
   // Data rows
+  var ST_LB = { off: '⬛ OFF', sick: '🔴 SL (ป่วย)', vac: '🌴 ลา' };
+  var ST_BG = { off: '#e8eaed', sick: '#f8d7da', vac: '#fff3cd' };
   var data = recsAll.map(function (r) {
+    var st = ST_LB[r.bucket];                               // off / sick / vac
+    if (st) {                                               // non-working: show status, blank flights/OT
+      var row0 = [r.team || '', r.id || '', r.pos || '', r.name || '', st, '', '', '', ''];
+      for (var z = 0; z < MAXFL * F + 1; z++) row0.push('');
+      return row0;
+    }
     var ot = rbOtCols_(r);
     var row = [r.team || '', r.id || '', r.pos || '', r.name || '', rbShiftCell_(r), r.re || '', ot[0], ot[1], ot[2]];
     for (var fi = 0; fi < MAXFL; fi++) {
@@ -1696,8 +1710,9 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   if (data.length) {
     sh.getRange(4, 1, data.length, TOTAL).setValues(data).setFontSize(9).setVerticalAlignment('middle');
     for (var i = 0; i < data.length; i++) {
-      if (i % 2) sh.getRange(4 + i, 1, 1, TOTAL).setBackground('#f3f7fc');
       var ro = recsAll[i];
+      if (ST_BG[ro.bucket]) sh.getRange(4 + i, 1, 1, TOTAL).setBackground(ST_BG[ro.bucket]);   // OFF เทา · SL แดง · ลา เหลือง
+      else if (i % 2) sh.getRange(4 + i, 1, 1, TOTAL).setBackground('#f3f7fc');
       if (ro.bucket === 'ot_off') sh.getRange(4 + i, 9).setBackground('#fff3cd');  // highlight OT OFF
     }
     sh.getRange(4, 1, data.length, 4).setFontWeight('bold');
@@ -2166,11 +2181,19 @@ function rbFltCount_(assigns) {                              // นับเฉ�
 }
 function rbTtRows_(res, ll) {
   var rows = [];
-  Object.keys(res.teams).forEach(function (t){ res.teams[t].records.forEach(function(r){ if(r.bucket==='working'||r.bucket==='ot_off') rows.push(r); }); });
-  if (ll && ll.totals.staff>0) Object.keys(ll.sections).forEach(function(s){ ll.sections[s].records.forEach(function(r){ if(r.bucket==='working'||r.bucket==='ot_off') rows.push(r); }); });
-  rows.sort(function(a,b){ return String(a.team).localeCompare(String(b.team)) || ((a.shiftStart==null?99999:a.shiftStart)-(b.shiftStart==null?99999:b.shiftStart)); });
+  Object.keys(res.teams).forEach(function (t){ res.teams[t].records.forEach(function(r){ rows.push(r); }); });
+  if (ll && ll.totals.staff>0) Object.keys(ll.sections).forEach(function(s){ ll.sections[s].records.forEach(function(r){ rows.push(r); }); });
+  var ord={working:0,ot_off:1,off:2,vac:3,sick:4};
+  rows.sort(function(a,b){ return String(a.team).localeCompare(String(b.team)) || ((ord[a.bucket]||0)-(ord[b.bucket]||0)) || ((a.shiftStart==null?99999:a.shiftStart)-(b.shiftStart==null?99999:b.shiftStart)); });
+  var STLB={off:'⬛ OFF',sick:'🔴 SL (ป่วย)',vac:'🌴 ลา'}, STCLS={off:'row-off',sick:'row-sl',vac:'row-vac'};
   return rows.map(function (r) {
     var st = r.shiftStart==null?99999:r.shiftStart;
+    var lbl = STLB[r.bucket];
+    if (lbl) {   // OFF / SL / ลา — แสดงสถานะ ไฮไลท์สี ไม่มีไฟลท์/OT
+      return '<tr class="'+STCLS[r.bucket]+'" data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+
+        '</td><td class="tnum">'+rbEsc_(r.id||'')+'</td><td>'+rbEsc_(r.name)+'</td><td>'+rbEsc_(r.pos||'')+'</td><td class="b">'+lbl+
+        '</td><td class="muted">—</td><td class="tnum">0</td><td class="muted">—</td></tr>';
+    }
     var sh = rbEsc_(r.shift||'') + (r.shiftTime&&r.shiftTime!==r.shift ? ' <span class="muted">'+r.shiftTime+'</span>' : '');
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.id||'')+
@@ -2608,6 +2631,9 @@ body {
 .chip { display: inline-block; line-height: 1.35; font-family: inherit; cursor: pointer; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; white-space: normal; }
 .chip:hover { border-color: var(--accent); }
 .chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
+.tbl tbody tr.row-off td { background: #eceff1 !important; color: #7c878f; }
+.tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
+.tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
 .ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }
