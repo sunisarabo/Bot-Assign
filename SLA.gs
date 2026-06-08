@@ -260,13 +260,14 @@ function slaCandidates_(f, ph, pool, max) {
     }
     return true;
   });
-  if (ph === 'GATE' || ph === 'ARR') {
-    var PRI = { PSA: 0, SNR: 1, PSS: 2 };                    // Agent → Senior → Sup ตามลำดับ
+  if (ph === 'SUP') {
+    cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+  } else {
+    // CI / GATE / ARR: Agent → Senior → Sup ตามลำดับ แล้วคนงานน้อย/ว่างกว่าก่อน
+    var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
       return (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
     });
-  } else {
-    cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
   }
   return max ? cands.slice(0, max) : cands;
 }
