@@ -1,38 +1,3 @@
-/**
- * SmartShift Roster Bot — All-in-One (AOTGA design web app)
- * setupTriggers() = รันทุกวัน 08:00 และ 14:00 ส่งเข้า Google Chat
- */
-
-
-// ===== RosterReader.gs =====
-
-/**
- * RosterReader.gs — unified roster reader for Google Apps Script
- * =============================================================================
- * Replaces the brittle, sheet-NAME based routing of the previous assignment
- * script. Parsing is now HEADER-DRIVEN, which is the real fix: team layouts
- * drift between days (e.g. TR is the standard ID/Position/NAME layout on
- * 01–03 JUN but switches to the NO/ID/NAME/TIME/SHIFT/OT variant on 04 JUN;
- * AK/CHN/KE used to have bespoke layouts and are now standard). Routing by name
- * silently mis-read those teams.
- *
- * What it reads correctly for EVERY team:
- *   • headcount  : working / OT-off / off / sick / leave(personal+vacation)
- *   • OT         : number of people on OT + total OT hours
- *   • flights    : per-team flight count, and per-employee flight assignments
- *                  with shift code and flight OP/CL & STA/STD times
- *
- * GROUND-TRUTH RULE (most important): attendance comes from the REMARK column,
- * never from the shift code. A row can show shift "X9" (00:00-09:00) yet REMARK
- * says "OFF" / "OFF (NO RQ OT)" / "OT OFF" — that person is not working.
- *
- * Entry points:
- *   readRosterFromSpreadsheet(ss) -> { teams:{...}, totals:{...} }
- *   debugDumpRoster(ssId)         -> logs the per-team summary
- * The Drive-navigation / monthly-file / Chat plumbing from the original script
- * can call readRosterFromSpreadsheet() in place of detectAndParse().
- */
-
 var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
 
 // ─── cell helpers ───────────────────────────────────────────────────────────
@@ -102,14 +67,14 @@ function rrMin_(v) {
   m = s.match(/^(\d{2})(\d{2})$/); if (m) return +m[1] * 60 + +m[2];
   return null;
 }
-/** [start,end] minutes from a 'HH-HH' range string, else [null,null]. */
+
 function rrRangeStr_(s) {
   s = rrClean_(s);
   var m = s.match(/(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
   if (m) return [(+m[1]) * 60 + (m[2] ? +m[2] : 0), (+m[3]) * 60 + (m[4] ? +m[4] : 0)];
   return [null, null];
 }
-/** [start,end] minutes from a clock-in cell (+ next col), or a range cell. */
+
 function rrRangeCells_(row, col) {
   if (col < 0 || col >= row.length) return [null, null];
   var r = rrRangeStr_(row[col]);
@@ -123,7 +88,6 @@ function rrFmtMin_(m) {
 }
 function rrFmtRange_(r) { return (r[0] != null && r[1] != null) ? (rrFmtMin_(r[0]) + '-' + rrFmtMin_(r[1])) : ''; }
 
-/** 'PRE' (OT before shift) or 'POST' (OT after shift). Defaults POST. */
 function rrOtType_(srng, orng, isOff) {
   if (isOff) return 'POST';
   var si = srng[0], so = srng[1], oi = orng[0], oo = orng[1];
@@ -175,7 +139,6 @@ function rrFindHeader_(rows) {
   return null;
 }
 
-/** หัวคอลัมน์ที่เป็น 'รหัสไฟลท์' (G9687/688, WY831/832, CA413, 6E1077, SQ726). */
 function rrIsFlightHdr_(h) {
   return /(?:^|[\s\/])(?:[A-Z]{1,3}\s?\d{2,4}|\d[A-Z]\d{2,4})/.test(String(h || ''));
 }
@@ -332,15 +295,6 @@ function rrParseCrewsign_(rows, team) {
   return recs;
 }
 
-/**
- * SU has a bespoke 3-section template (rolls out for SU specifically):
- *   1) CHECK-IN COUNTER rotation  — staff sit a long stretch ("check-in
- *      common") rotating across time slots, covering MANY flights.
- *   2) ARRIVAL & DEPARTURE GATE   — per-flight gate roles.
- *   3) JOB DETAIL                 — per-flight job roles (SOD/OB/RF/...).
- * A staff member therefore gets ONE long CHECK-IN block plus per-flight
- * gate/job assignments — matching how SU actually schedules.
- */
 function rrIsSuName_(raw) {
   var n = String(raw || '').trim();
   // strip a trailing borrowed-team / status suffix (e.g. "TANADON PVT", "ANUTTRI JQ")
@@ -593,22 +547,6 @@ function debugDumpRoster(ssId) {
   return res;
 }
 
-
-// ===== MasterReader.gs =====
-
-/**
- * MasterReader.gs — total active-headcount per department from the MASTER file
- * =============================================================================
- * The Pax Manpower master ("Total" sheet) lists every employee with their team,
- * department and status. This gives the *establishment* headcount (all active
- * staff) for PSA (การโดยสาร) and LL (ติดตามสัมภาระ) — independent of who is on
- * duty today. The daily attendance still comes from the assignment files; this
- * only adds "จำนวนพนักงานทั้งหมด" per department.
- *
- * Master "Total" sheet columns (0-indexed), per the original SmartShift bot:
- *   1 ID | 2 Team | 4 NameTH | 6 Dept | 7 Position | 10 NameEN | 12 ResignDate | 13 Status
- */
-
 // ใส่ ID ไฟล์ Pax Manpower ถ้าบัญชีที่รันมีสิทธิ์เข้า (เว้นว่าง = ข้าม ไม่แสดงจำนวนพนักงานรวม)
 // ของเดิม: '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8'
 var MASTER_FILE_ID_RB = '';
@@ -663,25 +601,6 @@ function debugDumpMaster(masterFileId) {
   return hc;
 }
 
-
-// ===== LLReader.gs =====
-
-/**
- * LLReader.gs — LL (ติดตามสัมภาระ / baggage tracing) daily assignment reader
- * =============================================================================
- * The LL daily tab is sectioned by job area (SOD / CENTER / RUSH BAG /
- * FOUND PROPERTY / TRAINEE / ADMIN / LL PORTER). Each section repeats the
- * header: NO | NAME | POSITION | SCHEDULE | RESKED | REMARK | OT code | OT time
- * | job columns…
- *
- * Attendance for LL comes from SCHEDULE (there is no Onduty/Off REMARK):
- *   OFF / blank → off,  SL/SICK → sick,  VAC/BL → leave,  time range → working.
- *
- * Requires RosterReader.gs (reuses rrClean_, rrUp_, rrOtHours_, rrNewAgg_,
- * rrAddBucket_). Returns the same aggregate shape as readRosterFromSpreadsheet,
- * with `sections` in place of `teams`.
- */
-
 function rrLLPosGroup_(pos) {
   var u = String(pos || '').toUpperCase().replace(/ACT\.?\s*/g, '').trim();
   if (u.indexOf('PSS') === 0 || u.indexOf('SUPERVISOR') >= 0) return 'PSS';
@@ -702,7 +621,6 @@ function rrLLClassify_(sched, remark) {
   return 'working';
 }
 
-/** Parse one LL daily tab → { sections, positions, totals }. */
 function readLLFromTab(ss, tabName) {
   var ws = ss.getSheetByName(tabName);
   if (!ws) throw new Error('ไม่พบแท็บ LL: ' + tabName);
@@ -748,7 +666,6 @@ function readLLFromTab(ss, tabName) {
   return { sections: sections, positions: positions, totals: totals };
 }
 
-/** Find the LL daily tab for a date. Handles "06JUN26" and "6 JUN 2569" forms. */
 function findLLTab_(ss, date) {
   var d = date.getDate();
   var dPad = ('0' + d).slice(-2);
@@ -771,7 +688,6 @@ function findLLTab_(ss, date) {
   return null;
 }
 
-/** Open the LL file (by id) and read the tab for the given date. */
 function readLLForDate(llFileId, date) {
   var ss = SpreadsheetApp.openById(llFileId);
   var tab = findLLTab_(ss, date);
@@ -795,20 +711,6 @@ function debugDumpLL(llFileId, y, m, d) {
   Logger.log(lines.join('\n'));
   return res;
 }
-
-
-// ===== SLA.gs =====
-
-/**
- * SLA.gs — airline SLA (service level) staffing check + daily flight list.
- * =============================================================================
- * For each flight in the day's roster it counts how many staff were assigned to
- * each phase (Supervisor / Check-in / Gate / Arrival) and compares against the
- * airline SLA requirement, flagging shortages (which phase, how many short) =
- * the "support needed" check. (Renamed from the old SOP_* naming to SLA_*.)
- *
- * Requires RosterReader.gs (res = readRosterFromSpreadsheet()).
- */
 
 // ── Airline SLA: timing offsets (รอบ STD) + required headcount per role/phase ──
 // roles: [name, count, code, phase]  · phase = ALL(SUP) / CI / ARR / GATE
@@ -926,7 +828,7 @@ function slaAirlineOf_(flight) {
   var m2 = s.match(/([A-Z]{1,3})\s*\d/);
   return m2 ? m2[1] : 'DEFAULT';
 }
-/** required headcount per phase for an airline — roles = [name,count,code,phase] */
+
 function slaReq_(airline) {
   var db = slaGet_(airline);
   var req = { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: db.total || 0 };
@@ -937,7 +839,7 @@ function slaReq_(airline) {
   });
   return req;
 }
-/** classify a job task code into a phase */
+
 function slaPhaseOf_(task) {
   var u = String(task || '').toUpperCase();
   if (!u) return 'CI';
@@ -947,14 +849,12 @@ function slaPhaseOf_(task) {
   return 'CI';   // check-in default (CT, C, Y, J, W, F, WEB, KIOSK, PSM, FC, GK, SD...)
 }
 
-/** ทีมที่ไม่เกี่ยวกับ SLA เช็คอิน/เกท — ไม่นับใน Flights & SLA / Support */
 function slaSkipTeam_(team) {
   var t = String(team || '').toUpperCase();
   return t.indexOf('PORTER') >= 0 || t.indexOf('CREWSIGN') >= 0 || t.indexOf('CREW SIGN') >= 0 ||
          (t.indexOf('ADMIN') >= 0 && t.indexOf('DOC') >= 0);
 }
 
-/** collect all flights from the day's roster (PSA + LL), with assigned staff. */
 function slaCollectFlights_(res, ll) {
   var flights = {};
   function add(team, rec) {
@@ -1008,7 +908,7 @@ function slaShortText_(f) {
 }
 
 // ── SUPPORT FINDER: ใครว่าง + รู้ระบบเช็คอิน มาช่วยไฟลท์ที่ขาดได้ ──────────────
-/** ระบบเช็คอินที่แต่ละทีม "ทำเป็น" = ระบบของสายการบินที่ทีมนั้นบินวันนี้ */
+
 function slaTeamSystems_(res, ll) {
   var sys = {};
   function add(team, r) {
@@ -1022,7 +922,7 @@ function slaTeamSystems_(res, ll) {
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
   return sys;
 }
-/** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง) */
+
 function slaSupportPool_(res, ll, teamSys) {
   var pool = [];
   function add(team, r) {
@@ -1040,7 +940,7 @@ function slaSupportPool_(res, ll, teamSys) {
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
   return pool;
 }
-/** เวลา (นาที) ของแต่ละ phase สำหรับไฟลท์ (อิง STD + offset ของสายการบิน) */
+
 function slaPhaseWindow_(f, ph) {
   var db = slaGet_(f.airline);
   var std = acMin_(f.STD), sta = acMin_(f.STA);
@@ -1050,10 +950,7 @@ function slaPhaseWindow_(f, ph) {
   if (ph === 'SUP') return std != null ? [std + db.ci, std + (db.post || 30)] : (sta != null ? [sta - 20, sta + 30] : null);
   return null;
 }
-/** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้
- *  · CI  = รู้ระบบเช็คอินของสายการบินนั้น + ว่าง (ตำแหน่งใดก็ได้)
- *  · SUP = ต้องเป็นตำแหน่ง Sup + รู้ระบบนั้น + ว่าง (สำหรับ Sup/Flight Controller)
- *  · GATE/ARR = ไม่ต้องใช้ระบบ · เรียงลำดับ Agent → Senior → Sup */
+
 function slaCandidates_(f, ph, pool, max) {
   var win = slaPhaseWindow_(f, ph);
   var needSys = (ph === 'CI' || ph === 'SUP') ? slaSystemOf_(f.airline) : '';
@@ -1086,7 +983,6 @@ function slaWinTxt_(f, ph) {
   return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
 }
 
-/** Sheet tab: ✈️ Flights & SLA — day's flights + required vs assigned + shortage */
 function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   tabName = tabName || '✈️ Flights & SLA';
   var old = ss.getSheetByName(tabName);
@@ -1124,7 +1020,7 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
 var SLA_MAX_CAND = 15;     // จำนวนคนช่วยสูงสุดที่แสดงต่อ 1 ตำแหน่งที่ขาด (ปรับได้)
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
-/** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
+
 function slaSupportRows_(res, ll) {
   var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
   var teamSys = slaTeamSystems_(res, ll);
@@ -1146,7 +1042,6 @@ function slaSupportRows_(res, ll) {
   return rows;
 }
 
-/** Sheet tab: 🆘 Support — ไฟลท์ขาด + แนะนำคนที่ว่างและรู้ระบบเช็คอินมาช่วย */
 function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
   tabName = tabName || '🆘 Support';
   var old = ss.getSheetByName(tabName);
@@ -1178,36 +1073,6 @@ function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
   sh.setFrozenRows(2);
 }
 
-
-// ===== AssignCheck.gs =====
-
-/**
- * AssignCheck.gs — ตรวจความเหมาะสมของการ Assign รายคน
- * =============================================================================
- * ต่อยอดจาก record ที่ RosterReader ผลิต (shiftTime / shiftStart / shiftHrs,
- * ot / otType / otTime, assignments[]{flight,task,STA,STD,OP,CL}) เพื่อตอบ 4 คำถาม
- * ที่หัวหน้าใช้ตัดสินตารางจริง:
- *
- *   1) เวลากะ (รวม OT) ครอบคลุมเที่ยวบินที่ได้รับมอบหมายไหม  → COVERAGE
- *   2) ให้ OT มาก/น้อยไปไหม                                  → OT FIT
- *   3) มีช่วงว่าง (idle gap) ตรงไหนบ้าง                        → GAP
- * คนที่ไม่มีไฟลท์เลย (bench/standby/support เช่น WY SNR/Agent) จะนับเป็น
- * ตัวเลขสรุปเฉย ๆ ไม่ flag เป็นปัญหารายแถว เพื่อไม่ให้ตารางรก.
- *
- * หน้าต่าง "เวลางาน" (duty window) = ช่วงเวลากะ ขยายด้วย OT ก่อนกะ/หลังกะ
- * (ถ้ามีช่วงเวลา OT ระบุก็ใช้ช่วงนั้น ไม่งั้นขยายด้วยจำนวนชั่วโมง OT).
- * "หน้าต่างไฟลท์" = ช่วง min–max ของเวลา STA/STD/OP/CL ของไฟลท์นั้น.
- * ไฟลท์ถือว่า "ครอบคลุม" เมื่ออยู่ในเวลางาน (มี tolerance ±COVER_TOL นาที).
- *
- * เกณฑ์ (ปรับได้):
- *   COVER_TOL = 45 นาที   — ผ่อนผันก่อน/หลังไฟลท์
- *   GAP_MIN   = 180 นาที  — ช่วงว่างระหว่างไฟลท์ (split-duty dead time) ที่จะแจ้ง
- *   EDGE_MIN  = 240 นาที  — ช่วงว่างก่อนไฟลท์แรก/หลังไฟลท์สุดท้าย (prep/standby) ที่จะแจ้ง
- *
- * Entry: acAnalyze_(res, ll) -> { rows:[...], summary:{...} }
- *        rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) -> เขียนแท็บรายงาน
- */
-
 var AC_COVER_TOL = 45;
 var AC_GAP_MIN   = 180;
 var AC_EDGE_MIN  = 240;
@@ -1217,10 +1082,6 @@ function acMin_(s) {
   return m ? (+m[1] * 60 + +m[2]) : null;
 }
 
-/** ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คครอบคลุม — ไม่ใช่ pool/counter/common
- *  (CHECK-IN COMMON, LP MORNING/AFTERNOON, Counter G2/G11, Gate A1 ฯลฯ).
- *  รหัสไฟลท์จริงจะ "ขึ้นต้น" ด้วยโค้ดสายการบิน (EK378, 6E1077, G9687, QZ246) —
- *  งานเคาน์เตอร์/zone จะขึ้นต้นด้วยคำอังกฤษ (Counter/Gate/LP …) จึงตัดด้วย prefix. */
 function acIsFlight_(name) {
   var s = String(name || '').trim().toUpperCase();
   if (!s) return false;
@@ -1228,8 +1089,6 @@ function acIsFlight_(name) {
   return /[A-Z]{1,3}\s*\d{2,4}/.test(s);
 }
 
-/** [lo,hi] นาทีจากเวลาใด ๆ ที่มีในไฟลท์ (STA/OP/CL/STD), หรือ null.
- *  00:00 ใน OP/CL ของบางทีม (เช่น PG) เป็นค่าว่าง/placeholder ไม่ใช่เวลาจริง → ตัดทิ้ง. */
 function acFlightWin_(a) {
   var ts = [];
   [a.STA, a.OP, a.CL, a.STD].forEach(function (x) { var m = acMin_(x); if (m) ts.push(m); });
@@ -1243,7 +1102,6 @@ function acFlightWin_(a) {
   return [lo, hi];
 }
 
-/** หน้าต่างเวลางาน (duty) ของหนึ่ง record. */
 function acDuty_(r) {
   var sr = rrRangeStr_(r.shiftTime || '');
   var ss = sr[0], se = sr[1];
@@ -1267,7 +1125,6 @@ function acDuty_(r) {
   return { ss: ss, se: se, ds: ds, de: de };
 }
 
-/** วิเคราะห์ความเหมาะสมของหนึ่ง record (ที่มาทำงาน). */
 function acAnalyzeRecord_(r) {
   var d = acDuty_(r);
   // เชื่อถือได้เมื่อมีเวลากะจริง (ss) หรือเป็น OT OFF (ทำเฉพาะ OT วันหยุด).
@@ -1359,7 +1216,6 @@ function acAnalyzeRecord_(r) {
   return out;
 }
 
-/** วิเคราะห์ทั้งไฟล์ (PSA teams + LL sections). คืน rows ที่ต้องตรวจ + summary. */
 function acAnalyze_(res, ll) {
   var rows = [];
   var sum = { working: 0, checked: 0, bad: 0, warn: 0, otMuch: 0, gap: 0, noFlt: 0, noWin: 0 };
@@ -1463,29 +1319,6 @@ function rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) {
   return an.summary;
 }
 
-
-// ===== RosterBot.gs =====
-
-/**
- * RosterBot.gs — integration layer on top of RosterReader.gs
- * =============================================================================
- * Turns the validated roster reader into the actual outputs:
- *   • a Dashboard tab  — per-team headcount + OT + flight counts (+ grand total)
- *   • a Timetable tab  — per-team, per-employee flights with shift / OT and each
- *                        flight's task and open–close (OP/CL) or STA/STD times,
- *                        for judging schedule appropriateness
- *   • a Google Chat summary
- *
- * Requires RosterReader.gs in the same Apps Script project
- * (uses readRosterFromSpreadsheet()).
- *
- * Quick test against a real roster file (recommended first step):
- *   1. put a roster spreadsheet's ID in testRosterFromId()
- *   2. Run → testRosterFromId  → it writes "📊 Dashboard" and "🕓 Timetable"
- *      tabs into a fresh output spreadsheet and logs the link.
- * Daily automation: set CONFIG_RB + a time trigger on runDailyRosterReport.
- */
-
 var CONFIG_RB = {
   ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
   OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
@@ -1507,11 +1340,6 @@ function runRosterForDate(y, m, d) {
   catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
 }
 
-/**
- * รันครั้งเดียวเพื่อตั้ง trigger ให้รายงานออกอัตโนมัติทุกวัน 08:00 และ 14:00
- * (เวลาอิงตาม Time zone ของโปรเจกต์ — ตั้งเป็น Asia/Bangkok ใน Project Settings)
- * แต่ละรอบจะอ่านไฟล์ของวันนั้น + อัปเดตแท็บ + ส่งเข้า Google Chat
- */
 function setupTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'runDailyRosterReport') ScriptApp.deleteTrigger(t);
@@ -1522,12 +1350,6 @@ function setupTriggers() {
   Logger.log('✅ ตั้ง trigger รันทุกวัน 08:00 และ 14:00 แล้ว · Google Chat webhook: ' + w);
 }
 
-/**
- * รันครั้งเดียวเพื่อบันทึก Google Chat webhook ลง Script Properties
- * (อย่าใส่ URL ลงในโค้ดที่ commit ขึ้น GitHub — เป็นความลับ)
- * วิธีใช้: วาง URL ในตัวแปร url ด้านล่าง → Run setupChatWebhook → แล้วลบ URL ออก
- * หรือไปที่ Project Settings → Script Properties → เพิ่ม GCHAT_WEBHOOK_REPORT เอง
- */
 function setupChatWebhook() {
   var url = 'PASTE_GOOGLE_CHAT_WEBHOOK_URL_HERE';
   if (url.indexOf('http') !== 0) { Logger.log('⚠️ วาง URL webhook ในฟังก์ชัน setupChatWebhook ก่อน'); return; }
@@ -1535,11 +1357,6 @@ function setupChatWebhook() {
   Logger.log('✅ บันทึก webhook แล้ว → รายงานรายวันจะส่งเข้า Google Chat');
 }
 
-/**
- * Open any spreadsheet by id whether it is a native Google Sheet OR an uploaded
- * .xlsx (which SpreadsheetApp.openById cannot read). Returns { ss, tempId }.
- * Requires the Drive API advanced service for the .xlsx case.
- */
 function rbOpenAnyById_(id) {
   var file = DriveApp.getFileById(id);
   var mime = file.getMimeType();
@@ -1552,12 +1369,6 @@ function rbOpenAnyById_(id) {
   throw new Error('ไฟล์นี้ไม่ใช่ Spreadsheet (mime=' + mime + ') — ต้องชี้ไปที่ไฟล์ assignment PSA');
 }
 
-/**
- * Simplest manual test: read ONE PSA roster file by ID, write the reports.
- * Works on a native Google Sheet OR an .xlsx assignment file.
- * Pass an LL file id + date to include the LL department, e.g.
- *   testRosterFromId('<psaId>', '<llId>', 2026, 6, 6);
- */
 function testRosterFromId(ssId, llId, y, m, d) {
   ssId = ssId || 'PUT_A_ROSTER_SPREADSHEET_ID_HERE';
   var opened = rbOpenAnyById_(ssId);
@@ -1638,7 +1449,6 @@ function rbRunForDate_(date) {
 var KPI_BG_ = ['#e8f0fe', '#e6f4ea', '#f5f5f5', '#fff8e1', '#fff3e0', '#fce4ec'];
 var KPI_FC_ = ['#1a237e', '#1b5e20', '#424242', '#e65100', '#bf360c', '#880e4f'];
 
-/** Write a row of KPI cards: label row + big value row, one card per column. */
 function rbCards_(sh, top, labels, values) {
   for (var i = 0; i < labels.length; i++) {
     sh.getRange(top, i + 1).setValue(labels[i]).setBackground(KPI_BG_[i % 6]).setFontColor(KPI_FC_[i % 6])
@@ -1651,7 +1461,6 @@ function rbCards_(sh, top, labels, values) {
 
 function rbOtCell_(people, hrs) { return people > 0 ? (people + ' (' + hrs + 'h)') : '-'; }
 
-/** Manpower-by-X table: X | Total | Working | OT-Off | OT ก่อนกะ | OT หลังกะ | %Working */
 function rbManpowerTable_(sh, top, title, rowsData, headColor) {
   var W = 9;
   sh.getRange(top, 1, 1, W).merge().setValue(title)
@@ -1775,7 +1584,7 @@ function rbShiftCell_(r) {
   var code = r.shift || '';
   return (r.shiftTime && r.shiftTime !== code) ? (code + ' (' + r.shiftTime + ')') : code;
 }
-/** [OT ก่อนกะ, OT หลังกะ, OT OFF] cell strings for one record. */
+
 function rbOtCols_(r) {
   var cell = (r.otTime ? r.otTime + ' ' : '') + (r.ot ? '(' + r.ot + 'h)' : '');
   if (r.bucket === 'ot_off') return ['', '', r.ot ? cell : '✔'];
@@ -1882,7 +1691,6 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
 // ─── WEEKLY OT (>36h/week check) ────────────────────────────────────────────
 var OT_WEEK_LIMIT = 36;
 
-/** 7-day week block within the month, starting day 1 (1-7, 8-14, …). */
 function rbWeekRange_(date) {
   var d = date.getDate();
   var startDay = Math.floor((d - 1) / 7) * 7 + 1;
@@ -1890,7 +1698,6 @@ function rbWeekRange_(date) {
   return { startDay: startDay, endDay: Math.min(startDay + 6, daysInMonth) };
 }
 
-/** Accumulate OT hours per employee across the week (week-to-date up to `date`). */
 function rbWeeklyOT_(date) {
   var wr = rbWeekRange_(date);
   var upto = Math.min(date.getDate(), wr.endDay);
@@ -1925,7 +1732,6 @@ function rbWeeklyOT_(date) {
            over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
 }
 
-/** Sheet tab: ⏱️ OT รายสัปดาห์ — per-person weekly OT + >36h flag. */
 function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   tabName = tabName || '⏱️ OT สัปดาห์';
   var old = ss.getSheetByName(tabName);
@@ -1966,7 +1772,6 @@ function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   sh.setFrozenRows(2);
 }
 
-/** Standalone: build the weekly-OT tab for a date into the monthly file. */
 function runWeeklyOTReport(y, m, d) {
   var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
   var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
@@ -2105,18 +1910,6 @@ function rbGetMonthlyOutput_(mon, be) {
   return ss;
 }
 
-
-// ===== WebDashboard.gs =====
-
-/**
- * WebDashboard.gs — AOTGA Daily Manpower Dashboard web app (doGet).
- * =============================================================================
- * Visual design adopted from the AOTGA dashboard design system (corporate CI,
- * Kanit, appbar / week nav / KPI hero / panels / tables). Server-rendered so it
- * runs as an Apps Script web app. Deploy → Web app → open the /exec URL.
- * Requires RosterReader.gs / LLReader.gs / MasterReader.gs / RosterBot.gs / SLA.gs.
- */
-
 var AOTGA_LOGO_URL = '';
 var CI = { royal:'#1D428A', bosch:'#236192', sky:'#4EC3E0', teal:'#3FBCBE', yellow:'#FEC909', red:'#D92526', grey:'#7C878F', good:'#1BA37A', sub:'#5a6b86' };
 var MONW = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
@@ -2149,7 +1942,6 @@ function doGet(e) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-/** Load the PSA roster (+ LL) for a date. Used by doGet and the lazy tab loaders. */
 function rbLoadResLL_(date) {
   var roster = rbOpenTodayRoster_(date);
   var res = readRosterFromSpreadsheet(roster.ss);
@@ -2160,7 +1952,6 @@ function rbLoadResLL_(date) {
 }
 function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
 
-/** Lazy tab: Timetable HTML (called from client via google.script.run). */
 function rbTimetableHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
@@ -2170,7 +1961,7 @@ function rbTimetableHtml(iso) {
       rbCtrls_('view-tt', true));
   } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
-/** Lazy tab: Flights & SLA HTML. */
+
 function rbFlightsHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
@@ -2180,7 +1971,6 @@ function rbFlightsHtml(iso) {
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
-/** Lazy tab: ตรวจความเหมาะสมการ Assign (ครอบคลุมไฟลท์ / OT / ช่วงว่าง). */
 function rbAssignHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
@@ -2210,7 +2000,6 @@ function rbAssignHtml(iso) {
 function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
 
-/** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
 function rbSupportHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
@@ -2233,7 +2022,7 @@ function rbSupportHtml(iso) {
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
-/** ตัวกรองหัวการ์ด: ช่องค้นหา + dropdown เลือกทีม (เติม option ด้วย JS หลังโหลด) */
+
 function rbCtrls_(viewId, withSearch){
   return (withSearch ? '<input class="search" placeholder="🔎 ค้นหา" oninput="applyFilter(\''+viewId+'\')">' : '') +
     '<select class="teamsel" onchange="applyFilter(\''+viewId+'\')"><option value="">ทุกทีม</option></select>';
@@ -2281,8 +2070,6 @@ function rbTabs_(shortCount, acCount) {
     '<button class="tab" id="tab-ot" onclick="showView(\'ot\');loadOT()">⏱️ OT สัปดาห์</button></div>';
 }
 
-/** Called from the client (google.script.run) when the OT-week tab is opened.
- *  Computes weekly OT (reads the week's files) and returns the table HTML. */
 function rbWeeklyOTHtml(iso) {
   try {
     var a = String(iso).split('-');
@@ -2495,448 +2282,252 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
 }
 
 function rbDesignCss_() { return rbDESIGN_CSS_; }
-var rbDESIGN_CSS_ = `/* ============================================================================
- * AOTGA Daily Manpower Dashboard — design system
- * Aviation operations aesthetic on the AOTGA corporate identity.
- * Themeable via [data-theme] on <html>: corporate | vibrant | soft
- * ==========================================================================*/
-
-:root {
-  /* AOTGA CI */
-  --royal: #1D428A;
-  --bosch: #236192;
-  --sky: #4EC3E0;
-  --teal: #3FBCBE;
-  --yellow: #FEC909;
-  --red: #D92526;
-  --grey: #7C878F;
-
-  /* semantic */
-  --brand: var(--royal);
-  --brand-2: var(--bosch);
-  --accent: var(--sky);
-  --good: #1BA37A;
-  --warn: #E8A400;
-  --alert: var(--red);
-
-  /* surfaces */
-  --bg: #eef3fa;
-  --bg-2: #e3ecf7;
-  --card: #ffffff;
-  --ink: #15233f;
-  --ink-2: #5a6b86;
-  --ink-3: #93a1b8;
-  --line: #e4ebf4;
-  --line-2: #eef2f8;
-
-  --radius: 16px;
-  --radius-sm: 11px;
-  --radius-lg: 22px;
-  --shadow: 0 2px 4px rgba(20,40,80,.04), 0 12px 28px rgba(20,40,80,.07);
-  --shadow-sm: 0 1px 2px rgba(20,40,80,.05), 0 4px 12px rgba(20,40,80,.05);
-  --shadow-lg: 0 8px 18px rgba(20,40,80,.08), 0 30px 60px rgba(20,40,80,.12);
-
-  --header-grad: linear-gradient(118deg, #16315f 0%, var(--royal) 46%, var(--bosch) 100%);
-  --maxw: 1320px;
-  --font: 'Kanit', -apple-system, 'Segoe UI', sans-serif;
+var rbDESIGN_CSS_ = `:root{--royal:#1D428A;--bosch:#236192;--sky:#4EC3E0;--teal:#3FBCBE;--yellow:#FEC909;--red:#D92526;--grey:#7C878F;--brand:var(--royal);--brand-2:var(--bosch);--accent:var(--sky);--good:#1BA37A;--warn:#E8A400;--alert:var(--red);--bg:#eef3fa;--bg-2:#e3ecf7;--card:#ffffff;--ink:#15233f;--ink-2:#5a6b86;--ink-3:#93a1b8;--line:#e4ebf4;--line-2:#eef2f8;--radius:16px;--radius-sm:11px;--radius-lg:22px;--shadow:0 2px 4px rgba(20,40,80,.04),0 12px 28px rgba(20,40,80,.07);--shadow-sm:0 1px 2px rgba(20,40,80,.05),0 4px 12px rgba(20,40,80,.05);--shadow-lg:0 8px 18px rgba(20,40,80,.08),0 30px 60px rgba(20,40,80,.12);--header-grad:linear-gradient(118deg,#16315f 0%,var(--royal) 46%,var(--bosch) 100%);--maxw:1320px;--font:'Kanit',-apple-system,'Segoe UI',sans-serif;}
+[data-theme="vibrant"]{--bg:#eaf1fb;--bg-2:#dfeafb;--header-grad:linear-gradient(120deg,#1b2a6b 0%,var(--royal) 38%,var(--teal) 100%);--shadow:0 2px 6px rgba(29,66,138,.06),0 16px 36px rgba(29,66,138,.12);--shadow-lg:0 10px 24px rgba(29,66,138,.12),0 36px 70px rgba(29,66,138,.18);}
+[data-theme="soft"]{--bg:#f4f6fb;--bg-2:#eef1f8;--card:#ffffff;--line:#eceff6;--radius:22px;--radius-sm:15px;--radius-lg:28px;--header-grad:linear-gradient(125deg,#2a4f97 0%,#3a6fc0 60%,#5aa9d8 100%);--shadow:0 3px 8px rgba(40,60,100,.05),0 16px 40px rgba(40,60,100,.08);}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);}
+body{font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh;background:radial-gradient(1200px 600px at 85% -10%,rgba(78,195,224,.18),transparent 60%),radial-gradient(1000px 500px at -5% 0%,rgba(29,66,138,.10),transparent 55%),var(--bg);}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:20px 24px 56px;}
+.tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
+.appbar{position:relative;background:var(--header-grad);border-radius:var(--radius-lg);padding:20px 28px;color:#fff;overflow:hidden;box-shadow:var(--shadow-lg);}
+.appbar::before{content:"";position:absolute;inset:0;background:radial-gradient(520px 520px at 88% -120%,rgba(255,255,255,.14),transparent 60%),repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 1px,transparent 1px 64px);pointer-events:none;}
+.appbar__row{position:relative;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;}
+.brand{display:flex;align-items:center;gap:15px;}
+.brand__mark{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.4);display:grid;place-items:center;flex:0 0 auto;backdrop-filter:blur(4px);}
+.brand__mark svg{width:30px;height:30px;}
+.brand h1{font-size:21px;font-weight:800;letter-spacing:.6px;line-height:1.05;}
+.brand h1 span{color:var(--sky);}
+.brand p{font-size:12px;font-weight:300;color:#cfe1f5;margin-top:3px;letter-spacing:.2px;white-space:nowrap;}
+.appbar__meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.datepill{display:flex;flex-direction:column;align-items:flex-end;padding-right:16px;border-right:1px solid rgba(255,255,255,.22);}
+.datepill .d{font-size:19px;font-weight:700;line-height:1.1;white-space:nowrap;}
+.datepill .s{font-size:11px;color:#cfe1f5;font-weight:300;white-space:nowrap;}
+.livedot{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:#d8e8f8;font-weight:400;}
+.livedot i{width:8px;height:8px;border-radius:50%;background:#58e6a0;box-shadow:0 0 0 0 rgba(88,230,160,.6);animation:pulse 2s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(88,230,160,.5);}
+70%{box-shadow:0 0 0 7px rgba(88,230,160,0);}
+100%{box-shadow:0 0 0 0 rgba(88,230,160,0);}
 }
-
-/* ---- Theme: VIBRANT (modern & colorful) ---------------------------------- */
-[data-theme="vibrant"] {
-  --bg: #eaf1fb;
-  --bg-2: #dfeafb;
-  --header-grad: linear-gradient(120deg, #1b2a6b 0%, var(--royal) 38%, var(--teal) 100%);
-  --shadow: 0 2px 6px rgba(29,66,138,.06), 0 16px 36px rgba(29,66,138,.12);
-  --shadow-lg: 0 10px 24px rgba(29,66,138,.12), 0 36px 70px rgba(29,66,138,.18);
+.btn{font-family:inherit;cursor:pointer;border:0;border-radius:11px;padding:10px 15px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:7px;transition:transform .12s ease,box-shadow .12s ease,background .12s;}
+.btn:active{transform:translateY(1px);}
+.btn--ghost{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.28);}
+.btn--ghost:hover{background:rgba(255,255,255,.24);}
+.btn--accent{background:var(--sky);color:#0c2c45;}
+.btn--accent:hover{box-shadow:0 6px 16px rgba(78,195,224,.4);}
+.weeknav{display:flex;align-items:center;gap:12px;margin:16px 0 18px;}
+.weeknav__strip{display:flex;gap:7px;overflow-x:auto;flex:1;padding:3px 1px 6px;scrollbar-width:thin;}
+.weeknav__strip::-webkit-scrollbar{height:5px;}
+.weeknav__strip::-webkit-scrollbar-thumb{background:#c7d4e6;border-radius:4px;}
+.wk{flex:0 0 auto;min-width:50px;text-align:center;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:7px 6px 8px;line-height:1.1;transition:all .14s ease;user-select:none;}
+.wk:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow-sm);}
+.wk .wd{display:block;font-size:9.5px;color:var(--ink-3);font-weight:500;letter-spacing:.4px;}
+.wk .wn{display:block;font-size:18px;font-weight:700;color:var(--ink);}
+.wk .wm{display:block;font-size:9px;color:var(--ink-3);font-weight:400;}
+.wk.sel{background:var(--brand);border-color:var(--brand);box-shadow:0 8px 18px rgba(29,66,138,.28);}
+.wk.sel .wd,.wk.sel .wm{color:#bcd2ef;}
+.wk.sel .wn{color:#fff;}
+.wk.today:not(.sel){border-color:var(--accent);}
+.wk.today:not(.sel) .wn{color:var(--brand);}
+.weeknav__date{display:flex;align-items:center;gap:8px;}
+.weeknav__date input{font-family:inherit;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:11px;padding:9px 11px;font-size:13px;font-weight:500;}
+.iconbtn{width:38px;height:38px;flex:0 0 auto;border-radius:11px;border:1px solid var(--line);background:var(--card);color:var(--brand);cursor:pointer;display:grid;place-items:center;font-size:16px;transition:all .14s;}
+.iconbtn:hover{border-color:var(--accent);color:var(--accent);}
+.tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
+.tab{font-family:inherit;cursor:pointer;background:var(--card);border:1px solid var(--line);color:var(--ink-2);border-radius:13px;padding:11px 18px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:9px;transition:all .15s ease;}
+.tab svg{width:17px;height:17px;}
+.tab:hover{color:var(--brand);border-color:#cdd9ec;}
+.tab.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 8px 18px rgba(29,66,138,.24);}
+.tab .badge{font-size:11px;font-weight:700;background:rgba(255,255,255,.22);color:#fff;border-radius:20px;padding:1px 8px;min-width:20px;text-align:center;}
+.tab:not(.active) .badge{background:#fdeaea;color:var(--red);}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:16px;}
+.kpi{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 16px 15px;box-shadow:var(--shadow-sm);overflow:hidden;transition:transform .16s ease,box-shadow .16s ease;}
+.kpi:hover{transform:translateY(-3px);box-shadow:var(--shadow);}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c);}
+.kpi__top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;}
+.kpi__ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 14%,white);color:var(--c);}
+.kpi__ico svg{width:19px;height:19px;}
+.kpi__trend{font-size:11px;font-weight:600;color:var(--ink-3);display:inline-flex;align-items:center;gap:3px;}
+.kpi__trend.up{color:var(--good);}
+.kpi__trend.down{color:var(--alert);}
+.kpi__val{font-size:34px;font-weight:800;color:var(--ink);line-height:1;letter-spacing:-.5px;}
+.kpi__val small{font-size:15px;font-weight:600;color:var(--ink-3);margin-left:2px;}
+.kpi__lbl{font-size:12.5px;color:var(--ink-2);font-weight:500;margin-top:5px;}
+.kpi__sub{font-size:11px;color:var(--ink-3);margin-top:2px;}
+.attband{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:14px;margin-bottom:16px;}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow-sm);}
+.panel--brand{background:var(--header-grad);color:#fff;border:0;box-shadow:var(--shadow);position:relative;overflow:hidden;}
+.panel--brand::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 1px,transparent 1px 54px);}
+.panel h3{font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.panel--brand h3{color:#cfe1f5;}
+.panel__hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.panel__hd h3{margin-bottom:0;}
+.attring{position:relative;display:flex;align-items:center;gap:18px;}
+.ring{position:relative;width:132px;height:132px;flex:0 0 auto;}
+.ring__center{position:absolute;inset:0;display:grid;place-content:center;text-align:center;}
+.ring__center .big{font-size:30px;font-weight:800;line-height:1;color:#fff;}
+.ring__center .lbl{font-size:10.5px;color:#cfe1f5;margin-top:3px;}
+.attlegend{display:flex;flex-direction:column;gap:9px;flex:1;}
+.leg{display:flex;align-items:center;gap:9px;font-size:13px;}
+.leg i{width:11px;height:11px;border-radius:4px;flex:0 0 auto;}
+.leg .lk{color:#d6e4f5;font-weight:300;flex:1;}
+.leg .lv{font-weight:700;font-size:15px;}
+.statlist{display:flex;flex-direction:column;gap:12px;}
+.statrow{display:flex;align-items:center;gap:12px;}
+.statrow__ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 13%,white);color:var(--c);flex:0 0 auto;}
+.statrow__ico svg{width:18px;height:18px;}
+.statrow__t{flex:1;}
+.statrow__t .k{font-size:12px;color:var(--ink-2);font-weight:500;}
+.statrow__t .v{font-size:19px;font-weight:800;color:var(--ink);line-height:1.1;}
+.statrow__t .v small{font-size:12px;color:var(--ink-3);font-weight:600;}
+.otsplit{display:flex;flex-direction:column;gap:13px;}
+.otrow .otrow__top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;}
+.otrow .otrow__top .k{font-size:12.5px;font-weight:500;color:var(--ink-2);}
+.otrow .otrow__top .v{font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;padding-left:10px;}
+.otrow .otrow__top .v small{color:var(--ink-3);font-weight:500;}
+.track{height:9px;background:var(--line-2);border-radius:6px;overflow:hidden;}
+.track>i{display:block;height:100%;border-radius:6px;}
+.grid{display:grid;gap:16px;}
+.grid--2{grid-template-columns:1.35fr 1fr;}
+.grid--charts{grid-template-columns:1.4fr 1fr;margin-bottom:16px;}
+.barchart{display:flex;flex-direction:column;gap:11px;}
+.barchart__row{display:grid;grid-template-columns:116px 1fr 46px;align-items:center;gap:12px;}
+.barchart__lbl{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink);}
+.barchart__lbl .tag{font-size:10px;font-weight:700;color:#fff;background:var(--brand);border-radius:6px;padding:1px 7px;letter-spacing:.3px;}
+.barchart__bar{position:relative;height:24px;background:var(--line-2);border-radius:8px;overflow:hidden;}
+.barchart__fill{position:relative;z-index:1;height:100%;border-radius:8px;background:linear-gradient(90deg,var(--teal),var(--sky));display:flex;align-items:center;transition:width .9s cubic-bezier(.2,.8,.2,1);}
+.barchart__ghost{position:absolute;inset:0;z-index:0;}
+.barchart__val{font-size:13px;font-weight:700;color:var(--ink);text-align:right;}
+.barchart__val small{color:var(--ink-3);font-weight:500;}
+.donut-wrap{display:flex;align-items:center;gap:20px;}
+.donut{width:150px;height:150px;flex:0 0 auto;}
+.donut-legend{display:flex;flex-direction:column;gap:11px;flex:1;}
+.tablecard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden;}
+.teamsel{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);padding:7px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);cursor:pointer;margin-left:8px;}
+.tablecard__hd{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:16px 20px 13px;}
+.tablecard__hd h3{font-size:14.5px;font-weight:700;color:var(--brand);display:flex;align-items:center;gap:9px;}
+.tablecard__hd .pill{font-size:11px;font-weight:600;color:var(--ink-2);background:var(--bg-2);border-radius:20px;padding:3px 11px;}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;}
+.tbl th{text-align:right;color:var(--ink-3);font-weight:600;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;padding:8px 12px;background:var(--bg-2);}
+.tbl th:first-child{text-align:left;}
+.tbl td{text-align:right;padding:9px 12px;border-bottom:1px solid var(--line-2);color:var(--ink);}
+.tbl td:first-child{text-align:left;}
+.tbl tbody tr:last-child td{border-bottom:0;}
+.tbl tbody tr:hover td{background:color-mix(in srgb,var(--accent) 7%,white);}
+.tbl tr.total td{background:color-mix(in srgb,var(--brand) 6%,white);font-weight:700;border-top:2px solid var(--line);}
+.tbl .nm{font-weight:600;color:var(--ink);display:flex;align-items:center;gap:9px;}
+.dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
+.tag{display:inline-flex;align-items:center;justify-content:center;min-width:34px;font-size:10.5px;font-weight:800;letter-spacing:.4px;color:#fff;background:var(--brand);border-radius:6px;padding:2px 8px;}
+.muted{color:var(--ink-3);font-weight:400;}
+.b{font-weight:700;}
+.cellbar{position:relative;height:18px;background:var(--line-2);border-radius:6px;overflow:hidden;min-width:90px;}
+.cellbar>i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:linear-gradient(90deg,var(--teal),var(--sky));}
+.cellbar>span{position:absolute;right:7px;top:0;line-height:18px;font-size:11px;font-weight:700;color:var(--brand);}
+.otcell{font-weight:700;}
+.otcell small{color:var(--ink-3);font-weight:500;font-size:11px;}
+.otcell.pre{color:var(--warn);}
+.otcell.post{color:var(--royal);}
+.ttbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.search{position:relative;flex:1;min-width:200px;}
+.search input{width:100%;font-family:inherit;border:1px solid var(--line);border-radius:12px;padding:11px 12px 11px 38px;font-size:13.5px;background:var(--card);color:var(--ink);}
+.search input:focus{outline:2px solid color-mix(in srgb,var(--accent) 50%,white);border-color:var(--accent);}
+.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:17px;height:17px;color:var(--ink-3);}
+.chipgroup{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-start;}
+.tbl td .chipgroup{min-width:320px;}
+.chip{display:inline-block;line-height:1.35;font-family:inherit;cursor:pointer;font-size:11px;font-weight:600;padding:4px 9px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink-2);transition:all .13s;white-space:normal;}
+.chip:hover{border-color:var(--accent);}
+.chip--duty{background:var(--bg-2);color:var(--ink-3);border-style:dashed;}
+.tbl tbody tr.row-off td{background:#eceff1 !important;color:#7c878f;}
+.tbl tbody tr.row-sl td{background:#f8d7da !important;color:#b3261e;font-weight:600;}
+.tbl tbody tr.row-vac td{background:#fff3cd !important;color:#7a5b00;}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand);}
+.ttgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:13px;}
+.ttcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow-sm);transition:transform .14s,box-shadow .14s;}
+.ttcard:hover{transform:translateY(-2px);box-shadow:var(--shadow);}
+.ttcard__hd{display:flex;align-items:center;gap:11px;margin-bottom:12px;}
+.avatar{width:40px;height:40px;border-radius:12px;flex:0 0 auto;display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px;background:linear-gradient(135deg,var(--royal),var(--bosch));}
+.ttcard__id{flex:1;min-width:0;}
+.ttcard__id .nm{font-size:14.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ttcard__id .meta{font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:7px;margin-top:1px;}
+.shiftbadge{text-align:right;flex:0 0 auto;}
+.shiftbadge .code{font-size:13px;font-weight:800;color:var(--brand);}
+.shiftbadge .time{font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
+.ttcard__ot{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:8px;margin-bottom:11px;}
+.ttcard__ot.pre{background:#fff6e0;color:#9a6b00;}
+.ttcard__ot.post{background:#e9f0fb;color:var(--royal);}
+.ttcard__ot.off{background:#fdeaea;color:var(--red);}
+.fstrip{display:flex;flex-direction:column;gap:7px;}
+.fstrip__item{display:flex;align-items:center;gap:8px;background:var(--bg-2);border-radius:10px;padding:7px 10px;}
+.fstrip__no{font-size:12.5px;font-weight:800;color:var(--brand);min-width:52px;flex:0 0 auto;}
+.fstrip__task{font-size:10px;font-weight:700;color:#fff;background:var(--teal);border-radius:6px;padding:2px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:92px;flex:0 1 auto;}
+.fstrip__time{margin-left:auto;font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right;flex:0 0 auto;white-space:nowrap;}
+.fstrip__time .lab{font-size:8.5px;font-weight:700;color:var(--ink-3);letter-spacing:.3px;display:block;}
+.ttcard__empty{font-size:12px;color:var(--ink-3);font-style:italic;padding:6px 0;}
+.slabar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
+.slasum{display:flex;gap:10px;}
+.slasum .pill{display:flex;align-items:center;gap:8px;padding:9px 15px;border-radius:12px;font-size:13px;font-weight:600;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow-sm);}
+.slasum .pill b{font-size:17px;font-weight:800;}
+.slasum .pill.ok b{color:var(--good);}
+.slasum .pill.bad b{color:var(--alert);}
+.fltlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;}
+.boarding{position:relative;display:flex;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-sm);transition:transform .14s,box-shadow .14s;}
+.boarding:hover{transform:translateY(-2px);box-shadow:var(--shadow);}
+.boarding.short{border-color:#f3c9c9;}
+.boarding__stub{width:92px;flex:0 0 auto;background:var(--header-grad);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px 8px;position:relative;}
+.boarding.short .boarding__stub{background:linear-gradient(160deg,#b3201f,var(--red));}
+.boarding__stub .ac{font-size:22px;font-weight:800;letter-spacing:1px;}
+.boarding__stub .acn{font-size:8.5px;color:rgba(255,255,255,.8);text-align:center;margin-top:3px;line-height:1.2;font-weight:300;}
+.boarding__perf{position:absolute;right:-7px;top:0;bottom:0;width:14px;background:radial-gradient(circle at center,var(--bg) 0 5px,transparent 5px) repeat-y;background-size:14px 18px;}
+.boarding__body{flex:1;padding:13px 16px 14px;min-width:0;}
+.boarding__top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:11px;}
+.boarding__fl{font-size:18px;font-weight:800;color:var(--ink);letter-spacing:.5px;}
+.boarding__fl small{display:block;font-size:11px;font-weight:400;color:var(--ink-3);}
+.boarding__times{text-align:right;font-size:11px;color:var(--ink-2);}
+.boarding__times .t{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);font-size:13px;}
+.slastatus{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;}
+.slastatus.ok{background:#e3f6ee;color:var(--good);}
+.slastatus.bad{background:#fdeaea;color:var(--red);}
+.phases{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+.phase{text-align:center;background:var(--bg-2);border-radius:10px;padding:8px 4px;}
+.phase.short{background:#fdecec;}
+.phase .pl{font-size:9.5px;font-weight:700;color:var(--ink-3);letter-spacing:.4px;text-transform:uppercase;}
+.phase .pv{font-size:16px;font-weight:800;color:var(--ink);margin-top:2px;font-variant-numeric:tabular-nums;}
+.phase.short .pv{color:var(--red);}
+.phase .pv span{font-size:11px;color:var(--ink-3);font-weight:600;}
+.phase .pd{font-size:9.5px;font-weight:700;margin-top:1px;}
+.phase.short .pd{color:var(--red);}
+.phase.full .pd{color:var(--good);}
+.foot{margin-top:26px;text-align:center;color:var(--ink-3);font-size:11.5px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;}
+.foot b{color:var(--ink-2);font-weight:600;}
+.sectionlabel{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-3);margin:22px 2px 12px;display:flex;align-items:center;gap:10px;}
+.sectionlabel::after{content:"";flex:1;height:1px;background:var(--line);}
+@media (max-width:1080px){.kpis{grid-template-columns:repeat(3,1fr);}
+.attband{grid-template-columns:1fr 1fr;}
+.attband>:first-child{grid-column:1 / -1;}
+.grid--2,.grid--charts{grid-template-columns:1fr;}
 }
-
-/* ---- Theme: SOFT (friendly & rounded) ------------------------------------ */
-[data-theme="soft"] {
-  --bg: #f4f6fb;
-  --bg-2: #eef1f8;
-  --card: #ffffff;
-  --line: #eceff6;
-  --radius: 22px;
-  --radius-sm: 15px;
-  --radius-lg: 28px;
-  --header-grad: linear-gradient(125deg, #2a4f97 0%, #3a6fc0 60%, #5aa9d8 100%);
-  --shadow: 0 3px 8px rgba(40,60,100,.05), 0 16px 40px rgba(40,60,100,.08);
+@media (max-width:680px){.wrap{padding:14px 14px 44px;}
+.kpis{grid-template-columns:repeat(2,1fr);}
+.attband{grid-template-columns:1fr;}
+.brand h1{font-size:18px;}
+.kpi__val{font-size:28px;}
+.fltlist,.ttgrid{grid-template-columns:1fr;}
 }
-
-* { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body { background: var(--bg); }
-body {
-  font-family: var(--font);
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  min-height: 100vh;
-  background:
-    radial-gradient(1200px 600px at 85% -10%, rgba(78,195,224,.18), transparent 60%),
-    radial-gradient(1000px 500px at -5% 0%, rgba(29,66,138,.10), transparent 55%),
-    var(--bg);
+@keyframes rise{from{transform:translateY(9px);}
+to{transform:none;}
 }
-
-.wrap { max-width: var(--maxw); margin: 0 auto; padding: 20px 24px 56px; }
-
-/* tabular numerals everywhere numbers matter */
-.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-
-/* ============================ HEADER ====================================== */
-.appbar {
-  position: relative;
-  background: var(--header-grad);
-  border-radius: var(--radius-lg);
-  padding: 20px 28px;
-  color: #fff;
-  overflow: hidden;
-  box-shadow: var(--shadow-lg);
-}
-.appbar::before {
-  /* subtle radar / flight-path arcs */
-  content: "";
-  position: absolute; inset: 0;
-  background:
-    radial-gradient(520px 520px at 88% -120%, rgba(255,255,255,.14), transparent 60%),
-    repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 64px);
-  pointer-events: none;
-}
-.appbar__row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 15px; }
-.brand__mark {
-  width: 52px; height: 52px; border-radius: 14px;
-  background: rgba(255,255,255,.12);
-  border: 1.5px solid rgba(255,255,255,.4);
-  display: grid; place-items: center; flex: 0 0 auto;
-  backdrop-filter: blur(4px);
-}
-.brand__mark svg { width: 30px; height: 30px; }
-.brand h1 { font-size: 21px; font-weight: 800; letter-spacing: .6px; line-height: 1.05; }
-.brand h1 span { color: var(--sky); }
-.brand p { font-size: 12px; font-weight: 300; color: #cfe1f5; margin-top: 3px; letter-spacing: .2px; white-space: nowrap; }
-
-.appbar__meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.datepill {
-  display: flex; flex-direction: column; align-items: flex-end;
-  padding-right: 16px; border-right: 1px solid rgba(255,255,255,.22);
-}
-.datepill .d { font-size: 19px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
-.datepill .s { font-size: 11px; color: #cfe1f5; font-weight: 300; white-space: nowrap; }
-.livedot { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #d8e8f8; font-weight: 400; }
-.livedot i { width: 8px; height: 8px; border-radius: 50%; background: #58e6a0; box-shadow: 0 0 0 0 rgba(88,230,160,.6); animation: pulse 2s infinite; }
-@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(88,230,160,.5); } 70% { box-shadow: 0 0 0 7px rgba(88,230,160,0); } 100% { box-shadow: 0 0 0 0 rgba(88,230,160,0); } }
-
-.btn {
-  font-family: inherit; cursor: pointer; border: 0; border-radius: 11px;
-  padding: 10px 15px; font-size: 13px; font-weight: 600; display: inline-flex;
-  align-items: center; gap: 7px; transition: transform .12s ease, box-shadow .12s ease, background .12s;
-}
-.btn:active { transform: translateY(1px); }
-.btn--ghost { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.28); }
-.btn--ghost:hover { background: rgba(255,255,255,.24); }
-.btn--accent { background: var(--sky); color: #0c2c45; }
-.btn--accent:hover { box-shadow: 0 6px 16px rgba(78,195,224,.4); }
-
-/* ============================ WEEK NAV ==================================== */
-.weeknav { display: flex; align-items: center; gap: 12px; margin: 16px 0 18px; }
-.weeknav__strip { display: flex; gap: 7px; overflow-x: auto; flex: 1; padding: 3px 1px 6px; scrollbar-width: thin; }
-.weeknav__strip::-webkit-scrollbar { height: 5px; }
-.weeknav__strip::-webkit-scrollbar-thumb { background: #c7d4e6; border-radius: 4px; }
-.wk {
-  flex: 0 0 auto; min-width: 50px; text-align: center; cursor: pointer;
-  background: var(--card); border: 1px solid var(--line); border-radius: 13px;
-  padding: 7px 6px 8px; line-height: 1.1; transition: all .14s ease; user-select: none;
-}
-.wk:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-sm); }
-.wk .wd { display: block; font-size: 9.5px; color: var(--ink-3); font-weight: 500; letter-spacing: .4px; }
-.wk .wn { display: block; font-size: 18px; font-weight: 700; color: var(--ink); }
-.wk .wm { display: block; font-size: 9px; color: var(--ink-3); font-weight: 400; }
-.wk.sel { background: var(--brand); border-color: var(--brand); box-shadow: 0 8px 18px rgba(29,66,138,.28); }
-.wk.sel .wd, .wk.sel .wm { color: #bcd2ef; }
-.wk.sel .wn { color: #fff; }
-.wk.today:not(.sel) { border-color: var(--accent); }
-.wk.today:not(.sel) .wn { color: var(--brand); }
-.weeknav__date { display: flex; align-items: center; gap: 8px; }
-.weeknav__date input {
-  font-family: inherit; background: var(--card); border: 1px solid var(--line);
-  color: var(--ink); border-radius: 11px; padding: 9px 11px; font-size: 13px; font-weight: 500;
-}
-.iconbtn {
-  width: 38px; height: 38px; flex: 0 0 auto; border-radius: 11px; border: 1px solid var(--line);
-  background: var(--card); color: var(--brand); cursor: pointer; display: grid; place-items: center;
-  font-size: 16px; transition: all .14s;
-}
-.iconbtn:hover { border-color: var(--accent); color: var(--accent); }
-
-/* ============================ TABS ======================================== */
-.tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
-.tab {
-  font-family: inherit; cursor: pointer; background: var(--card); border: 1px solid var(--line);
-  color: var(--ink-2); border-radius: 13px; padding: 11px 18px; font-weight: 600; font-size: 14px;
-  display: inline-flex; align-items: center; gap: 9px; transition: all .15s ease;
-}
-.tab svg { width: 17px; height: 17px; }
-.tab:hover { color: var(--brand); border-color: #cdd9ec; }
-.tab.active { background: var(--brand); color: #fff; border-color: var(--brand); box-shadow: 0 8px 18px rgba(29,66,138,.24); }
-.tab .badge {
-  font-size: 11px; font-weight: 700; background: rgba(255,255,255,.22); color: #fff;
-  border-radius: 20px; padding: 1px 8px; min-width: 20px; text-align: center;
-}
-.tab:not(.active) .badge { background: #fdeaea; color: var(--red); }
-
-/* ============================ KPI HERO ==================================== */
-.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 16px; }
-.kpi {
-  position: relative; background: var(--card); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: 16px 16px 15px; box-shadow: var(--shadow-sm);
-  overflow: hidden; transition: transform .16s ease, box-shadow .16s ease;
-}
-.kpi:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
-.kpi::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
-.kpi__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
-.kpi__ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
-  background: color-mix(in srgb, var(--c) 14%, white); color: var(--c); }
-.kpi__ico svg { width: 19px; height: 19px; }
-.kpi__trend { font-size: 11px; font-weight: 600; color: var(--ink-3); display: inline-flex; align-items: center; gap: 3px; }
-.kpi__trend.up { color: var(--good); }
-.kpi__trend.down { color: var(--alert); }
-.kpi__val { font-size: 34px; font-weight: 800; color: var(--ink); line-height: 1; letter-spacing: -.5px; }
-.kpi__val small { font-size: 15px; font-weight: 600; color: var(--ink-3); margin-left: 2px; }
-.kpi__lbl { font-size: 12.5px; color: var(--ink-2); font-weight: 500; margin-top: 5px; }
-.kpi__sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
-
-/* primary attendance band */
-.attband {
-  display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; margin-bottom: 16px;
-}
-.panel {
-  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 18px 20px; box-shadow: var(--shadow-sm);
-}
-.panel--brand { background: var(--header-grad); color: #fff; border: 0; box-shadow: var(--shadow); position: relative; overflow: hidden; }
-.panel--brand::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 54px); }
-.panel h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
-.panel--brand h3 { color: #cfe1f5; }
-.panel__hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
-.panel__hd h3 { margin-bottom: 0; }
-
-/* attendance ring */
-.attring { position: relative; display: flex; align-items: center; gap: 18px; }
-.ring { position: relative; width: 132px; height: 132px; flex: 0 0 auto; }
-.ring__center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
-.ring__center .big { font-size: 30px; font-weight: 800; line-height: 1; color: #fff; }
-.ring__center .lbl { font-size: 10.5px; color: #cfe1f5; margin-top: 3px; }
-.attlegend { display: flex; flex-direction: column; gap: 9px; flex: 1; }
-.leg { display: flex; align-items: center; gap: 9px; font-size: 13px; }
-.leg i { width: 11px; height: 11px; border-radius: 4px; flex: 0 0 auto; }
-.leg .lk { color: #d6e4f5; font-weight: 300; flex: 1; }
-.leg .lv { font-weight: 700; font-size: 15px; }
-
-/* mini stat list */
-.statlist { display: flex; flex-direction: column; gap: 12px; }
-.statrow { display: flex; align-items: center; gap: 12px; }
-.statrow__ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 13%, white); color: var(--c); flex: 0 0 auto; }
-.statrow__ico svg { width: 18px; height: 18px; }
-.statrow__t { flex: 1; }
-.statrow__t .k { font-size: 12px; color: var(--ink-2); font-weight: 500; }
-.statrow__t .v { font-size: 19px; font-weight: 800; color: var(--ink); line-height: 1.1; }
-.statrow__t .v small { font-size: 12px; color: var(--ink-3); font-weight: 600; }
-
-/* OT split mini bars */
-.otsplit { display: flex; flex-direction: column; gap: 13px; }
-.otrow .otrow__top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
-.otrow .otrow__top .k { font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
-.otrow .otrow__top .v { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; padding-left: 10px; }
-.otrow .otrow__top .v small { color: var(--ink-3); font-weight: 500; }
-.track { height: 9px; background: var(--line-2); border-radius: 6px; overflow: hidden; }
-.track > i { display: block; height: 100%; border-radius: 6px; }
-
-/* ============================ GRID ======================================= */
-.grid { display: grid; gap: 16px; }
-.grid--2 { grid-template-columns: 1.35fr 1fr; }
-.grid--charts { grid-template-columns: 1.4fr 1fr; margin-bottom: 16px; }
-
-/* ============================ CHARTS ===================================== */
-.barchart { display: flex; flex-direction: column; gap: 11px; }
-.barchart__row { display: grid; grid-template-columns: 116px 1fr 46px; align-items: center; gap: 12px; }
-.barchart__lbl { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
-.barchart__lbl .tag { font-size: 10px; font-weight: 700; color: #fff; background: var(--brand); border-radius: 6px; padding: 1px 7px; letter-spacing: .3px; }
-.barchart__bar { position: relative; height: 24px; background: var(--line-2); border-radius: 8px; overflow: hidden; }
-.barchart__fill { position: relative; z-index: 1; height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--teal), var(--sky)); display: flex; align-items: center; transition: width .9s cubic-bezier(.2,.8,.2,1); }
-.barchart__ghost { position: absolute; inset: 0; z-index: 0; }
-.barchart__val { font-size: 13px; font-weight: 700; color: var(--ink); text-align: right; }
-.barchart__val small { color: var(--ink-3); font-weight: 500; }
-
-.donut-wrap { display: flex; align-items: center; gap: 20px; }
-.donut { width: 150px; height: 150px; flex: 0 0 auto; }
-.donut-legend { display: flex; flex-direction: column; gap: 11px; flex: 1; }
-
-/* ============================ TABLES ===================================== */
-.tablecard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
-.teamsel { font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink); padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); cursor: pointer; margin-left: 8px; }
-.tablecard__hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 16px 20px 13px; }
-.tablecard__hd h3 { font-size: 14.5px; font-weight: 700; color: var(--brand); display: flex; align-items: center; gap: 9px; }
-.tablecard__hd .pill { font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-radius: 20px; padding: 3px 11px; }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th { text-align: right; color: var(--ink-3); font-weight: 600; font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; padding: 8px 12px; background: var(--bg-2); }
-.tbl th:first-child { text-align: left; }
-.tbl td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line-2); color: var(--ink); }
-.tbl td:first-child { text-align: left; }
-.tbl tbody tr:last-child td { border-bottom: 0; }
-.tbl tbody tr:hover td { background: color-mix(in srgb, var(--accent) 7%, white); }
-.tbl tr.total td { background: color-mix(in srgb, var(--brand) 6%, white); font-weight: 700; border-top: 2px solid var(--line); }
-.tbl .nm { font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 9px; }
-.dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
-.tag {
-  display: inline-flex; align-items: center; justify-content: center; min-width: 34px;
-  font-size: 10.5px; font-weight: 800; letter-spacing: .4px; color: #fff;
-  background: var(--brand); border-radius: 6px; padding: 2px 8px;
-}
-.muted { color: var(--ink-3); font-weight: 400; }
-.b { font-weight: 700; }
-
-/* mini progress in cells */
-.cellbar { position: relative; height: 18px; background: var(--line-2); border-radius: 6px; overflow: hidden; min-width: 90px; }
-.cellbar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: linear-gradient(90deg, var(--teal), var(--sky)); }
-.cellbar > span { position: absolute; right: 7px; top: 0; line-height: 18px; font-size: 11px; font-weight: 700; color: var(--brand); }
-
-/* ot mini cell */
-.otcell { font-weight: 700; }
-.otcell small { color: var(--ink-3); font-weight: 500; font-size: 11px; }
-.otcell.pre { color: var(--warn); }
-.otcell.post { color: var(--royal); }
-
-/* ============================ TIMETABLE ================================== */
-.ttbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.search { position: relative; flex: 1; min-width: 200px; }
-.search input { width: 100%; font-family: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px 11px 38px; font-size: 13.5px; background: var(--card); color: var(--ink); }
-.search input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, white); border-color: var(--accent); }
-.search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-3); }
-.chipgroup { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
-.tbl td .chipgroup { min-width: 320px; }
-.chip { display: inline-block; line-height: 1.35; font-family: inherit; cursor: pointer; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; white-space: normal; }
-.chip:hover { border-color: var(--accent); }
-.chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
-.tbl tbody tr.row-off td { background: #eceff1 !important; color: #7c878f; }
-.tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
-.tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
-.chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
-
-.ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }
-.ttcard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 15px 16px; box-shadow: var(--shadow-sm); transition: transform .14s, box-shadow .14s; }
-.ttcard:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
-.ttcard__hd { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
-.avatar { width: 40px; height: 40px; border-radius: 12px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 15px; background: linear-gradient(135deg, var(--royal), var(--bosch)); }
-.ttcard__id { flex: 1; min-width: 0; }
-.ttcard__id .nm { font-size: 14.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ttcard__id .meta { font-size: 11.5px; color: var(--ink-3); display: flex; align-items: center; gap: 7px; margin-top: 1px; }
-.shiftbadge { text-align: right; flex: 0 0 auto; }
-.shiftbadge .code { font-size: 13px; font-weight: 800; color: var(--brand); }
-.shiftbadge .time { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
-.ttcard__ot { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 8px; margin-bottom: 11px; }
-.ttcard__ot.pre { background: #fff6e0; color: #9a6b00; }
-.ttcard__ot.post { background: #e9f0fb; color: var(--royal); }
-.ttcard__ot.off { background: #fdeaea; color: var(--red); }
-.fstrip { display: flex; flex-direction: column; gap: 7px; }
-.fstrip__item { display: flex; align-items: center; gap: 8px; background: var(--bg-2); border-radius: 10px; padding: 7px 10px; }
-.fstrip__no { font-size: 12.5px; font-weight: 800; color: var(--brand); min-width: 52px; flex: 0 0 auto; }
-.fstrip__task { font-size: 10px; font-weight: 700; color: #fff; background: var(--teal); border-radius: 6px; padding: 2px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 92px; flex: 0 1 auto; }
-.fstrip__time { margin-left: auto; font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; flex: 0 0 auto; white-space: nowrap; }
-.fstrip__time .lab { font-size: 8.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .3px; display: block; }
-.ttcard__empty { font-size: 12px; color: var(--ink-3); font-style: italic; padding: 6px 0; }
-
-/* ============================ FLIGHTS / SLA ============================== */
-.slabar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
-.slasum { display: flex; gap: 10px; }
-.slasum .pill { display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-radius: 12px; font-size: 13px; font-weight: 600; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
-.slasum .pill b { font-size: 17px; font-weight: 800; }
-.slasum .pill.ok b { color: var(--good); }
-.slasum .pill.bad b { color: var(--alert); }
-
-.fltlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
-.boarding {
-  position: relative; display: flex; background: var(--card); border: 1px solid var(--line);
-  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); transition: transform .14s, box-shadow .14s;
-}
-.boarding:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
-.boarding.short { border-color: #f3c9c9; }
-.boarding__stub {
-  width: 92px; flex: 0 0 auto; background: var(--header-grad); color: #fff;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  padding: 14px 8px; position: relative;
-}
-.boarding.short .boarding__stub { background: linear-gradient(160deg, #b3201f, var(--red)); }
-.boarding__stub .ac { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
-.boarding__stub .acn { font-size: 8.5px; color: rgba(255,255,255,.8); text-align: center; margin-top: 3px; line-height: 1.2; font-weight: 300; }
-.boarding__perf { position: absolute; right: -7px; top: 0; bottom: 0; width: 14px; background:
-  radial-gradient(circle at center, var(--bg) 0 5px, transparent 5px) repeat-y; background-size: 14px 18px; }
-.boarding__body { flex: 1; padding: 13px 16px 14px; min-width: 0; }
-.boarding__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
-.boarding__fl { font-size: 18px; font-weight: 800; color: var(--ink); letter-spacing: .5px; }
-.boarding__fl small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); }
-.boarding__times { text-align: right; font-size: 11px; color: var(--ink-2); }
-.boarding__times .t { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ink); font-size: 13px; }
-.slastatus { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
-.slastatus.ok { background: #e3f6ee; color: var(--good); }
-.slastatus.bad { background: #fdeaea; color: var(--red); }
-.phases { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.phase { text-align: center; background: var(--bg-2); border-radius: 10px; padding: 8px 4px; }
-.phase.short { background: #fdecec; }
-.phase .pl { font-size: 9.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .4px; text-transform: uppercase; }
-.phase .pv { font-size: 16px; font-weight: 800; color: var(--ink); margin-top: 2px; font-variant-numeric: tabular-nums; }
-.phase.short .pv { color: var(--red); }
-.phase .pv span { font-size: 11px; color: var(--ink-3); font-weight: 600; }
-.phase .pd { font-size: 9.5px; font-weight: 700; margin-top: 1px; }
-.phase.short .pd { color: var(--red); }
-.phase.full .pd { color: var(--good); }
-
-/* ============================ FOOT ====================================== */
-.foot { margin-top: 26px; text-align: center; color: var(--ink-3); font-size: 11.5px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
-.foot b { color: var(--ink-2); font-weight: 600; }
-
-.sectionlabel { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--ink-3); margin: 22px 2px 12px; display: flex; align-items: center; gap: 10px; }
-.sectionlabel::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-
-/* ============================ RESPONSIVE ================================= */
-@media (max-width: 1080px) {
-  .kpis { grid-template-columns: repeat(3, 1fr); }
-  .attband { grid-template-columns: 1fr 1fr; }
-  .attband > :first-child { grid-column: 1 / -1; }
-  .grid--2, .grid--charts { grid-template-columns: 1fr; }
-}
-@media (max-width: 680px) {
-  .wrap { padding: 14px 14px 44px; }
-  .kpis { grid-template-columns: repeat(2, 1fr); }
-  .attband { grid-template-columns: 1fr; }
-  .brand h1 { font-size: 18px; }
-  .kpi__val { font-size: 28px; }
-  .fltlist, .ttgrid { grid-template-columns: 1fr; }
-}
-
-/* reveal animation (transform-only so content is never hidden if a frame freezes) */
-@keyframes rise { from { transform: translateY(9px); } to { transform: none; } }
-.rise { animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
-
-/* Tweak: flat cards */
-body.flat .kpi, body.flat .panel, body.flat .tablecard, body.flat .ttcard,
-body.flat .boarding, body.flat .wk, body.flat .tab, body.flat .slasum .pill {
-  box-shadow: none !important;
-  border-color: #d4deec;
-}
-body.flat .panel--brand { border: 1px solid rgba(255,255,255,.2); }
-
-/* Tweak: disable entrance motion */
-body.nomotion .rise { animation: none; }
-
-/* server-rendered additions */
+.rise{animation:rise .5s cubic-bezier(.2,.8,.2,1) both;}
+body.flat .kpi,body.flat .panel,body.flat .tablecard,body.flat .ttcard,body.flat .boarding,body.flat .wk,body.flat .tab,body.flat .slasum .pill{box-shadow:none !important;border-color:#d4deec;}
+body.flat .panel--brand{border:1px solid rgba(255,255,255,.2);}
+body.nomotion .rise{animation:none;}
 canvas{max-width:100%}
 .tbl td .barmini{position:relative;height:16px;background:var(--line-2);border-radius:8px;overflow:hidden;min-width:70px}
 .tbl td .barmini i{position:absolute;inset:0;background:linear-gradient(90deg,var(--teal),var(--sky));border-radius:8px}
 .tbl td .barmini b{position:absolute;right:6px;top:0;line-height:16px;font-size:10px;color:var(--royal);font-weight:700}
-.okk{color:var(--good);font-weight:700}.badd{color:var(--red);font-weight:700}
+.okk{color:var(--good);font-weight:700}
+.badd{color:var(--red);font-weight:700}
 tr.rowbad td{background:#fdecec}
 .muted{color:var(--ink-3)}
-@media print{.weeknav,.tabs,.btn,.ttbar{display:none}#view-tt,#view-flt,#view-dash{display:block!important}}
-`;
-
+@media print{.weeknav,.tabs,.btn,.ttbar{display:none}
+#view-tt,#view-flt,#view-dash{display:block!important}
+}`;
