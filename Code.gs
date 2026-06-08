@@ -1121,6 +1121,7 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   return flights;
 }
 
+var SLA_MAX_CAND = 15;     // จำนวนคนช่วยสูงสุดที่แสดงต่อ 1 ตำแหน่งที่ขาด (ปรับได้)
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
 /** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
@@ -1132,7 +1133,7 @@ function slaSupportRows_(res, ll) {
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       if (!f.short[ph]) return;
-      var cands = slaCandidates_(f, ph, pool, 6);
+      var cands = slaCandidates_(f, ph, pool, SLA_MAX_CAND);
       rows.push({
         flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
