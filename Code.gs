@@ -1625,7 +1625,6 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);                              // recreate fresh (clears stale freeze/merges)
   var sh = ss.insertSheet(tabName, 1);
-  var MAXFL = 4, F = 6, B = 9, TOTAL = B + MAXFL * F + 1;   // 34 columns
 
   // flatten working records: PSA teams then LL sections
   var recsAll = [];
@@ -1638,6 +1637,12 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
       ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') recsAll.push(r); });
     });
   }
+
+  // จำนวนคอลัมน์ไฟลท์ = มากสุดที่พนักงานคนใดได้รับ (ขั้นต่ำ 4 · เพดาน 20 กันกว้างเกิน)
+  var maxFl = 4;
+  recsAll.forEach(function (r) { if (r.assignments && r.assignments.length > maxFl) maxFl = r.assignments.length; });
+  var MAXFL = Math.min(maxFl, 20), F = 6, B = 9, TOTAL = B + MAXFL * F + 1;
+  if (sh.getMaxColumns() < TOTAL) sh.insertColumnsAfter(sh.getMaxColumns(), TOTAL - sh.getMaxColumns());
 
   // Title
   sh.getRange(1, 1, 1, TOTAL).merge().setValue('🕓 Timetable / ตารางงานรายคน — ' + dateStr)
@@ -1652,11 +1657,11 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
   });
   var flClr = ['#0d3d6b', '#145a32', '#6e2f8e', '#784212'];
   for (var fi = 0; fi < MAXFL; fi++) {
-    var base = B + fi * F + 1;
-    sh.getRange(2, base, 1, F).merge().setValue('ไฟลท์ที่ ' + (fi + 1)).setBackground(flClr[fi]).setFontColor('#fff')
+    var base = B + fi * F + 1, clr = flClr[fi % flClr.length];
+    sh.getRange(2, base, 1, F).merge().setValue('ไฟลท์ที่ ' + (fi + 1)).setBackground(clr).setFontColor('#fff')
       .setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
     ['ชื่อไฟลท์', 'หน้าที่/Task', 'STA', 'OP', 'CL', 'STD'].forEach(function (h, k) {
-      sh.getRange(3, base + k).setValue(h).setBackground(flClr[fi]).setFontColor('#fff').setFontWeight('bold')
+      sh.getRange(3, base + k).setValue(h).setBackground(clr).setFontColor('#fff').setFontWeight('bold')
         .setFontSize(9).setHorizontalAlignment('center').setWrap(true);
     });
   }
