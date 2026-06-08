@@ -9,67 +9,96 @@
  * Requires RosterReader.gs (res = readRosterFromSpreadsheet()).
  */
 
-// ── Airline SLA: required headcount per phase (job_roles carry the breakdown) ──
+// ── Airline SLA: timing offsets (รอบ STD) + required headcount per role/phase ──
+// roles: [name, count, code, phase]  · phase = ALL(SUP) / CI / ARR / GATE
+// ci/cc = check-in open/close (นาที รอบ STD) · go = gate · brief/post = ก่อน/หลัง
 var SLA_DB = {
-  'SQ': { total: 13, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:4,phase:'CI'},{role:'GATE AGENT',count:2,phase:'GATE'},{role:'BOARDING',count:4,phase:'GATE'}] },
-  'CX': { total: 15, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:5,phase:'CI'},{role:'GATE AGENT',count:2,phase:'GATE'},{role:'BOARDING',count:5,phase:'GATE'}] },
-  'LY': { total: 13, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:7,phase:'CI'},{role:'GATE AGENT',count:1,phase:'GATE'},{role:'BOARDING',count:3,phase:'GATE'}] },
-  'QR': { total: 20, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CONTROLLER',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:10,phase:'CI'},{role:'ARRIVAL',count:3,phase:'ARR'},{role:'GATE/MONITOR',count:4,phase:'GATE'}] },
-  'MH': { total: 9,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/BIR',count:2,phase:'GATE'},{role:'GATE/MAAS',count:1,phase:'GATE'}] },
-  'DE': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/MONITOR',count:4,phase:'GATE'}] },
-  'PG': { total: 9,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'GATE MONITOR',count:2,phase:'GATE'},{role:'GATE INT',count:1,phase:'GATE'},{role:'DEPARTURE',count:1,phase:'GATE'},{role:'GATE AGENT',count:3,phase:'GATE'},{role:'ARRIVAL',count:2,phase:'ARR'}] },
-  'AK': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/FLIGHT',count:1,phase:'GATE'},{role:'GATE',count:2,phase:'GATE'}] },
-  'QZ': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/FLIGHT',count:1,phase:'GATE'},{role:'GATE',count:2,phase:'GATE'}] },
-  'SU': { total: 23, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'GATE MONITOR',count:1,phase:'GATE'},{role:'CHECK-IN',count:16,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE AGENT',count:4,phase:'GATE'}] },
-  'B2': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'}] },
-  'W5': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'}] },
-  '3U': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE/SOD',count:1,phase:'GATE'},{role:'GATE',count:4,phase:'GATE'}] },
-  'CA': { total: 12, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CHECK-IN',count:5,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE MONITOR',count:2,phase:'GATE'},{role:'GATE',count:2,phase:'GATE'}] },
-  'MU': { total: 11, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
-  'CZ': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
-  'FM': { total: 11, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
-  'HO': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'HU': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
-  'AQ': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'HX': { total: 11, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:4,phase:'GATE'}] },
-  'EY': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'SOD/CTR',count:1,phase:'CI'},{role:'J-CLASS',count:2,phase:'CI'},{role:'BOARDING',count:5,phase:'GATE'},{role:'ARRIVAL',count:1,phase:'ARR'}] },
-  'AY': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'DV': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'KE': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'ASST GC',count:1,phase:'CI'},{role:'CHECK-IN',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARRIVAL',count:1,phase:'ARR'}] },
-  'KC': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI GK',count:1,phase:'CI'},{role:'CI',count:5,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
-  'OZ': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
-  'NO': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
-  'AF': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:2,phase:'ARR'}] },
-  'LJ': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'GATE',count:1,phase:'GATE'},{role:'ARR',count:1,phase:'ARR'}] },
-  'WY': { total: 15, job_roles: [{role:'SUPERVISOR 1',count:1,phase:'ALL'},{role:'SUPERVISOR 2',count:1,phase:'ALL'},{role:'CHECK-IN',count:6,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:6,phase:'GATE'}] },
-  'G9': { total: 6,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
-  'DK': { total: 6,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
-  '9C': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:1,phase:'GATE'}] },
-  'EK': { total: 16, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'SOD/DOCUMENT',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:3,phase:'CI'},{role:'ARRIVAL',count:4,phase:'ARR'},{role:'GATE/BIR',count:2,phase:'GATE'},{role:'GATE/MAAS',count:1,phase:'GATE'},{role:'CREW ASSIGN',count:1,phase:'GATE'},{role:'CF',count:1,phase:'GATE'}] },
-  'UO': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'FY': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:3,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  '6B': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'BY': { total: 9,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'AI': { total: 12, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FC/CTR-BC',count:2,phase:'CI'},{role:'SOD',count:1,phase:'CI'},{role:'ARRIVAL',count:2,phase:'ARR'},{role:'FC/PFD',count:1,phase:'GATE'},{role:'GATE',count:4,phase:'GATE'}] },
-  'IX': { total: 5,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'SOD',count:1,phase:'CI'},{role:'CI GK',count:1,phase:'CI'},{role:'CI',count:2,phase:'CI'}] },
-  'JQ': { total: 15, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'SOD/GTE',count:1,phase:'CI'},{role:'SOD/CTR',count:1,phase:'CI'},{role:'FC/CTR-BC',count:2,phase:'CI'},{role:'SD',count:1,phase:'CI'},{role:'FC/PFD',count:1,phase:'GATE'},{role:'ARRIVAL',count:3,phase:'ARR'},{role:'GATE',count:5,phase:'GATE'}] },
-  'IT': { total: 8,  job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'SOD',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
-  'N0': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
-  'TK': { total: 11, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'SOD',count:1,phase:'CI'},{role:'GATE MONITOR',count:1,phase:'GATE'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'CREW SIGN',count:1,phase:'ALL'},{role:'ARRIVAL',count:2,phase:'ARR'},{role:'BOGO',count:1,phase:'GATE'},{role:'Y-CLASS',count:2,phase:'GATE'},{role:'CHECK-IN',count:1,phase:'CI'}] },
-  'VJ': { total: 5,  job_roles: [{role:'SOD',count:1,phase:'ALL'},{role:'GM',count:1,phase:'GATE'},{role:'FC',count:1,phase:'CI'},{role:'CS',count:1,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
-  'OD': { total: 5,  job_roles: [{role:'SOD',count:1,phase:'ALL'},{role:'GM',count:1,phase:'GATE'},{role:'FC',count:1,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
-  'SG': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
-  'HY': { total: 8,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
-  'TR': { total: 10, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'FLIGHT CTRL',count:1,phase:'CI'},{role:'SOD',count:1,phase:'CI'},{role:'CHECK-IN GK',count:1,phase:'CI'},{role:'CHECK-IN',count:2,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  '6E': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'FC',count:1,phase:'CI'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
-  'QP': { total: 7,  job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'FC',count:1,phase:'CI'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'}] },
-  'SV': { total: 14, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'MONITOR',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'WK': { total: 14, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'MONITOR',count:1,phase:'ALL'},{role:'CI',count:7,phase:'CI'},{role:'ARR',count:2,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'KA': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'CI',count:5,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'ZF': { total: 10, job_roles: [{role:'SUP',count:1,phase:'ALL'},{role:'FC',count:1,phase:'CI'},{role:'CI',count:4,phase:'CI'},{role:'ARR',count:1,phase:'ARR'},{role:'GATE',count:3,phase:'GATE'}] },
-  'DEFAULT': { total: 8, job_roles: [{role:'SUPERVISOR',count:1,phase:'ALL'},{role:'CHECK-IN',count:4,phase:'CI'},{role:'ARRIVAL',count:1,phase:'ARR'},{role:'GATE',count:2,phase:'GATE'}] },
+  'QR':{ci:-240,cc:-45,go:-75,brief:60,post:30,total:20,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',11,'CT/G','CI'],['ARRIVAL',3,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'MH':{ci:-240,cc:-60,go:-75,brief:60,post:30,total:9, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',2,'GA','GATE']]},
+  'DE':{ci:-240,cc:-45,go:-75,brief:60,post:30,total:12,roles:[['SUPERVISOR',2,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'OM':{ci:-240,cc:-45,go:-75,brief:60,post:30,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'EY':{ci:-180,cc:-60,go:-60,brief:60,post:30,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',9,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',0,'GA','GATE']]},
+  'AY':{ci:-180,cc:-45,go:-60,brief:60,post:30,total:13,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'DV':{ci:-180,cc:-40,go:-60,brief:10,post:30,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'SQ':{ci:-240,cc:-40,go:-75,brief:60,post:30,total:13,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'CX':{ci:-240,cc:-60,go:-60,brief:60,post:30,total:15,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',5,'GA','GATE']]},
+  'LY':{ci:-240,cc:-60,go:-75,brief:60,post:30,total:16,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',8,'CT/G','CI'],['ARRIVAL',3,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'SU':{ci:-180,cc:-40,go:15, brief:60,post:30,total:23,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',16,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'W5':{ci:-180,cc:-60,go:-120,brief:60,post:30,total:15,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',7,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'B2':{ci:-180,cc:-40,go:15, brief:60,post:30,total:13,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'AK':{ci:-180,cc:-60,go:-50,brief:15,post:30,total:9, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',3,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'QZ':{ci:-180,cc:-60,go:-50,brief:15,post:30,total:9, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',3,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  '8M':{ci:-180,cc:-60,go:-60,brief:15,post:30,total:8, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',3,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',2,'GA','GATE']]},
+  'PG':{ci:-180,cc:-40,go:-45,brief:30,post:20,total:7, roles:[['SUPERVISOR',1,'SUP','ALL'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'KE':{ci:-240,cc:-60,go:-75,brief:60,post:30,total:16,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',8,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'OZ':{ci:-180,cc:-60,go:-60,brief:60,post:30,total:14,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',7,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'KC':{ci:-180,cc:-60,go:-60,brief:60,post:30,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'NO':{ci:-180,cc:-60,go:-60,brief:45,post:30,total:14,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'AF':{ci:-180,cc:-60,go:-60,brief:45,post:30,total:14,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'LJ':{ci:-180,cc:-60,go:-60,brief:45,post:30,total:14,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'OV':{ci:-180,cc:-60,go:-60,brief:45,post:30,total:14,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'EK':{ci:-240,cc:-60,go:-60,brief:60,post:30,total:17,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',4,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',5,'GA','GATE']]},
+  'UO':{ci:-180,cc:-60,go:-60,brief:30,post:30,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'BY':{ci:-180,cc:-60,go:-60,brief:30,post:30,total:13,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'FY':{ci:-160,cc:-60,go:-60,brief:30,post:30,total:9, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',3,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  '6B':{ci:-180,cc:-60,go:-60,brief:30,post:30,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'WY':{ci:-180,cc:-60,go:-45,brief:20,post:20,total:13,roles:[['SUPERVISOR',2,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'G9':{ci:-180,cc:-75,go:-60,brief:20,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'DK':{ci:-180,cc:-75,go:-60,brief:30,post:20,total:13,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',5,'GA','GATE']]},
+  '9C':{ci:-180,cc:-60,go:-60,brief:30,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'TK':{ci:-180,cc:-60,go:-60,brief:60,post:30,total:18,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',8,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',6,'GA','GATE']]},
+  'VJ':{ci:-180,cc:-50,go:-60,brief:30,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'SG':{ci:-180,cc:-60,go:-50,brief:30,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'HY':{ci:-180,cc:-60,go:-100,brief:30,post:20,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'OD':{ci:-180,cc:-60,go:-60,brief:30,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'TR':{ci:-150,cc:-60,go:-45,brief:30,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  '6E':{ci:-180,cc:-75,go:-60,brief:15,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'QP':{ci:-195,cc:-60,go:-75,brief:30,post:20,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'SV':{ci:-240,cc:-60,go:-60,brief:30,post:30,total:16,roles:[['SUPERVISOR',2,'SUP','ALL'],['CHECK-IN',7,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'WK':{ci:-210,cc:-60,go:-60,brief:60,post:30,total:15,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',7,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'KA':{ci:-180,cc:-60,go:-60,brief:30,post:30,total:14,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  '3U':{ci:-180,cc:-60,go:-60,brief:15,post:30,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'CA':{ci:-180,cc:-40,go:-60,brief:15,post:30,total:13,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'CZ':{ci:-180,cc:-45,go:-70,brief:15,post:30,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'MU':{ci:-180,cc:-60,go:-60,brief:10,post:30,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'FM':{ci:-180,cc:-60,go:-60,brief:10,post:30,total:12,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'HO':{ci:-180,cc:-60,go:-60,brief:15,post:30,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'HU':{ci:-180,cc:-60,go:-60,brief:15,post:30,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'AQ':{ci:-180,cc:-60,go:-60,brief:15,post:30,total:10,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'HX':{ci:-240,cc:-60,go:-60,brief:15,post:30,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'AI':{ci:-195,cc:-60,go:-70,brief:15,post:20,total:13,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',2,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'IX':{ci:-180,cc:-60,go:-75,brief:15,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'JQ':{ci:-180,cc:-60,go:-90,brief:45,post:20,total:17,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',7,'CT/G','CI'],['ARRIVAL',3,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',5,'GA','GATE']]},
+  'IT':{ci:-180,cc:-45,go:-60,brief:30,post:20,total:10,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',0,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',4,'GA','GATE']]},
+  'N0':{ci:-240,cc:-60,go:-135,brief:60,post:20,total:14,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',5,'GA','GATE']]},
+  'PVT':{ci:-60,cc:-20,go:-20,brief:20,post:20,total:2,roles:[['SUPERVISOR',1,'SUP','ALL'],['GATE AGENT',1,'GA','GATE']]},
+  'CHARTER':{ci:-120,cc:-30,go:-30,brief:30,post:20,total:5,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',2,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE AGENT',1,'GA','GATE']]},
+  'ZF':{ci:-180,cc:-45,go:-45,brief:30,post:20,total:10,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',2,'GA','GATE']]},
+  'HH':{ci:-180,cc:-45,go:-45,brief:30,post:20,total:9, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',2,'GA','GATE']]},
+  'LO':{ci:-180,cc:-45,go:-45,brief:30,post:20,total:9, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',2,'GA','GATE']]},
+  'EO':{ci:-180,cc:-45,go:-45,brief:30,post:20,total:9, roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',2,'GA','GATE']]},
+  'S7':{ci:-180,cc:-45,go:-45,brief:30,post:20,total:11,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',3,'GA','GATE']]},
+  'DEFAULT':{ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE MONITOR',1,'GM','GATE'],['GATE AGENT',1,'GA','GATE']]},
 };
-var SLA_ALIAS = { '8M':'QZ', 'HB':'DEFAULT', 'G2':'DEFAULT', 'H4':'DEFAULT', 'WZ':'ZF', 'N4':'DEFAULT', 'C6':'DEFAULT', 'EO':'ZF', 'S7':'ZF', 'LO':'ZF', 'HH':'ZF', 'OM':'DE', 'OV':'LJ' };
+var SLA_ALIAS = { 'HB':'HX', 'G2':'LO', 'H4':'LO', 'C6':'LO', 'WZ':'ZF', 'N4':'EO', 'VN':'HY', 'ZH':'CA', 'PN':'CA', 'OQ':'CA', 'GX':'CA', 'KX':'CA', '8H':'CA', 'BK':'CA' };
+
+// ── Airline → check-in SYSTEM (จากตาราง TEAM/POSITION → AIRLINES → SYSTEM) ──
+// พนักงานจะ "เช็คอินแทน" สายการบินอื่นได้ ก็ต่อเมื่อรู้ระบบเช็คอินของสายการบินนั้น
+// (= ระบบของสายการบินที่ทีมตัวเองทำอยู่)
+var AIRLINE_SYS = {
+  'AI':'Altea','IX':'Gonow','JQ':'Gonow','IT':'Iport','HX':'TravelSky','AK':'Gonow','QZ':'Gonow','8M':'Iport',
+  'SQ':'Altea','CX':'Altea','LY':'Altea','HH':'Iport','LO':'Iport','G2':'Iport','H4':'Iport','C6':'Iport',
+  'ZF':'Astra','WZ':'Astra','EO':'Lydia','N4':'Lydia','HB':'TravelSky','S7':'TWD','EK':'ASConnect',
+  '6B':'Iport','BY':'Iport','FY':'Gonow','UO':'Gonow','QR':'Altea','MH':'Altea','DE':'Altea','OM':'Iport',
+  '3U':'TravelSky','CA':'TravelSky','ZH':'TravelSky','CZ':'TravelSky','HU':'TravelSky','PN':'TravelSky',
+  'MU':'TravelSky','FM':'TravelSky','8H':'TravelSky','OQ':'TravelSky','BK':'TravelSky','AQ':'TravelSky',
+  'HO':'TravelSky','GX':'TravelSky','KX':'TravelSky','9C':'TravelSky',
+  'KE':'Altea','KC':'Altea','AF':'Altea','OZ':'Altea','LJ':'iFlyRes','OV':'Iport','NO':'Iport',
+  'TR':'Gonow','6E':'Gonow','QP':'Gonow','WY':'Sabre','G9':'Altea','DK':'Altea','PG':'Altea',
+  'W5':'AVIA','SU':'Astra','B2':'Astra','TK':'TOYA','HY':'Gonow','VN':'Gonow','SG':'Gonow','N0':'Gonow',
+  'VJ':'Iport','OD':'Sabre','AY':'Altea','EY':'Altea','DV':'TWD','SV':'Altea','WK':'Altea','KA':'Iport',
+};
+function slaSystemOf_(airline) { return AIRLINE_SYS[String(airline || '').toUpperCase()] || ''; }
 
 // Official establishment requirement per team (SUP/SNR/PSA) from the AOTGA
 // Manpower Meeting file — the FULL roster needed, not the daily on-duty count.
@@ -90,17 +119,20 @@ function slaGet_(airline) {
   return SLA_DB.DEFAULT;
 }
 function slaAirlineOf_(flight) {
-  var m = String(flight || '').trim().toUpperCase().match(/([A-Z]{1,3})\s*\d/);
-  return m ? m[1] : 'DEFAULT';
+  var s = String(flight || '').trim().toUpperCase();
+  var m = s.match(/^([0-9A-Z]{2})\s*\d/);                   // 2-char IATA code (EK, 6E, G9, C6) + flight no.
+  if (m) return m[1];
+  var m2 = s.match(/([A-Z]{1,3})\s*\d/);
+  return m2 ? m2[1] : 'DEFAULT';
 }
-/** required headcount per phase for an airline */
+/** required headcount per phase for an airline — roles = [name,count,code,phase] */
 function slaReq_(airline) {
   var db = slaGet_(airline);
   var req = { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: db.total || 0 };
-  (db.job_roles || []).forEach(function (r) {
-    var ph = r.phase === 'ALL' ? 'SUP' : r.phase;
+  (db.roles || []).forEach(function (r) {
+    var ph = r[3] === 'ALL' ? 'SUP' : r[3];
     if (req[ph] === undefined) ph = 'CI';
-    req[ph] += r.count;
+    req[ph] += r[1];
   });
   return req;
 }
@@ -166,6 +198,73 @@ function slaShortText_(f) {
   return parts.length ? parts.join(' · ') : (f.shortTotal ? ('ขาดรวม ' + f.shortTotal) : '');
 }
 
+// ── SUPPORT FINDER: ใครว่าง + รู้ระบบเช็คอิน มาช่วยไฟลท์ที่ขาดได้ ──────────────
+/** ระบบเช็คอินที่แต่ละทีม "ทำเป็น" = ระบบของสายการบินที่ทีมนั้นบินวันนี้ */
+function slaTeamSystems_(res, ll) {
+  var sys = {};
+  function add(team, r) {
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    (r.assignments || []).forEach(function (a) {
+      var s = slaSystemOf_(slaAirlineOf_(a.flight));
+      if (s) { (sys[team] = sys[team] || {})[s] = true; }
+    });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { add(t, r); }); });
+  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
+  return sys;
+}
+/** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง) */
+function slaSupportPool_(res, ll, teamSys) {
+  var pool = [];
+  function add(team, r) {
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    var d = acDuty_(r);
+    if (d.ds == null || d.de == null) return;
+    var busy = [];
+    (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
+    pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '',
+      ds: d.ds, de: d.de, busy: busy, sys: teamSys[team] || {},
+      nflt: (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); }).length });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { add(t, r); }); });
+  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
+  return pool;
+}
+/** เวลา (นาที) ของแต่ละ phase สำหรับไฟลท์ (อิง STD + offset ของสายการบิน) */
+function slaPhaseWindow_(f, ph) {
+  var db = slaGet_(f.airline);
+  var std = acMin_(f.STD), sta = acMin_(f.STA);
+  if (ph === 'CI')  return std != null ? [std + db.ci, std + db.cc] : null;
+  if (ph === 'GATE')return std != null ? [std + db.go, std + (db.post || 20)] : null;
+  if (ph === 'ARR') return sta != null ? [sta - 20, sta + (db.post || 30)] : null;
+  if (ph === 'SUP') return std != null ? [std + db.ci, std + (db.post || 30)] : (sta != null ? [sta - 20, sta + 30] : null);
+  return null;
+}
+/** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้ (ว่างช่วงนั้น + รู้ระบบถ้าเป็น CI) */
+function slaCandidates_(f, ph, pool, max) {
+  var win = slaPhaseWindow_(f, ph);
+  var needSys = ph === 'CI' ? slaSystemOf_(f.airline) : '';
+  var cands = pool.filter(function (p) {
+    if (f.teams[p.team]) return false;                       // คนทีมเดียวกับไฟลท์ ไม่นับเป็น support
+    if (needSys && !p.sys[needSys]) return false;            // CI ต้องรู้ระบบสายการบินนั้น
+    if (ph === 'SUP' && p.posGroup !== 'PSS') return false;  // SUP ต้องเป็นหัวหน้า
+    if (win) {
+      if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
+      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นช่วงนั้น
+        var b = p.busy[i];
+        if (win[0] < b[1] - 10 && win[1] > b[0] + 10) return false;
+      }
+    }
+    return true;
+  });
+  cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });  // คนงานน้อย/ว่างกว่าก่อน
+  return max ? cands.slice(0, max) : cands;
+}
+function slaWinTxt_(f, ph) {
+  var w = slaPhaseWindow_(f, ph);
+  return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
+}
+
 /** Sheet tab: ✈️ Flights & SLA — day's flights + required vs assigned + shortage */
 function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   tabName = tabName || '✈️ Flights & SLA';
@@ -201,30 +300,57 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   return flights;
 }
 
-/** Sheet tab: 🆘 Support — only the understaffed flights, which phase is short */
+var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
+/** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
+function slaSupportRows_(res, ll) {
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
+  var teamSys = slaTeamSystems_(res, ll);
+  var pool = slaSupportPool_(res, ll, teamSys);
+  var rows = [];
+  flights.forEach(function (f) {
+    ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
+      if (!f.short[ph]) return;
+      var cands = slaCandidates_(f, ph, pool, 6);
+      rows.push({
+        flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
+        STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
+        needSys: ph === 'CI' ? slaSystemOf_(f.airline) : '',
+        cands: cands.map(function (c) { return c.name + ' (' + c.team + ')'; }),
+        nCand: cands.length,
+      });
+    });
+  });
+  return rows;
+}
+
+/** Sheet tab: 🆘 Support — ไฟลท์ขาด + แนะนำคนที่ว่างและรู้ระบบเช็คอินมาช่วย */
 function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
   tabName = tabName || '🆘 Support';
   var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
-  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
+  var rows = slaSupportRows_(res, ll);
+  var W = 8;
 
-  sh.getRange(1, 1, 1, 7).merge().setValue('🆘 ไฟลท์ที่ส่งพนักงานไม่ครบตาม SLA — ' + dateStr)
+  sh.getRange(1, 1, 1, W).merge().setValue('🆘 ไฟลท์ที่คนไม่ครบ + คนที่มาช่วยได้ (ว่าง & รู้ระบบเช็คอิน) — ' + dateStr)
     .setBackground('#b71c1c').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
   sh.setRowHeight(1, 28);
-  sh.getRange(2, 1, 1, 7).setValues([['Flight', 'สายการบิน', 'ทีม', 'STD', 'ส่งไป/ต้องการ', 'ขาดตำแหน่ง (phase)', 'รายละเอียด']])
+  sh.getRange(2, 1, 1, W).setValues([['Flight', 'สายการบิน', 'ระบบเช็คอิน', 'ทีม', 'STD', 'ตำแหน่งที่ขาด', 'ช่วงเวลา', 'คนที่มาช่วยได้ (ว่าง + ระบบตรง)']])
     .setBackground('#d32f2f').setFontColor('#fff').setFontWeight('bold').setHorizontalAlignment('center');
-  if (!flights.length) {
-    sh.getRange(3, 1, 1, 7).merge().setValue('✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA').setBackground('#e8f5e9')
+  if (!rows.length) {
+    sh.getRange(3, 1, 1, W).merge().setValue('✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA').setBackground('#e8f5e9')
       .setFontWeight('bold').setFontColor('#1b5e20').setHorizontalAlignment('center');
   } else {
-    var rows = flights.map(function (f) {
-      return [f.flight, f.airline, f.teamList, f.STD || f.STA, f.assigned.total + '/' + f.req.total,
-              slaShortText_(f),
-              f.staff.map(function (s) { return s.name + '[' + s.task + ']'; }).slice(0, 8).join(', ')];
+    var body = rows.map(function (r) {
+      var who = r.cands.length ? r.cands.join(', ') : (r.needSys ? '— ไม่มีคนว่างที่รู้ระบบ ' + r.needSys : '— ไม่มีคนว่าง');
+      return [r.flight, r.airline, r.system || '-', r.team, r.STD,
+              r.phase + ' ขาด ' + r.shortN + (r.needSys ? ' (ต้องใช้ ' + r.needSys + ')' : ''), r.win, who];
     });
-    sh.getRange(3, 1, rows.length, 7).setValues(rows).setFontSize(9).setBackground('#fff3f3');
+    sh.getRange(3, 1, body.length, W).setValues(body).setFontSize(9).setVerticalAlignment('middle').setWrap(true);
+    for (var i = 0; i < rows.length; i++) {
+      sh.getRange(3 + i, 1, 1, W).setBackground(rows[i].nCand ? '#fff8e1' : '#fdecec');
+    }
   }
-  [110, 75, 100, 55, 100, 200, 320].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  [95, 70, 95, 90, 55, 150, 95, 360].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   sh.setFrozenRows(2);
 }

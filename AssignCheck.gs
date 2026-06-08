@@ -193,8 +193,13 @@ function acAnalyze_(res, ll) {
     if (a.gaps.length) sum.gap++;
     if (a.noFlight) sum.noFlt++;
     if (a.status === 'bad' || a.status === 'warn') {
+      var jobs = {};
+      (r.assignments || []).forEach(function (x) {
+        (String(x.task || '').split(/[\/,]/)).forEach(function (t) { t = t.trim(); if (t) jobs[t] = 1; });
+      });
       rows.push({
         team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
+        job: Object.keys(jobs).join(', '),
         shift: a.shiftStr, duty: a.dutyStr,
         ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
                         (r.otTime ? ' ' + r.otTime : '')) : '-',
@@ -232,7 +237,7 @@ function rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) {
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
   var an = acAnalyze_(res, ll);
-  var W = 12;
+  var W = 13;
 
   sh.getRange(1, 1, 1, W).merge()
     .setValue('🧭 ตรวจความเหมาะสมการ Assign — ' + dateStr)
@@ -250,14 +255,14 @@ function rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) {
     .setHorizontalAlignment('center');
   sh.setRowHeight(2, 22);
 
-  var head = ['สถานะ', 'ทีม/ส่วน', 'รหัส', 'ตำแหน่ง', 'ชื่อ', 'กะ (เข้า-ออก)', 'OT', 'ไฟลท์',
+  var head = ['สถานะ', 'ทีม/ส่วน', 'รหัส', 'ตำแหน่ง', 'ชื่อ', 'กะ (เข้า-ออก)', 'OT', 'ไฟลท์', 'Job (หน้าที่)',
               'ไฟลท์นอกเวลา', 'ช่วงว่าง', 'OT เหมาะสม?', 'ปัญหา/คำแนะนำ'];
   sh.getRange(3, 1, 1, W).setValues([head]).setBackground('#1f4e79').setFontColor('#fff')
     .setFontWeight('bold').setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
 
   var emo = { bad: '🔴', warn: '🟡', ok: '🟢' };
   var body = an.rows.map(function (r) {
-    return [emo[r.status] || '', r.team, r.id, r.pos, r.name, r.shift, r.ot, r.flights,
+    return [emo[r.status] || '', r.team, r.id, r.pos, r.name, r.shift, r.ot, r.flights, r.job || '',
             r.uncovered, r.gaps, r.otVerdict, r.issue];
   });
   if (body.length) {
@@ -272,7 +277,7 @@ function rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) {
       .setHorizontalAlignment('center').setBackground('#e6f4ea').setFontColor('#1b5e20').setFontWeight('bold');
   }
 
-  [44, 90, 80, 90, 140, 110, 110, 100, 200, 120, 170, 250].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  [44, 90, 80, 90, 140, 110, 110, 90, 180, 180, 120, 160, 230].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   sh.setFrozenRows(3);
   return an.summary;
 }
