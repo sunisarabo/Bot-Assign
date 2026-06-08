@@ -34,9 +34,16 @@ function acMin_(s) {
   return m ? (+m[1] * 60 + +m[2]) : null;
 }
 
-/** ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คครอบคลุม — ไม่ใช่ pool/common
- *  (CHECK-IN COMMON, LP MORNING, LP AFTERNOON ที่ไม่มีเลขไฟลท์). */
-function acIsFlight_(name) { return /[A-Za-z]{1,3}\s*\d{2,4}/.test(String(name || '')); }
+/** ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คครอบคลุม — ไม่ใช่ pool/counter/common
+ *  (CHECK-IN COMMON, LP MORNING/AFTERNOON, Counter G2/G11, Gate A1 ฯลฯ).
+ *  รหัสไฟลท์จริงจะ "ขึ้นต้น" ด้วยโค้ดสายการบิน (EK378, 6E1077, G9687, QZ246) —
+ *  งานเคาน์เตอร์/zone จะขึ้นต้นด้วยคำอังกฤษ (Counter/Gate/LP …) จึงตัดด้วย prefix. */
+function acIsFlight_(name) {
+  var s = String(name || '').trim().toUpperCase();
+  if (!s) return false;
+  if (/^(COUNTER|GATE|CHECK|ZONE|BELT|PIER|STBY|STAND|POOL|OFFICE|BRIEF|NIL|OFF\b|LP\s+(MORNING|AFTERNOON|NIGHT|DAY))/.test(s)) return false;
+  return /[A-Z]{1,3}\s*\d{2,4}/.test(s);
+}
 
 /** [lo,hi] นาทีจากเวลาใด ๆ ที่มีในไฟลท์ (STA/OP/CL/STD), หรือ null.
  *  00:00 ใน OP/CL ของบางทีม (เช่น PG) เป็นค่าว่าง/placeholder ไม่ใช่เวลาจริง → ตัดทิ้ง. */

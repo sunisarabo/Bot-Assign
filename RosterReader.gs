@@ -173,7 +173,8 @@ function rrParseStandard_(rows, team) {
       var nm = rrClean_(hdr[c]);
       var nu = nm.toUpperCase();
       if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
-          && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER') {
+          && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
+          && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
         fltcols.push({ col: c, name: nm });
       }
     }

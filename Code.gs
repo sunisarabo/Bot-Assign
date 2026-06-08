@@ -181,7 +181,8 @@ function rrParseStandard_(rows, team) {
       var nm = rrClean_(hdr[c]);
       var nu = nm.toUpperCase();
       if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
-          && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER') {
+          && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
+          && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
         fltcols.push({ col: c, name: nm });
       }
     }
@@ -1056,9 +1057,16 @@ function acMin_(s) {
   return m ? (+m[1] * 60 + +m[2]) : null;
 }
 
-/** ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คครอบคลุม — ไม่ใช่ pool/common
- *  (CHECK-IN COMMON, LP MORNING, LP AFTERNOON ที่ไม่มีเลขไฟลท์). */
-function acIsFlight_(name) { return /[A-Za-z]{1,3}\s*\d{2,4}/.test(String(name || '')); }
+/** ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คครอบคลุม — ไม่ใช่ pool/counter/common
+ *  (CHECK-IN COMMON, LP MORNING/AFTERNOON, Counter G2/G11, Gate A1 ฯลฯ).
+ *  รหัสไฟลท์จริงจะ "ขึ้นต้น" ด้วยโค้ดสายการบิน (EK378, 6E1077, G9687, QZ246) —
+ *  งานเคาน์เตอร์/zone จะขึ้นต้นด้วยคำอังกฤษ (Counter/Gate/LP …) จึงตัดด้วย prefix. */
+function acIsFlight_(name) {
+  var s = String(name || '').trim().toUpperCase();
+  if (!s) return false;
+  if (/^(COUNTER|GATE|CHECK|ZONE|BELT|PIER|STBY|STAND|POOL|OFFICE|BRIEF|NIL|OFF\b|LP\s+(MORNING|AFTERNOON|NIGHT|DAY))/.test(s)) return false;
+  return /[A-Z]{1,3}\s*\d{2,4}/.test(s);
+}
 
 /** [lo,hi] นาทีจากเวลาใด ๆ ที่มีในไฟลท์ (STA/OP/CL/STD), หรือ null.
  *  00:00 ใน OP/CL ของบางทีม (เช่น PG) เป็นค่าว่าง/placeholder ไม่ใช่เวลาจริง → ตัดทิ้ง. */
@@ -2128,9 +2136,13 @@ function rbFlightChips_(assigns) {
     var t = a.task ? (' <span class="tag">'+rbEsc_(a.task)+'</span>') : '';
     var sta = (a.STA||a.STD) ? (' '+(a.STA||'–')+'/'+(a.STD||'–')) : '';
     var op = (a.OP||a.CL) ? (' <span class="muted">'+(a.OP||'–')+'-'+(a.CL||'–')+'</span>') : '';
-    return '<span class="chip" style="cursor:default">' + rbEsc_(a.flight) + t + sta + op + '</span>';
+    var cls = acIsFlight_(a.flight) ? 'chip' : 'chip chip--duty';   // งานที่ไม่ใช่ไฟลท์ (เคาน์เตอร์/pool) สีจาง
+    return '<span class="'+cls+'" style="cursor:default">' + rbEsc_(a.flight) + t + sta + op + '</span>';
   }).join('');
   return '<div class="chipgroup">' + chips + '</div>';      // flex-wrap container กันชิปซ้อนกัน
+}
+function rbFltCount_(assigns) {                              // นับเฉพาะรหัสไฟลท์จริง (ให้ตรงกับแท็บตรวจ Assign)
+  return (assigns || []).filter(function (a) { return acIsFlight_(a.flight); }).length;
 }
 function rbTtRows_(res, ll) {
   var rows = [];
@@ -2142,7 +2154,7 @@ function rbTtRows_(res, ll) {
     var sh = rbEsc_(r.shift||'') + (r.shiftTime&&r.shiftTime!==r.shift ? ' <span class="muted">'+r.shiftTime+'</span>' : '');
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.id||'')+
-      '</td><td>'+rbEsc_(r.name)+'</td><td>'+rbEsc_(r.pos||'')+'</td><td>'+sh+'</td><td>'+ot+'</td><td class="tnum">'+(r.assignments?r.assignments.length:0)+
+      '</td><td>'+rbEsc_(r.name)+'</td><td>'+rbEsc_(r.pos||'')+'</td><td>'+sh+'</td><td>'+ot+'</td><td class="tnum">'+rbFltCount_(r.assignments)+
       '</td><td>'+rbFlightChips_(r.assignments)+'</td></tr>';
   }).join('');
 }
@@ -2575,6 +2587,7 @@ body {
 .tbl td .chipgroup { min-width: 320px; }
 .chip { display: inline-block; line-height: 1.35; font-family: inherit; cursor: pointer; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; white-space: normal; }
 .chip:hover { border-color: var(--accent); }
+.chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
 .ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }

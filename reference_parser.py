@@ -184,7 +184,8 @@ def parse_standard(rows, team):
         for c in range(cm['flt'], len(hdr)):
             nm = cv(hdr[c])
             if nm and not nm.startswith('=') and nm.upper() not in (
-                    'STA / STD', 'OP / CL', 'REMARK', 'RE', 'OT', 'COUNTER'):
+                    'STA / STD', 'OP / CL', 'REMARK', 'RE', 'OT', 'COUNTER',
+                    'NIL', '-', 'N/A', 'NA'):    # NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
                 fltcols.append((c, nm))
         sta = rows[hi + 1] if hi + 1 < len(rows) else []
         opn = rows[hi + 2] if hi + 2 < len(rows) else []
@@ -669,9 +670,15 @@ def _ac_min(s):
 
 
 def _ac_is_flight(name):
-    """ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คการครอบคลุม — ไม่ใช่ pool/common
-    (เช่น CHECK-IN COMMON, LP MORNING, LP AFTERNOON ที่ไม่มีเลขไฟลท์)."""
-    return bool(re.search(r'[A-Za-z]{1,3}\s*\d{2,4}', str(name or '')))
+    """ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คการครอบคลุม — ไม่ใช่ pool/counter/common
+    (CHECK-IN COMMON, LP MORNING/AFTERNOON, Counter G2/G11, Gate A1).
+    รหัสไฟลท์จริงขึ้นต้นด้วยโค้ดสายการบิน; งานเคาน์เตอร์ขึ้นต้นด้วยคำอังกฤษ."""
+    s = str(name or '').strip().upper()
+    if not s:
+        return False
+    if re.match(r'(COUNTER|GATE|CHECK|ZONE|BELT|PIER|STBY|STAND|POOL|OFFICE|BRIEF|NIL|OFF\b|LP\s+(MORNING|AFTERNOON|NIGHT|DAY))', s):
+        return False
+    return bool(re.search(r'[A-Z]{1,3}\s*\d{2,4}', s))
 
 
 def _ac_flight_win(a):
