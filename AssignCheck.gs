@@ -176,10 +176,35 @@ function acAnalyzeRecord_(r) {
   return out;
 }
 
+/** ทีม "เจ้าของ" ของแต่ละสายการบิน = ทีมที่มีพนักงานทำไฟลท์สายการบินนั้นมากสุด
+ *  (ใช้บอกว่าไฟลท์ไหนเป็นการ "ซัพพอร์ตข้ามทีม") */
+function acOwnerTeams_(res, ll) {
+  var cnt = {};
+  function tally(team, r) {
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    if (slaSkipTeam_(team)) return;          // Porter/Crewsign/Admin Doc ไม่นับเป็นเจ้าของสายการบิน
+    (r.assignments || []).forEach(function (a) {
+      if (!acIsFlight_(a.flight)) return;
+      var al = slaAirlineOf_(a.flight);
+      (cnt[al] = cnt[al] || {})[team] = (cnt[al][team] || 0) + 1;
+    });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { tally(t, r); }); });
+  if (ll && ll.totals && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tally('LL·' + s, r); }); });
+  var owner = {};
+  Object.keys(cnt).forEach(function (al) {
+    var best = '', bn = -1;
+    Object.keys(cnt[al]).forEach(function (t) { if (cnt[al][t] > bn) { bn = cnt[al][t]; best = t; } });
+    owner[al] = best;
+  });
+  return owner;
+}
+
 /** วิเคราะห์ทั้งไฟล์ (PSA teams + LL sections). คืน rows ที่ต้องตรวจ + summary. */
 function acAnalyze_(res, ll) {
   var rows = [];
-  var sum = { working: 0, checked: 0, bad: 0, warn: 0, otMuch: 0, gap: 0, noFlt: 0, noWin: 0 };
+  var owner = acOwnerTeams_(res, ll);
+  var sum = { working: 0, checked: 0, bad: 0, warn: 0, otMuch: 0, gap: 0, noFlt: 0, noWin: 0, support: 0 };
 
   function consider(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
@@ -187,17 +212,25 @@ function acAnalyze_(res, ll) {
     var a = acAnalyzeRecord_(r);
     if (!a.hasWindow) { sum.noWin++; return; }              // ไม่มีเวลากะระบุ → ตรวจครอบคลุมไม่ได้
     sum.checked++;
+    // ไฟลท์ที่ทำ + ตั้ง flag ไฟลท์ "ซัพพอร์ตข้ามทีม" (สายการบินที่ทีมอื่นเป็นเจ้าของ)
+    var nSupport = 0, skipT = slaSkipTeam_(team);
+    var jobList = (r.assignments || []).filter(function (x) { return acIsFlight_(x.flight); })
+      .map(function (x) {
+        var ow = owner[slaAirlineOf_(x.flight)];
+        if (!skipT && ow && ow !== team) { nSupport++; return x.flight + ' (ซัพพอร์ต)'; }
+        return x.flight;
+      });
+    if (nSupport) sum.support++;
     if (a.status === 'bad') sum.bad++;
     if (a.status === 'warn') sum.warn++;
     if (a.otVerdict.indexOf('เกินจำเป็น') >= 0) sum.otMuch++;
     if (a.gaps.length) sum.gap++;
     if (a.noFlight) sum.noFlt++;
     if (a.status === 'bad' || a.status === 'warn') {
-      var jobs = (r.assignments || []).filter(function (x) { return acIsFlight_(x.flight); })
-        .map(function (x) { return x.flight; });
       rows.push({
         team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
-        job: jobs.join(', '),
+        job: jobList.join(', '),
+        support: nSupport,
         shift: a.shiftStr, duty: a.dutyStr,
         ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
                         (r.otTime ? ' ' + r.otTime : '')) : '-',
