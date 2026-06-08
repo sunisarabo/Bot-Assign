@@ -240,14 +240,17 @@ function slaPhaseWindow_(f, ph) {
   if (ph === 'SUP') return std != null ? [std + db.ci, std + (db.post || 30)] : (sta != null ? [sta - 20, sta + 30] : null);
   return null;
 }
-/** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้ (ว่างช่วงนั้น + รู้ระบบถ้าเป็น CI) */
+/** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้
+ *  · CI  = รู้ระบบเช็คอินของสายการบินนั้น + ว่าง (ตำแหน่งใดก็ได้)
+ *  · SUP = ต้องเป็นตำแหน่ง Sup + รู้ระบบนั้น + ว่าง (สำหรับ Sup/Flight Controller)
+ *  · GATE/ARR = ไม่ต้องใช้ระบบ · เรียงลำดับ Agent → Senior → Sup */
 function slaCandidates_(f, ph, pool, max) {
   var win = slaPhaseWindow_(f, ph);
-  var needSys = ph === 'CI' ? slaSystemOf_(f.airline) : '';
+  var needSys = (ph === 'CI' || ph === 'SUP') ? slaSystemOf_(f.airline) : '';
   var cands = pool.filter(function (p) {
     if (f.teams[p.team]) return false;                       // คนทีมเดียวกับไฟลท์ ไม่นับเป็น support
-    if (needSys && !p.sys[needSys]) return false;            // CI ต้องรู้ระบบสายการบินนั้น
-    if (ph === 'SUP' && p.posGroup !== 'PSS') return false;  // SUP ต้องเป็นหัวหน้า
+    if (needSys && !p.sys[needSys]) return false;            // CI/SUP ต้องรู้ระบบสายการบินนั้น
+    if (ph === 'SUP' && p.posGroup !== 'PSS') return false;  // Sup/Flight Controller ต้องเป็น Sup
     if (win) {
       if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
       for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นช่วงนั้น
@@ -257,7 +260,14 @@ function slaCandidates_(f, ph, pool, max) {
     }
     return true;
   });
-  cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });  // คนงานน้อย/ว่างกว่าก่อน
+  if (ph === 'GATE' || ph === 'ARR') {
+    var PRI = { PSA: 0, SNR: 1, PSS: 2 };                    // Agent → Senior → Sup ตามลำดับ
+    cands.sort(function (a, b) {
+      return (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+    });
+  } else {
+    cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+  }
   return max ? cands.slice(0, max) : cands;
 }
 function slaWinTxt_(f, ph) {
@@ -301,6 +311,7 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
 }
 
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
+function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
 /** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
 function slaSupportRows_(res, ll) {
   var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
@@ -315,7 +326,7 @@ function slaSupportRows_(res, ll) {
         flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: ph === 'CI' ? slaSystemOf_(f.airline) : '',
-        cands: cands.map(function (c) { return c.name + ' (' + c.team + ')'; }),
+        cands: cands.map(function (c) { return c.name + ' [' + slaPosShort_(c.posGroup) + '·' + c.team + ']'; }),
         nCand: cands.length,
       });
     });
