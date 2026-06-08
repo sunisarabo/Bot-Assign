@@ -78,6 +78,7 @@ function rbAssignHtml(iso) {
     var hd = '<div class="sectionlabel">ตรวจ <b>' + s.checked + '</b>/' + s.working +
       ' คนที่มาทำงาน · <b class="badd">🔴 ไฟลท์นอกเวลา/ขาด OT ' + s.bad + '</b> · 🟡 ควรตรวจ ' + s.warn +
       ' · OT อาจเกิน ' + s.otMuch + ' · มีช่วงว่าง ' + s.gap +
+      ' · <span class="muted">ไม่มีไฟลท์ ' + s.noFlt + ' (bench/standby)</span>' +
       (s.noWin ? ' · (ไม่มีเวลากะระบุ ' + s.noWin + ' — ข้าม)' : '') + '</div>';
     var rows = an.rows.map(function (r) {
       var emo = r.status === 'bad' ? '🔴' : '🟡';

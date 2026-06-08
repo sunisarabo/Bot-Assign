@@ -758,7 +758,6 @@ def analyze_record(r):
                     a['gaps'].append((merged[i][1], merged[i + 1][0], 'mid'))
             if de - merged[-1][1] >= AC_EDGE_MIN:                # หลังไฟลท์สุดท้าย (edge)
                 a['gaps'].append((merged[-1][1], de, 'edge'))
-    pos_psa = r.get('posgroup') in ('PSA', 'SNR')
     if a['uncovered']:
         a['status'] = 'bad'
         a['issues'].append('ไฟลท์นอกเวลางาน: ' + ', '.join(a['uncovered']))
@@ -780,11 +779,8 @@ def analyze_record(r):
         a['issues'].append('ช่วงว่าง ' + ', '.join(
             '%s-%s%s' % (_ac_fmt(x), _ac_fmt(y), '(ระหว่างไฟลท์)' if g == 'mid' else '')
             for x, y, g in a['gaps']))
-    if (a['flightN'] == 0 and r['bucket'] == 'working' and pos_psa and r.get('ot', 0) == 0
-            and ss is not None and se is not None and (se - ss) >= AC_IDLE_HRS * 60):
-        if a['status'] == 'ok':
-            a['status'] = 'warn'
-        a['issues'].append('ไม่มีไฟลท์ในกะยาว')
+    # ไม่มีไฟลท์เลย = นับเป็นข้อมูล (bench/standby/support) ไม่ flag เป็นปัญหา เพื่อไม่ให้ตารางรก
+    a['noflt'] = a['flightN'] == 0 and r['bucket'] == 'working'
     return a
 
 
@@ -793,7 +789,7 @@ def report_assign(path):
     names = filter_rev(wb.sheetnames)
     print("=" * 74)
     print("ASSIGN CHECK:", path)
-    s = dict(working=0, checked=0, bad=0, warn=0, otmuch=0, gap=0, nowin=0)
+    s = dict(working=0, checked=0, bad=0, warn=0, otmuch=0, gap=0, nowin=0, noflt=0)
     flagged = []
     for nm in names:
         recs = parse_sheet(wb[nm], nm)
@@ -817,13 +813,15 @@ def report_assign(path):
                 s['otmuch'] += 1
             if a['gaps']:
                 s['gap'] += 1
+            if a.get('noflt'):
+                s['noflt'] += 1
             if a['status'] in ('bad', 'warn'):
                 flagged.append((nm, r, a))
     order = {'bad': 0, 'warn': 1}
     flagged.sort(key=lambda x: (order[x[2]['status']], x[0]))
     emo = {'bad': 'X', 'warn': '!'}
-    print("checked %d/%d  bad=%d warn=%d  OTเกิน=%d gap=%d  (no-window %d skipped)"
-          % (s['checked'], s['working'], s['bad'], s['warn'], s['otmuch'], s['gap'], s['nowin']))
+    print("checked %d/%d  bad=%d warn=%d  OTเกิน=%d gap=%d  noflt=%d(support/standby)  (no-window %d skipped)"
+          % (s['checked'], s['working'], s['bad'], s['warn'], s['otmuch'], s['gap'], s['noflt'], s['nowin']))
     print("-" * 74)
     for nm, r, a in flagged:
         print("%s %-10s %-18s duty=%-13s flts=%d/%d  %s"

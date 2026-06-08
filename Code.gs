@@ -1030,7 +1030,8 @@ function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
  *   1) เวลากะ (รวม OT) ครอบคลุมเที่ยวบินที่ได้รับมอบหมายไหม  → COVERAGE
  *   2) ให้ OT มาก/น้อยไปไหม                                  → OT FIT
  *   3) มีช่วงว่าง (idle gap) ตรงไหนบ้าง                        → GAP
- *   4) การมอบหมายเหมาะสมหรือไม่ (เช่น ทำงานแต่ไม่มีไฟลท์เลย)  → SANITY
+ * คนที่ไม่มีไฟลท์เลย (bench/standby/support เช่น WY SNR/Agent) จะนับเป็น
+ * ตัวเลขสรุปเฉย ๆ ไม่ flag เป็นปัญหารายแถว เพื่อไม่ให้ตารางรก.
  *
  * หน้าต่าง "เวลางาน" (duty window) = ช่วงเวลากะ ขยายด้วย OT ก่อนกะ/หลังกะ
  * (ถ้ามีช่วงเวลา OT ระบุก็ใช้ช่วงนั้น ไม่งั้นขยายด้วยจำนวนชั่วโมง OT).
@@ -1041,7 +1042,6 @@ function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
  *   COVER_TOL = 45 นาที   — ผ่อนผันก่อน/หลังไฟลท์
  *   GAP_MIN   = 180 นาที  — ช่วงว่างระหว่างไฟลท์ (split-duty dead time) ที่จะแจ้ง
  *   EDGE_MIN  = 240 นาที  — ช่วงว่างก่อนไฟลท์แรก/หลังไฟลท์สุดท้าย (prep/standby) ที่จะแจ้ง
- *   IDLE_HRS  = 7 ชม.     — กะยาวขั้นต่ำที่ "ไม่มีไฟลท์เลย" ถือว่าควรตรวจ (เฉพาะ PSA)
  *
  * Entry: acAnalyze_(res, ll) -> { rows:[...], summary:{...} }
  *        rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) -> เขียนแท็บรายงาน
@@ -1050,7 +1050,6 @@ function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
 var AC_COVER_TOL = 45;
 var AC_GAP_MIN   = 180;
 var AC_EDGE_MIN  = 240;
-var AC_IDLE_HRS  = 7;
 
 function acMin_(s) {
   var m = String(s == null ? '' : s).match(/(\d{1,2}):(\d{2})/);
@@ -1149,7 +1148,6 @@ function acAnalyzeRecord_(r) {
   }
 
   // สรุปคำตัดสิน OT + ปัญหา
-  var posPSA = (r.posGroup === 'PSA' || r.posGroup === 'SNR');
   if (out.uncovered.length) {
     out.status = 'bad';
     out.issues.push('ไฟลท์นอกเวลางาน: ' + out.uncovered.join(', '));
@@ -1181,20 +1179,15 @@ function acAnalyzeRecord_(r) {
     }).join(', '));
   }
 
-  // มาทำงานกะยาวแต่ไม่มีไฟลท์เลย (เฉพาะ PSA/SNR) — อาจ support/ว่าง
-  if (out.flightN === 0 && r.bucket === 'working' && posPSA && r.ot === 0
-      && d.ss != null && d.se != null && (d.se - d.ss) >= AC_IDLE_HRS * 60) {
-    if (out.status === 'ok') out.status = 'warn';
-    out.issues.push('ไม่มีไฟลท์ในกะยาว (' + Math.round((d.se - d.ss) / 6) / 10 + 'h) — อาจ support/ว่าง');
-  }
-
+  // ไม่มีไฟลท์เลย = นับเป็นข้อมูล (bench/standby/support) ไม่ flag เป็นปัญหา เพื่อไม่ให้ตารางรก
+  out.noFlight = (out.flightN === 0 && r.bucket === 'working');
   return out;
 }
 
 /** วิเคราะห์ทั้งไฟล์ (PSA teams + LL sections). คืน rows ที่ต้องตรวจ + summary. */
 function acAnalyze_(res, ll) {
   var rows = [];
-  var sum = { working: 0, checked: 0, bad: 0, warn: 0, otMuch: 0, gap: 0, noWin: 0 };
+  var sum = { working: 0, checked: 0, bad: 0, warn: 0, otMuch: 0, gap: 0, noFlt: 0, noWin: 0 };
 
   function consider(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
@@ -1206,6 +1199,7 @@ function acAnalyze_(res, ll) {
     if (a.status === 'warn') sum.warn++;
     if (a.otVerdict.indexOf('เกินจำเป็น') >= 0) sum.otMuch++;
     if (a.gaps.length) sum.gap++;
+    if (a.noFlight) sum.noFlt++;
     if (a.status === 'bad' || a.status === 'warn') {
       rows.push({
         team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
@@ -1255,9 +1249,9 @@ function rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) {
 
   var s = an.summary;
   sh.getRange(2, 1, 1, W).merge()
-    .setValue('ตรวจ ' + s.checked + '/' + s.working + ' คนที่มาทำงาน  ·  🔴 มีปัญหา ' + s.bad +
-              '  ·  🟡 ควรตรวจ ' + s.warn + '  ·  ไฟลท์นอกเวลา/ขาด OT ' + s.bad +
-              '  ·  OT อาจเกิน ' + s.otMuch + '  ·  มีช่วงว่าง ' + s.gap +
+    .setValue('ตรวจ ' + s.checked + '/' + s.working + ' คนที่มาทำงาน  ·  🔴 ไฟลท์นอกเวลา/ขาด OT ' + s.bad +
+              '  ·  🟡 ควรตรวจ ' + s.warn + '  ·  OT อาจเกิน ' + s.otMuch + '  ·  มีช่วงว่าง ' + s.gap +
+              '  ·  ไม่มีไฟลท์ ' + s.noFlt + ' (bench/standby)' +
               (s.noWin ? '  ·  (ไม่มีเวลากะระบุ ' + s.noWin + ' — ข้าม)' : ''))
     .setBackground('#241c33').setFontColor('#f5c542').setFontWeight('bold').setFontSize(10)
     .setHorizontalAlignment('center');
@@ -1995,6 +1989,7 @@ function rbAssignHtml(iso) {
     var hd = '<div class="sectionlabel">ตรวจ <b>' + s.checked + '</b>/' + s.working +
       ' คนที่มาทำงาน · <b class="badd">🔴 ไฟลท์นอกเวลา/ขาด OT ' + s.bad + '</b> · 🟡 ควรตรวจ ' + s.warn +
       ' · OT อาจเกิน ' + s.otMuch + ' · มีช่วงว่าง ' + s.gap +
+      ' · <span class="muted">ไม่มีไฟลท์ ' + s.noFlt + ' (bench/standby)</span>' +
       (s.noWin ? ' · (ไม่มีเวลากะระบุ ' + s.noWin + ' — ข้าม)' : '') + '</div>';
     var rows = an.rows.map(function (r) {
       var emo = r.status === 'bad' ? '🔴' : '🟡';
