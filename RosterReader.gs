@@ -155,9 +155,21 @@ function rrFindHeader_(rows) {
       if (h.indexOf('TOTAL') === 0 && cm.ot >= 0 && (c - cm.ot) > 0 && (c - cm.ot) <= 3) cm.ottot = c;
     }
     cm.flt = u.indexOf('FLIGHT') >= 0 ? u.indexOf('FLIGHT') + 1 : -1;
+    if (cm.flt < 0) {
+      // บางวันชีต (เช่น WY) ไม่มีหัว "FLIGHT" — รหัสไฟลท์อยู่ในหัวตารางตรง ๆ
+      var after = Math.max(cm.remark, cm.ot, cm.ottot, cm.time, cm.shift, cm.name, cm.id);
+      for (var fc = after + 1; fc < u.length; fc++) {
+        if (rrIsFlightHdr_(u[fc])) { cm.flt = fc; break; }
+      }
+    }
     return cm;
   }
   return null;
+}
+
+/** หัวคอลัมน์ที่เป็น 'รหัสไฟลท์' (G9687/688, WY831/832, CA413, 6E1077, SQ726). */
+function rrIsFlightHdr_(h) {
+  return /(?:^|[\s\/])(?:[A-Z]{1,3}\s?\d{2,4}|\d[A-Z]\d{2,4})/.test(String(h || ''));
 }
 
 // ─── parsers ────────────────────────────────────────────────────────────────

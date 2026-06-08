@@ -168,8 +168,21 @@ def find_header(rows):
                   if h.replace('.', '').replace('  ', ' ').strip().startswith('TOTAL')]
         cm['ottot'] = next((c for c in tothrs if cm['ot'] >= 0 and 0 < c - cm['ot'] <= 3), -1)
         cm['flt'] = u.index('FLIGHT') + 1 if 'FLIGHT' in u else -1
+        if cm['flt'] < 0:
+            # บางวันชีต (เช่น WY) ไม่มีหัว "FLIGHT" — รหัสไฟลท์อยู่ในหัวตารางตรง ๆ
+            # → หาคอลัมน์แรกหลังคอลัมน์ข้อมูลที่หัวเป็น "รหัสไฟลท์"
+            after = max(cm['remark'], cm['ot'], cm['ottot'], cm['time'], cm['shift'], cm['name'], cm['id'])
+            for c in range(after + 1, len(u)):
+                if _is_flight_hdr(u[c]):
+                    cm['flt'] = c
+                    break
         return r, cm
     return None, None
+
+
+def _is_flight_hdr(h):
+    """หัวคอลัมน์ที่เป็น 'รหัสไฟลท์' (G9687/688, WY831/832, CA413, 6E1077, SQ726)."""
+    return bool(re.search(r'(?:^|[\s/])(?:[A-Z]{1,3}\s?\d{2,4}|\d[A-Z]\d{2,4})', str(h or '')))
 
 
 # ── parsers ────────────────────────────────────────────────────────────────
