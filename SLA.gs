@@ -91,14 +91,22 @@ var AIRLINE_SYS = {
   'ZF':'Astra','WZ':'Astra','EO':'Lydia','N4':'Lydia','HB':'TravelSky','S7':'TWD','EK':'ASConnect',
   '6B':'Iport','BY':'Iport','FY':'Gonow','UO':'Gonow','QR':'Altea','MH':'Altea','DE':'Altea','OM':'Iport',
   '3U':'TravelSky','CA':'TravelSky','ZH':'TravelSky','CZ':'TravelSky','HU':'TravelSky','PN':'TravelSky',
-  'MU':'TravelSky','FM':'TravelSky','8H':'TravelSky','OQ':'TravelSky','BK':'TravelSky','AQ':'TravelSky',
-  'HO':'TravelSky','GX':'TravelSky','KX':'TravelSky','9C':'TravelSky',
+  'MU':'TravelSky','FM':'TravelSky','8H':'TravelSky','9H':'TravelSky','OQ':'TravelSky','BK':'TravelSky',
+  'AQ':'TravelSky','HO':'TravelSky','GX':'TravelSky','KX':'TravelSky','9C':'TravelSky',
   'KE':'Altea','KC':'Altea','AF':'Altea','OZ':'Altea','LJ':'iFlyRes','OV':'Iport','NO':'Iport',
-  'TR':'Gonow','6E':'Gonow','QP':'Gonow','WY':'Sabre','G9':'Altea','DK':'Altea','PG':'Altea',
-  'W5':'AVIA','SU':'Astra','B2':'Astra','TK':'TOYA','HY':'Gonow','VN':'Gonow','SG':'Gonow','N0':'Gonow',
+  'TR':'Gonow','6E':'Gonow','QP':'Gonow','3K':'Gonow','WY':'Sabre','G9':'Altea','DK':'Altea','PG':'Altea',
+  'W5':'AVIA','SU':'Astra','B2':'Astra','TK':'TOYA','HY':'Altea','VN':'Altea','SG':'Gonow','N0':'Gonow',
   'VJ':'Iport','OD':'Sabre','AY':'Altea','EY':'Altea','DV':'TWD','SV':'Altea','WK':'Altea','KA':'Iport',
 };
+// Iport = ระบบที่ "ทุกคนทำเป็น" — ไฟลท์ที่ใช้ Iport ใครว่างก็ช่วยเช็คอินได้ ไม่ต้องจำกัดระบบ
+var SLA_UNIVERSAL_SYS = { 'Iport': true };
 function slaSystemOf_(airline) { return AIRLINE_SYS[String(airline || '').toUpperCase()] || ''; }
+/** ระบบที่ "ต้องรู้" เพื่อช่วยเช็คอินไฟลท์นี้ ('' = ไม่จำกัด เช่น Iport หรือไม่ใช่ CI/SUP) */
+function slaNeedSys_(airline, ph) {
+  if (ph !== 'CI' && ph !== 'SUP') return '';
+  var s = slaSystemOf_(airline);
+  return (s && !SLA_UNIVERSAL_SYS[s]) ? s : '';
+}
 
 // Official establishment requirement per team (SUP/SNR/PSA) from the AOTGA
 // Manpower Meeting file — the FULL roster needed, not the daily on-duty count.
@@ -255,10 +263,10 @@ function slaPhaseWindow_(f, ph) {
  *  · GATE/ARR = ไม่ต้องใช้ระบบ · เรียงลำดับ Agent → Senior → Sup */
 function slaCandidates_(f, ph, pool, max) {
   var win = slaPhaseWindow_(f, ph);
-  var needSys = (ph === 'CI' || ph === 'SUP') ? slaSystemOf_(f.airline) : '';
+  var needSys = slaNeedSys_(f.airline, ph);                   // '' = Iport/ไม่จำกัด → ทุกคนช่วยได้
   var cands = pool.filter(function (p) {
     if (f.teams[p.team]) return false;                       // คนทีมเดียวกับไฟลท์ ไม่นับเป็น support
-    if (needSys && !p.sys[needSys]) return false;            // CI/SUP ต้องรู้ระบบสายการบินนั้น
+    if (needSys && !p.sys[needSys]) return false;            // CI/SUP ต้องรู้ระบบสายการบินนั้น (ยกเว้น Iport)
     if (ph === 'SUP' && p.posGroup !== 'PSS') return false;  // Sup/Flight Controller ต้องเป็น Sup
     if (win) {
       if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
@@ -336,7 +344,7 @@ function slaSupportRows_(res, ll) {
       rows.push({
         flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
-        needSys: ph === 'CI' ? slaSystemOf_(f.airline) : '',
+        needSys: slaNeedSys_(f.airline, ph),
         cands: cands.map(function (c) { return c.name + ' [' + slaPosShort_(c.posGroup) + '·' + c.team + ']'; }),
         nCand: cands.length,
       });
