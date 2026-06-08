@@ -115,6 +115,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
   rbWriteTimetable_(out, res, roster.getName(), ll);
   rbWriteFlightSLA_(out, res, roster.getName(), ll);
   rbWriteSupport_(out, res, roster.getName(), ll);
+  rbWriteAssignCheck_(out, res, roster.getName(), ll);
   var cleanup = out.getSheetByName('Sheet1') || out.getSheetByName('ชีต1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
   if (opened.tempId) { try { DriveApp.getFileById(opened.tempId).setTrashed(true); } catch (e) {} }
@@ -150,6 +151,7 @@ function rbRunForDate_(date) {
   rbWriteTimetable_(out, res, dateStr, ll, '🕓 ' + dd + ' ' + mon);
   rbWriteFlightSLA_(out, res, dateStr, ll, '✈️ ' + dd + ' ' + mon);
   rbWriteSupport_(out, res, dateStr, ll, '🆘 ' + dd + ' ' + mon);
+  rbWriteAssignCheck_(out, res, dateStr, ll, '🧭 ' + dd + ' ' + mon);
   // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
   try {
     var wr = rbWeekRange_(date);
@@ -517,6 +519,13 @@ function rbPostChat_(res, dateStr, url, ll, master) {
   var oOff = T.ot_off + lt.ot_off, oOffH = Math.round((T.otOffHrs + lt.otOffHrs) * 10) / 10;
   lines.push('⏱️ *OT ก่อนกะ:* ' + oPre + ' คน (' + oPreH + 'h)  |  *OT หลังกะ:* ' + oPost + ' คน (' + oPostH +
              'h)  |  *OT OFF:* ' + oOff + ' คน (' + oOffH + 'h)');
+  try {
+    var ac = acAnalyze_(res, ll).summary;
+    if (ac.bad || ac.warn) {
+      lines.push('🧭 *ตรวจ Assign:* 🔴 ไฟลท์นอกเวลา/ขาด OT *' + ac.bad + '*  ·  🟡 ควรตรวจ *' + ac.warn +
+                 '*  (OT อาจเกิน ' + ac.otMuch + ' · ช่วงว่าง ' + ac.gap + ')');
+    }
+  } catch (eac) { Logger.log('⚠️ AssignCheck: ' + eac.message); }
   lines.push('', '*Top teams (working):*');
   Object.keys(res.teams).sort(function (a, b) { return res.teams[b].working - res.teams[a].working; })
     .slice(0, 8).forEach(function (t) {

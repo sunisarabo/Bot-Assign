@@ -656,11 +656,189 @@ def report_ll(path, tab=None):
     print(f"{'TOTAL':10}{tot['staff']:>6}{tot['work']:>6}{tot['off']:>5}{tot['sick']:>5}{tot['leave']:>6}{tot['otp']:>6}{round(tot['oth'],1):>6}")
 
 
+# ── assignment-quality check (mirror of AssignCheck.gs) ─────────────────────
+AC_COVER_TOL = 45
+AC_GAP_MIN = 180      # ช่วงว่างระหว่างไฟลท์ (split-duty dead time) ที่จะแจ้ง
+AC_EDGE_MIN = 240     # ช่วงว่างก่อนไฟลท์แรก/หลังไฟลท์สุดท้าย (prep/standby) ที่จะแจ้ง
+AC_IDLE_HRS = 7
+
+
+def _ac_min(s):
+    m = re.search(r'(\d{1,2}):(\d{2})', str(s if s is not None else ''))
+    return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+
+
+def _ac_is_flight(name):
+    """ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คการครอบคลุม — ไม่ใช่ pool/common
+    (เช่น CHECK-IN COMMON, LP MORNING, LP AFTERNOON ที่ไม่มีเลขไฟลท์)."""
+    return bool(re.search(r'[A-Za-z]{1,3}\s*\d{2,4}', str(name or '')))
+
+
+def _ac_flight_win(a):
+    # 00:00 ใน OP/CL ของบางทีม (เช่น PG) เป็นค่าว่าง/placeholder ไม่ใช่เวลาจริง → ตัดทิ้ง
+    ts = [_ac_min(a.get(k, '')) for k in ('STA', 'OP', 'CL', 'STD')]
+    ts = [t for t in ts if t]
+    if not ts:
+        return None
+    lo, hi = min(ts), max(ts)
+    if hi - lo > 14 * 60:
+        hi -= 1440
+    if hi < lo:
+        lo, hi = hi, lo
+    return [lo, hi]
+
+
+def _ac_duty(r):
+    ss, se = _range_str(r.get('shift_time') or '')
+    if ss is not None and se is not None and se <= ss:
+        se += 1440
+    oi, oo = _range_str(r.get('ot_time') or '')
+    if oi is not None and oo is not None and oo <= oi:
+        oo += 1440
+    ds, de = ss, se
+    if oi is not None:
+        if ss is not None:
+            while oi < ss - 720:
+                oi += 1440
+                oo += 1440
+        ds = oi if ds is None else min(ds, oi)
+        de = oo if de is None else max(de, oo)
+    elif r.get('ot', 0) > 0 and ss is not None and r['bucket'] != 'ot_off':
+        if r.get('ot_type') == 'PRE':
+            ds = ss - round(r['ot'] * 60)
+        else:
+            de = se + round(r['ot'] * 60)
+    return ss, se, ds, de
+
+
+def _ac_fmt(m):
+    return '%02d:%02d' % ((m // 60) % 24, m % 60) if m is not None else ''
+
+
+def analyze_record(r):
+    ss, se, ds, de = _ac_duty(r)
+    a = dict(has=ds is not None and de is not None, duty='', flightN=0, coveredN=0,
+             uncovered=[], gaps=[], otv='', issues=[], status='ok')
+    if a['has']:
+        a['duty'] = '%s-%s' % (_ac_fmt(ds), _ac_fmt(de))
+    wins = []
+    for asg in r.get('assigns', []):
+        if not asg.get('flight'):
+            continue
+        coverable = _ac_is_flight(asg['flight'])
+        w = _ac_flight_win(asg)
+        if not w:
+            continue
+        lo, hi = w
+        if ds is not None and lo < ds - 720:
+            lo += 1440
+            hi += 1440
+        wins.append((asg['flight'], lo, hi))     # ใช้ทุก task เพื่อหา gap (รวม pool)
+        if not coverable:
+            continue
+        a['flightN'] += 1                         # นับเฉพาะไฟลท์จริงในการครอบคลุม
+        if ds is not None and de is not None:
+            if lo >= ds - AC_COVER_TOL and hi <= de + AC_COVER_TOL:
+                a['coveredN'] += 1
+            else:
+                a['uncovered'].append('%s(%s-%s)' % (asg['flight'].strip(), _ac_fmt(lo), _ac_fmt(hi)))
+    if a['has'] and wins:
+        iv = sorted([[max(lo, ds), min(hi, de)] for _, lo, hi in wins if min(hi, de) > max(lo, ds)])
+        merged = []
+        for w in iv:
+            if merged and w[0] <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], w[1])
+            else:
+                merged.append(w)
+        if merged:
+            if merged[0][0] - ds >= AC_EDGE_MIN:                 # ก่อนไฟลท์แรก (edge)
+                a['gaps'].append((ds, merged[0][0], 'edge'))
+            for i in range(len(merged) - 1):                     # ระหว่างไฟลท์ (internal)
+                if merged[i + 1][0] - merged[i][1] >= AC_GAP_MIN:
+                    a['gaps'].append((merged[i][1], merged[i + 1][0], 'mid'))
+            if de - merged[-1][1] >= AC_EDGE_MIN:                # หลังไฟลท์สุดท้าย (edge)
+                a['gaps'].append((merged[-1][1], de, 'edge'))
+    pos_psa = r.get('posgroup') in ('PSA', 'SNR')
+    if a['uncovered']:
+        a['status'] = 'bad'
+        a['issues'].append('ไฟลท์นอกเวลางาน: ' + ', '.join(a['uncovered']))
+        a['otv'] = 'OT ไม่พอ' if r.get('ot', 0) > 0 else 'ควรให้ OT/Re-Sked'
+    elif r.get('ot', 0) > 0 and r['bucket'] != 'ot_off':
+        just = a['flightN'] == 0
+        for _, lo, hi in wins:
+            if r.get('ot_type') == 'PRE' and ss is not None and lo < ss - AC_COVER_TOL:
+                just = True
+            if r.get('ot_type') != 'PRE' and se is not None and hi > se + AC_COVER_TOL:
+                just = True
+        if not just and a['flightN'] > 0:
+            a['status'] = 'warn'
+            a['otv'] = 'OT อาจเกินจำเป็น'
+            a['issues'].append(a['otv'])
+    if a['gaps']:
+        if a['status'] == 'ok':
+            a['status'] = 'warn'
+        a['issues'].append('ช่วงว่าง ' + ', '.join(
+            '%s-%s%s' % (_ac_fmt(x), _ac_fmt(y), '(ระหว่างไฟลท์)' if g == 'mid' else '')
+            for x, y, g in a['gaps']))
+    if (a['flightN'] == 0 and r['bucket'] == 'working' and pos_psa and r.get('ot', 0) == 0
+            and ss is not None and se is not None and (se - ss) >= AC_IDLE_HRS * 60):
+        if a['status'] == 'ok':
+            a['status'] = 'warn'
+        a['issues'].append('ไม่มีไฟลท์ในกะยาว')
+    return a
+
+
+def report_assign(path):
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    names = filter_rev(wb.sheetnames)
+    print("=" * 74)
+    print("ASSIGN CHECK:", path)
+    s = dict(working=0, checked=0, bad=0, warn=0, otmuch=0, gap=0, nowin=0)
+    flagged = []
+    for nm in names:
+        recs = parse_sheet(wb[nm], nm)
+        if not recs:
+            continue
+        for r in recs:
+            if r['bucket'] not in ('working', 'ot_off'):
+                continue
+            r['posgroup'] = pos_group(r.get('pos'), nm)
+            s['working'] += 1
+            a = analyze_record(r)
+            if not a['has']:
+                s['nowin'] += 1
+                continue
+            s['checked'] += 1
+            if a['status'] == 'bad':
+                s['bad'] += 1
+            if a['status'] == 'warn':
+                s['warn'] += 1
+            if 'เกิน' in a['otv']:
+                s['otmuch'] += 1
+            if a['gaps']:
+                s['gap'] += 1
+            if a['status'] in ('bad', 'warn'):
+                flagged.append((nm, r, a))
+    order = {'bad': 0, 'warn': 1}
+    flagged.sort(key=lambda x: (order[x[2]['status']], x[0]))
+    emo = {'bad': 'X', 'warn': '!'}
+    print("checked %d/%d  bad=%d warn=%d  OTเกิน=%d gap=%d  (no-window %d skipped)"
+          % (s['checked'], s['working'], s['bad'], s['warn'], s['otmuch'], s['gap'], s['nowin']))
+    print("-" * 74)
+    for nm, r, a in flagged:
+        print("%s %-10s %-18s duty=%-13s flts=%d/%d  %s"
+              % (emo[a['status']], nm[:10], r['name'][:18], a['duty'],
+                 a['coveredN'], a['flightN'], ' · '.join(a['issues'])[:90]))
+    wb.close()
+
+
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
     if sys.argv[1] == '--ll':
         report_ll(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    elif sys.argv[1] == '--assign':
+        report_assign(sys.argv[2])
     else:
         report(sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else None)
