@@ -717,8 +717,12 @@ def _ac_fmt(m):
 
 def analyze_record(r):
     ss, se, ds, de = _ac_duty(r)
-    a = dict(has=ds is not None and de is not None, duty='', flightN=0, coveredN=0,
-             uncovered=[], gaps=[], otv='', issues=[], status='ok')
+    # เชื่อถือได้เมื่อมีเวลากะจริง (ss) หรือเป็น OT OFF (ทำเฉพาะ OT วันหยุด).
+    # ถ้าเป็นคนทำงานแต่กะเป็นรหัสไม่มีเวลา (เช่น NN0 กะดึก) → อย่าเอาช่วง OT มาตัดสิน coverage
+    reliable = (ss is not None) or (r['bucket'] == 'ot_off' and ds is not None)
+    a = dict(has=reliable and ds is not None and de is not None, shift='', duty='',
+             flightN=0, coveredN=0, uncovered=[], gaps=[], otv='', issues=[], status='ok')
+    a['shift'] = ('%s-%s' % (_ac_fmt(ss), _ac_fmt(se))) if ss is not None and se is not None else (r.get('shift') or '-')
     if a['has']:
         a['duty'] = '%s-%s' % (_ac_fmt(ds), _ac_fmt(de))
     wins = []
@@ -824,9 +828,10 @@ def report_assign(path):
           % (s['checked'], s['working'], s['bad'], s['warn'], s['otmuch'], s['gap'], s['noflt'], s['nowin']))
     print("-" * 74)
     for nm, r, a in flagged:
-        print("%s %-10s %-18s duty=%-13s flts=%d/%d  %s"
-              % (emo[a['status']], nm[:10], r['name'][:18], a['duty'],
-                 a['coveredN'], a['flightN'], ' · '.join(a['issues'])[:90]))
+        ots = ('%sh %s' % (r['ot'], (r.get('ot_type') or 'OT'))) if r.get('ot', 0) > 0 else '-'
+        print("%s %-10s %-18s กะ=%-12s OT=%-9s flts=%d/%d  %s"
+              % (emo[a['status']], nm[:10], r['name'][:18], a['shift'], ots,
+                 a['coveredN'], a['flightN'], ' · '.join(a['issues'])[:80]))
     wb.close()
 
 
