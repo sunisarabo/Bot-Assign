@@ -692,6 +692,9 @@ def _ac_flight_win(a):
         hi -= 1440
     if hi < lo:
         lo, hi = hi, lo
+    if hi - lo < 30:                 # ไฟลท์ที่มีเวลาจุดเดียว (เช่น PG STA=00:00 เหลือ STD)
+        mid = (lo + hi) // 2         # → ให้เป็นบล็อกงาน ~60 นาที จะได้ตัด gap ถูก
+        lo, hi = mid - 30, mid + 30
     return [lo, hi]
 
 

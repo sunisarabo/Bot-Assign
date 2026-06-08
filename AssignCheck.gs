@@ -54,6 +54,9 @@ function acFlightWin_(a) {
   var lo = Math.min.apply(null, ts), hi = Math.max.apply(null, ts);
   if (hi - lo > 14 * 60) hi -= 1440;                       // ป้องกัน min/max ข้ามเที่ยงคืนเพี้ยน
   if (hi < lo) { var t = lo; lo = hi; hi = t; }
+  if (hi - lo < 30) {                                      // ไฟลท์ที่มีเวลาจุดเดียว (เช่น PG STA=00:00 เหลือ STD)
+    var mid = (lo + hi) / 2; lo = mid - 30; hi = mid + 30; // → ให้เป็นบล็อกงาน ~60 นาที จะได้ตัด gap ถูก
+  }
   return [lo, hi];
 }
 
