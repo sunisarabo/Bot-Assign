@@ -70,6 +70,31 @@ function rbFlightsHtml(iso) {
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
+/** Lazy tab: ตรวจความเหมาะสมการ Assign (ครอบคลุมไฟลท์ / OT / ช่วงว่าง). */
+function rbAssignHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    var an = acAnalyze_(d.res, d.ll), s = an.summary;
+    var hd = '<div class="sectionlabel">ตรวจ <b>' + s.checked + '</b>/' + s.working +
+      ' คนที่มาทำงาน · <b class="badd">🔴 ไฟลท์นอกเวลา/ขาด OT ' + s.bad + '</b> · 🟡 ควรตรวจ ' + s.warn +
+      ' · OT อาจเกิน ' + s.otMuch + ' · มีช่วงว่าง ' + s.gap +
+      (s.noWin ? ' · (ไม่มีเวลากะระบุ ' + s.noWin + ' — ข้าม)' : '') + '</div>';
+    var rows = an.rows.map(function (r) {
+      var emo = r.status === 'bad' ? '🔴' : '🟡';
+      return '<tr class="' + (r.status === 'bad' ? 'rowbad' : '') + '"><td>' + emo + '</td><td class="b">' +
+        rbEsc_(r.team) + '</td><td>' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.pos) + '</td><td class="tnum">' +
+        rbEsc_(r.duty) + '</td><td>' + rbEsc_(r.flights) + '</td><td class="' + (r.uncovered ? 'badd' : 'muted') + '">' +
+        (rbEsc_(r.uncovered) || '—') + '</td><td>' + (rbEsc_(r.gaps) || '<span class="muted">—</span>') + '</td><td>' +
+        (rbEsc_(r.otVerdict) || '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.issue) + '</td></tr>';
+    }).join('');
+    if (!rows) rows = '<tr><td colspan="10" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
+    return hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
+      '<tr><th>สถานะ</th><th>ทีม</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>เวลางาน (กะ+OT)</th><th>ไฟลท์</th>' +
+      '<th>ไฟลท์นอกเวลา</th><th>ช่วงว่าง</th><th>OT เหมาะสม?</th><th>ปัญหา/คำแนะนำ</th></tr>',
+      rows, '<input id="acq" class="search" placeholder="🔎 ค้นหา ชื่อ/ทีม/ไฟลท์" oninput="filterAC()">');
+  } catch (e) { return '<div class="panel">โหลดตรวจ Assign ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+
 function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
 
@@ -102,12 +127,14 @@ function rbWeekNav_(date, iso, base, tz) {
     '<a class="iconbtn" href="' + u(next) + '" target="_top">›</a></div>' +
     '<div class="weeknav__strip">' + chips.join('') + '</div></div>';
 }
-function rbTabs_(shortCount) {
+function rbTabs_(shortCount, acCount) {
   return '<div class="tabs">' +
     '<button class="tab active" id="tab-dash" onclick="showView(\'dash\')">▦ Dashboard</button>' +
     '<button class="tab" id="tab-tt" onclick="showView(\'tt\');loadTT()">☰ Timetable</button>' +
     '<button class="tab" id="tab-flt" onclick="showView(\'flt\');loadFlt()">✈ Flights &amp; SLA' +
     (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
+    '<button class="tab" id="tab-ac" onclick="showView(\'ac\');loadAC()">🧭 ตรวจ Assign' +
+    (acCount ? '<span class="badge tnum">' + acCount + '</span>' : '') + '</button>' +
     '<button class="tab" id="tab-ot" onclick="showView(\'ot\');loadOT()">⏱️ OT สัปดาห์</button></div>';
 }
 
@@ -225,6 +252,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
             otPost:comb('otPost'), otPostHrs:Math.round(comb('otPostHrs')*10)/10 };
   var teamOrder = Object.keys(res.teams).sort(function(a,b){ return (res.teams[b].working+res.teams[b].ot_off)-(res.teams[a].working+res.teams[a].ot_off); });
   var shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok;}).length;
+  var acCount = 0; try { acCount = acAnalyze_(res, ll).summary.bad; } catch (eac) {}
 
   var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
     tt:teamOrder.map(function(t){return res.teams[t].staff;}), work:C.working, off:C.off, sick:C.sick, leave:C.leave,
@@ -258,11 +286,13 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
   var otInner = staticMode ? rbWeeklyOTHtml(iso)
     : '<div id="otbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังคำนวณ OT รายสัปดาห์ (อ่านไฟล์หลายวัน อาจใช้เวลาสักครู่)…</div></div>';
+  var acInner = staticMode ? rbAssignHtml(iso)
+    : '<div id="acbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจการ Assign…</div></div>';
 
   return '<!doctype html><html lang="th" data-theme="corporate"><head><meta charset="utf-8">' +
     '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">' +
     '<style>' + rbDesignCss_() + '</style></head><body><div class="wrap">' +
-    rbAppbar_(date) + rbWeekNav_(date, iso, base, tz) + rbTabs_(shortCount) +
+    rbAppbar_(date) + rbWeekNav_(date, iso, base, tz) + rbTabs_(shortCount, acCount) +
     '<div id="view-dash">' +
     rbKpiHero_(C, master) + masterLine +
     '<div class="grid grid--charts" style="margin-top:16px">' +
@@ -278,17 +308,19 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '</div>' +
     '<div id="view-tt" style="display:none">' + ttInner + '</div>' +
     '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
+    '<div id="view-ac" style="display:none">' + acInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '</div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    'function showView(v){["dash","tt","flt","ac","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
-    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}function loadAC(){lazy("acbox","rbAssignHtml","ac");}' +
     'function filterTT(){var q=document.getElementById("ttq").value.toLowerCase();var t=document.querySelectorAll("#view-tt tbody tr");[].forEach.call(t,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
+    'function filterAC(){var q=document.getElementById("acq").value.toLowerCase();var t=document.querySelectorAll("#view-ac tbody tr");[].forEach.call(t,function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)>=0?"":"none";});}' +
     'window.addEventListener("load",function(){if(!window.Chart)return;if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
     'Chart.defaults.color="'+CI.sub+'";Chart.defaults.font.family="Kanit,sans-serif";Chart.defaults.font.weight="600";' +
     'new Chart(c1,{type:"bar",data:{labels:CD.tn,datasets:[{label:"Working",data:CD.tw,backgroundColor:CD.c.teal,borderRadius:5},{label:"Total",data:CD.tt,backgroundColor:"#c9d6e8",borderRadius:5}]},options:{plugins:{legend:{labels:{boxWidth:12}},datalabels:{anchor:"end",align:"end",font:{size:9,weight:"700"},color:"#15233f"}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"},suggestedMax:Math.max.apply(null,CD.tt)+3}}}});' +
