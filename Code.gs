@@ -199,15 +199,18 @@ function rrParseStandard_(rows, team) {
 
     var assigns = [];
     fltcols.forEach(function (fc) {
-      var tasks = [];
+      var tasks = [], times = [];
       for (var cc = fc.col; cc < (fc.end || fc.col + 1); cc++) {
         var v = cc < row.length ? rrClean_(row[cc]) : '';
-        if (v) tasks.push(v);
+        if (!v) continue;
+        if (/^\d{1,2}[:.]\d{2}/.test(v)) times.push(v); else tasks.push(v);   // SU: เวลาในเซลล์เคาน์เตอร์
       }
-      if (tasks.length) {
+      if (tasks.length || times.length) {
         var info = flights[fc.name] || {};
+        var op = info.OP || '', cl = info.CL || '';
+        if (times.length && !op && !cl) { op = times[0]; cl = times[times.length - 1]; }   // ใช้เวลาในเซลล์เป็น OP/CL
         assigns.push({ flight: fc.name, task: tasks.join('/'),
-                       STA: info.STA || '', STD: info.STD || '', OP: info.OP || '', CL: info.CL || '' });
+                       STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl });
       }
     });
     // บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
@@ -1404,7 +1407,7 @@ function acAnalyzeRecord_(r) {
   }
 
   // ไม่มีไฟลท์เลย = นับเป็นข้อมูล (bench/standby/support) ไม่ flag เป็นปัญหา เพื่อไม่ให้ตารางรก
-  out.noFlight = (out.flightN === 0 && r.bucket === 'working');
+  out.noFlight = (out.flightN === 0 && out.wins.length === 0 && r.bucket === 'working');  // มีงานเคาน์เตอร์ (wins) = ไม่ใช่ว่าง
   return out;
 }
 
@@ -1443,11 +1446,11 @@ function acAnalyze_(res, ll) {
     sum.checked++;
     // ไฟลท์ที่ทำ + ตั้ง flag ไฟลท์ "ซัพพอร์ตข้ามทีม" (สายการบินที่ทีมอื่นเป็นเจ้าของ)
     var nSupport = 0, skipT = slaSkipTeam_(team);
-    var jobList = (r.assignments || []).filter(function (x) { return acIsFlight_(x.flight); })
+    var jobList = (r.assignments || []).filter(function (x) { return x.flight; })   // รวมเคาน์เตอร์/งานของ SU ด้วย
       .map(function (x) {
-        var w = acFlightWin_(x);                          // ช่วงเวลา cover (บรีฟ→STD)
+        var w = acFlightWin_(x);                          // ช่วงเวลา cover (บรีฟ→STD / เคาน์เตอร์)
         var tm = w ? ' ' + rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '–' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440) : ' (ไม่มีเวลา)';
-        var ow = owner[slaAirlineOf_(x.flight)];
+        var ow = acIsFlight_(x.flight) ? owner[slaAirlineOf_(x.flight)] : '';
         var sup = (!skipT && ow && ow !== team) ? ' ซัพพอร์ต' : '';
         if (sup) nSupport++;
         return x.flight + tm + sup;
@@ -1466,7 +1469,7 @@ function acAnalyze_(res, ll) {
         shift: a.shiftStr, duty: a.dutyStr,
         ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
                         (r.otTime ? ' ' + r.otTime : '')) : '-',
-        flights: a.flightN ? (a.coveredN + '/' + a.flightN + ' ครอบคลุม') : 'ไม่มี',
+        flights: a.flightN ? (a.coveredN + '/' + a.flightN + ' ครอบคลุม') : (a.wins.length ? a.wins.length + ' เคาน์เตอร์/งาน' : 'ไม่มี'),
         uncovered: a.uncovered.join('; '),
         gaps: a.gaps.map(function (g) { return rrFmtMin_(g.a) + '–' + rrFmtMin_(g.b); }).join(', '),
         otVerdict: a.otVerdict,

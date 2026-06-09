@@ -228,15 +228,18 @@ function rrParseStandard_(rows, team) {
 
     var assigns = [];
     fltcols.forEach(function (fc) {
-      var tasks = [];
+      var tasks = [], times = [];
       for (var cc = fc.col; cc < (fc.end || fc.col + 1); cc++) {
         var v = cc < row.length ? rrClean_(row[cc]) : '';
-        if (v) tasks.push(v);
+        if (!v) continue;
+        if (/^\d{1,2}[:.]\d{2}/.test(v)) times.push(v); else tasks.push(v);   // SU: เวลาในเซลล์เคาน์เตอร์
       }
-      if (tasks.length) {
+      if (tasks.length || times.length) {
         var info = flights[fc.name] || {};
+        var op = info.OP || '', cl = info.CL || '';
+        if (times.length && !op && !cl) { op = times[0]; cl = times[times.length - 1]; }   // ใช้เวลาในเซลล์เป็น OP/CL
         assigns.push({ flight: fc.name, task: tasks.join('/'),
-                       STA: info.STA || '', STD: info.STD || '', OP: info.OP || '', CL: info.CL || '' });
+                       STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl });
       }
     });
     // บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)

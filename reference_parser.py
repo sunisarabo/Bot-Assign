@@ -244,9 +244,19 @@ def parse_standard(rows, team):
 
         assigns = []
         for c, c1, nm in fltcols:
-            tasks = [cv(row[cc]) for cc in range(c, c1) if cc < len(row) and cv(row[cc])]
-            if tasks:
-                assigns.append(dict(flight=nm, task='/'.join(tasks), **flights.get(nm, {})))
+            tasks, times = [], []
+            for cc in range(c, c1):
+                v = cv(row[cc]) if cc < len(row) else ''
+                if not v:
+                    continue
+                (times if re.match(r'\d{1,2}[:.]\d{2}', v) else tasks).append(v)   # SU: เวลาในเซลล์เคาน์เตอร์
+            if tasks or times:
+                info = dict(flights.get(nm, {}))
+                if times and not info.get('OP') and not info.get('CL'):
+                    info['OP'], info['CL'] = times[0], times[-1]
+                assigns.append(dict(flight=nm, task='/'.join(tasks),
+                                    STA=info.get('STA', ''), STD=info.get('STD', ''),
+                                    OP=info.get('OP', ''), CL=info.get('CL', '')))
         # บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
         # → เพิ่มรหัสไฟลท์ที่ยังไม่มี (กันนับซ้ำด้วยเลขไฟลท์)
         if cm['flt'] - 1 >= 0:
