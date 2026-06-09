@@ -345,12 +345,18 @@ function slaSupportRows_(res, ll) {
         flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: slaNeedSys_(f.airline, ph),
-        cands: cands.map(function (c) { return c.name + ' [' + slaPosShort_(c.posGroup) + '·' + c.team + ']'; }),
+        cands: cands.map(function (c) { return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team }; }),
         nCand: cands.length,
       });
     });
   });
   return rows;
+}
+/** จัดกลุ่มคนช่วยตามทีม (ให้เลือกได้ว่าจะดึงจากทีมไหน) → [{team, people:[...]}] */
+function slaGroupCands_(cands) {
+  var by = {}, order = [];
+  cands.forEach(function (c) { if (!by[c.team]) { by[c.team] = []; order.push(c.team); } by[c.team].push(c); });
+  return order.map(function (t) { return { team: t, people: by[t] }; });
 }
 
 /** Sheet tab: 🆘 Support — ไฟลท์ขาด + แนะนำคนที่ว่างและรู้ระบบเช็คอินมาช่วย */
@@ -372,7 +378,11 @@ function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
       .setFontWeight('bold').setFontColor('#1b5e20').setHorizontalAlignment('center');
   } else {
     var body = rows.map(function (r) {
-      var who = r.cands.length ? r.cands.join(', ') : (r.needSys ? '— ไม่มีคนว่างที่รู้ระบบ ' + r.needSys : '— ไม่มีคนว่าง');
+      var who = r.cands.length
+        ? slaGroupCands_(r.cands).map(function (g) {
+            return '[' + g.team + '] ' + g.people.map(function (p) { return p.name + '(' + p.pos + ')'; }).join(', ');
+          }).join('   ·   ')
+        : (r.needSys ? '— ไม่มีคนว่างที่รู้ระบบ ' + r.needSys : '— ไม่มีคนว่าง');
       return [r.flight, r.airline, r.system || '-', r.team, r.STD,
               r.phase + ' ขาด ' + r.shortN + (r.needSys ? ' (ต้องใช้ ' + r.needSys + ')' : ''), r.win, who];
     });

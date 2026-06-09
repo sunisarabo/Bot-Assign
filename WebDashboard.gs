@@ -105,12 +105,22 @@ function rbSupportHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var rows = slaSupportRows_(d.res, d.ll);
-    var nF = {}; rows.forEach(function (r) { nF[r.flight] = 1; });
+    var nF = {}, supTeams = {};
+    rows.forEach(function (r) { nF[r.flight] = 1; r.cands.forEach(function (c) { supTeams[c.team] = 1; }); });
     var hd = '<div class="sectionlabel">ไฟลท์ที่คนไม่ครบตาม SLA: <b class="badd">' + Object.keys(nF).length +
       ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + rows.length + ' รายการ — แนะนำคนที่ <b>ว่างช่วงนั้น + รู้ระบบเช็คอิน</b></div>';
+    // แถบเลือกหลายทีม: เลือกได้ว่าจะดึงคนจากทีมไหนมาช่วย (คลิกสลับเปิด/ปิด)
+    var teamBar = Object.keys(supTeams).sort().map(function (t) {
+      return '<button class="supteam on" data-t="' + rbEsc_(t) + '" onclick="toggleSupTeam(this)">' + rbEsc_(t) + '</button>';
+    }).join('');
+    if (teamBar) teamBar = '<div class="supbar"><b>เลือกทีมที่จะดึงมาช่วย:</b> ' + teamBar +
+      ' <button class="supteam supall" onclick="allSupTeams(this)">ทั้งหมด</button></div>';
     var body = rows.map(function (r) {
       var who = r.cands.length
-        ? r.cands.map(function (c) { return '<span class="chip chip--duty">' + rbEsc_(c) + '</span>'; }).join(' ')
+        ? slaGroupCands_(r.cands).map(function (g) {
+            return '<span class="supgrp"><span class="supgrp__t">' + rbEsc_(g.team) + '</span>' +
+              g.people.map(function (p) { return '<span class="chip chip--duty supchip" data-cteam="' + rbEsc_(g.team) + '">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>'; }).join('') + '</span>';
+          }).join(' ')
         : '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
       return '<tr class="' + (r.cands.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
@@ -118,8 +128,8 @@ function rbSupportHtml(iso) {
         '</td><td class="tnum">' + rbEsc_(r.win) + '</td><td>' + who + '</td></tr>';
     }).join('');
     if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA</td></tr>';
-    return hd + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + คนที่มาช่วยได้',
-      '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>คนที่มาช่วยได้ (ว่าง + ระบบตรง)</th></tr>',
+    return hd + teamBar + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + คนที่มาช่วยได้ (จัดกลุ่มตามทีม)',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>คนที่มาช่วยได้ (เลือกทีมด้านบน)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
@@ -374,6 +384,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}' +
     'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";[].forEach.call(v.querySelectorAll("tbody tr"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;r.style.display=(okT&&okQ)?"":"none";});}' +
     'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
+    'function applySupFilter(){var on={},any=false;[].forEach.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(b){if(b.classList.contains("on")){on[b.getAttribute("data-t")]=1;any=true;}});[].forEach.call(document.querySelectorAll("#view-sup .supchip"),function(c){c.style.display=(!any||on[c.getAttribute("data-cteam")])?"":"none";});[].forEach.call(document.querySelectorAll("#view-sup .supgrp"),function(g){var vis=g.querySelectorAll(".supchip");var shown=0;[].forEach.call(vis,function(c){if(c.style.display!=="none")shown++;});g.style.display=shown?"":"none";});}' +
+    'function toggleSupTeam(b){b.classList.toggle("on");applySupFilter();}' +
+    'function allSupTeams(b){var on=[].some.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(x){return !x.classList.contains("on");});[].forEach.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(x){if(on)x.classList.add("on");else x.classList.remove("on");});applySupFilter();}' +
     'function makeSortable(){[].forEach.call(document.querySelectorAll("table.tbl"),function(tb){if(tb.getAttribute("data-srt"))return;tb.setAttribute("data-srt","1");var hs=tb.tHead?tb.tHead.rows[tb.tHead.rows.length-1].cells:[];[].forEach.call(hs,function(th,ci){th.style.cursor="pointer";th.title="คลิกเพื่อเรียง";th.addEventListener("click",function(){sortTbl(tb,ci,th);});});});}' +
     'function sortTbl(tb,ci,th){var tbody=tb.tBodies[0];if(!tbody)return;var rows=[].slice.call(tbody.rows).filter(function(r){return r.cells.length>ci&&!(r.cells[0].hasAttribute("colspan")||r.cells[0].colSpan>1);});var dir=th.getAttribute("data-sd")==="asc"?"desc":"asc";[].forEach.call(tb.tHead.querySelectorAll("th"),function(x){x.removeAttribute("data-sd");var s=x.querySelector(".sar");if(s)s.remove();});th.setAttribute("data-sd",dir);var ar=document.createElement("span");ar.className="sar";ar.textContent=dir==="asc"?" ▲":" ▼";th.appendChild(ar);rows.sort(function(a,b){var x=a.cells[ci].textContent.trim(),y=b.cells[ci].textContent.trim();var nx=parseFloat(x.replace(/[^0-9.\\-]/g,"")),ny=parseFloat(y.replace(/[^0-9.\\-]/g,""));var num=x!==""&&y!==""&&!isNaN(nx)&&!isNaN(ny)&&/[0-9]/.test(x)&&/[0-9]/.test(y)&&!/[A-Za-zก-๙]{2,}/.test(x.replace(/คน|h/g,""));var c=num?(nx-ny):x.localeCompare(y,"th");return dir==="asc"?c:-c;});rows.forEach(function(r){tbody.appendChild(r);});}' +
     'window.addEventListener("load",function(){makeSortable();buildTeamSels();});' +
@@ -712,6 +725,12 @@ body {
 .chip:hover { border-color: var(--accent); }
 .chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
 .chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
+.supbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 10px 0 4px; font-size: 13px; }
+.supteam { font-family: inherit; font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink-3); cursor: pointer; }
+.supteam.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+.supteam.supall { background: var(--bg-2); color: var(--ink); }
+.supgrp { display: inline-flex; align-items: center; gap: 4px; margin: 0 10px 6px 0; padding: 3px 4px 3px 0; }
+.supgrp__t { font-size: 11px; font-weight: 800; color: var(--brand); background: var(--bg-2); border-radius: 7px; padding: 3px 8px; margin-right: 4px; white-space: nowrap; }
 .tbl tbody tr.row-off td { background: #eceff1 !important; color: #7c878f; }
 .tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
 .tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
