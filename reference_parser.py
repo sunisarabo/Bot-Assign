@@ -247,6 +247,20 @@ def parse_standard(rows, team):
             tasks = [cv(row[cc]) for cc in range(c, c1) if cc < len(row) and cv(row[cc])]
             if tasks:
                 assigns.append(dict(flight=nm, task='/'.join(tasks), **flights.get(nm, {})))
+        # บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
+        # → เพิ่มรหัสไฟลท์ที่ยังไม่มี (กันนับซ้ำด้วยเลขไฟลท์)
+        if cm['flt'] - 1 >= 0:
+            label = cv(row[cm['flt'] - 1]) if cm['flt'] - 1 < len(row) else ''
+            if label and not re.match(r'(OFF|VAC|SICK|SL|BL|X|ONDUTY|SUPPORT|PASSENGER|NIL)', label, re.I):
+                nums = set()
+                for a in assigns:
+                    nums.update(re.findall(r'\d{2,4}', a['flight']))
+                for code in re.findall(r'[A-Z0-9]{1,3}\s?\d{2,4}(?:\s?/\s?\d{2,4})?', label, re.I):
+                    code = code.strip()
+                    cn = re.findall(r'\d{2,4}', code)
+                    if cn and not all(n in nums for n in cn) and _ac_is_flight(code):
+                        assigns.append(dict(flight=code, task='', STA='', STD='', OP='', CL=''))
+                        nums.update(cn)
         oth = ot_hours(otv)
         bkt = classify(shift or timev, remark)
         if bkt == 'off' and oth > 0:            # SHIFT=X แต่มี OT = ทำ OT วันหยุด

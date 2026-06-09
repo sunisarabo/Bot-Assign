@@ -239,6 +239,24 @@ function rrParseStandard_(rows, team) {
                        STA: info.STA || '', STD: info.STD || '', OP: info.OP || '', CL: info.CL || '' });
       }
     });
+    // บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
+    // → เพิ่มรหัสไฟลท์ที่ยังไม่มี (กันนับซ้ำด้วยเลขไฟลท์)
+    if (cm.flt - 1 >= 0 && cm.flt - 1 < row.length) {
+      var label = rrClean_(row[cm.flt - 1]);
+      if (label && !/^(OFF|VAC|SICK|SL|BL|X|ONDUTY|SUPPORT|PASSENGER|NIL)/i.test(label)) {
+        var nums = {};
+        assigns.forEach(function (a) { (a.flight.match(/\d{2,4}/g) || []).forEach(function (n) { nums[n] = 1; }); });
+        (label.match(/[A-Z0-9]{1,3}\s?\d{2,4}(?:\s?\/\s?\d{2,4})?/gi) || []).forEach(function (code) {
+          code = code.trim();
+          var cn = code.match(/\d{2,4}/g) || [];
+          var allDup = cn.length && cn.every(function (n) { return nums[n]; });
+          if (cn.length && !allDup && acIsFlight_(code)) {
+            assigns.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
+            cn.forEach(function (n) { nums[n] = 1; });
+          }
+        });
+      }
+    }
 
     var oth = rrOtHours_(otv);
     var bkt = rrClassify_(shift || timev, remark);
