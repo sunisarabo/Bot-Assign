@@ -726,29 +726,25 @@ def _ac_is_flight(name):
 
 
 def _ac_flight_win(a):
-    # ช่วงที่ต้องอยู่ตามบทบาท: check-in→OP-CL, arrival→STA, gate→CL/STD, อื่น→min-max
-    task = str(a.get('task') or '').upper()
-    sta, op, cl, std = (_ac_min(a.get('STA', '')), _ac_min(a.get('OP', '')),
-                        _ac_min(a.get('CL', '')), _ac_min(a.get('STD', '')))
-    lo = hi = None
-    if re.search(r'CT|CI|GK|CHECK|COUNTER|CTR', task) and op:
-        lo, hi = op, (cl or std or op)
-    elif re.search(r'ARR|MEET|\bAC\b|\bRF\b|ESCORT', task) and sta:
-        lo, hi = sta, sta
-    elif re.search(r'GATE|\bGA\b|\bGM\b|BOARD|\bGC\b|BIR|MAAS|PFD', task) and (cl or std):
-        lo, hi = (cl or std), (std or cl)
-    if lo is None:
+    # cover ไฟลท์ = เวลาบรีฟ → STD (บรีฟ = OP - brief; validator ใช้ค่า default brief=60, ci=-180)
+    def m(x):
+        v = _ac_min(x)
+        return v if v else None
+    sta, op, cl, std = m(a.get('STA', '')), m(a.get('OP', '')), m(a.get('CL', '')), m(a.get('STD', ''))
+    brief, ci, post = 60, -180, 30
+    lo, hi = None, std
+    ci_open = op if op is not None else (std + ci if std is not None else None)
+    if ci_open is not None:
+        lo = ci_open - brief
+    if hi is None and sta is not None:
+        lo, hi = sta - brief, sta + post
+    if lo is None or hi is None:
         ts = [t for t in (sta, op, cl, std) if t]
         if not ts:
             return None
-        lo, hi = min(ts), max(ts)
-    if hi - lo > 14 * 60:
-        hi -= 1440
-    if hi < lo:
-        lo, hi = hi, lo
-    if hi - lo < 30:                 # ไฟลท์ที่มีเวลาจุดเดียว (เช่น PG STA=00:00 เหลือ STD)
-        mid = (lo + hi) // 2         # → ให้เป็นบล็อกงาน ~60 นาที จะได้ตัด gap ถูก
-        lo, hi = mid - 30, mid + 30
+        lo, hi = min(ts) - brief, max(ts)
+    if hi <= lo:
+        hi += 1440
     return [lo, hi]
 
 
