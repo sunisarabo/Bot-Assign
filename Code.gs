@@ -1424,9 +1424,12 @@ function acAnalyze_(res, ll) {
     var nSupport = 0, skipT = slaSkipTeam_(team);
     var jobList = (r.assignments || []).filter(function (x) { return acIsFlight_(x.flight); })
       .map(function (x) {
+        var w = acFlightWin_(x);                          // ช่วงเวลา cover (บรีฟ→STD)
+        var tm = w ? ' ' + rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '–' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440) : ' (ไม่มีเวลา)';
         var ow = owner[slaAirlineOf_(x.flight)];
-        if (!skipT && ow && ow !== team) { nSupport++; return x.flight + ' (ซัพพอร์ต)'; }
-        return x.flight;
+        var sup = (!skipT && ow && ow !== team) ? ' ซัพพอร์ต' : '';
+        if (sup) nSupport++;
+        return x.flight + tm + sup;
       });
     if (nSupport) sum.support++;
     if (a.status === 'bad') sum.bad++;
@@ -1516,7 +1519,7 @@ function rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) {
       .setHorizontalAlignment('center').setBackground('#e6f4ea').setFontColor('#1b5e20').setFontWeight('bold');
   }
 
-  [44, 90, 80, 90, 140, 110, 110, 90, 180, 180, 120, 160, 230].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  [44, 90, 80, 90, 140, 110, 110, 90, 240, 180, 120, 160, 230].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   sh.setFrozenRows(3);
   return an.summary;
 }
