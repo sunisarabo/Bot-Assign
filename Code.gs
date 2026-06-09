@@ -2065,10 +2065,10 @@ function rbSupportHtml(iso) {
       ' <button class="supteam supall" onclick="allSupTeams(this)">ทั้งหมด</button></div>';
     var body = rows.map(function (r) {
       var who = r.cands.length
-        ? slaGroupCands_(r.cands).map(function (g) {
-            return '<span class="supgrp"><span class="supgrp__t">' + rbEsc_(g.team) + '</span>' +
+        ? '<div class="supwrap">' + slaGroupCands_(r.cands).map(function (g) {
+            return '<span class="supgrp"><span class="supgrp__t">' + rbEsc_(g.team) + ' ' + g.people.length + '</span>' +
               g.people.map(function (p) { return '<span class="chip chip--duty supchip" data-cteam="' + rbEsc_(g.team) + '">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>'; }).join('') + '</span>';
-          }).join(' ')
+          }).join('') + '</div>'
         : '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
       return '<tr class="' + (r.cands.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
@@ -2507,8 +2507,10 @@ body{font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased
 .supteam{font-family:inherit;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink-3);cursor:pointer;}
 .supteam.on{background:var(--brand);color:#fff;border-color:var(--brand);}
 .supteam.supall{background:var(--bg-2);color:var(--ink);}
-.supgrp{display:inline-flex;align-items:center;gap:4px;margin:0 10px 6px 0;padding:3px 4px 3px 0;}
+.supgrp{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 10px 6px 0;padding:3px 4px 3px 0;}
 .supgrp__t{font-size:11px;font-weight:800;color:var(--brand);background:var(--bg-2);border-radius:7px;padding:3px 8px;margin-right:4px;white-space:nowrap;}
+.supwrap{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;max-width:760px;}
+.supchip{font-size:10.5px;padding:3px 7px;white-space:nowrap;}
 .tbl tbody tr.row-off td{background:#eceff1 !important;color:#7c878f;}
 .tbl tbody tr.row-sl td{background:#f8d7da !important;color:#b3261e;font-weight:600;}
 .tbl tbody tr.row-vac td{background:#fff3cd !important;color:#7a5b00;}
