@@ -760,14 +760,16 @@ def _ac_duty(r):
     if oi is not None and oo is not None and oo <= oi:
         oo += 1440
     ds, de = ss, se
-    if oi is not None:
+    if r['bucket'] == 'ot_off':          # OT OFF = วันหยุดมา OT → เวลางาน = ช่วง OT เท่านั้น
+        ds, de = oi, oo
+    elif oi is not None:
         if ss is not None:
             while oi < ss - 720:
                 oi += 1440
                 oo += 1440
         ds = oi if ds is None else min(ds, oi)
         de = oo if de is None else max(de, oo)
-    elif r.get('ot', 0) > 0 and ss is not None and r['bucket'] != 'ot_off':
+    elif r.get('ot', 0) > 0 and ss is not None:
         if r.get('ot_type') == 'PRE':
             ds = ss - round(r['ot'] * 60)
         else:
@@ -786,7 +788,7 @@ def analyze_record(r):
     reliable = (ss is not None) or (r['bucket'] == 'ot_off' and ds is not None)
     a = dict(has=reliable and ds is not None and de is not None, shift='', duty='',
              flightN=0, coveredN=0, uncovered=[], gaps=[], otv='', issues=[], status='ok')
-    a['shift'] = ('%s-%s' % (_ac_fmt(ss), _ac_fmt(se))) if ss is not None and se is not None else (r.get('shift') or '-')
+    a['shift'] = 'OFF' if r['bucket'] == 'ot_off' else (('%s-%s' % (_ac_fmt(ss), _ac_fmt(se))) if ss is not None and se is not None else (r.get('shift') or '-'))
     if a['has']:
         a['duty'] = '%s-%s' % (_ac_fmt(ds), _ac_fmt(de))
     wins = []

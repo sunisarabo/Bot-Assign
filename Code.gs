@@ -981,7 +981,7 @@ function slaSupportPool_(res, ll, teamSys) {
       });
     pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '',
       ds: d.ds, de: d.de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
-      shiftDisp: (r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'),
+      shiftDisp: r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-')),
       otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
       hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, flts: flts });
   }
@@ -1183,11 +1183,14 @@ function acDuty_(r) {
   if (oi != null && oo != null && oo <= oi) oo += 1440;
 
   var ds = ss, de = se;
-  if (oi != null) {
+  if (r.bucket === 'ot_off') {
+    // OT OFF = วันหยุดมาทำ OT — เวลางานจริง = ช่วง OT เท่านั้น (ไม่ใช่กะปกติที่ค้างอยู่)
+    ds = oi; de = oo;
+  } else if (oi != null) {
     if (ss != null) { while (oi < ss - 720) { oi += 1440; oo += 1440; } }  // จัด OT ให้อยู่ใกล้กะ
     ds = (ds == null) ? oi : Math.min(ds, oi);
     de = (de == null) ? oo : Math.max(de, oo);
-  } else if (r.ot > 0 && ss != null && r.bucket !== 'ot_off') {
+  } else if (r.ot > 0 && ss != null) {
     if (r.otType === 'PRE') ds = ss - Math.round(r.ot * 60);
     else de = se + Math.round(r.ot * 60);
   }
@@ -1201,7 +1204,7 @@ function acAnalyzeRecord_(r) {
   var reliable = (d.ss != null) || (r.bucket === 'ot_off' && d.ds != null);
   var out = {
     hasWindow: reliable && d.ds != null && d.de != null,
-    shiftStr: (d.ss != null && d.se != null) ? (rrFmtMin_(d.ss) + '–' + rrFmtMin_(d.se)) : (r.shift || '-'),
+    shiftStr: r.bucket === 'ot_off' ? 'OFF' : ((d.ss != null && d.se != null) ? (rrFmtMin_(d.ss) + '–' + rrFmtMin_(d.se)) : (r.shift || '-')),
     dutyStr: '', dutyMins: 0, ss: d.ss, se: d.se, ds: d.ds, de: d.de,
     flightN: 0, coveredN: 0, uncovered: [], gaps: [], wins: [],
     otVerdict: '', issues: [], status: 'ok',
