@@ -198,6 +198,32 @@ function advScanFrontlineRows_(data, tgt, out) {
   }
 }
 
+/** วันที่ทั้งหมดที่มีในตารางบิน (ISO เรียง) — ใช้บอกผู้ใช้ว่ามีไฟลท์วันไหนบ้าง */
+function advFlightDates_() {
+  var ss = SpreadsheetApp.openById(advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID));
+  var data = ss.getSheets()[0].getDataRange().getValues();
+  var set = {}, out = [];
+  data.forEach(function (row) {
+    var p = advParseDate_(row[0]);
+    if (p) { var k = p.y + '-' + ('0' + p.m).slice(-2) + '-' + ('0' + p.d).slice(-2); if (!set[k]) { set[k] = 1; out.push(k); } }
+  });
+  return out.sort();
+}
+
+/** บันทึกข้อเสนอ (รวมชื่อที่แก้ในหน้าจอ) ลง "ชีตใหม่" — ไม่เขียนทับไฟล์ต้นฉบับ. คืน URL */
+function advSaveProposal(dateStr, rowsJson) {
+  var rows = JSON.parse(rowsJson || '[]');
+  var ss = SpreadsheetApp.create('Advance Plan ' + dateStr);
+  var sh = ss.getSheets()[0];
+  sh.setName(('Plan ' + dateStr).slice(0, 30));
+  var head = ['Flight', 'สายการบิน', 'STA', 'STD', 'SUP', 'Check-in', 'Gate', 'Arrival'];
+  sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('center');
+  if (rows.length) sh.getRange(2, 1, rows.length, head.length).setValues(rows).setWrap(true).setVerticalAlignment('top').setFontSize(9);
+  sh.setFrozenRows(1);
+  [110, 80, 55, 55, 210, 250, 210, 190].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  return ss.getUrl();
+}
+
 /** ระบบเช็คอินที่พนักงานทำได้ = ระบบของสายการบินในทีมตัวเอง (เช่น "JQ/IT/IX/AI") */
 function advSysForTeam_(teamStr) {
   var sys = {};
@@ -296,12 +322,25 @@ function rbAdvanceHtml(iso) {
     var datebar = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">' +
       '📅 <b>จัดเวรล่วงหน้า</b> (ลิงก์ ROSTER · FLIGHT · รายชื่อจริง) — เลือกวันที่: ' +
       '<input type="date" value="' + iso + '" onchange="advGo(this.value)" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
-      ' <span class="muted">· คลิกช่องชื่อเพื่อเลือก/แก้ (autocomplete จากพนักงานทั้งหมด) · ข้อเสนอ ไม่เขียนทับไฟล์จริง</span></div>';
+      ' <button class="btn btn--accent" onclick="advSave()" style="margin-left:8px">💾 บันทึกลงชีต</button>' +
+      ' <span id="advsavemsg" class="okk" style="margin-left:6px"></span>' +
+      ' <span class="muted">· คลิกช่องชื่อเพื่อเลือก/แก้ (autocomplete จากพนักงานทั้งหมด) · บันทึกเป็นชีตใหม่ ไม่เขียนทับไฟล์จริง</span></div>';
 
     var plan = advPlan_(tgt);
-    if (!plan.nFlights && !plan.nPeople) {
-      return datebar + '<div class="panel" style="padding:24px;text-align:center">ยังไม่มีข้อมูลไฟลท์/กะสำหรับวันที่ ' + dstr +
-        ' <div class="muted" style="margin-top:6px">— เลือกวันที่ที่มีในตารางบิน (ตอนนี้ไฟล์ตัวอย่างมีเฉพาะวันที่ 1 ของแต่ละเดือน ปี 2026)</div></div>';
+    if (!plan.nFlights) {                                              // ไม่มีไฟลท์วันนี้ → บอกวันที่ที่มีไฟลท์ + โชว์คนขึ้นเวร
+      var avail = '';
+      try {
+        avail = advFlightDates_().map(function (k) {
+          var p = k.split('-');
+          return '<button class="supteam" onclick="advGo(\'' + k + '\')">' + (+p[2]) + '/' + (+p[1]) + '/' + p[0] + '</button>';
+        }).join(' ');
+      } catch (e2) {}
+      var benchHtml0 = plan.nPeople ? ('<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>👥 คนขึ้นเวรวันนี้ (' + dstr + ') — ' + plan.nPeople + ' คน</h3></div><div style="padding:10px 14px">' +
+        plan.bench.map(function (b) { return '<span class="chip">' + rbEsc_(b.name) + ' <span class="muted">' + rbEsc_(b.pos) + ' · ' + rbEsc_(b.shift) + '</span></span>'; }).join('') + '</div></div>') : '';
+      return datebar + '<div class="panel" style="padding:20px;text-align:center">ยังไม่มี<b>ไฟลท์</b>สำหรับวันที่ ' + dstr +
+        ' — จึงยังจัด assignment ไม่ได้' +
+        (avail ? '<div style="margin-top:10px">📅 วันที่ที่มีไฟลท์ในตาราง (คลิกเพื่อจัด): <div class="supbar" style="justify-content:center">' + avail + '</div></div>'
+               : '<div class="muted" style="margin-top:6px">— ตรวจว่าไฟล์ FLIGHT มีข้อมูลของวันนี้</div>') + '</div>' + benchHtml0;
     }
     var shortF = 0;
     plan.plan.forEach(function (p) { if (Object.keys(p.shortx).length) shortF++; });
