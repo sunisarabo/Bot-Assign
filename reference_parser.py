@@ -488,18 +488,30 @@ def pos_group(pos, team):
     return 'PSA'
 
 
+def _rev_no(nm):
+    m = re.search(r'REV\.?\s*0*(\d+)', nm, re.I)
+    if m:
+        return int(m.group(1))
+    return 0 if re.search(r'REV', nm, re.I) else -1
+
+
+def _team_base(nm):
+    return re.sub(r'[\s._\-]+', '', re.sub(r'REV\.?\s*\d*', '', nm, flags=re.I)).upper()
+
+
 def filter_rev(names):
-    """When both 'WY' and 'WY REV.01' (etc.) exist, keep only the REV version."""
-    skip = set()
+    """When a team has several versions (AK, REV01 AK, REV02 AK) keep the latest REV."""
+    maxrev = {}
     for nm in names:
-        if 'REV' in nm.upper():
-            base = re.sub(r'REV\.?\d*', '', nm, flags=re.I).strip(' ._').upper().replace(' ', '')
-            for o in names:
-                if o == nm or 'REV' in o.upper():
-                    continue
-                if o.upper().replace(' ', '') == base:
-                    skip.add(o)
-    return [n for n in names if n not in skip]
+        b = _team_base(nm); r = _rev_no(nm)
+        if b not in maxrev or r > maxrev[b]:
+            maxrev[b] = r
+    out, taken = [], set()
+    for nm in names:
+        b = _team_base(nm)
+        if _rev_no(nm) == maxrev[b] and b not in taken:
+            taken.add(b); out.append(nm)
+    return out
 
 
 # ── report ─────────────────────────────────────────────────────────────────

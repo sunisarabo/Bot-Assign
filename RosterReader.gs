@@ -474,19 +474,30 @@ function rrParseSheet_(ws) {
   return rrParseStandard_(rows, name);
 }
 
-// When both a base sheet and its REV version exist, keep the REV one.
+// เมื่อชีตทีมเดียวกันมีหลายเวอร์ชัน (เช่น AK, REV01 AK, REV02 AK) → เก็บ REV ล่าสุด
+// (เลขสูงสุด) ทิ้งตัวเดิมและ REV เก่ากว่า. base = -1, REV ไม่มีเลข = 0, REVnn = nn
+function rrRevNo_(nm) {
+  var u = String(nm).toUpperCase();
+  var m = u.match(/REV\.?\s*0*(\d+)/);
+  if (m) return parseInt(m[1], 10);
+  return /REV/.test(u) ? 0 : -1;
+}
+function rrTeamBase_(nm) {
+  return String(nm).replace(/REV\.?\s*\d*/ig, '').replace(/[\s._\-]+/g, '').toUpperCase();
+}
 function rrFilterRev_(sheets) {
-  var names = sheets.map(function (s) { return s.getName(); });
-  var skip = {};
-  names.forEach(function (nm) {
-    if (nm.toUpperCase().indexOf('REV') < 0) return;
-    var base = nm.replace(/REV\.?\d*/ig, '').replace(/[\s._]+/g, '').toUpperCase();
-    names.forEach(function (o) {
-      if (o === nm || o.toUpperCase().indexOf('REV') >= 0) return;
-      if (o.replace(/\s+/g, '').toUpperCase() === base) skip[o] = true;
-    });
+  var maxRev = {};
+  sheets.forEach(function (s) {
+    var b = rrTeamBase_(s.getName()), rv = rrRevNo_(s.getName());
+    if (maxRev[b] === undefined || rv > maxRev[b]) maxRev[b] = rv;
   });
-  return sheets.filter(function (s) { return !skip[s.getName()]; });
+  var taken = {};
+  return sheets.filter(function (s) {
+    var b = rrTeamBase_(s.getName());
+    if (rrRevNo_(s.getName()) !== maxRev[b]) return false;   // ไม่ใช่เวอร์ชันล่าสุด → ทิ้ง
+    if (taken[b]) return false;                              // กันชื่อซ้ำเป๊ะ
+    taken[b] = true; return true;
+  });
 }
 
 // ─── public entry point ─────────────────────────────────────────────────────
