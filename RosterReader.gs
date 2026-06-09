@@ -222,7 +222,9 @@ function rrParseStandard_(rows, team) {
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
     var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
     var remark = (cm.remark >= 0 && cm.remark < row.length) ? rrClean_(row[cm.remark]) : '';
-    var otv    = (cm.ottot  >= 0 && cm.ottot  < row.length) ? rrClean_(row[cm.ottot])  : '';
+    // OT ชั่วโมง: ปกติอยู่คอลัมน์ TOTAL หลัง OT; ถ้าไม่มี → ใช้ค่าในคอลัมน์ OT เอง (เช่น "14-20")
+    var otCol = cm.ottot >= 0 ? cm.ottot : cm.ot;
+    var otv   = (otCol >= 0 && otCol < row.length) ? rrClean_(row[otCol]) : '';
 
     var assigns = [];
     fltcols.forEach(function (fc) {
@@ -240,7 +242,9 @@ function rrParseStandard_(rows, team) {
 
     var oth = rrOtHours_(otv);
     var bkt = rrClassify_(shift || timev, remark);
-    var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : [null, null];
+    if (bkt === 'off' && oth > 0) bkt = 'ot_off';            // SHIFT=X แต่มี OT (เช่น 14-20) = ทำ OT วันหยุด
+    // เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงเวลาจากคอลัมน์ SHIFT เอง (เช่น "09-17")
+    var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : rrRangeStr_(shift);
     // Re-Sked overrides the shift time when filled (เปลี่ยนเวลาเข้างาน)
     var reTime = '';
     if (cm.resked >= 0) {

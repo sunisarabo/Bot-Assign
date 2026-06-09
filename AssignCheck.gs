@@ -45,13 +45,24 @@ function acIsFlight_(name) {
   return /[A-Z]{1,3}\s*\d{2,4}/.test(s);
 }
 
-/** [lo,hi] นาทีจากเวลาใด ๆ ที่มีในไฟลท์ (STA/OP/CL/STD), หรือ null.
- *  00:00 ใน OP/CL ของบางทีม (เช่น PG) เป็นค่าว่าง/placeholder ไม่ใช่เวลาจริง → ตัดทิ้ง. */
+/** [lo,hi] นาทีของช่วงที่พนักงาน "ต้องอยู่" ตามบทบาท (task) ของไฟลท์นั้น:
+ *  · check-in (CT/CI/GK/COUNTER) → ช่วงเปิด-ปิดเคาน์เตอร์ OP-CL
+ *  · arrival (ARR/MEET/AC/RF)    → รอบ STA
+ *  · gate (GATE/GA/GM/BOARD)     → CL/STD จนเครื่องออก
+ *  · อื่น ๆ → min-max ของเวลาที่มี (STA/OP/CL/STD)
+ *  00:00 เป็น placeholder ตัดทิ้ง. คืน null ถ้าไม่มีเวลา. */
 function acFlightWin_(a) {
-  var ts = [];
-  [a.STA, a.OP, a.CL, a.STD].forEach(function (x) { var m = acMin_(x); if (m) ts.push(m); });
-  if (!ts.length) return null;
-  var lo = Math.min.apply(null, ts), hi = Math.max.apply(null, ts);
+  var task = String(a.task || '').toUpperCase();
+  var sta = acMin_(a.STA), op = acMin_(a.OP), cl = acMin_(a.CL), std = acMin_(a.STD);
+  var lo = null, hi = null;
+  if (/CT|CI|GK|CHECK|COUNTER|CTR/.test(task) && op) { lo = op; hi = cl || std || op; }
+  else if (/ARR|MEET|\bAC\b|\bRF\b|ESCORT/.test(task) && sta) { lo = sta; hi = sta; }
+  else if (/GATE|\bGA\b|\bGM\b|BOARD|\bGC\b|BIR|MAAS|PFD/.test(task) && (cl || std)) { lo = cl || std; hi = std || cl; }
+  if (lo == null) {
+    var ts = [sta, op, cl, std].filter(function (x) { return x; });
+    if (!ts.length) return null;
+    lo = Math.min.apply(null, ts); hi = Math.max.apply(null, ts);
+  }
   if (hi - lo > 14 * 60) hi -= 1440;                       // ป้องกัน min/max ข้ามเที่ยงคืนเพี้ยน
   if (hi < lo) { var t = lo; lo = hi; hi = t; }
   if (hi - lo < 30) {                                      // ไฟลท์ที่มีเวลาจุดเดียว (เช่น PG STA=00:00 เหลือ STD)

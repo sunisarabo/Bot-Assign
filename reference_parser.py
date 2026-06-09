@@ -238,7 +238,9 @@ def parse_standard(rows, team):
         shift  = cv(row[cm['shift']]) if 0 <= cm['shift'] < len(row) else ''
         timev  = cv(row[cm['time']]) if 0 <= cm['time'] < len(row) else ''
         remark = cv(row[cm['remark']]) if 0 <= cm['remark'] < len(row) else ''
-        otv    = cv(row[cm['ottot']]) if 0 <= cm['ottot'] < len(row) else ''
+        # OT ชั่วโมง: ปกติอยู่คอลัมน์ TOTAL; ถ้าไม่มี → ใช้ค่าในคอลัมน์ OT เอง (เช่น "14-20")
+        ot_col = cm['ottot'] if cm['ottot'] >= 0 else cm['ot']
+        otv    = cv(row[ot_col]) if 0 <= ot_col < len(row) else ''
 
         assigns = []
         for c, c1, nm in fltcols:
@@ -247,7 +249,10 @@ def parse_standard(rows, team):
                 assigns.append(dict(flight=nm, task='/'.join(tasks), **flights.get(nm, {})))
         oth = ot_hours(otv)
         bkt = classify(shift or timev, remark)
-        srng = _range_cells(row, cm['time'])
+        if bkt == 'off' and oth > 0:            # SHIFT=X แต่มี OT = ทำ OT วันหยุด
+            bkt = 'ot_off'
+        # เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงจากคอลัมน์ SHIFT เอง (เช่น "09-17")
+        srng = _range_cells(row, cm['time']) if cm['time'] >= 0 else _range_str(shift)
         re_time = ''
         if cm.get('resked', -1) >= 0:                         # Re-Sked overrides shift time
             rs = _range_cells(row, cm['resked'])
@@ -707,12 +712,22 @@ def _ac_is_flight(name):
 
 
 def _ac_flight_win(a):
-    # 00:00 ใน OP/CL ของบางทีม (เช่น PG) เป็นค่าว่าง/placeholder ไม่ใช่เวลาจริง → ตัดทิ้ง
-    ts = [_ac_min(a.get(k, '')) for k in ('STA', 'OP', 'CL', 'STD')]
-    ts = [t for t in ts if t]
-    if not ts:
-        return None
-    lo, hi = min(ts), max(ts)
+    # ช่วงที่ต้องอยู่ตามบทบาท: check-in→OP-CL, arrival→STA, gate→CL/STD, อื่น→min-max
+    task = str(a.get('task') or '').upper()
+    sta, op, cl, std = (_ac_min(a.get('STA', '')), _ac_min(a.get('OP', '')),
+                        _ac_min(a.get('CL', '')), _ac_min(a.get('STD', '')))
+    lo = hi = None
+    if re.search(r'CT|CI|GK|CHECK|COUNTER|CTR', task) and op:
+        lo, hi = op, (cl or std or op)
+    elif re.search(r'ARR|MEET|\bAC\b|\bRF\b|ESCORT', task) and sta:
+        lo, hi = sta, sta
+    elif re.search(r'GATE|\bGA\b|\bGM\b|BOARD|\bGC\b|BIR|MAAS|PFD', task) and (cl or std):
+        lo, hi = (cl or std), (std or cl)
+    if lo is None:
+        ts = [t for t in (sta, op, cl, std) if t]
+        if not ts:
+            return None
+        lo, hi = min(ts), max(ts)
     if hi - lo > 14 * 60:
         hi -= 1440
     if hi < lo:
