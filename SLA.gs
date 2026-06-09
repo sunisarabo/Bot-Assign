@@ -336,7 +336,7 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   return flights;
 }
 
-var SLA_MAX_CAND = 15;     // จำนวนคนช่วยสูงสุดที่แสดงต่อ 1 ตำแหน่งที่ขาด (ปรับได้)
+var SLA_MAX_CAND = 24;     // pool คนช่วยต่อ 1 ตำแหน่งที่ขาด (มีเผื่อไว้ดึงทดแทนข้ามทีม)
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
 /** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
