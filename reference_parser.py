@@ -712,7 +712,7 @@ def report_ll(path, tab=None):
 
 
 # ── assignment-quality check (mirror of AssignCheck.gs) ─────────────────────
-AC_COVER_TOL = 45
+AC_COVER_TOL = 60
 AC_GAP_MIN = 180      # ช่วงว่างระหว่างไฟลท์ (split-duty dead time) ที่จะแจ้ง
 AC_EDGE_MIN = 240     # ช่วงว่างก่อนไฟลท์แรก/หลังไฟลท์สุดท้าย (prep/standby) ที่จะแจ้ง
 AC_IDLE_HRS = 7
@@ -801,7 +801,6 @@ def analyze_record(r):
     for asg in r.get('assigns', []):
         if not asg.get('flight'):
             continue
-        coverable = _ac_is_flight(asg['flight'])
         w = _ac_flight_win(asg)
         if not w:
             continue
@@ -809,7 +808,16 @@ def analyze_record(r):
         if ds is not None and lo < ds - 720:
             lo += 1440
             hi += 1440
-        wins.append((asg['flight'], lo, hi))     # ใช้ทุก task เพื่อหา gap (รวม pool)
+        wins.append((asg['flight'], lo, hi, _ac_is_flight(asg['flight'])))
+    # OT OFF: เวลางาน = ครอบช่วง OT + ไฟลท์ที่ได้รับทั้งหมด
+    if r['bucket'] == 'ot_off' and wins:
+        for _, lo, hi, _c in wins:
+            ds = lo if ds is None else min(ds, lo)
+            de = hi if de is None else max(de, hi)
+        a['has'] = ds is not None and de is not None
+        if a['has']:
+            a['duty'] = '%s-%s' % (_ac_fmt(ds), _ac_fmt(de))
+    for fl, lo, hi, coverable in wins:
         if not coverable:
             continue
         a['flightN'] += 1                         # นับเฉพาะไฟลท์จริงในการครอบคลุม
@@ -817,9 +825,9 @@ def analyze_record(r):
             if lo >= ds - AC_COVER_TOL and hi <= de + AC_COVER_TOL:
                 a['coveredN'] += 1
             else:
-                a['uncovered'].append('%s(%s-%s)' % (asg['flight'].strip(), _ac_fmt(lo), _ac_fmt(hi)))
+                a['uncovered'].append('%s(%s-%s)' % (fl.strip(), _ac_fmt(lo), _ac_fmt(hi)))
     if a['has'] and wins:
-        iv = sorted([[max(lo, ds), min(hi, de)] for _, lo, hi in wins if min(hi, de) > max(lo, ds)])
+        iv = sorted([[max(lo, ds), min(hi, de)] for _, lo, hi, _c in wins if min(hi, de) > max(lo, ds)])
         merged = []
         for w in iv:
             if merged and w[0] <= merged[-1][1]:
@@ -840,7 +848,7 @@ def analyze_record(r):
         a['otv'] = 'OT ไม่พอ' if r.get('ot', 0) > 0 else 'ควรให้ OT/Re-Sked'
     elif r.get('ot', 0) > 0 and r['bucket'] != 'ot_off':
         just = a['flightN'] == 0
-        for _, lo, hi in wins:
+        for _, lo, hi, _c in wins:
             if r.get('ot_type') == 'PRE' and ss is not None and lo < ss - AC_COVER_TOL:
                 just = True
             if r.get('ot_type') != 'PRE' and se is not None and hi > se + AC_COVER_TOL:
@@ -856,7 +864,7 @@ def analyze_record(r):
             '%s-%s%s' % (_ac_fmt(x), _ac_fmt(y), '(ระหว่างไฟลท์)' if g == 'mid' else '')
             for x, y, g in a['gaps']))
     # ไม่มีไฟลท์เลย = นับเป็นข้อมูล (bench/standby/support) ไม่ flag เป็นปัญหา เพื่อไม่ให้ตารางรก
-    a['noflt'] = a['flightN'] == 0 and r['bucket'] == 'working'
+    a['noflt'] = a['flightN'] == 0 and not wins and r['bucket'] == 'working'
     return a
 
 

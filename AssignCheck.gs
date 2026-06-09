@@ -17,7 +17,7 @@
  * ไฟลท์ถือว่า "ครอบคลุม" เมื่ออยู่ในเวลางาน (มี tolerance ±COVER_TOL นาที).
  *
  * เกณฑ์ (ปรับได้):
- *   COVER_TOL = 45 นาที   — ผ่อนผันก่อน/หลังไฟลท์
+ *   COVER_TOL = 60 นาที   — ผ่อนผันก่อน/หลังไฟลท์ (มาทันเคาน์เตอร์เปิด = ครอบคลุม)
  *   GAP_MIN   = 180 นาที  — ช่วงว่างระหว่างไฟลท์ (split-duty dead time) ที่จะแจ้ง
  *   EDGE_MIN  = 240 นาที  — ช่วงว่างก่อนไฟลท์แรก/หลังไฟลท์สุดท้าย (prep/standby) ที่จะแจ้ง
  *
@@ -25,7 +25,7 @@
  *        rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) -> เขียนแท็บรายงาน
  */
 
-var AC_COVER_TOL = 45;
+var AC_COVER_TOL = 60;   // ผ่อนให้ "มาทันเคาน์เตอร์เปิด" = ครอบคลุม (บรีฟ 60 นาทีเป็นช่วงเตรียม)
 var AC_GAP_MIN   = 180;
 var AC_EDGE_MIN  = 240;
 
@@ -113,20 +113,33 @@ function acAnalyzeRecord_(r) {
     out.dutyMins = d.de - d.ds;
   }
 
-  // หน้าต่างไฟลท์ (เฉพาะที่มีเวลา)
+  // หน้าต่างไฟลท์ (เฉพาะที่มีเวลา) — รอบแรกเก็บ window
   (r.assignments || []).forEach(function (a) {
     if (!a || !a.flight) return;
-    var coverable = acIsFlight_(a.flight);
     var w = acFlightWin_(a);
-    if (!w) return;                                         // ไฟลท์ไม่มีเวลา → ข้ามการเช็คครอบคลุม
+    if (!w) return;                                          // ไฟลท์ไม่มีเวลา → ข้ามการเช็คครอบคลุม
     var lo = w[0], hi = w[1];
     if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
-    out.wins.push({ flight: a.flight, lo: lo, hi: hi });    // ใช้ทุก task เพื่อหา gap (รวม pool)
-    if (!coverable) return;
-    out.flightN++;                                          // นับเฉพาะไฟลท์จริงในการครอบคลุม
+    out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) });
+  });
+
+  // OT OFF: เวลางาน = ครอบช่วง OT + ไฟลท์ที่ได้รับทั้งหมด (มาช่วยวันหยุด ทำเฉพาะที่ได้รับมอบหมาย)
+  if (r.bucket === 'ot_off' && out.wins.length) {
+    out.wins.forEach(function (w) {
+      if (d.ds == null || w.lo < d.ds) d.ds = w.lo;
+      if (d.de == null || w.hi > d.de) d.de = w.hi;
+    });
+    out.ds = d.ds; out.de = d.de; out.hasWindow = d.ds != null && d.de != null;
+    if (out.hasWindow) { out.dutyStr = rrFmtMin_(d.ds) + '–' + rrFmtMin_(d.de); out.dutyMins = d.de - d.ds; }
+  }
+
+  // ครอบคลุมไฟลท์
+  out.wins.forEach(function (w) {
+    if (!w.coverable) return;
+    out.flightN++;
     if (d.ds != null && d.de != null) {
-      if (lo >= d.ds - AC_COVER_TOL && hi <= d.de + AC_COVER_TOL) out.coveredN++;
-      else out.uncovered.push(a.flight + ' (' + rrFmtMin_(lo) + '–' + rrFmtMin_(hi) + ')');
+      if (w.lo >= d.ds - AC_COVER_TOL && w.hi <= d.de + AC_COVER_TOL) out.coveredN++;
+      else out.uncovered.push(w.flight + ' (' + rrFmtMin_(w.lo) + '–' + rrFmtMin_(w.hi) + ')');
     }
   });
 
