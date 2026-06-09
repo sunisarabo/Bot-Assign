@@ -983,6 +983,8 @@ function slaGet_(airline) {
   if (SLA_ALIAS[c] && SLA_DB[SLA_ALIAS[c]]) return SLA_DB[SLA_ALIAS[c]];
   return SLA_DB.DEFAULT;
 }
+
+function slaIsSupportFlight_(name) { return /SUU?PP?ORT/i.test(String(name || '')); }
 function slaAirlineOf_(flight) {
   var s = String(flight || '').trim().toUpperCase();
   var m = s.match(/^([0-9A-Z]{2})\s*\d/);                   // 2-char IATA code (EK, 6E, G9, C6) + flight no.
@@ -1026,6 +1028,7 @@ function slaCollectFlights_(res, ll) {
     (rec.assignments || []).forEach(function (a) {
       var key = String(a.flight || '').trim();
       if (!key) return;
+      if (slaIsSupportFlight_(key)) return;                  // SUPPORT/SUUPORT = งานซัพพอร์ต ไม่ใช่ไฟลท์จริง → ข้าม
       if (!flights[key]) {
         flights[key] = { flight: key, airline: slaAirlineOf_(key), teams: {},
           STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '',
