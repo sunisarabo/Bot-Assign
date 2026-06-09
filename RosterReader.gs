@@ -195,12 +195,19 @@ function rrParseStandard_(rows, team) {
       var c0 = fltcols[fi].col;
       var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
       fltcols[fi].end = c1;                                  // flight occupies cols c0..c1-1
-      var st = [], oc = [];
+      // ใช้ป้าย A:/D: (STA/STD) และ O:/C: (OP/CL) ถ้ามี (กัน STA ว่างแล้ว STD เลื่อนมาผิดช่อง)
+      var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
       for (var cc = c0; cc < c1; cc++) {
-        var tv = rrTimePair_(sta[cc]); if (tv) st.push(tv);
-        var ov = rrTimePair_(opn[cc]); if (ov) oc.push(ov);
+        var sc = rrClean_(sta[cc]), tv = rrTimePair_(sc);
+        if (tv) { if (/^\s*D/i.test(sc)) stdV = tv; else if (/^\s*A/i.test(sc)) staV = tv; else posS.push(tv); }
+        var ocs = rrClean_(opn[cc]), ov = rrTimePair_(ocs);
+        if (ov) { if (/^\s*C/i.test(ocs)) clV = ov; else if (/^\s*O/i.test(ocs)) opV = ov; else posO.push(ov); }
       }
-      flights[fltcols[fi].name] = { STA: st[0] || '', STD: st[1] || '', OP: oc[0] || '', CL: oc[1] || '' };
+      if (!staV && posS.length) staV = posS.shift();
+      if (!stdV && posS.length) stdV = posS.shift();
+      if (!opV && posO.length) opV = posO.shift();
+      if (!clV && posO.length) clV = posO.shift();
+      flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV };
     }
   }
 

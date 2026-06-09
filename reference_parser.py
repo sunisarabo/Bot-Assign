@@ -206,16 +206,37 @@ def parse_standard(rows, team):
         for i, (c, nm) in enumerate(fltcols):
             c1 = fltcols[i + 1][0] if i + 1 < len(fltcols) else len(hdr)
             spans.append((c, c1, nm))
-            st, oc = [], []
+            # ใช้ป้าย A:/D: (STA/STD) และ O:/C: (OP/CL) ถ้ามี (กัน STA ว่างแล้ว STD เลื่อนมาผิดช่อง)
+            sta_v = std_v = op_v = cl_v = ''
+            pos_s, pos_o = [], []
             for cc in range(c, c1):
-                tv = parse_time_pair(sta[cc]) if cc < len(sta) else ''
+                sc = cv(sta[cc]) if cc < len(sta) else ''
+                tv = parse_time_pair(sc)
                 if tv:
-                    st.append(tv)
-                ov = parse_time_pair(opn[cc]) if cc < len(opn) else ''
+                    if re.match(r'\s*D', sc, re.I):
+                        std_v = tv
+                    elif re.match(r'\s*A', sc, re.I):
+                        sta_v = tv
+                    else:
+                        pos_s.append(tv)
+                oc_ = cv(opn[cc]) if cc < len(opn) else ''
+                ov = parse_time_pair(oc_)
                 if ov:
-                    oc.append(ov)
-            flights[nm] = {'STA': st[0] if st else '', 'STD': st[1] if len(st) > 1 else '',
-                           'OP': oc[0] if oc else '', 'CL': oc[1] if len(oc) > 1 else ''}
+                    if re.match(r'\s*C', oc_, re.I):
+                        cl_v = ov
+                    elif re.match(r'\s*O', oc_, re.I):
+                        op_v = ov
+                    else:
+                        pos_o.append(ov)
+            if not sta_v and pos_s:
+                sta_v = pos_s.pop(0)
+            if not std_v and pos_s:
+                std_v = pos_s.pop(0)
+            if not op_v and pos_o:
+                op_v = pos_o.pop(0)
+            if not cl_v and pos_o:
+                cl_v = pos_o.pop(0)
+            flights[nm] = {'STA': sta_v, 'STD': std_v, 'OP': op_v, 'CL': cl_v}
         fltcols = spans  # (c, c_end, name)
 
     recs, seen = [], set()
