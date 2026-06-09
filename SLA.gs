@@ -239,9 +239,17 @@ function slaSupportPool_(res, ll, teamSys) {
     if (d.ds == null || d.de == null) return;
     var busy = [];
     (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
+    var flts = (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
+      .map(function (a) {
+        var tm = (a.STA || a.STD) ? (' ' + (a.STA || '–') + '-' + (a.STD || '–'))
+               : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
+        return a.flight + tm;
+      });
     pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '',
-      ds: d.ds, de: d.de, busy: busy, sys: teamSys[team] || {},
-      nflt: (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); }).length });
+      ds: d.ds, de: d.de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
+      shiftDisp: (r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'),
+      otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
+      hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, flts: flts });
   }
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { add(t, r); }); });
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
@@ -345,7 +353,10 @@ function slaSupportRows_(res, ll) {
         flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: slaNeedSys_(f.airline, ph),
-        cands: cands.map(function (c) { return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team }; }),
+        cands: cands.map(function (c) {
+          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team,
+                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, n: c.nflt, flts: c.flts };
+        }),
         nCand: cands.length,
       });
     });

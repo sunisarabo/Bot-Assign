@@ -98,6 +98,7 @@ function rbAssignHtml(iso) {
 }
 
 function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function rbAttr_(s){ return rbEsc_(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
 
 /** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
@@ -119,7 +120,13 @@ function rbSupportHtml(iso) {
       var who = r.cands.length
         ? '<div class="supwrap">' + slaGroupCands_(r.cands).map(function (g) {
             return '<span class="supgrp"><span class="supgrp__t">' + rbEsc_(g.team) + ' ' + g.people.length + '</span>' +
-              g.people.map(function (p) { return '<span class="chip chip--duty supchip" data-cteam="' + rbEsc_(g.team) + '">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>'; }).join('') + '</span>';
+              g.people.map(function (p) {
+                var busyCls = p.n >= 5 ? ' sup--busy' : (p.n === 0 ? ' sup--free' : '');
+                return '<span class="chip chip--duty supchip' + busyCls + '" data-cteam="' + rbEsc_(g.team) + '" onclick="showPsn(this)"' +
+                  ' data-nm="' + rbAttr_(p.name) + '" data-pos="' + rbAttr_(p.pos) + '" data-pteam="' + rbAttr_(g.team) + '"' +
+                  ' data-shift="' + rbAttr_(p.shift) + '" data-ot="' + rbAttr_(p.ot) + '" data-hrs="' + p.hrs + '" data-n="' + p.n + '"' +
+                  ' data-flts="' + rbAttr_((p.flts || []).join('‖')) + '">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>';
+              }).join('') + '</span>';
           }).join('') + '</div>'
         : '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
       return '<tr class="' + (r.cands.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
@@ -375,6 +382,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '</div>' +
+    '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
@@ -389,6 +397,15 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function allSupTeams(b){var on=[].some.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(x){return !x.classList.contains("on");});[].forEach.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(x){if(on)x.classList.add("on");else x.classList.remove("on");});applySupFilter();}' +
     'function makeSortable(){[].forEach.call(document.querySelectorAll("table.tbl"),function(tb){if(tb.getAttribute("data-srt"))return;tb.setAttribute("data-srt","1");var hs=tb.tHead?tb.tHead.rows[tb.tHead.rows.length-1].cells:[];[].forEach.call(hs,function(th,ci){th.style.cursor="pointer";th.title="คลิกเพื่อเรียง";th.addEventListener("click",function(){sortTbl(tb,ci,th);});});});}' +
     'function sortTbl(tb,ci,th){var tbody=tb.tBodies[0];if(!tbody)return;var rows=[].slice.call(tbody.rows).filter(function(r){return r.cells.length>ci&&!(r.cells[0].hasAttribute("colspan")||r.cells[0].colSpan>1);});var dir=th.getAttribute("data-sd")==="asc"?"desc":"asc";[].forEach.call(tb.tHead.querySelectorAll("th"),function(x){x.removeAttribute("data-sd");var s=x.querySelector(".sar");if(s)s.remove();});th.setAttribute("data-sd",dir);var ar=document.createElement("span");ar.className="sar";ar.textContent=dir==="asc"?" ▲":" ▼";th.appendChild(ar);rows.sort(function(a,b){var x=a.cells[ci].textContent.trim(),y=b.cells[ci].textContent.trim();var nx=parseFloat(x.replace(/[^0-9.\\-]/g,"")),ny=parseFloat(y.replace(/[^0-9.\\-]/g,""));var num=x!==""&&y!==""&&!isNaN(nx)&&!isNaN(ny)&&/[0-9]/.test(x)&&/[0-9]/.test(y)&&!/[A-Za-zก-๙]{2,}/.test(x.replace(/คน|h/g,""));var c=num?(nx-ny):x.localeCompare(y,"th");return dir==="asc"?c:-c;});rows.forEach(function(r){tbody.appendChild(r);});}' +
+    'function showPsn(el){var d=el.dataset;var flts=(d.flts||"").split("‖").filter(Boolean);var work=(+d.n>=5)?" <span class=\\"badd\\">(งานเยอะ)</span>":((+d.n===0)?" <span class=\\"okk\\">(ว่าง)</span>":"");' +
+    'var h="<div class=\\"psn__hd\\"><b>"+d.nm+"</b> <span class=\\"muted\\">"+d.pos+" · "+d.pteam+"</span><span class=\\"psn__x\\" onclick=\\"hidePsn()\\">✕</span></div>";' +
+    'h+="<div class=\\"psn__r\\">🕘 กะ (เข้า-ออก): <b>"+d.shift+"</b></div><div class=\\"psn__r\\">⏱️ OT: "+d.ot+"</div>";' +
+    'h+="<div class=\\"psn__r\\">✈️ งานเดิม: <b>"+d.n+"</b> ไฟลท์ · รวม "+d.hrs+"h"+work+"</div>";' +
+    'h+="<div class=\\"psn__flts\\">"+(flts.length?flts.map(function(f){return "<span class=\\"chip\\">"+f+"</span>";}).join(" "):"<span class=\\"muted\\">— ไม่มีไฟลท์เดิม (ว่าง)</span>")+"</div>";' +
+    'var p=document.getElementById("psnpop");p.innerHTML=h;p.style.display="block";var r=el.getBoundingClientRect();' +
+    'p.style.left=Math.max(8,Math.min(r.left,window.innerWidth-370))+"px";p.style.top=(r.bottom+window.scrollY+6)+"px";}' +
+    'function hidePsn(){var p=document.getElementById("psnpop");if(p)p.style.display="none";}' +
+    'document.addEventListener("click",function(e){var p=document.getElementById("psnpop");if(p&&p.style.display==="block"&&!p.contains(e.target)&&!(e.target.classList&&e.target.closest(".supchip")))hidePsn();});' +
     'window.addEventListener("load",function(){makeSortable();buildTeamSels();});' +
     'window.addEventListener("load",function(){if(!window.Chart)return;if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
     'Chart.defaults.color="'+CI.sub+'";Chart.defaults.font.family="Kanit,sans-serif";Chart.defaults.font.weight="600";' +
@@ -732,7 +749,16 @@ body {
 .supgrp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 10px 6px 0; padding: 3px 4px 3px 0; }
 .supgrp__t { font-size: 11px; font-weight: 800; color: var(--brand); background: var(--bg-2); border-radius: 7px; padding: 3px 8px; margin-right: 4px; white-space: nowrap; }
 .supwrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; max-width: 760px; }
-.supchip { font-size: 10.5px; padding: 3px 7px; white-space: nowrap; }
+.supchip { font-size: 10.5px; padding: 3px 7px; white-space: nowrap; cursor: pointer; }
+.supchip:hover { border-color: var(--accent); background: #eef4fb; }
+.supchip.sup--busy { border-color: #e0a96d; }
+.supchip.sup--free { border-color: #56b682; }
+.psnpop { position: absolute; z-index: 9999; width: 350px; max-width: 92vw; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 34px rgba(20,40,80,.22); padding: 13px 15px; font-size: 13px; }
+.psn__hd { display: flex; align-items: center; gap: 6px; font-size: 14px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+.psn__x { margin-left: auto; cursor: pointer; color: var(--ink-3); font-weight: 700; padding: 0 4px; }
+.psn__r { margin: 4px 0; }
+.psn__flts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.psn__flts .chip { font-size: 10.5px; padding: 3px 7px; }
 .tbl tbody tr.row-off td { background: #eceff1 !important; color: #7c878f; }
 .tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
 .tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
