@@ -19,7 +19,8 @@
  *   3) เวลางานครอบช่วงนั้น & ไม่ติดไฟลท์อื่น  4) งานยังน้อย (กระจายงาน)
  * เลือกได้ก็ "ล็อก" เวลาคนนั้นไว้ กันโดนจัดซ้ำ. ถ้าไม่พอ → บันทึกว่ายังขาดกี่คน.
  *
- * Entry: apFillGaps_(res, ll) · apReplan_(res, ll) · rbWriteAutoPlan_(ss, res, dateStr, ll, tabName)
+ * Entry: apFillGaps_(res, ll) · apReplan_(res, ll)
+ *        rbWriteFillPlan_ / rbWriteAutoAssign_ (ชีต) · rbFillPlanHtml / rbAutoAssignHtml (เว็บ)
  */
 
 var AP_TOL = 30;   // ผ่อนเวลาเข้า/ออกงานรอบหน้าต่าง phase (นาที)
@@ -84,6 +85,12 @@ function apPick_(pool, f, ph, win, sameTeamOk, homeTeam) {
 
 var AP_PHASES = ['SUP', 'CI', 'ARR', 'GATE'];     // ลำดับจัด: ระบบ/หายากก่อน (SUP, CI) แล้วค่อย ARR/GATE
 
+/** ข้อมูลคนที่ถูกจัด (พร้อมรายละเอียดงาน/OT/ไฟลท์ สำหรับโชว์ชิพ + popup) */
+function apPersonView_(p) {
+  return { name: p.name, pos: slaPosShort_(p.posGroup), team: p.team,
+           shift: p.shiftDisp, ot: p.otDisp, hrs: p.hrs, n: p.nflt, flts: p.flts || [] };
+}
+
 /** โหมด A: เติมเฉพาะไฟลท์ที่คนไม่พอ — เลือกคนว่างข้ามทีมมาเสริมจริง (commit) */
 function apFillGaps_(res, ll) {
   var flights = slaCollectFlights_(res, ll);
@@ -97,7 +104,7 @@ function apFillGaps_(res, ll) {
       for (var k = 0; k < need; k++) {
         var p = apPick_(pool, f, ph, win, false, null);                   // ข้ามทีม
         if (!p) break;
-        picked.push({ name: p.name, pos: slaPosShort_(p.posGroup), team: p.team });
+        picked.push(apPersonView_(p));
       }
       rows.push({
         flight: f.flight, airline: f.airline, std: f.STD || f.STA || '',
@@ -127,15 +134,17 @@ function apReplan_(res, ll) {
     var assign = { SUP: [], CI: [], ARR: [], GATE: [] };
     var shortx = {};
     var phaseReq = { SUP: f.req.SUP, CI: f.req.CI, ARR: f.req.ARR, GATE: f.req.GATE };
-    // TTL เกินผลรวม phase = พนักงานเช็คอิน/เกทเสริม → ลงเป็น Check-in agent
+    // TTL เกินผลรวม phase = พนักงานเสริม (เกท "จากเช็คอิน") → ปกติลงเป็น Check-in agent
+    // แต่สายการบินที่ "ไม่มีเช็คอิน" (เช่น PG: CI=0 ตาม SLA) ให้ลงเป็น Gate agent แทน
     var sumPh = f.req.SUP + f.req.CI + f.req.ARR + f.req.GATE;
     var extra = Math.max(0, (f.req.total || 0) - sumPh);
-    phaseReq.CI += extra;
+    if (f.req.CI > 0) phaseReq.CI += extra; else phaseReq.GATE += extra;
     AP_PHASES.forEach(function (ph) {
+      if (!phaseReq[ph]) return;                                         // ไม่ต้องการ phase นี้ (เช่น PG ไม่มีเช็คอิน)
       var win = slaPhaseWindow_(f, ph);
       for (var k = 0; k < phaseReq[ph]; k++) {
         var p = apPick_(pool, f, ph, win, true, home);                   // จัดใหม่ = ทีมเดียวกันได้
-        if (p) assign[ph].push({ name: p.name, pos: slaPosShort_(p.posGroup), team: p.team });
+        if (p) assign[ph].push(apPersonView_(p));
         else { shortx[ph] = phaseReq[ph] - k; break; }
       }
     });
@@ -161,65 +170,75 @@ function apNames_(arr) {
   return order.map(function (t) { return '[' + t + '] ' + by[t].join(', '); }).join('  ·  ');
 }
 
-// ─── แท็บรายงาน "🤖 จัดเวรอัตโนมัติ" (2 โหมดในแท็บเดียว) ───────────────────────
-function rbWriteAutoPlan_(ss, res, dateStr, ll, tabName) {
-  tabName = tabName || '🤖 จัดเวรอัตโนมัติ';
+// ─── แท็บ 1: "🤖 เติม Assign เดิม" (โหมด A) ──────────────────────────────────
+function rbWriteFillPlan_(ss, res, dateStr, ll, tabName) {
+  tabName = tabName || '🤖 เติม Assign เดิม';
   var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
   var W = 9;
 
-  sh.getRange(1, 1, 1, W).merge()
-    .setValue('🤖 ตัวช่วยจัดเวรอัตโนมัติ (ข้อเสนอ — อ่านอย่างเดียว ไม่แก้ไฟล์จริง) — ' + dateStr)
-    .setBackground('#1b3a2b').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
-  sh.setRowHeight(1, 28);
-
-  var row = 2;
-
-  // ───── โหมด A: เติมเฉพาะที่ขาด ─────
   var gaps = apFillGaps_(res, ll);
   var filledN = 0, remainN = 0;
   gaps.forEach(function (g) { filledN += g.picked.length; remainN += g.remain; });
-  sh.getRange(row, 1, 1, W).merge()
-    .setValue('โหมด A · เติมเฉพาะไฟลท์ที่คนไม่พอ — จัดคนว่างข้ามทีมมาเสริม ' + filledN + ' คน' +
-              (remainN ? ('  ·  ยังขาดอีก ' + remainN + ' คน (ไม่มีคนว่าง/ระบบตรง)') : '  ·  เติมครบทุกตำแหน่ง ✅'))
+
+  sh.getRange(1, 1, 1, W).merge()
+    .setValue('🤖 เติมจาก Assign เดิม — จัดคนว่างข้ามทีมมาเสริมไฟลท์ที่ขาด (ข้อเสนอ แก้ชื่อในเซลล์ได้) — ' + dateStr)
+    .setBackground('#1b3a2b').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 28);
+  sh.getRange(2, 1, 1, W).merge()
+    .setValue('เสริม ' + filledN + ' คน' + (remainN ? ('  ·  ยังขาดอีก ' + remainN + ' คน (ไม่มีคนว่าง/ระบบตรง)') : '  ·  เติมครบทุกตำแหน่ง ✅'))
     .setBackground('#2e5d3e').setFontColor('#fff').setFontWeight('bold').setFontSize(11).setHorizontalAlignment('center');
-  sh.setRowHeight(row, 22); row++;
-  var headA = ['Flight', 'สายการบิน', 'STD/STA', 'ตำแหน่งที่ขาด', 'จำนวน', 'ช่วงเวลา', 'ระบบที่ต้องใช้', 'คนที่จัดให้ (ข้ามทีม)', 'สถานะ'];
-  sh.getRange(row, 1, 1, W).setValues([headA]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+  sh.setRowHeight(2, 22);
+  var headA = ['Flight', 'สายการบิน', 'STD/STA', 'ตำแหน่งที่ขาด', 'จำนวน', 'ช่วงเวลา', 'ระบบที่ต้องใช้', 'คนที่จัดให้ (ข้ามทีม + งาน/OT/ไฟลท์)', 'สถานะ'];
+  sh.getRange(3, 1, 1, W).setValues([headA]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
     .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
-  row++;
   if (!gaps.length) {
-    sh.getRange(row, 1, 1, W).merge().setValue('✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA แล้ว — ไม่ต้องเสริม')
+    sh.getRange(4, 1, 1, W).merge().setValue('✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA แล้ว — ไม่ต้องเสริม')
       .setBackground('#e8f5e9').setFontColor('#1b5e20').setFontWeight('bold').setHorizontalAlignment('center');
-    row++;
   } else {
     var bodyA = gaps.map(function (g) {
-      var who = g.picked.length ? apNames_(g.picked) : (g.needSys ? '— ไม่มีคนว่างที่รู้ระบบ ' + g.needSys : '— ไม่มีคนว่าง');
+      var who = g.picked.length ? apNamesFull_(g.picked) : (g.needSys ? '— ไม่มีคนว่างที่รู้ระบบ ' + g.needSys : '— ไม่มีคนว่าง');
       var st = g.remain === 0 ? '✅ เติมครบ' : (g.picked.length ? ('⚠️ ยังขาด ' + g.remain) : '🔴 ขาด ' + g.remain);
       return [g.flight, g.airline, g.std, g.phase + (g.needSys ? ' (' + g.needSys + ')' : ''), g.need, g.win, g.needSys || 'iPort/ใดก็ได้', who, st];
     });
-    sh.getRange(row, 1, bodyA.length, W).setValues(bodyA).setFontSize(9).setVerticalAlignment('middle').setWrap(true);
+    sh.getRange(4, 1, bodyA.length, W).setValues(bodyA).setFontSize(9).setVerticalAlignment('middle').setWrap(true);
     for (var i = 0; i < gaps.length; i++) {
-      sh.getRange(row + i, 1, 1, W).setBackground(gaps[i].remain === 0 ? '#f1f8e9' : (gaps[i].picked.length ? '#fff8e1' : '#fdecec'));
+      sh.getRange(4 + i, 1, 1, W).setBackground(gaps[i].remain === 0 ? '#f1f8e9' : (gaps[i].picked.length ? '#fff8e1' : '#fdecec'));
     }
-    row += bodyA.length;
   }
-  row++;   // เว้นบรรทัด
+  [110, 70, 80, 130, 55, 95, 110, 340, 90].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(3);
+  return { gapFilled: filledN, gapRemain: remainN };
+}
 
-  // ───── โหมด B: จัดใหม่ทั้งหมด ─────
+// ─── แท็บ 2: "🤖 Auto Assign" (โหมด B) ──────────────────────────────────────
+function rbWriteAutoAssign_(ss, res, dateStr, ll, tabName) {
+  tabName = tabName || '🤖 Auto Assign';
+  var old = ss.getSheetByName(tabName);
+  if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+  var W = 9;
+
   var rp = apReplan_(res, ll);
-  sh.getRange(row, 1, 1, W).merge()
-    .setValue('โหมด B · จัดเวรใหม่ทั้งหมด — จัดคน ' + rp.nAssigned + '/' + rp.nPeople + ' คน ลง ' + rp.nFlights +
-              ' ไฟลท์ (พัก/สำรอง ' + rp.bench.length + ' คน)')
+  var shortF = 0;
+  rp.plan.forEach(function (p) { if (Object.keys(p.shortx).length) shortF++; });
+
+  sh.getRange(1, 1, 1, W).merge()
+    .setValue('🤖 Auto Assign — จัดเวรใหม่ทั้งหมดตาม SLA (ข้อเสนอ แก้ชื่อในเซลล์ได้) — ' + dateStr)
+    .setBackground('#1b3a2b').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 28);
+  sh.getRange(2, 1, 1, W).merge()
+    .setValue('จัดคน ' + rp.nAssigned + '/' + rp.nPeople + ' คน ลง ' + rp.nFlights + ' ไฟลท์  ·  พัก/สำรอง ' + rp.bench.length +
+              ' คน' + (shortF ? ('  ·  ' + shortF + ' ไฟลท์ยังขาด') : '  ·  ครบทุกไฟลท์ ✅'))
     .setBackground('#2e5d3e').setFontColor('#fff').setFontWeight('bold').setFontSize(11).setHorizontalAlignment('center');
-  sh.setRowHeight(row, 22); row++;
+  sh.setRowHeight(2, 22);
   var headB = ['Flight', 'สายการบิน', 'ระบบ', 'STA', 'STD', 'SUP', 'Check-in', 'Gate', 'Arrival'];
-  sh.getRange(row, 1, 1, W).setValues([headB]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
+  sh.getRange(3, 1, 1, W).setValues([headB]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold')
     .setHorizontalAlignment('center').setVerticalAlignment('middle').setWrap(true);
-  row++;
   function phCell(arr, req, shortN) {
-    var t = apNames_(arr) || '—';
+    if (!req) return '— ไม่มี';                                          // เช่น PG ไม่มีเช็คอิน
+    var t = apNamesFull_(arr) || '—';
     return arr.length + '/' + req + (shortN ? ' ⚠️ขาด' + shortN : ' ✓') + (arr.length ? '\n' + t : '');
   }
   var bodyB = rp.plan.map(function (p) {
@@ -229,6 +248,7 @@ function rbWriteAutoPlan_(ss, res, dateStr, ll, tabName) {
             phCell(p.assign.GATE, p.phaseReq.GATE, p.shortx.GATE),
             phCell(p.assign.ARR, p.phaseReq.ARR, p.shortx.ARR)];
   });
+  var row = 4;
   if (bodyB.length) {
     sh.getRange(row, 1, bodyB.length, W).setValues(bodyB).setFontSize(8).setVerticalAlignment('top').setWrap(true);
     for (var j = 0; j < rp.plan.length; j++) {
@@ -238,23 +258,32 @@ function rbWriteAutoPlan_(ss, res, dateStr, ll, tabName) {
     row += bodyB.length;
   }
   row++;
-
-  // ───── คนพัก/สำรอง (bench) ─────
   sh.getRange(row, 1, 1, W).merge()
-    .setValue('คนพัก/สำรอง (ยังไม่ถูกจัดในโหมด B) — ' + rp.bench.length + ' คน')
+    .setValue('คนพัก/สำรอง (ยังไม่ถูกจัด) — ' + rp.bench.length + ' คน')
     .setBackground('#37474f').setFontColor('#fff').setFontWeight('bold').setFontSize(10).setHorizontalAlignment('center');
   row++;
   if (rp.bench.length) {
     var byTeam = {}, ord = [];
     rp.bench.forEach(function (b) { if (!byTeam[b.team]) { byTeam[b.team] = []; ord.push(b.team); } byTeam[b.team].push(b.name + '(' + b.pos + ')'); });
     var benchTxt = ord.map(function (t) { return '[' + t + '] ' + byTeam[t].join(', '); }).join('   ·   ');
-    sh.getRange(row, 1, 1, W).merge().setValue(benchTxt).setFontSize(9).setVerticalAlignment('top').setWrap(true)
-      .setBackground('#eceff1');
+    sh.getRange(row, 1, 1, W).merge().setValue(benchTxt).setFontSize(9).setVerticalAlignment('top').setWrap(true).setBackground('#eceff1');
     sh.setRowHeight(row, Math.min(300, 20 + Math.ceil(benchTxt.length / 140) * 16));
-    row++;
   }
+  [110, 70, 90, 55, 55, 190, 240, 220, 190].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(3);
+  return { replanAssigned: rp.nAssigned, bench: rp.bench.length, shortFlights: shortF };
+}
 
-  [110, 70, 95, 60, 60, 200, 230, 180, 180].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
-  sh.setFrozenRows(1);
-  return { gapFilled: filledN, gapRemain: remainN, replanAssigned: rp.nAssigned, bench: rp.bench.length };
+/** รายชื่อคน (จัดกลุ่มทีม) แบบมีรายละเอียดงาน/OT/ไฟลท์ — สำหรับเซลล์ในชีต */
+function apNamesFull_(arr) {
+  if (!arr.length) return '';
+  var by = {}, order = [];
+  arr.forEach(function (p) { if (!by[p.team]) { by[p.team] = []; order.push(p.team); } by[p.team].push(p); });
+  return order.map(function (t) {
+    return '[' + t + '] ' + by[t].map(function (p) {
+      var fl = (p.flts && p.flts.length) ? ' {' + p.flts.join(', ') + '}' : '';
+      var ot = (p.ot && p.ot !== '-') ? ' OT:' + p.ot : '';
+      return p.name + '(' + p.pos + ' · กะ ' + (p.shift || '-') + ot + fl + ')';
+    }).join(', ');
+  }).join('\n');
 }

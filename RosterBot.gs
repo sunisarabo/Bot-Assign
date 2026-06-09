@@ -116,7 +116,8 @@ function testRosterFromId(ssId, llId, y, m, d) {
   rbWriteFlightSLA_(out, res, roster.getName(), ll);
   rbWriteSupport_(out, res, roster.getName(), ll);
   rbWriteAssignCheck_(out, res, roster.getName(), ll);
-  rbWriteAutoPlan_(out, res, roster.getName(), ll);
+  rbWriteFillPlan_(out, res, roster.getName(), ll);
+  rbWriteAutoAssign_(out, res, roster.getName(), ll);
   var cleanup = out.getSheetByName('Sheet1') || out.getSheetByName('ชีต1');
   if (cleanup && out.getSheets().length > 1) out.deleteSheet(cleanup);
   if (opened.tempId) { try { DriveApp.getFileById(opened.tempId).setTrashed(true); } catch (e) {} }
@@ -153,7 +154,8 @@ function rbRunForDate_(date) {
   rbWriteFlightSLA_(out, res, dateStr, ll, '✈️ ' + dd + ' ' + mon);
   rbWriteSupport_(out, res, dateStr, ll, '🆘 ' + dd + ' ' + mon);
   rbWriteAssignCheck_(out, res, dateStr, ll, '🧭 ' + dd + ' ' + mon);
-  rbWriteAutoPlan_(out, res, dateStr, ll, '🤖 ' + dd + ' ' + mon);
+  rbWriteFillPlan_(out, res, dateStr, ll, '🤖 เติม ' + dd + ' ' + mon);
+  rbWriteAutoAssign_(out, res, dateStr, ll, '🤖 Auto ' + dd + ' ' + mon);
   // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
   try {
     var wr = rbWeekRange_(date);

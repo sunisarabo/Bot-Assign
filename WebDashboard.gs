@@ -101,27 +101,38 @@ function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/<
 function rbAttr_(s){ return rbEsc_(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
 
-/** กลุ่มรายชื่อคน (จัดกลุ่มตามทีม) เป็น chip ขนาดเล็ก */
+/** chip คนที่ถูกจัด: ชื่อ "แก้ไขได้" (contenteditable) + คลิกที่ตำแหน่ง/ℹ ดูงาน/OT/ไฟลท์ (popup) */
+function rbPlanChip_(p) {
+  var busyCls = p.n >= 5 ? ' sup--busy' : (p.n === 0 ? ' sup--free' : '');
+  return '<span class="chip chip--duty supchip planchip' + busyCls + '"' +
+    ' data-nm="' + rbAttr_(p.name) + '" data-pos="' + rbAttr_(p.pos) + '" data-pteam="' + rbAttr_(p.team) + '"' +
+    ' data-shift="' + rbAttr_(p.shift || '-') + '" data-ot="' + rbAttr_(p.ot || '-') + '" data-hrs="' + (p.hrs || 0) + '" data-n="' + (p.n || 0) + '"' +
+    ' data-flts="' + rbAttr_((p.flts || []).join('‖')) + '">' +
+    '<span class="editnm" contenteditable="true" spellcheck="false" onclick="event.stopPropagation()"' +
+    ' oninput="var c=this.closest(\'.supchip\');c.dataset.nm=this.textContent;c.classList.add(\'edited\')" title="คลิกเพื่อแก้ไขชื่อ">' + rbEsc_(p.name) + '</span>' +
+    '<span class="planchip__i" onclick="showPsn(this.closest(\'.supchip\'))" title="ดูงาน/OT/ไฟลท์ที่ทำ"> ' + rbEsc_(p.pos) + ' ⓘ</span></span>';
+}
+
+/** กลุ่มรายชื่อคน (จัดกลุ่มตามทีม) เป็น chip แบบแก้ไขได้ + มี popup งาน/OT/ไฟลท์ */
 function rbPlanNames_(arr) {
   if (!arr || !arr.length) return '<span class="muted">—</span>';
   var by = {}, order = [];
   arr.forEach(function (p) { if (!by[p.team]) { by[p.team] = []; order.push(p.team); } by[p.team].push(p); });
   return order.map(function (t) {
     return '<span class="supgrp"><span class="supgrp__t">' + rbEsc_(t) + ' ' + by[t].length + '</span>' +
-      by[t].map(function (p) { return '<span class="chip chip--duty">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>'; }).join('') +
-      '</span>';
+      by[t].map(rbPlanChip_).join('') + '</span>';
   }).join('');
 }
 
-/** Lazy tab: 🤖 จัดเวรอัตโนมัติ — ข้อเสนอ 2 โหมด (เติมที่ขาด + จัดใหม่ทั้งหมด) อ่านอย่างเดียว */
-function rbAutoPlanHtml(iso) {
+/** Lazy tab 1: 🤖 เติมจาก Assign เดิม (โหมด A — gap-fill) */
+function rbFillPlanHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var gaps = apFillGaps_(d.res, d.ll);
     var filledN = 0, remainN = 0;
     gaps.forEach(function (g) { filledN += g.picked.length; remainN += g.remain; });
-    var hdA = '<div class="sectionlabel">โหมด A · <b>เติมเฉพาะไฟลท์ที่คนไม่พอ</b> — จัดคนว่างข้ามทีมมาเสริม <b class="okk">' + filledN + ' คน</b>' +
-      (remainN ? ' · <b class="badd">ยังขาด ' + remainN + ' คน</b> (ไม่มีคนว่าง/ระบบตรง)' : ' · เติมครบทุกตำแหน่ง ✅') + '</div>';
+    var hd = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">📋 <b>เติมจาก Assign เดิม</b> — จัดคนว่างข้ามทีมมาเสริมไฟลท์ที่ขาด · เสริม <b class="okk">' + filledN + ' คน</b>' +
+      (remainN ? ' · <b class="badd">ยังขาด ' + remainN + ' คน</b>' : ' · ครบ ✅') + ' <span class="muted">(คลิกชื่อเพื่อแก้ไข · คลิก ⓘ ดูงาน/OT/ไฟลท์)</span></div>';
     var bodyA = gaps.map(function (g) {
       var who = g.picked.length ? rbPlanNames_(g.picked) : '<span class="badd">' + (g.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(g.needSys) : 'ไม่มีคนว่าง') + '</span>';
       var st = g.remain === 0 ? '<span class="okk">✅ เติมครบ</span>' : (g.picked.length ? '<span class="badd">⚠️ ยังขาด ' + g.remain + '</span>' : '<span class="badd">🔴 ขาด ' + g.remain + '</span>');
@@ -130,16 +141,24 @@ function rbAutoPlanHtml(iso) {
         '</td><td class="tnum">' + rbEsc_(g.win) + '</td><td>' + rbEsc_(g.needSys || 'iPort/ใดก็ได้') + '</td><td>' + who + '</td><td>' + st + '</td></tr>';
     }).join('');
     if (!bodyA) bodyA = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA แล้ว — ไม่ต้องเสริม</td></tr>';
-    var tblA = rbTblCard_('🤖 โหมด A · จัดคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
+    return hd + rbTblCard_('🤖 เติมคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>STD/STA</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>ระบบที่ต้องใช้</th><th>คนที่จัดให้</th><th>สถานะ</th></tr>',
-      bodyA, rbCtrls_('view-plan', true));
+      bodyA, rbCtrls_('view-fill', true));
+  } catch (e) { return '<div class="panel">โหลด "เติม Assign เดิม" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
 
+/** Lazy tab 2: 🤖 Auto Assign (โหมด B — จัดใหม่ทั้งหมด) */
+function rbAutoAssignHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
     var rp = apReplan_(d.res, d.ll);
     var shortF = 0;
     rp.plan.forEach(function (p) { if (Object.keys(p.shortx).length) shortF++; });
-    var hdB = '<div class="sectionlabel" style="margin-top:18px">โหมด B · <b>จัดเวรใหม่ทั้งหมด</b> — จัดคน <b>' + rp.nAssigned + '/' + rp.nPeople +
-      '</b> ลง <b>' + rp.nFlights + '</b> ไฟลท์ · พัก/สำรอง ' + rp.bench.length + ' คน' + (shortF ? ' · <b class="badd">' + shortF + ' ไฟลท์ยังขาด</b>' : ' · ครบทุกไฟลท์ ✅') + '</div>';
+    var hd = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">📋 <b>Auto Assign</b> — จัดเวรใหม่ทั้งหมดตาม SLA · จัดคน <b>' + rp.nAssigned + '/' + rp.nPeople +
+      '</b> ลง <b>' + rp.nFlights + '</b> ไฟลท์ · พัก ' + rp.bench.length + ' คน' + (shortF ? ' · <b class="badd">' + shortF + ' ไฟลท์ยังขาด</b>' : ' · ครบ ✅') +
+      ' <span class="muted">(คลิกชื่อเพื่อแก้ไข · คลิก ⓘ ดูงาน/OT/ไฟลท์)</span></div>';
     function cellB(arr, req, shortN) {
+      if (!req) return '<span class="muted">— ไม่มี</span>';                // เช่น PG ไม่มีเช็คอิน
       return '<div><b>' + arr.length + '/' + req + '</b> ' + (shortN ? '<span class="badd">⚠️-' + shortN + '</span>' : '<span class="okk">✓</span>') +
         '</div>' + rbPlanNames_(arr);
     }
@@ -151,23 +170,22 @@ function rbAutoPlanHtml(iso) {
         '</td><td>' + cellB(p.assign.GATE, p.phaseReq.GATE, p.shortx.GATE) + '</td><td>' + cellB(p.assign.ARR, p.phaseReq.ARR, p.shortx.ARR) + '</td></tr>';
     }).join('');
     if (!bodyB) bodyB = '<tr><td colspan="9" class="muted" style="text-align:center;padding:20px">— ไม่มีไฟลท์</td></tr>';
-    var tblB = rbTblCard_('🤖 โหมด B · จัดเวรใหม่ทั้งหมดตาม SLA',
+    var tblB = rbTblCard_('🤖 จัดเวรใหม่ทั้งหมดตาม SLA',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบ</th><th>STA</th><th>STD</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th></tr>',
-      bodyB, rbCtrls_('view-plan', false));
+      bodyB, rbCtrls_('view-auto', true));
 
     var benchHtml = '';
     if (rp.bench.length) {
       var by = {}, ord = [];
       rp.bench.forEach(function (b) { if (!by[b.team]) { by[b.team] = []; ord.push(b.team); } by[b.team].push(b); });
-      benchHtml = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>😴 คนพัก/สำรอง (ยังไม่ถูกจัดในโหมด B) — ' + rp.bench.length + ' คน</h3></div>' +
+      benchHtml = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>😴 คนพัก/สำรอง (ยังไม่ถูกจัด) — ' + rp.bench.length + ' คน</h3></div>' +
         '<div style="padding:10px 14px">' + ord.map(function (t) {
           return '<span class="supgrp"><span class="supgrp__t">' + rbEsc_(t) + ' ' + by[t].length + '</span>' +
             by[t].map(function (p) { return '<span class="chip">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>'; }).join('') + '</span>';
         }).join('') + '</div></div>';
     }
-    return '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">📋 ข้อเสนอจัดเวรอัตโนมัติ — <b>อ่านอย่างเดียว ไม่แก้ไฟล์จริง</b></div>' +
-      hdA + tblA + hdB + tblB + benchHtml;
-  } catch (e) { return '<div class="panel">โหลดจัดเวรอัตโนมัติไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+    return hd + tblB + benchHtml;
+  } catch (e) { return '<div class="panel">โหลด "Auto Assign" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
 /** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
@@ -255,7 +273,8 @@ function rbTabs_(shortCount, acCount) {
     (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
     '<button class="tab" id="tab-ac" onclick="showView(\'ac\');loadAC()">🧭 ตรวจ Assign' +
     (acCount ? '<span class="badge tnum">' + acCount + '</span>' : '') + '</button>' +
-    '<button class="tab" id="tab-plan" onclick="showView(\'plan\');loadPlan()">🤖 จัดเวรอัตโนมัติ</button>' +
+    '<button class="tab" id="tab-fill" onclick="showView(\'fill\');loadFill()">🤖 เติม Assign เดิม</button>' +
+    '<button class="tab" id="tab-auto" onclick="showView(\'auto\');loadAuto()">🤖 Auto Assign</button>' +
     '<button class="tab" id="tab-ot" onclick="showView(\'ot\');loadOT()">⏱️ OT สัปดาห์</button></div>';
 }
 
@@ -428,8 +447,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     : '<div id="acbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจการ Assign…</div></div>';
   var supInner = staticMode ? rbSupportHtml(iso)
     : '<div id="supbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังหาคนซัพพอร์ต…</div></div>';
-  var planInner = staticMode ? rbAutoPlanHtml(iso)
-    : '<div id="planbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังจัดเวรอัตโนมัติ (เติมที่ขาด + จัดใหม่ทั้งหมด)…</div></div>';
+  var fillInner = staticMode ? rbFillPlanHtml(iso)
+    : '<div id="fillbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังเติมคนเสริมไฟลท์ที่ขาด…</div></div>';
+  var autoInner = staticMode ? rbAutoAssignHtml(iso)
+    : '<div id="autobox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังจัดเวรใหม่ทั้งหมดตาม SLA…</div></div>';
 
   return '<!doctype html><html lang="th" data-theme="corporate"><head><meta charset="utf-8">' +
     '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">' +
@@ -452,7 +473,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
     '<div id="view-sup" style="display:none">' + supInner + '</div>' +
     '<div id="view-ac" style="display:none">' + acInner + '</div>' +
-    '<div id="view-plan" style="display:none">' + planInner + '</div>' +
+    '<div id="view-fill" style="display:none">' + fillInner + '</div>' +
+    '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '</div>' +
@@ -460,10 +482,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","plan","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    'function showView(v){["dash","tt","flt","sup","ac","fill","auto","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
-    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadPlan(){lazy("planbox","rbAutoPlanHtml","plan");}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
     'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";[].forEach.call(v.querySelectorAll("tbody tr"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;r.style.display=(okT&&okQ)?"":"none";});}' +
     'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function supGrpVis(w){[].forEach.call(w.querySelectorAll(".supgrp"),function(g){var any=[].some.call(g.querySelectorAll(".supchip"),function(c){return c.style.display!=="none";});g.style.display=any?"":"none";});}' +
@@ -822,6 +844,11 @@ body {
 .chip:hover { border-color: var(--accent); }
 .chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
 .chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
+.planchip .editnm { display: inline-block; min-width: 22px; padding: 0 2px; border-bottom: 1px dashed var(--accent); outline: none; cursor: text; font-weight: 700; color: var(--ink-2); }
+.planchip .editnm:focus { background: #fff7d6; border-bottom-color: #d9a400; border-radius: 3px; }
+.planchip.edited { background: #fff7d6; border-color: #d9a400; }
+.planchip__i { cursor: pointer; color: var(--ink-3); font-weight: 600; }
+.planchip__i:hover { color: var(--accent); }
 .supbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 10px 0 4px; font-size: 13px; }
 .supteam { font-family: inherit; font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink-3); cursor: pointer; }
 .supteam.on { background: var(--brand); color: #fff; border-color: var(--brand); }

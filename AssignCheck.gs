@@ -242,10 +242,11 @@ function acAnalyze_(res, ll) {
       .map(function (x) {
         var w = acFlightWin_(x);                          // ช่วงเวลา cover (บรีฟ→STD / เคาน์เตอร์)
         var tm = w ? ' ' + rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '–' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440) : ' (ไม่มีเวลา)';
+        var jb = x.task ? ' [' + String(x.task).replace(/\s+/g, ' ').trim() + ']' : '';   // งาน/ตำแหน่งในไฟลท์นั้น
         var ow = acIsFlight_(x.flight) ? owner[slaAirlineOf_(x.flight)] : '';
         var sup = (!skipT && ow && ow !== team) ? ' ซัพพอร์ต' : '';
         if (sup) nSupport++;
-        return x.flight + tm + sup;
+        return x.flight + jb + tm + sup;
       });
     if (nSupport) sum.support++;
     if (a.status === 'bad') sum.bad++;
