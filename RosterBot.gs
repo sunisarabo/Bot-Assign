@@ -418,12 +418,17 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
 // ─── WEEKLY OT (>36h/week check) ────────────────────────────────────────────
 var OT_WEEK_LIMIT = 36;
 
-/** 7-day week block within the month, starting day 1 (1-7, 8-14, …). */
+/** บล็อกสัปดาห์ 7 วันในเดือน เริ่มวันที่ 1 (1-7, 8-14, 15-21, …)
+ *  ตั้งแต่ มิ.ย. 2026 เป็นต้นไป: สัปดาห์สุดท้าย = 22 ถึงสิ้นเดือน (รวมวัน 29-31 เข้าสัปดาห์เดียว)
+ *  ก่อน มิ.ย. 2026: คงเดิม (1-7, 8-14, 15-21, 22-28, 29-สิ้นเดือน) */
 function rbWeekRange_(date) {
   var d = date.getDate();
-  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
   var daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  return { startDay: startDay, endDay: Math.min(startDay + 6, daysInMonth) };
+  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
+  var endDay = Math.min(startDay + 6, daysInMonth);
+  var fromJun2026 = (date.getFullYear() > 2026) || (date.getFullYear() === 2026 && date.getMonth() >= 5);  // มิ.ย. = month index 5
+  if (fromJun2026 && d >= 22) { startDay = 22; endDay = daysInMonth; }   // สัปดาห์สุดท้าย 22-สิ้นเดือน (รวมทั้งสัปดาห์)
+  return { startDay: startDay, endDay: endDay };
 }
 
 /** Accumulate OT hours per employee across the week (week-to-date up to `date`). */

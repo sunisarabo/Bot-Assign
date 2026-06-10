@@ -3054,9 +3054,12 @@ var OT_WEEK_LIMIT = 36;
 
 function rbWeekRange_(date) {
   var d = date.getDate();
-  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
   var daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  return { startDay: startDay, endDay: Math.min(startDay + 6, daysInMonth) };
+  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
+  var endDay = Math.min(startDay + 6, daysInMonth);
+  var fromJun2026 = (date.getFullYear() > 2026) || (date.getFullYear() === 2026 && date.getMonth() >= 5);  // มิ.ย. = month index 5
+  if (fromJun2026 && d >= 22) { startDay = 22; endDay = daysInMonth; }   // สัปดาห์สุดท้าย 22-สิ้นเดือน (รวมทั้งสัปดาห์)
+  return { startDay: startDay, endDay: endDay };
 }
 
 function rbWeeklyOT_(date) {
