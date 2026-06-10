@@ -1873,7 +1873,7 @@ var ADV_TEAMS = [
   { name: 'QR/MH/OM/DE',                    airlines: ['QR', 'MH', 'DE', 'OM'] },
   { name: 'CHN',                            airlines: ['3U', 'CA', 'ZH', 'CZ', 'HU', 'PN', 'FM', 'MU', '9H', 'OQ', 'BK', 'AQ', 'HO', 'GX', 'HX'] },
   { name: 'KE/LJ/OV/KC/AF/NO',              airlines: ['KE', 'KC', 'AF', 'OZ', 'LJ', 'OV', 'NO', 'BK', 'AQ'] },
-  { name: 'VIP',                            airlines: [] },
+  { name: 'VIP',                            airlines: [], sys: ['Gonow', 'ASTRA', 'TWD', 'iPort', 'TravelSky', 'Angel Lite'] },
   { name: 'TR/3K/QP',                       airlines: ['TR', '6E', 'QP', '3K'] },
   { name: 'WY/9C/DK/G9',                    airlines: ['WY', 'G9', 'DK', '9C'] },
   { name: 'PG',                             airlines: ['PG'] },
@@ -1883,9 +1883,12 @@ var ADV_TEAMS = [
   { name: 'SV/WK/KA',                       airlines: ['SV', 'WK', 'KA'] },
 ];
 var ADV_AIRLINE_TEAMS = (function () { var m = {}; ADV_TEAMS.forEach(function (t, i) { t.airlines.forEach(function (a) { (m[a] = m[a] || []).push(i); }); }); return m; })();
+var ADV_VIP_IDX = (function () { for (var i = 0; i < ADV_TEAMS.length; i++) if (ADV_TEAMS[i].name === 'VIP') return i; return -1; })();
 
 function advTeamIdxOf_(teamStr) {
-  var as = String(teamStr || '').toUpperCase().split(/[\/,\s]+/).filter(function (a) { return a.length >= 2 && a.length <= 3 && /[A-Z]/.test(a); });
+  var t = String(teamStr || '').toUpperCase();
+  if (/\bVIP\b|PRIVATE|\bPVT\b/.test(t)) return ADV_VIP_IDX;            // ทีม VIP (ใช้ได้หลายระบบ)
+  var as = t.split(/[\/,\s]+/).filter(function (a) { return a.length >= 2 && a.length <= 3 && /[A-Z]/.test(a); });
   if (!as.length) return -1;
   var best = -1, bestN = 0;
   ADV_TEAMS.forEach(function (t, i) {
@@ -2122,6 +2125,7 @@ function advBuildPool_(tgt) {
     var airlines = ti >= 0 ? ADV_TEAMS[ti].airlines : [];
     var sys = {};
     airlines.forEach(function (a) { var s = slaSystemOf_(a); if (s) sys[slaSysNorm_(s)] = true; });
+    if (ti >= 0 && ADV_TEAMS[ti].sys) ADV_TEAMS[ti].sys.forEach(function (s) { sys[slaSysNorm_(s)] = true; });  // ทีมที่กำหนดระบบเอง (VIP)
     pool.push({
       id: p.id, name: e.name || p.name, team: teamName, teamIdx: ti, pos: p.pos || e.pos || '',
       posGroup: rrPosGroup_(p.pos || e.pos || '', ''),
