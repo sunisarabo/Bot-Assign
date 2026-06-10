@@ -371,7 +371,9 @@ function advSlotCandidates_(pool, f, role, win) {
 }
 
 /** SU เช็คอินคอมมอน: แบ่งคน SU นั่ง 16 เคาน์เตอร์ตามแบทช์เวลา (รวมไฟลท์ที่ช่วงเช็คอินซ้อนกัน)
- *  คืน [{time, flights, nAvail, slots:[{counter, chosen, cands}]}] หรือ null ถ้าไม่มีไฟลท์ SU */
+ *  แบทช์ที่ยาวเกิน 3 ชม. จะหมุนเวียนเป็นรอบย่อย รอบละ ≤3 ชม. เพื่อให้แต่ละคนนั่งไม่เกิน 3 ชม.
+ *  คืน [{time, flights, round, nAvail, slots:[{counter, chosen, cands}]}] หรือ null ถ้าไม่มีไฟลท์ SU */
+var ADV_SU_MAXSIT = 180;                                              // นั่งต่อเนื่องสูงสุด 3 ชม./คน
 function advSUCounters_(pool, flights) {
   var suIdx = advTeamIdxOf_('SU/W5/B2');
   var suFl = flights.filter(function (f) { return slaAirlineOf_(f.flight) === 'SU' && acIsFlight_(f.flight); });
@@ -385,17 +387,25 @@ function advSUCounters_(pool, flights) {
     else batches.push({ start: f.cwin[0], end: f.cwin[1], flights: [f.flight] });
   });
   var su = pool.filter(function (p) { return p.teamIdx === suIdx; }), pr = { PSA: 0, SNR: 1, PSS: 2 };
-  return batches.map(function (b) {
+  var view = function (p) { return { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp }; };
+  var fmt = function (m) { return rrFmtMin_(((m % 1440) + 1440) % 1440); };
+  var out = [];
+  batches.forEach(function (b) {
     var avail = su.filter(function (p) { return p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })  // กะคลุมช่วงแบทช์
       .sort(function (a, c) { return (pr[a.posGroup] == null ? 3 : pr[a.posGroup]) - (pr[c.posGroup] == null ? 3 : pr[c.posGroup]) || a.plan - c.plan; });
-    var cands = avail.map(function (p) { return { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp }; });
-    var slots = ADV_SU_COUNTERS.map(function (ct, i) {
-      var p = avail[i];
-      return { counter: ct, chosen: p ? { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp } : null, cands: cands };
-    });
-    return { time: rrFmtMin_(((b.start % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((b.end % 1440) + 1440) % 1440),
-      flights: b.flights.join(', '), nAvail: avail.length, slots: slots };
+    var dur = b.end - b.start, nR = Math.max(1, Math.ceil(dur / ADV_SU_MAXSIT)), rl = dur / nR;  // หมุนเวียนเป็นรอบ ≤3 ชม.
+    var perR = Math.min(ADV_SU_COUNTERS.length, Math.ceil(avail.length / nR));                  // คนต่อรอบ (ต่างคนกัน → ไม่มีใครนั่งซ้อนรอบ)
+    var cands = avail.map(view);
+    for (var r = 0; r < nR; r++) {
+      var people = avail.slice(r * perR, (r + 1) * perR);
+      var slots = ADV_SU_COUNTERS.map(function (ct, i) {
+        return { counter: ct, chosen: people[i] ? view(people[i]) : null, cands: cands };
+      });
+      out.push({ time: fmt(b.start + Math.round(r * rl)) + '-' + fmt(r === nR - 1 ? b.end : b.start + Math.round((r + 1) * rl)),
+        flights: b.flights.join(', '), round: nR > 1 ? (r + 1) + '/' + nR : 0, nAvail: avail.length, slots: slots });
+    }
   });
+  return out;
 }
 
 /** จัด assignment ล่วงหน้า — แยกตามบทบาทเต็ม SLA (SUP/FC/Check-in/Arrival/Standby/Gate Monitor/Gate Agent) */
@@ -557,10 +567,11 @@ function rbAdvanceHtml(iso) {
     }
     var suHtml = '';
     if (plan.suCounters && plan.suCounters.length) {
-      suHtml = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 SU — เช็คอินคอมมอน 16 เคาน์เตอร์ (แบ่งคนตามช่วงเวลา)</h3></div>';
+      suHtml = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 SU — เช็คอินคอมมอน 16 เคาน์เตอร์ (หมุนเวียน ≤3 ชม./คน)</h3></div>';
       plan.suCounters.forEach(function (b) {
         var filled = b.slots.filter(function (s) { return s.chosen; });
-        suHtml += '<div class="sectionlabel" style="margin:8px 14px 2px">⏱️ ช่วง <b>' + rbEsc_(b.time) + '</b> · ไฟลท์ ' + rbEsc_(b.flights) +
+        suHtml += '<div class="sectionlabel" style="margin:8px 14px 2px">⏱️ ช่วง <b>' + rbEsc_(b.time) + '</b>' +
+          (b.round ? ' · รอบ <b>' + rbEsc_(b.round) + '</b>' : '') + ' · ไฟลท์ ' + rbEsc_(b.flights) +
           ' · คนว่าง <b>' + b.nAvail + '</b> · ใช้เคาน์เตอร์ ' + filled.length + '/16</div>' +
           '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>เคาน์เตอร์</th><th>พนักงาน (เลือกได้)</th><th>ตำแหน่ง</th><th>กะ</th></tr></thead><tbody>';
         b.slots.forEach(function (s) {
