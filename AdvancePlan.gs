@@ -27,6 +27,38 @@ function advCfg_(key, dflt) {
 
 var ADV_MAX_OPT = 40;   // จำกัดตัวเลือกในแต่ละ dropdown
 
+// ── ทีม → สายการบินที่ดูแล (ตารางทางการ 16 ทีม) ─────────────────────────────
+var ADV_TEAMS = [
+  { name: 'JQ/AI/HO/IT/IX',                 airlines: ['AI', 'IX', 'JQ', 'IT', 'HO'] },
+  { name: 'AK/8M/QZ',                       airlines: ['AK', 'QZ', '8M'] },
+  { name: 'SQ/CX/LY',                       airlines: ['SQ', 'CX', 'LY'] },
+  { name: 'ZF/EO/WZ/HX/HH/LO/G2/S7/HB/H4',  airlines: ['HH', 'LO', 'G2', 'H4', 'C6', 'ZF', 'WZ', 'EO', 'N4', 'HB', 'S7'] },
+  { name: 'EK/UO/FY/6B/BY',                 airlines: ['EK', '6B', 'BY', 'FY', 'UO'] },
+  { name: 'QR/MH/OM/DE',                    airlines: ['QR', 'MH', 'DE', 'OM'] },
+  { name: 'CHN',                            airlines: ['3U', 'CA', 'ZH', 'CZ', 'HU', 'PN', 'FM', 'MU', '9H', 'OQ', 'BK', 'AQ', 'HO', 'GX', 'HX'] },
+  { name: 'KE/LJ/OV/KC/AF/NO',              airlines: ['KE', 'KC', 'AF', 'OZ', 'LJ', 'OV', 'NO', 'BK', 'AQ'] },
+  { name: 'VIP',                            airlines: [] },
+  { name: 'TR/3K/QP',                       airlines: ['TR', '6E', 'QP', '3K'] },
+  { name: 'WY/9C/DK/G9',                    airlines: ['WY', 'G9', 'DK', '9C'] },
+  { name: 'PG',                             airlines: ['PG'] },
+  { name: 'SU/W5/B2',                       airlines: ['W5', 'SU', 'B2'] },
+  { name: 'TK/OD/SG/VJ/HY/N0',              airlines: ['TK', 'HY', 'VN', 'SG', 'N0', 'VJ', 'OD'] },
+  { name: 'EY/AY/DV',                       airlines: ['AY', 'EY', 'DV'] },
+  { name: 'SV/WK/KA',                       airlines: ['SV', 'WK', 'KA'] },
+];
+var ADV_AIRLINE_TEAMS = (function () { var m = {}; ADV_TEAMS.forEach(function (t, i) { t.airlines.forEach(function (a) { (m[a] = m[a] || []).push(i); }); }); return m; })();
+/** จับคนเข้าทีมทางการจากสตริง "ทีม" ใน Total (เลือกทีมที่สายการบินทับซ้อนมากสุด) */
+function advTeamIdxOf_(teamStr) {
+  var as = String(teamStr || '').toUpperCase().split(/[\/,\s]+/).filter(function (a) { return a.length >= 2 && a.length <= 3 && /[A-Z]/.test(a); });
+  if (!as.length) return -1;
+  var best = -1, bestN = 0;
+  ADV_TEAMS.forEach(function (t, i) {
+    var n = 0; as.forEach(function (a) { if (t.airlines.indexOf(a) >= 0) n++; });
+    if (n > bestN) { bestN = n; best = i; }
+  });
+  return best;
+}
+
 /** รหัสกะ → [นาทีเริ่ม, นาทีเลิก] (อักษรแรก=ชม.เริ่ม, เลข=จำนวน ชม.) */
 function advShiftTime_(code) {
   code = String(code || '').toUpperCase().trim();
@@ -248,17 +280,11 @@ function advSysForTeam_(teamStr) {
 }
 
 /** สร้างพูลคนว่างของวันนั้น (พนักงานหน้างานจาก ROSTER + ทีม/ระบบจากทะเบียน Total)
- *  คืน { pool, airlineTeams } — ทีมมาจากคอลัมน์ "ทีม" ใน Total (เช่น "SQ/CX/LY") ซึ่งเชื่อถือได้
- *  airlineTeams = สายการบิน → ชุดทีมที่ดูแล (สร้างจากพนักงานทั้งหมด เพื่อให้ป้ายทีมครบแม้คนหยุด) */
+ *  ทีม = จับเข้า "ทีมทางการ 16 ทีม" จากสตริงทีมใน Total → ได้สายการบิน+ระบบครบ
+ *  คืน { pool, airlineTeams } */
 function advBuildPool_(tgt) {
   var emp = advReadEmployees_();
   var ros = advReadRosterFrontline_(tgt);
-  var airlineTeams = {};
-  function teamAirlines(t) { return String(t || '').toUpperCase().split(/[\/,\s]+/).filter(function (a) { return a.length >= 2 && a.length <= 3 && /[A-Z]/.test(a); }); }
-  Object.keys(emp).forEach(function (id) {                              // map สายการบิน→ทีม จากทะเบียนพนักงานทั้งหมด
-    var t = String(emp[id].team || '').toUpperCase();
-    teamAirlines(t).forEach(function (a) { (airlineTeams[a] = airlineTeams[a] || {})[t] = true; });
-  });
   var pool = [], seen = {};
   ros.forEach(function (p) {
     if (p.off || seen[p.id]) return;
@@ -268,19 +294,20 @@ function advBuildPool_(tgt) {
     var e = emp[p.id] || {};
     if (e.active === false) return;                                    // ลาออก/พ้นสภาพ → ข้าม
     seen[p.id] = 1;
-    var teamStr = String(e.team || p.team || '').toUpperCase();        // ทีมจากทะเบียน Total เป็นหลัก
-    var airlines = teamAirlines(teamStr);
+    var ti = advTeamIdxOf_(String(e.team || p.team || ''));            // จับเข้าทีมทางการ
+    var teamName = ti >= 0 ? ADV_TEAMS[ti].name : (String(e.team || p.team || '').toUpperCase() || '-');
+    var airlines = ti >= 0 ? ADV_TEAMS[ti].airlines : [];
     var sys = {};
     airlines.forEach(function (a) { var s = slaSystemOf_(a); if (s) sys[slaSysNorm_(s)] = true; });
     pool.push({
-      id: p.id, name: e.name || p.name, team: teamStr, pos: p.pos || e.pos || '',
+      id: p.id, name: e.name || p.name, team: teamName, teamIdx: ti, pos: p.pos || e.pos || '',
       posGroup: rrPosGroup_(p.pos || e.pos || '', ''),
       ds: ds, de: de, busy: [], plan: 0, nflt: 0, sys: sys, airlines: airlines,
       shiftDisp: rrFmtMin_(rr[0]) + '-' + rrFmtMin_(((de) % 1440 + 1440) % 1440),
       otDisp: '-', hrs: Math.round((de - ds) / 6) / 10, flts: [],
     });
   });
-  return { pool: pool, airlineTeams: airlineTeams };
+  return { pool: pool, airlineTeams: ADV_AIRLINE_TEAMS };
 }
 
 // บทบาทเต็ม 7 อย่าง (ตามตาราง SLA) — win=phase สำหรับช่วงเวลา, sys=ต้องรู้ระบบ, pos=เงื่อนไขตำแหน่ง
@@ -311,7 +338,7 @@ function advPickSlot_(pool, f, role, win, used) {
     if (nn && !p.sys[nn]) continue;                                    // SUP/FC/Check-in ต้องรู้ระบบ
     if (!advPosOK_(p, role.pos)) continue;
     if (!apFree_(p, win)) continue;
-    var sc = apScore_(p, role.sc, null) + (f.homeTeam[p.team] ? 0 : 8); // ทีมเจ้าของไฟลท์มาก่อนเสมอ
+    var sc = apScore_(p, role.sc, null) + (f.homeTeam[p.teamIdx] ? 0 : 8); // ทีมเจ้าของไฟลท์มาก่อนเสมอ
     if (sc < bs) { bs = sc; best = p; }
   }
   if (best) {
@@ -333,7 +360,7 @@ function advSlotCandidates_(pool, f, role, win) {
     if (win && !(p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL)) return false;
     return true;
   }).sort(function (a, b) {
-    return (f.homeTeam[a.team] ? 0 : 1) - (f.homeTeam[b.team] ? 0 : 1) || a.plan - b.plan || String(a.name).localeCompare(b.name);
+    return (f.homeTeam[a.teamIdx] ? 0 : 1) - (f.homeTeam[b.teamIdx] ? 0 : 1) || a.plan - b.plan || String(a.name).localeCompare(b.name);
   });
 }
 
@@ -345,7 +372,8 @@ function advPlan_(tgt) {
   flights.forEach(function (f) {
     f.airline = slaAirlineOf_(f.flight);
     f.system = slaSystemOf_(f.airline);
-    f.homeTeam = airlineTeams[f.airline] || {};
+    f.homeTeam = {}; (ADV_AIRLINE_TEAMS[f.airline] || []).forEach(function (i) { f.homeTeam[i] = true; });
+    f.teamName = (ADV_AIRLINE_TEAMS[f.airline] || []).map(function (i) { return ADV_TEAMS[i].name; }).join(' / ');
     f.roles = slaRoles_(f.airline);
     f.counter = slaCounterTime_(f);
   });
@@ -370,7 +398,7 @@ function advPlan_(tgt) {
         else { shortx[role.k] = need - k; break; }
       }
     });
-    plan.push({ flight: f.flight, airline: f.airline, system: f.system || '', team: Object.keys(f.homeTeam).join('/'),
+    plan.push({ flight: f.flight, airline: f.airline, system: f.system || '', team: f.teamName,
       homeTeam: f.homeTeam, sta: f.STA || '', std: f.STD || '', counter: f.counter, req: req,
       assign: assign, shortx: shortx, win: win, _f: f });
   });
@@ -411,7 +439,7 @@ function advBuildSelect_(chosen, cands, home) {
   var inT = [], ot = [];
   (cands || []).forEach(function (c) {
     if (c.name === chosen.name) return;                                // ตัวที่จัดอยู่แล้ว แสดงแยกเป็นตัวแรก
-    (home[c.team] ? inT : ot).push(c);
+    (home[c.teamIdx] ? inT : ot).push(c);
   });
   function opt(c) { return '<option value="' + rbAttr_(c.name) + '">' + rbEsc_(advOptText_(c)) + '</option>'; }
   var h = '<select class="namepick" oninput="this.classList.add(\'edited\')">' +
