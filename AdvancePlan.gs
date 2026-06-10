@@ -296,7 +296,9 @@ function advExportAssignment(dateStr) {
 function advPivotTeams_(R) {
   var flTeam = {};
   (R.plan || []).forEach(function (p) { if (p.team) flTeam[p.flight] = p.team; });
-  (R.suGates || []).forEach(function (g) { flTeam[g.flight] = 'SU/W5/B2'; });
+  (R.commons || []).forEach(function (cm) {                            // ไฟลท์ของทีม common (SU เกท) → ผูกกับทีมนั้น
+    (cm.gates || []).forEach(function (g) { flTeam[g.flight] = cm.code === 'SU' ? 'SU/W5/B2' : cm.code; });
+  });
   var teams = {};
   var ens = function (tn) { return teams[tn] || (teams[tn] = { members: [], support: [] }); };
   (R.pool || []).forEach(function (p) {
@@ -431,22 +433,30 @@ function advSlotCandidates_(pool, f, role, win) {
   });
 }
 
-/** SU จัดเต็มทีม: (1) เช็คอินคอมมอน 16 เคาน์เตอร์ หมุนเวียนรอบละ ≤3 ชม. (2) เกทต่อไฟลท์ (GC/GA/ARR) คนเดิมต่อเนื่องจากเช็คอิน
- *  ล็อกเวลาคน SU (busy) ให้เสร็จก่อน เพื่อกันชนกับตารางหลัก · คืน {counters:[...], gates:[...]} หรือ null ถ้าไม่มีไฟลท์ SU */
+/** ทีมที่ทำ "common check-in" (รวมไฟลท์ที่เวลาใกล้กัน นั่งเคาน์เตอร์รวม)
+ *  full=true: จัดเต็ม (ล็อกเวลา+ถอดจากตารางหลัก+มีการ์ดเกท) · full=false: เฉพาะเคาน์เตอร์ (ไม่แตะตารางหลัก) */
 var ADV_SU_MAXSIT = 180;                                              // นั่งต่อเนื่องสูงสุด 3 ชม./คน
-function advSUPlan_(pool, flights) {
-  var suIdx = advTeamIdxOf_('SU/W5/B2');
-  var suFl = flights.filter(function (f) { return slaAirlineOf_(f.flight) === 'SU' && acIsFlight_(f.flight); });
-  if (!suFl.length) return null;
-  suFl.forEach(function (f) { f.ciwin = slaPhaseWindow_(f, 'CI'); });
-  var su = pool.filter(function (p) { return p.teamIdx === suIdx; }), pr = { PSA: 0, SNR: 1, PSS: 2 };
+var ADV_COMMON_CI = [
+  { code: 'SU', team: 'SU/W5/B2', counters: ADV_SU_COUNTERS, gate: true,  full: true },   // SU: 16 เคาน์เตอร์ + เกท + ถอดจากตารางหลัก
+  { code: 'SQ', team: 'SQ/CX/LY', nCounter: 7,               gate: false, full: false }    // SQ: ~7 เคาน์เตอร์ เฉพาะเคาน์เตอร์ (เกทอยู่ตารางหลัก)
+];
+
+/** common check-in ของทีมหนึ่ง: (1) เคาน์เตอร์รวม หมุนเวียนรอบละ ≤3 ชม. (2) เกทต่อไฟลท์ (เฉพาะ cfg.gate)
+ *  cfg.full=true → ล็อกเวลาคน (busy) กันชนตารางหลัก · คืน {code, counters, gates} หรือ null ถ้าทีมนี้ไม่มีไฟลท์ */
+function advCommonCIPlan_(pool, flights, cfg) {
+  var teamIdx = advTeamIdxOf_(cfg.team);
+  var ctList = cfg.counters || (function () { var a = []; for (var i = 1; i <= cfg.nCounter; i++) a.push('CT' + i); return a; })();
+  var teamFl = flights.filter(function (f) { return f.homeTeam && f.homeTeam[teamIdx] && acIsFlight_(f.flight); });
+  if (!teamFl.length) return null;
+  teamFl.forEach(function (f) { f.ciwin = slaPhaseWindow_(f, 'CI'); });
+  var su = pool.filter(function (p) { return p.teamIdx === teamIdx; }), pr = { PSA: 0, SNR: 1, PSS: 2 };
   var view = function (p) { return { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp }; };
   var fmt = function (m) { return rrFmtMin_(((m % 1440) + 1440) % 1440); };
 
   // ---------- 1) เช็คอินคอมมอน (หมุนเวียนรอบละ ≤3 ชม.) ----------
-  var ciFl = suFl.filter(function (f) { return f.ciwin; }).sort(function (a, b) { return a.ciwin[0] - b.ciwin[0]; });
+  var ciFl = teamFl.filter(function (f) { return f.ciwin; }).sort(function (a, b) { return a.ciwin[0] - b.ciwin[0]; });
   var batches = [];
-  ciFl.forEach(function (f) {                                          // รวมไฟลท์ที่ช่วงเช็คอินซ้อน/ติดกัน = แบทช์เดียว
+  ciFl.forEach(function (f) {                                          // รวมไฟลท์ที่ช่วงเช็คอินซ้อน/ใกล้กัน (≤20 น.) = แบทช์เดียว
     var b = batches[batches.length - 1];
     if (b && f.ciwin[0] <= b.end + 20) { b.end = Math.max(b.end, f.ciwin[1]); b.flights.push(f.flight); }
     else batches.push({ start: f.ciwin[0], end: f.ciwin[1], flights: [f.flight] });
@@ -456,45 +466,48 @@ function advSUPlan_(pool, flights) {
     var avail = su.filter(function (p) { return p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })  // กะคลุมช่วงแบทช์
       .sort(function (a, c) { return (pr[a.posGroup] == null ? 3 : pr[a.posGroup]) - (pr[c.posGroup] == null ? 3 : pr[c.posGroup]) || a.plan - c.plan; });
     var dur = b.end - b.start, nR = Math.max(1, Math.ceil(dur / ADV_SU_MAXSIT)), rl = dur / nR;
-    var perR = Math.min(ADV_SU_COUNTERS.length, Math.ceil(avail.length / nR));                  // คนต่อรอบ (ต่างคน → ไม่มีใครนั่งซ้อนรอบ)
+    var perR = Math.min(ctList.length, Math.ceil(avail.length / nR));                  // คนต่อรอบ (ต่างคน → ไม่มีใครนั่งซ้อนรอบ)
     var cands = avail.map(view);
     for (var r = 0; r < nR; r++) {
       var rs = b.start + Math.round(r * rl), re = (r === nR - 1) ? b.end : b.start + Math.round((r + 1) * rl);
       var people = avail.slice(r * perR, (r + 1) * perR);
-      people.forEach(function (p) { p.busy.push([rs, re]); p.plan++; (p.suCI = p.suCI || []).push([rs, re]); });  // ล็อกเวลา + ทำเครื่องหมายว่าเช็คอินแล้ว
-      var slots = ADV_SU_COUNTERS.map(function (ct, i) {
-        if (people[i]) (people[i].flts = people[i].flts || []).push('CI ' + ct + ' (' + fmt(rs) + '-' + fmt(re) + ')');
+      if (cfg.full) people.forEach(function (p) { p.busy.push([rs, re]); p.plan++; (p.suCI = p.suCI || []).push([rs, re]); });  // ล็อกเวลา (เฉพาะ full)
+      var slots = ctList.map(function (ct, i) {
+        if (cfg.full && people[i]) (people[i].flts = people[i].flts || []).push('CI ' + ct + ' (' + fmt(rs) + '-' + fmt(re) + ')');
         return { counter: ct, chosen: people[i] ? view(people[i]) : null, cands: cands };
       });
       counters.push({ time: fmt(rs) + '-' + fmt(re), flights: b.flights.join(', '), round: nR > 1 ? (r + 1) + '/' + nR : 0, nAvail: avail.length, slots: slots });
     }
   });
 
-  // ---------- 2) เกทต่อไฟลท์ (คนเดิมต่อเนื่องจากเช็คอินมาก่อน) ----------
-  var sla = (typeof slaGet_ === 'function') ? slaGet_('SU') : null;
-  var gdefs = ((sla && sla.roles) || []).filter(function (rr) { return rr[3] === 'GATE' || rr[3] === 'ARR'; })
-    .map(function (rr) { var lb = /MONITOR|GM/.test(String(rr[0]) + rr[2]) ? 'GC' : (rr[3] === 'ARR' ? 'ARR' : 'GA'); return { lb: lb, n: rr[1], phase: rr[3], snr: lb === 'GC' }; });
-  var gates = suFl.slice().sort(function (a, b) { return String(a.STD || '').localeCompare(String(b.STD || '')); }).map(function (f) {
-    var usedF = {};
-    var roles = gdefs.map(function (rd) {
-      var win = slaPhaseWindow_(f, rd.phase) || [0, 0], picks = [];
-      var ord = rd.snr ? { PSS: 0, SNR: 1, PSA: 2 } : { PSA: 0, SNR: 1, PSS: 2 };
-      for (var i = 0; i < rd.n; i++) {
-        var cand = su.filter(function (p) { return !usedF[p.id] && apFree_(p, win) && p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL; })
-          .sort(function (a, c) {
-            return ((c.suCI ? 1 : 0) - (a.suCI ? 1 : 0))              // คนที่เช็คอินแล้วมาก่อน = ต่อเนื่อง
-              || (ord[a.posGroup] == null ? 3 : ord[a.posGroup]) - (ord[c.posGroup] == null ? 3 : ord[c.posGroup]) || a.plan - c.plan;
-          })[0];
-        if (cand) { cand.busy.push([win[0], win[1]]); cand.plan++; usedF[cand.id] = 1; (cand.flts = cand.flts || []).push(f.flight + ' ' + rd.lb); picks.push(view(cand)); }
-        else picks.push(null);
-      }
-      return { lb: rd.lb, need: rd.n, win: fmt(win[0]) + '-' + fmt(win[1]), picks: picks,
-        cands: su.filter(function (p) { return p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL; }).map(view) };
+  // ---------- 2) เกทต่อไฟลท์ (เฉพาะ cfg.gate · คนเดิมต่อเนื่องจากเช็คอิน) ----------
+  var gates = null;
+  if (cfg.gate) {
+    var sla = (typeof slaGet_ === 'function') ? slaGet_(cfg.code) : null;
+    var gdefs = ((sla && sla.roles) || []).filter(function (rr) { return rr[3] === 'GATE' || rr[3] === 'ARR'; })
+      .map(function (rr) { var lb = /MONITOR|GM/.test(String(rr[0]) + rr[2]) ? 'GC' : (rr[3] === 'ARR' ? 'ARR' : 'GA'); return { lb: lb, n: rr[1], phase: rr[3], snr: lb === 'GC' }; });
+    gates = teamFl.slice().sort(function (a, b) { return String(a.STD || '').localeCompare(String(b.STD || '')); }).map(function (f) {
+      var usedF = {};
+      var roles = gdefs.map(function (rd) {
+        var win = slaPhaseWindow_(f, rd.phase) || [0, 0], picks = [];
+        var ord = rd.snr ? { PSS: 0, SNR: 1, PSA: 2 } : { PSA: 0, SNR: 1, PSS: 2 };
+        for (var i = 0; i < rd.n; i++) {
+          var cand = su.filter(function (p) { return !usedF[p.id] && apFree_(p, win) && p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL; })
+            .sort(function (a, c) {
+              return ((c.suCI ? 1 : 0) - (a.suCI ? 1 : 0))              // คนที่เช็คอินแล้วมาก่อน = ต่อเนื่อง
+                || (ord[a.posGroup] == null ? 3 : ord[a.posGroup]) - (ord[c.posGroup] == null ? 3 : ord[c.posGroup]) || a.plan - c.plan;
+            })[0];
+          if (cand) { cand.busy.push([win[0], win[1]]); cand.plan++; usedF[cand.id] = 1; (cand.flts = cand.flts || []).push(f.flight + ' ' + rd.lb); picks.push(view(cand)); }
+          else picks.push(null);
+        }
+        return { lb: rd.lb, need: rd.n, win: fmt(win[0]) + '-' + fmt(win[1]), picks: picks,
+          cands: su.filter(function (p) { return p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL; }).map(view) };
+      });
+      return { flight: f.flight, std: f.STD || '', roles: roles };
     });
-    return { flight: f.flight, std: f.STD || '', roles: roles };
-  });
+  }
 
-  return { counters: counters, gates: gates };
+  return { code: cfg.code, counters: counters, gates: gates };
 }
 
 /** จัด assignment ล่วงหน้า — แยกตามบทบาทเต็ม SLA (SUP/FC/Check-in/Arrival/Standby/Gate Monitor/Gate Agent) */
@@ -512,8 +525,15 @@ function advPlan_(tgt) {
   });
   flights.sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
 
-  var suPlan = advSUPlan_(pool, flights);                              // SU มีระบบของตัวเอง (เคาน์เตอร์+เกท) — จัดก่อน ล็อกเวลาคน SU
-  var mainFlights = flights.filter(function (f) { return f.airline !== 'SU'; });  // ถอด SU ออกจากตารางหลัก
+  var commons = [], removeIdx = {};                                    // ทีม common check-in
+  ADV_COMMON_CI.forEach(function (cfg) {
+    var r = advCommonCIPlan_(pool, flights, cfg);
+    if (r) commons.push(r);
+    if (cfg.full) removeIdx[advTeamIdxOf_(cfg.team)] = 1;              // ทีม full → ถอดออกจากตารางหลัก
+  });
+  var mainFlights = flights.filter(function (f) {                      // ถอดไฟลท์ของทีม full (เช่น SU) ออกจากตารางหลัก
+    return !Object.keys(removeIdx).some(function (i) { return f.homeTeam && f.homeTeam[i]; });
+  });
 
   var plan = [];
   mainFlights.forEach(function (f) {
@@ -551,7 +571,7 @@ function advPlan_(tgt) {
 
   var bench = pool.filter(function (p) { return p.plan === 0; })
     .map(function (p) { return { id: p.id, name: p.name, pos: slaPosShort_(p.posGroup), team: p.team, shift: p.shiftDisp }; });
-  return { plan: plan, bench: bench, pool: pool, suCounters: suPlan ? suPlan.counters : null, suGates: suPlan ? suPlan.gates : null,
+  return { plan: plan, bench: bench, pool: pool, commons: commons,
     nPeople: pool.length, nAssigned: pool.filter(function (p) { return p.plan > 0; }).length, nFlights: plan.length };
 }
 
@@ -657,47 +677,49 @@ function rbAdvanceHtml(iso) {
           return '<span class="chip">' + rbEsc_(b.name) + ' <span class="muted">' + rbEsc_(b.pos) + ' · ' + rbEsc_(b.shift) + '</span></span>';
         }).join('') + '</div></div>';
     }
-    var suHtml = '';
-    if (plan.suCounters && plan.suCounters.length) {
-      suHtml = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 SU — เช็คอินคอมมอน 16 เคาน์เตอร์ (หมุนเวียน ≤3 ชม./คน)</h3></div>';
-      plan.suCounters.forEach(function (b) {
-        var filled = b.slots.filter(function (s) { return s.chosen; });
-        suHtml += '<div class="sectionlabel" style="margin:8px 14px 2px">⏱️ ช่วง <b>' + rbEsc_(b.time) + '</b>' +
-          (b.round ? ' · รอบ <b>' + rbEsc_(b.round) + '</b>' : '') + ' · ไฟลท์ ' + rbEsc_(b.flights) +
-          ' · คนว่าง <b>' + b.nAvail + '</b> · ใช้เคาน์เตอร์ ' + filled.length + '/16</div>' +
-          '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>เคาน์เตอร์</th><th>พนักงาน (เลือกได้)</th><th>ตำแหน่ง</th><th>กะ</th></tr></thead><tbody>';
-        b.slots.forEach(function (s) {
-          if (!s.chosen) return;
-          var sel = '<select class="namepick">' + s.cands.map(function (c) {
-            return '<option' + (c.name === s.chosen.name ? ' selected' : '') + '>' + rbEsc_(c.name + ' · ' + c.pos + ' · ' + c.shift) + '</option>';
-          }).join('') + '</select>';
-          suHtml += '<tr><td class="b">' + rbEsc_(s.counter) + '</td><td>' + sel + '</td><td>' + rbEsc_(s.chosen.pos) + '</td><td class="tnum">' + rbEsc_(s.chosen.shift) + '</td></tr>';
-        });
-        suHtml += '</tbody></table></div>';
-      });
-      suHtml += '</div>';
-    }
-    var suGateHtml = '';
-    if (plan.suGates && plan.suGates.length) {
-      suGateHtml = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🚪 SU — Gate ต่อไฟลท์ (คนต่อเนื่องจากเช็คอิน)</h3></div>';
-      plan.suGates.forEach(function (g) {
-        suGateHtml += '<div class="sectionlabel" style="margin:8px 14px 2px">✈️ <b>' + rbEsc_(g.flight) + '</b> · STD ' + rbEsc_(g.std) + '</div>' +
-          '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>หน้าที่</th><th>ช่วงเวลา</th><th>พนักงาน (เลือกได้)</th></tr></thead><tbody>';
-        g.roles.forEach(function (rl) {
-          rl.picks.forEach(function (pk, idx) {
-            var opts = rl.cands.map(function (c) {
-              return '<option' + (pk && c.name === pk.name ? ' selected' : '') + '>' + rbEsc_(c.name + ' · ' + c.pos + ' · ' + c.shift) + '</option>';
-            }).join('');
-            var who = pk ? '<select class="namepick">' + opts + '</select>'
-              : (rl.cands.length ? '<span class="badd">⚠️ </span><select class="namepick"><option>— เลือกคนเอง —</option>' + opts + '</select>' : '<span class="badd">⚠️ ไม่มีคนว่าง</span>');
-            suGateHtml += '<tr><td class="b">' + rbEsc_(rl.lb) + (rl.need > 1 ? ' ' + (idx + 1) : '') + '</td><td class="tnum">' + rbEsc_(rl.win) + '</td><td>' + who + '</td></tr>';
+    var commonHtml = '';
+    (plan.commons || []).forEach(function (cm) {
+      if (cm.counters && cm.counters.length) {
+        var nCt = cm.counters[0] ? cm.counters[0].slots.length : 0;
+        commonHtml += '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 ' + rbEsc_(cm.code) + ' — เช็คอินคอมมอน ' + nCt + ' เคาน์เตอร์ (หมุนเวียน ≤3 ชม./คน)</h3></div>';
+        cm.counters.forEach(function (b) {
+          var filled = b.slots.filter(function (s) { return s.chosen; });
+          commonHtml += '<div class="sectionlabel" style="margin:8px 14px 2px">⏱️ ช่วง <b>' + rbEsc_(b.time) + '</b>' +
+            (b.round ? ' · รอบ <b>' + rbEsc_(b.round) + '</b>' : '') + ' · ไฟลท์ ' + rbEsc_(b.flights) +
+            ' · คนว่าง <b>' + b.nAvail + '</b> · ใช้เคาน์เตอร์ ' + filled.length + '/' + nCt + '</div>' +
+            '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>เคาน์เตอร์</th><th>พนักงาน (เลือกได้)</th><th>ตำแหน่ง</th><th>กะ</th></tr></thead><tbody>';
+          b.slots.forEach(function (s) {
+            if (!s.chosen) return;
+            var sel = '<select class="namepick">' + s.cands.map(function (c) {
+              return '<option' + (c.name === s.chosen.name ? ' selected' : '') + '>' + rbEsc_(c.name + ' · ' + c.pos + ' · ' + c.shift) + '</option>';
+            }).join('') + '</select>';
+            commonHtml += '<tr><td class="b">' + rbEsc_(s.counter) + '</td><td>' + sel + '</td><td>' + rbEsc_(s.chosen.pos) + '</td><td class="tnum">' + rbEsc_(s.chosen.shift) + '</td></tr>';
           });
+          commonHtml += '</tbody></table></div>';
         });
-        suGateHtml += '</tbody></table></div>';
-      });
-      suGateHtml += '</div>';
-    }
-    return datebar + hd + tbl + suHtml + suGateHtml + benchHtml;
+        commonHtml += '</div>';
+      }
+      if (cm.gates && cm.gates.length) {
+        commonHtml += '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🚪 ' + rbEsc_(cm.code) + ' — Gate ต่อไฟลท์ (คนต่อเนื่องจากเช็คอิน)</h3></div>';
+        cm.gates.forEach(function (g) {
+          commonHtml += '<div class="sectionlabel" style="margin:8px 14px 2px">✈️ <b>' + rbEsc_(g.flight) + '</b> · STD ' + rbEsc_(g.std) + '</div>' +
+            '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>หน้าที่</th><th>ช่วงเวลา</th><th>พนักงาน (เลือกได้)</th></tr></thead><tbody>';
+          g.roles.forEach(function (rl) {
+            rl.picks.forEach(function (pk, idx) {
+              var opts = rl.cands.map(function (c) {
+                return '<option' + (pk && c.name === pk.name ? ' selected' : '') + '>' + rbEsc_(c.name + ' · ' + c.pos + ' · ' + c.shift) + '</option>';
+              }).join('');
+              var who = pk ? '<select class="namepick">' + opts + '</select>'
+                : (rl.cands.length ? '<span class="badd">⚠️ </span><select class="namepick"><option>— เลือกคนเอง —</option>' + opts + '</select>' : '<span class="badd">⚠️ ไม่มีคนว่าง</span>');
+              commonHtml += '<tr><td class="b">' + rbEsc_(rl.lb) + (rl.need > 1 ? ' ' + (idx + 1) : '') + '</td><td class="tnum">' + rbEsc_(rl.win) + '</td><td>' + who + '</td></tr>';
+            });
+          });
+          commonHtml += '</tbody></table></div>';
+        });
+        commonHtml += '</div>';
+      }
+    });
+    return datebar + hd + tbl + commonHtml + benchHtml;
   } catch (e) { return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>'; }
 }
 
