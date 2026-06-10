@@ -273,6 +273,67 @@ function advSaveProposal(dateStr, rowsJson) {
   return ss.getUrl();
 }
 
+/** แจ้ง Assignment: สร้าง Google Sheet ใหม่ ผังเต็มต่อทีม (ASSIGNMENT คนในทีม + SUPPORT คนข้ามทีมที่มาช่วย) — เรียกจากปุ่ม UI */
+function advExportAssignment(dateStr) {
+  var tgt = dateStr ? rbDateFromIso_(dateStr) : new Date();
+  var R = advPlan_(tgt);
+  var teams = advPivotTeams_(R);
+  var names = Object.keys(teams).filter(function (t) { return teams[t].members.length; }).sort();
+  if (!names.length) throw new Error('วันที่ ' + dateStr + ' ยังไม่มีการจัดคน');
+  var ss = SpreadsheetApp.create('แจ้ง Assignment ' + dateStr);
+  var first = true, used = {};
+  names.forEach(function (tn) {
+    var nm = tn.replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
+    var n = nm; var k = 2; while (used[n]) n = (nm.slice(0, 22) + ' ' + (k++)); used[n] = 1;
+    var sh = first ? ss.getSheets()[0] : ss.insertSheet(); first = false;
+    sh.setName(n);
+    advWriteTeamSheet_(sh, tn, dateStr, teams[tn]);
+  });
+  return ss.getUrl();
+}
+
+/** รวมแผน → ต่อทีม: {teamName: {members:[{name,pos,shift,jobs[]}], support:[{name,pos,team,job}]}} */
+function advPivotTeams_(R) {
+  var flTeam = {};
+  (R.plan || []).forEach(function (p) { if (p.team) flTeam[p.flight] = p.team; });
+  (R.suGates || []).forEach(function (g) { flTeam[g.flight] = 'SU/W5/B2'; });
+  var teams = {};
+  var ens = function (tn) { return teams[tn] || (teams[tn] = { members: [], support: [] }); };
+  (R.pool || []).forEach(function (p) {
+    if (!p.team || !p.plan) return;                                    // เฉพาะคนที่ถูกจัดงาน
+    var jobs = (p.flts || []).slice(), pos = slaPosShort_(p.posGroup);
+    ens(p.team).members.push({ name: p.name, pos: pos, shift: p.shiftDisp, jobs: jobs });
+    jobs.forEach(function (j) {                                        // งานบนไฟลท์ของทีมอื่น = ไปช่วย (support ของทีมเจ้าของไฟลท์)
+      var owner = flTeam[String(j).split(' ')[0]];
+      if (owner && owner !== p.team) ens(owner).support.push({ name: p.name, pos: pos, team: p.team, job: j });
+    });
+  });
+  return teams;
+}
+
+/** เขียนชีตผังต่อทีม (ASSIGNMENT + SUPPORT) */
+function advWriteTeamSheet_(sh, tn, dateStr, data) {
+  var rows = [[tn + ' — แจ้ง Assignment วันที่ ' + dateStr, '', '', ''], ['', '', '', '']];
+  var secRows = [], hdrRows = [];
+  secRows.push(rows.length); rows.push(['📋 ASSIGNMENT (พนักงานในทีม)', '', '', '']);
+  hdrRows.push(rows.length); rows.push(['ชื่อ', 'ตำแหน่ง', 'กะ', 'งานที่ได้รับ (ไฟลท์ · บทบาท)']);
+  data.members.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); })
+    .forEach(function (m) { rows.push([m.name, m.pos, m.shift, m.jobs.join('   |   ') || '— standby —']); });
+  rows.push(['', '', '', '']);
+  secRows.push(rows.length); rows.push(['🤝 SUPPORT — พนักงานข้ามทีมที่มาช่วยทีมนี้', '', '', '']);
+  hdrRows.push(rows.length); rows.push(['ชื่อ', 'ตำแหน่ง', 'ทีมเดิม', 'งานที่ช่วย']);
+  if (data.support.length) data.support.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); })
+    .forEach(function (s) { rows.push([s.name, s.pos, s.team, s.job]); });
+  else rows.push(['— ไม่มีพนักงานข้ามทีม —', '', '', '']);
+
+  sh.getRange(1, 1, rows.length, 4).setValues(rows).setWrap(true).setVerticalAlignment('top').setFontSize(10);
+  sh.getRange(1, 1, 1, 4).merge().setFontWeight('bold').setFontSize(13).setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('left');
+  secRows.forEach(function (r) { sh.getRange(r + 1, 1, 1, 4).merge().setFontWeight('bold').setBackground('#dce9f7').setFontColor('#1f4e79'); });
+  hdrRows.forEach(function (r) { sh.getRange(r + 1, 1, 1, 4).setFontWeight('bold').setBackground('#f0f4f9'); });
+  [180, 90, 120, 430].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(1);
+}
+
 /** ระบบเช็คอินที่พนักงานทำได้ = ระบบของสายการบินในทีมตัวเอง (เช่น "JQ/IT/IX/AI") */
 function advSysForTeam_(teamStr) {
   var sys = {};
@@ -401,7 +462,10 @@ function advSUPlan_(pool, flights) {
       var rs = b.start + Math.round(r * rl), re = (r === nR - 1) ? b.end : b.start + Math.round((r + 1) * rl);
       var people = avail.slice(r * perR, (r + 1) * perR);
       people.forEach(function (p) { p.busy.push([rs, re]); p.plan++; (p.suCI = p.suCI || []).push([rs, re]); });  // ล็อกเวลา + ทำเครื่องหมายว่าเช็คอินแล้ว
-      var slots = ADV_SU_COUNTERS.map(function (ct, i) { return { counter: ct, chosen: people[i] ? view(people[i]) : null, cands: cands }; });
+      var slots = ADV_SU_COUNTERS.map(function (ct, i) {
+        if (people[i]) (people[i].flts = people[i].flts || []).push('CI ' + ct + ' (' + fmt(rs) + '-' + fmt(re) + ')');
+        return { counter: ct, chosen: people[i] ? view(people[i]) : null, cands: cands };
+      });
       counters.push({ time: fmt(rs) + '-' + fmt(re), flights: b.flights.join(', '), round: nR > 1 ? (r + 1) + '/' + nR : 0, nAvail: avail.length, slots: slots });
     }
   });
@@ -421,7 +485,7 @@ function advSUPlan_(pool, flights) {
             return ((c.suCI ? 1 : 0) - (a.suCI ? 1 : 0))              // คนที่เช็คอินแล้วมาก่อน = ต่อเนื่อง
               || (ord[a.posGroup] == null ? 3 : ord[a.posGroup]) - (ord[c.posGroup] == null ? 3 : ord[c.posGroup]) || a.plan - c.plan;
           })[0];
-        if (cand) { cand.busy.push([win[0], win[1]]); cand.plan++; usedF[cand.id] = 1; picks.push(view(cand)); }
+        if (cand) { cand.busy.push([win[0], win[1]]); cand.plan++; usedF[cand.id] = 1; (cand.flts = cand.flts || []).push(f.flight + ' ' + rd.lb); picks.push(view(cand)); }
         else picks.push(null);
       }
       return { lb: rd.lb, need: rd.n, win: fmt(win[0]) + '-' + fmt(win[1]), picks: picks,
@@ -537,7 +601,8 @@ function rbAdvanceHtml(iso) {
       '📅 <b>จัดเวรล่วงหน้า</b> (ลิงก์ ROSTER · FLIGHT · รายชื่อจริง) — เลือกวันที่: ' +
       '<input type="date" value="' + iso + '" onchange="advGo(this.value)" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
       ' <button class="btn btn--accent" onclick="advSave()" style="margin-left:8px">💾 บันทึกลงชีต</button>' +
-      ' <span id="advsavemsg" class="okk" style="margin-left:6px"></span>' +
+      ' <button class="btn" onclick="advExport()" style="margin-left:6px">📤 สร้างไฟล์แจ้งทีม</button>' +
+      ' <span id="advsavemsg" class="okk" style="margin-left:6px"></span><span id="advexportmsg" class="okk" style="margin-left:6px"></span>' +
       (switched ? ' <span class="badd" style="margin-left:6px">ℹ️ วันที่ ' + reqIso + ' ไม่มีไฟลท์ → แสดงวันใกล้สุด ' + dstr + '</span>' : '') +
       ' <span class="muted">· คลิกช่องชื่อเพื่อเลือก/แก้ (autocomplete จากพนักงานทั้งหมด) · บันทึกเป็นชีตใหม่ ไม่เขียนทับไฟล์จริง</span></div>';
 
