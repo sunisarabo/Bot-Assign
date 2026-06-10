@@ -65,7 +65,7 @@ function rbFlightsHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     return rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Standby</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
       rbFltRows_(d.res, d.ll), rbCtrls_('view-flt', true));
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
@@ -205,26 +205,35 @@ function rbSupportHtml(iso) {
       ' <button class="supteam supall" onclick="allSupTeams(this)">ทั้งหมด</button>' +
       '<span class="muted" style="font-size:12px">— ถ้าทีมที่เลือกไม่พอ ระบบเติม <span class="sup--sub" style="padding:1px 6px;border-radius:6px">↪ ทดแทน</span> จากทีมอื่นให้ครบจำนวนที่ขาด</span></div>';
     var body = rows.map(function (r) {
-      var who = r.cands.length
-        ? '<div class="supwrap" data-need="' + r.shortN + '">' + slaGroupCands_(r.cands).map(function (g) {
-            return '<span class="supgrp"><span class="supgrp__t">' + rbEsc_(g.team) + ' ' + g.people.length + '</span>' +
-              g.people.map(function (p) {
-                var busyCls = p.n >= 5 ? ' sup--busy' : (p.n === 0 ? ' sup--free' : '');
-                return '<span class="chip chip--duty supchip' + busyCls + '" data-cteam="' + rbEsc_(g.team) + '" onclick="showPsn(this)"' +
-                  ' data-nm="' + rbAttr_(p.name) + '" data-pos="' + rbAttr_(p.pos) + '" data-pteam="' + rbAttr_(g.team) + '"' +
-                  ' data-shift="' + rbAttr_(p.shift) + '" data-ot="' + rbAttr_(p.ot) + '" data-hrs="' + p.hrs + '" data-n="' + p.n + '"' +
-                  ' data-flts="' + rbAttr_((p.flts || []).join('‖')) + '">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>';
-              }).join('') + '</span>';
-          }).join('') + '</div>'
-        : '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
+      var who;
+      if (r.cands.length) {
+        var grps = slaGroupCands_(r.cands);
+        function sel(defName) {
+          var h = '<select class="namepick">';
+          grps.forEach(function (g) {
+            h += '<optgroup label="' + rbEsc_(g.team) + ' (' + g.people.length + ')">';
+            g.people.forEach(function (p) {
+              h += '<option value="' + rbAttr_(p.name) + '"' + (p.name === defName ? ' selected' : '') + '>' +
+                rbEsc_(p.name + ' · ' + (p.pos || '') + ' · ' + (p.shift || '') + ' · ' + (p.n || 0) + ' ไฟลท์') + '</option>';
+            });
+            h += '</optgroup>';
+          });
+          return h + '</select>';
+        }
+        var slots = [];
+        for (var i = 0; i < r.shortN; i++) slots.push(sel((r.cands[i] || r.cands[0]).name));
+        who = '<div class="pickwrap">' + slots.join('') + '</div>';
+      } else {
+        who = '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
+      }
       return '<tr class="' + (r.cands.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
         '</td><td class="badd">' + rbEsc_(r.phase) + ' ขาด ' + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
         '</td><td class="tnum">' + rbEsc_(r.win) + '</td><td>' + who + '</td></tr>';
     }).join('');
     if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA</td></tr>';
-    return hd + teamBar + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + คนที่มาช่วยได้ (จัดกลุ่มตามทีม)',
-      '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>คนที่มาช่วยได้ (เลือกทีมด้านบน)</th></tr>',
+    return hd + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
@@ -387,11 +396,12 @@ function rbTtRows_(res, ll) {
 }
 function rbFltRows_(res, ll) {
   return slaCollectFlights_(res, ll).map(function (f) {
-    function c(ph){ return '<td class="tnum '+(f.short[ph]?'badd':'okk')+'">'+f.assigned[ph]+'/'+f.req[ph]+(f.short[ph]?' ▼'+f.short[ph]:'')+'</td>'; }
+    var R = slaRoles_(f.airline);
+    function rc(n){ return '<td class="tnum">'+(n||0)+'</td>'; }
     var st = f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>';
     return '<tr class="'+(f.ok?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+f.airline+'</td><td>'+rbEsc_(f.teamList)+
-      '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+f.assigned.total+'</b>/'+f.req.total+'</td>'+
-      c('SUP')+c('CI')+c('GATE')+c('ARR')+'<td>'+st+'</td></tr>';
+      '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+f.assigned.total+'</b>/'+(R.total||f.req.total)+'</td>'+
+      rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.STB)+rc(R.GM)+rc(R.GA)+'<td>'+st+'</td></tr>';
   }).join('');
 }
 
@@ -439,7 +449,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     : '<div id="ttbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Timetable…</div></div>';
   var fltInner = staticMode
     ? rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>ส่ง/ต้องการ</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>สถานะ</th></tr>',
+        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Standby</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
         rbFltRows_(res, ll), rbCtrls_('view-flt', true))
     : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
   var otInner = staticMode ? rbWeeklyOTHtml(iso)
@@ -859,6 +869,8 @@ body {
 .namepick:focus { outline: none; border-color: var(--accent); background: #fff; }
 #view-adv .tbl th, #view-adv .tbl td { padding: 5px 5px; font-size: 10.5px; }
 #view-adv .tbl thead th { position: sticky; top: 0; z-index: 2; font-size: 9.5px; }
+#view-sup .namepick { width: 210px; max-width: 210px; font-size: 11px; padding: 3px 6px; }
+#view-sup .pickwrap { gap: 3px; }
 .namepick.edited { background: #fff7d6; border-color: #d9a400; }
 .supbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 10px 0 4px; font-size: 13px; }
 .supteam { font-family: inherit; font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink-3); cursor: pointer; }
