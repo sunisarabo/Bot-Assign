@@ -168,7 +168,7 @@ function advReadFlights_(tgt) {
       if (!airline || !fltno || /cancel/i.test(String(row[20] || ''))) return;   // ข้ามไฟลท์ยกเลิก
       var flight = airline + fltno;
       if (seen[flight]) return; seen[flight] = 1;
-      out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), OP: '', CL: '' });
+      out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), gate: String(row[15] == null ? '' : row[15]).trim(), OP: '', CL: '' });
     });
   });
   return out;
@@ -403,7 +403,7 @@ function advPlan_(tgt) {
       }
     });
     plan.push({ flight: f.flight, airline: f.airline, system: f.system || '', team: f.teamName,
-      homeTeam: f.homeTeam, sta: f.STA || '', std: f.STD || '', counter: f.counter, req: req,
+      homeTeam: f.homeTeam, sta: f.STA || '', std: f.STD || '', gate: f.gate || '', counter: f.counter, req: req,
       assign: assign, shortx: shortx, win: win, _f: f });
   });
 
@@ -509,6 +509,7 @@ function rbAdvanceHtml(iso) {
       return '<tr class="' + (ok ? '' : 'rowbad') + '" data-team="' + rbEsc_(p.airline) + '"><td class="b">' + rbEsc_(p.flight) +
         '</td><td>' + rbEsc_(p.airline) + (p.team ? '<div class="muted" style="font-size:10px">ทีม ' + rbEsc_(p.team) + '</div>' : '<div class="badd" style="font-size:10px">ไม่มีทีม</div>') +
         '</td><td>' + rbEsc_(p.system || 'iPort') + '</td><td class="tnum">' + rbEsc_(p.sta) + '</td><td class="tnum">' + rbEsc_(p.std) +
+        (p.gate ? '<div class="muted" style="font-size:9px">Bay ' + rbEsc_(p.gate) + '</div>' : '') +
         '</td><td class="tnum" style="white-space:nowrap">' + rbEsc_(p.counter || '-') + '</td>' + roleCells + '</tr>';
     }).join('');
     var roleTh = ADV_ROLES.map(function (role) { return '<th>' + role.lb + '</th>'; }).join('');
