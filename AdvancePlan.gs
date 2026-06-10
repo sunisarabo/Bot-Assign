@@ -120,20 +120,21 @@ function advReadRoster_(tgt) {
   return { rows: out, found: true, hi: hi, dateCol: dateCol };
 }
 
-/** อ่านตารางบิน FLIGHT สำหรับวันที่ tgt → [{flight,airline,STA,STD,OP,CL}] */
+/** อ่านตารางบิน FLIGHT สำหรับวันที่ tgt (อ่านทุกแท็บ) → [{flight,airline,STA,STD,OP,CL}] */
 function advReadFlights_(tgt) {
   var ss = SpreadsheetApp.openById(advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID));
-  var sh = ss.getSheets()[0];
-  var data = sh.getDataRange().getValues();
   var out = [], seen = {};
-  data.forEach(function (row) {
-    if (!advSameDate_(row[0], tgt)) return;
-    var airline = String(row[1] || '').trim().toUpperCase();
-    var fltno = String(row[2] || '').trim();
-    if (!airline || !fltno || /cancel/i.test(String(row[20] || ''))) return;   // ข้ามไฟลท์ยกเลิก
-    var flight = airline + fltno;
-    if (seen[flight]) return; seen[flight] = 1;
-    out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), OP: '', CL: '' });
+  ss.getSheets().forEach(function (sh) {
+    var data = sh.getDataRange().getValues();
+    data.forEach(function (row) {
+      if (!advSameDate_(row[0], tgt)) return;
+      var airline = String(row[1] || '').trim().toUpperCase();
+      var fltno = String(row[2] || '').trim();
+      if (!airline || !fltno || /cancel/i.test(String(row[20] || ''))) return;   // ข้ามไฟลท์ยกเลิก
+      var flight = airline + fltno;
+      if (seen[flight]) return; seen[flight] = 1;
+      out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), OP: '', CL: '' });
+    });
   });
   return out;
 }
@@ -198,16 +199,27 @@ function advScanFrontlineRows_(data, tgt, out) {
   }
 }
 
-/** วันที่ทั้งหมดที่มีในตารางบิน (ISO เรียง) — ใช้บอกผู้ใช้ว่ามีไฟลท์วันไหนบ้าง */
+/** วันที่ทั้งหมดที่มีในตารางบิน (ISO เรียง, อ่านทุกแท็บ) */
 function advFlightDates_() {
   var ss = SpreadsheetApp.openById(advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID));
-  var data = ss.getSheets()[0].getDataRange().getValues();
   var set = {}, out = [];
-  data.forEach(function (row) {
-    var p = advParseDate_(row[0]);
-    if (p) { var k = p.y + '-' + ('0' + p.m).slice(-2) + '-' + ('0' + p.d).slice(-2); if (!set[k]) { set[k] = 1; out.push(k); } }
+  ss.getSheets().forEach(function (sh) {
+    sh.getDataRange().getValues().forEach(function (row) {
+      var p = advParseDate_(row[0]);
+      if (p) { var k = p.y + '-' + ('0' + p.m).slice(-2) + '-' + ('0' + p.d).slice(-2); if (!set[k]) { set[k] = 1; out.push(k); } }
+    });
   });
   return out.sort();
+}
+/** วันที่มีไฟลท์ที่ "ใกล้ที่สุด" กับ iso ที่ขอ (เสมอกันเลือกวันถัดไป) */
+function advNearestFlightDate_(iso, dates) {
+  dates = dates || advFlightDates_();
+  if (!dates.length) return null;
+  if (dates.indexOf(iso) >= 0) return iso;
+  var t = new Date(iso).getTime();
+  return dates.slice().sort(function (a, b) {
+    return Math.abs(new Date(a).getTime() - t) - Math.abs(new Date(b).getTime() - t) || (a < b ? 1 : -1);
+  })[0];
 }
 
 /** บันทึกข้อเสนอ (รวมชื่อที่แก้ในหน้าจอ) ลง "ชีตใหม่" — ไม่เขียนทับไฟล์ต้นฉบับ. คืน URL */
@@ -316,6 +328,12 @@ function advNameInput_(p) {
 /** Lazy tab: 📅 จัดเวรล่วงหน้า — อ่าน ROSTER+FLIGHT+Total สด แล้วจัด assignment ตามไฟลท์ */
 function rbAdvanceHtml(iso) {
   try {
+    var reqIso = iso, switched = false, allDates = [];
+    try { allDates = advFlightDates_(); } catch (e0) {}
+    if (allDates.length && allDates.indexOf(iso) < 0) {              // วันที่ขอไม่มีไฟลท์ → เด้งไปวันใกล้สุด
+      var near = advNearestFlightDate_(iso, allDates);
+      if (near) { iso = near; switched = true; }
+    }
     var date = (typeof rbDateFromIso_ === 'function') ? rbDateFromIso_(iso) : new Date(iso);
     var tgt = { y: date.getFullYear(), m: date.getMonth() + 1, d: date.getDate() };
     var dstr = tgt.d + '/' + tgt.m + '/' + tgt.y;
@@ -324,6 +342,7 @@ function rbAdvanceHtml(iso) {
       '<input type="date" value="' + iso + '" onchange="advGo(this.value)" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
       ' <button class="btn btn--accent" onclick="advSave()" style="margin-left:8px">💾 บันทึกลงชีต</button>' +
       ' <span id="advsavemsg" class="okk" style="margin-left:6px"></span>' +
+      (switched ? ' <span class="badd" style="margin-left:6px">ℹ️ วันที่ ' + reqIso + ' ไม่มีไฟลท์ → แสดงวันใกล้สุด ' + dstr + '</span>' : '') +
       ' <span class="muted">· คลิกช่องชื่อเพื่อเลือก/แก้ (autocomplete จากพนักงานทั้งหมด) · บันทึกเป็นชีตใหม่ ไม่เขียนทับไฟล์จริง</span></div>';
 
     var plan = advPlan_(tgt);
