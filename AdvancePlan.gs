@@ -247,13 +247,18 @@ function advSysForTeam_(teamStr) {
   return sys;
 }
 
-/** สร้างพูลคนว่างของวันนั้น (พนักงานหน้างานจาก ROSTER บล็อก + อ่านช่วงเวลาตรงๆ)
- *  คืน { pool, airlineTeams } — airlineTeams = สายการบิน→ทีมที่ดูแล (จากทุกคนในบล็อก รวมคนหยุด) */
+/** สร้างพูลคนว่างของวันนั้น (พนักงานหน้างานจาก ROSTER + ทีม/ระบบจากทะเบียน Total)
+ *  คืน { pool, airlineTeams } — ทีมมาจากคอลัมน์ "ทีม" ใน Total (เช่น "SQ/CX/LY") ซึ่งเชื่อถือได้
+ *  airlineTeams = สายการบิน → ชุดทีมที่ดูแล (สร้างจากพนักงานทั้งหมด เพื่อให้ป้ายทีมครบแม้คนหยุด) */
 function advBuildPool_(tgt) {
   var emp = advReadEmployees_();
   var ros = advReadRosterFrontline_(tgt);
   var airlineTeams = {};
-  ros.forEach(function (p) { (p.airlines || []).forEach(function (a) { (airlineTeams[a] = airlineTeams[a] || {})[p.team] = true; }); });
+  function teamAirlines(t) { return String(t || '').toUpperCase().split(/[\/,\s]+/).filter(function (a) { return a.length >= 2 && a.length <= 3 && /[A-Z]/.test(a); }); }
+  Object.keys(emp).forEach(function (id) {                              // map สายการบิน→ทีม จากทะเบียนพนักงานทั้งหมด
+    var t = String(emp[id].team || '').toUpperCase();
+    teamAirlines(t).forEach(function (a) { (airlineTeams[a] = airlineTeams[a] || {})[t] = true; });
+  });
   var pool = [], seen = {};
   ros.forEach(function (p) {
     if (p.off || seen[p.id]) return;
@@ -263,12 +268,14 @@ function advBuildPool_(tgt) {
     var e = emp[p.id] || {};
     if (e.active === false) return;                                    // ลาออก/พ้นสภาพ → ข้าม
     seen[p.id] = 1;
+    var teamStr = String(e.team || p.team || '').toUpperCase();        // ทีมจากทะเบียน Total เป็นหลัก
+    var airlines = teamAirlines(teamStr);
     var sys = {};
-    p.airlines.forEach(function (a) { var s = slaSystemOf_(a); if (s) sys[slaSysNorm_(s)] = true; });
+    airlines.forEach(function (a) { var s = slaSystemOf_(a); if (s) sys[slaSysNorm_(s)] = true; });
     pool.push({
-      id: p.id, name: e.name || p.name, team: p.team || (e.team || ''), pos: p.pos || e.pos || '',
+      id: p.id, name: e.name || p.name, team: teamStr, pos: p.pos || e.pos || '',
       posGroup: rrPosGroup_(p.pos || e.pos || '', ''),
-      ds: ds, de: de, busy: [], plan: 0, nflt: 0, sys: sys, airlines: p.airlines || [],
+      ds: ds, de: de, busy: [], plan: 0, nflt: 0, sys: sys, airlines: airlines,
       shiftDisp: rrFmtMin_(rr[0]) + '-' + rrFmtMin_(((de) % 1440 + 1440) % 1440),
       otDisp: '-', hrs: Math.round((de - ds) / 6) / 10, flts: [],
     });
@@ -370,17 +377,24 @@ function advActiveNames_() {
   return Object.keys(names).sort();
 }
 
-/** dropdown เลือกชื่อ: ทีมเจ้าของไฟลท์ก่อน แล้วข้ามทีม — แสดง ตำแหน่ง·ทีม·กะ·จำนวนไฟลท์ */
+/** ข้อความตัวเลือก: รองรับทั้ง view (pos/shift/n) และ pool (posGroup/shiftDisp/nflt) */
+function advOptText_(c) {
+  var pos = c.posGroup ? slaPosShort_(c.posGroup) : (c.pos || '');
+  var shift = c.shiftDisp || c.shift || '';
+  var n = (c.nflt != null ? c.nflt : (c.n != null ? c.n : 0));
+  return c.name + ' · ' + pos + ' · ' + (c.team || '-') + ' · ' + shift + ' · ' + n + ' ไฟลท์';
+}
+/** dropdown เลือกชื่อ: คนที่จัดให้ = ตัวเลือกแรก (selected) เสมอ แล้วตามด้วยทีมเจ้าของไฟลท์ → ข้ามทีม
+ *  (สำคัญ: ต้องโชว์คนที่จัดให้เสมอ แม้จะไม่อยู่ใน 30 ตัวแรกของรายชื่อข้ามทีม) */
 function advBuildSelect_(chosen, cands, home) {
-  var inT = [], ot = [], found = false;
-  (cands || []).forEach(function (c) { if (c.name === chosen.name) found = true; (home[c.team] ? inT : ot).push(c); });
-  function opt(c) {
-    return '<option value="' + rbAttr_(c.name) + '"' + (c.name === chosen.name ? ' selected' : '') + '>' +
-      rbEsc_(c.name + ' · ' + slaPosShort_(c.posGroup) + ' · ' + (c.team || '-') + ' · ' + (c.shiftDisp || '') + ' · ' + (c.nflt || 0) + ' ไฟลท์') + '</option>';
-  }
-  var h = '<select class="namepick" oninput="this.classList.add(\'edited\')">';
-  if (!found) h += '<option value="' + rbAttr_(chosen.name) + '" selected>' +
-    rbEsc_(chosen.name + ' · ' + (chosen.pos || '') + ' · ' + (chosen.team || '') + ' · ' + (chosen.shift || '') + ' · ' + (chosen.n || 0) + ' ไฟลท์') + '</option>';
+  var inT = [], ot = [];
+  (cands || []).forEach(function (c) {
+    if (c.name === chosen.name) return;                                // ตัวที่จัดอยู่แล้ว แสดงแยกเป็นตัวแรก
+    (home[c.team] ? inT : ot).push(c);
+  });
+  function opt(c) { return '<option value="' + rbAttr_(c.name) + '">' + rbEsc_(advOptText_(c)) + '</option>'; }
+  var h = '<select class="namepick" oninput="this.classList.add(\'edited\')">' +
+    '<option value="' + rbAttr_(chosen.name) + '" selected>' + rbEsc_(advOptText_(chosen)) + '</option>';
   if (inT.length) h += '<optgroup label="● ทีมเจ้าของไฟลท์ (' + inT.length + ')">' + inT.map(opt).join('') + '</optgroup>';
   if (ot.length) h += '<optgroup label="○ ข้ามทีม · ระบบตรง (' + ot.length + ')">' + ot.slice(0, 30).map(opt).join('') + '</optgroup>';
   return h + '</select>';
