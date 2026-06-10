@@ -276,7 +276,8 @@ function advSaveProposal(dateStr, rowsJson) {
 
 /** แจ้ง Assignment: สร้าง Google Sheet ใหม่ ผังเต็มต่อทีม (ASSIGNMENT คนในทีม + SUPPORT คนข้ามทีมที่มาช่วย) — เรียกจากปุ่ม UI */
 function advExportAssignment(dateStr) {
-  var tgt = dateStr ? rbDateFromIso_(dateStr) : new Date();
+  var d = dateStr ? rbDateFromIso_(dateStr) : new Date();
+  var tgt = { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };  // advPlan_ ต้องการ {y,m,d} ไม่ใช่ Date
   var R = advPlan_(tgt);
   var teams = advPivotTeams_(R);
   var names = Object.keys(teams).filter(function (t) { return teams[t].members.length; }).sort();
