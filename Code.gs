@@ -1884,6 +1884,8 @@ var ADV_TEAMS = [
 ];
 var ADV_AIRLINE_TEAMS = (function () { var m = {}; ADV_TEAMS.forEach(function (t, i) { t.airlines.forEach(function (a) { (m[a] = m[a] || []).push(i); }); }); return m; })();
 var ADV_VIP_IDX = (function () { for (var i = 0; i < ADV_TEAMS.length; i++) if (ADV_TEAMS[i].name === 'VIP') return i; return -1; })();
+// SU เช็คอินคอมมอน 16 เคาน์เตอร์
+var ADV_SU_COUNTERS = ['G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12', 'H2', 'H3', 'H4', 'H5', 'H6'];
 
 function advTeamIdxOf_(teamStr) {
   var t = String(teamStr || '').toUpperCase();
@@ -2189,6 +2191,32 @@ function advSlotCandidates_(pool, f, role, win) {
   });
 }
 
+function advSUCounters_(pool, flights) {
+  var suIdx = advTeamIdxOf_('SU/W5/B2');
+  var suFl = flights.filter(function (f) { return slaAirlineOf_(f.flight) === 'SU' && acIsFlight_(f.flight); });
+  suFl.forEach(function (f) { f.cwin = slaPhaseWindow_(f, 'CI'); });
+  suFl = suFl.filter(function (f) { return f.cwin; }).sort(function (a, b) { return a.cwin[0] - b.cwin[0]; });
+  if (!suFl.length) return null;
+  var batches = [];
+  suFl.forEach(function (f) {                                          // รวมไฟลท์ที่ช่วงเช็คอินซ้อน/ติดกัน = แบทช์เดียว
+    var b = batches[batches.length - 1];
+    if (b && f.cwin[0] <= b.end + 20) { b.end = Math.max(b.end, f.cwin[1]); b.flights.push(f.flight); }
+    else batches.push({ start: f.cwin[0], end: f.cwin[1], flights: [f.flight] });
+  });
+  var su = pool.filter(function (p) { return p.teamIdx === suIdx; }), pr = { PSA: 0, SNR: 1, PSS: 2 };
+  return batches.map(function (b) {
+    var avail = su.filter(function (p) { return p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })  // กะคลุมช่วงแบทช์
+      .sort(function (a, c) { return (pr[a.posGroup] == null ? 3 : pr[a.posGroup]) - (pr[c.posGroup] == null ? 3 : pr[c.posGroup]) || a.plan - c.plan; });
+    var cands = avail.map(function (p) { return { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp }; });
+    var slots = ADV_SU_COUNTERS.map(function (ct, i) {
+      var p = avail[i];
+      return { counter: ct, chosen: p ? { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp } : null, cands: cands };
+    });
+    return { time: rrFmtMin_(((b.start % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((b.end % 1440) + 1440) % 1440),
+      flights: b.flights.join(', '), nAvail: avail.length, slots: slots };
+  });
+}
+
 function advPlan_(tgt) {
   var built = advBuildPool_(tgt);
   var pool = built.pool, airlineTeams = built.airlineTeams;            // สายการบิน → ทีมที่ดูแล (รวมคนหยุด)
@@ -2237,9 +2265,10 @@ function advPlan_(tgt) {
     delete row._f; delete row.win;
   });
 
+  var suCounters = advSUCounters_(pool, flights);
   var bench = pool.filter(function (p) { return p.plan === 0; })
     .map(function (p) { return { id: p.id, name: p.name, pos: slaPosShort_(p.posGroup), team: p.team, shift: p.shiftDisp }; });
-  return { plan: plan, bench: bench, pool: pool, nPeople: pool.length,
+  return { plan: plan, bench: bench, pool: pool, suCounters: suCounters, nPeople: pool.length,
     nAssigned: pool.filter(function (p) { return p.plan > 0; }).length, nFlights: plan.length };
 }
 
@@ -2340,7 +2369,26 @@ function rbAdvanceHtml(iso) {
           return '<span class="chip">' + rbEsc_(b.name) + ' <span class="muted">' + rbEsc_(b.pos) + ' · ' + rbEsc_(b.shift) + '</span></span>';
         }).join('') + '</div></div>';
     }
-    return datebar + hd + tbl + benchHtml;
+    var suHtml = '';
+    if (plan.suCounters && plan.suCounters.length) {
+      suHtml = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 SU — เช็คอินคอมมอน 16 เคาน์เตอร์ (แบ่งคนตามช่วงเวลา)</h3></div>';
+      plan.suCounters.forEach(function (b) {
+        var filled = b.slots.filter(function (s) { return s.chosen; });
+        suHtml += '<div class="sectionlabel" style="margin:8px 14px 2px">⏱️ ช่วง <b>' + rbEsc_(b.time) + '</b> · ไฟลท์ ' + rbEsc_(b.flights) +
+          ' · คนว่าง <b>' + b.nAvail + '</b> · ใช้เคาน์เตอร์ ' + filled.length + '/16</div>' +
+          '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>เคาน์เตอร์</th><th>พนักงาน (เลือกได้)</th><th>ตำแหน่ง</th><th>กะ</th></tr></thead><tbody>';
+        b.slots.forEach(function (s) {
+          if (!s.chosen) return;
+          var sel = '<select class="namepick">' + s.cands.map(function (c) {
+            return '<option' + (c.name === s.chosen.name ? ' selected' : '') + '>' + rbEsc_(c.name + ' · ' + c.pos + ' · ' + c.shift) + '</option>';
+          }).join('') + '</select>';
+          suHtml += '<tr><td class="b">' + rbEsc_(s.counter) + '</td><td>' + sel + '</td><td>' + rbEsc_(s.chosen.pos) + '</td><td class="tnum">' + rbEsc_(s.chosen.shift) + '</td></tr>';
+        });
+        suHtml += '</tbody></table></div>';
+      });
+      suHtml += '</div>';
+    }
+    return datebar + hd + tbl + suHtml + benchHtml;
   } catch (e) { return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>'; }
 }
 
