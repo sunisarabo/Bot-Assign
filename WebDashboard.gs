@@ -854,8 +854,8 @@ body {
 .planchip.edited { background: #fff7d6; border-color: #d9a400; }
 .planchip__i { cursor: pointer; color: var(--ink-3); font-weight: 600; }
 .planchip__i:hover { color: var(--accent); }
-.pickwrap { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
-.namepick { font-family: inherit; font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg-2); color: var(--ink-2); max-width: 230px; cursor: pointer; }
+.pickwrap { display: flex; flex-direction: column; gap: 3px; margin-top: 3px; }
+.namepick { font-family: inherit; font-size: 11px; font-weight: 600; padding: 3px 6px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg-2); color: var(--ink-2); width: 150px; max-width: 150px; cursor: pointer; }
 .namepick:focus { outline: none; border-color: var(--accent); background: #fff; }
 .namepick.edited { background: #fff7d6; border-color: #d9a400; }
 .supbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 10px 0 4px; font-size: 13px; }

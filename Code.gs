@@ -927,39 +927,34 @@ var SLA_ALIAS = { '8M':'QZ','VN':'HY','3K':'JQ','HB':'HX','WZ':'ZF','N4':'EO','C
 // จาก Manpower Meeting (ตัดชนิดเครื่องบินออก = ใช้แถวลำใหญ่สุด) · TTL = จำนวนคนจริง
 // · gate agent มาจาก check-in (ไม่นับซ้ำใน per-phase) · total ใช้ TTL
 var SLA_RQ = {
-  'KE':[1,8,1,1,12],'LJ':[1,4,1,1,7],'OV':[1,4,1,1,7],'KC':[1,5,1,1,8],'AK':[1,3,1,1,7],'8M':[1,3,1,1,7],
-  '6E':[1,5,1,1,12],'TR':[1,6,1,1,9],'3K':[1,4,1,1,7],'CA':[1,6,1,1,10],'MU':[1,4,1,1,8],'CZ':[1,6,1,1,10],
-  'OQ':[1,4,1,1,8],'HU':[1,6,1,1,10],'FM':[1,4,1,1,8],'3U':[1,4,1,1,8],'KY':[1,4,1,1,7],'AQ':[1,3,1,1,7],
-  'PG':[1,0,1,2,8],'QR':[1,11,2,1,21],'MH':[1,4,1,1,6],'OM':[1,4,1,1,6],'SU':[1,8,1,1,12],'W5':[1,7,1,1,10],
-  'WK':[1,6,1,1,10],'SQ':[1,5,1,1,7],'CX':[1,6,2,1,10],'LY':[1,8,1,1,12],'WY':[2,7,1,1,12],'9C':[1,5,1,1,8],
-  'DK':[1,7,1,1,10],'JQ':[1,7,1,1,12],'IT':[1,4,1,1,8],'HO':[1,4,1,1,8],'EY':[1,9,1,1,13],'DV':[1,4,1,1,8],
-  'AY':[1,5,1,1,9],'TK':[1,8,4,1,12],'VJ':[1,5,1,1,9],'OD':[1,5,1,1,9],'ZF':[1,6,1,1,10],'HH':[1,4,1,1,8],
-  'EO':[1,6,1,1,10],'N4':[1,6,1,1,10],'WZ':[1,6,1,1,10],'LO':[1,6,1,1,10],'HX':[1,5,1,1,9],'G2':[1,6,1,1,10],
-  'EK':[1,7,3,1,12],'UO':[1,4,2,1,8],'6B':[1,5,2,1,8],'BY':[1,5,2,1,8],'FY':[1,4,1,1,7],'AI':[1,6,1,1,10],
-  'G9':[1,4,1,1,8],'ZH':[1,4,1,1,8],'HY':[1,5,1,1,9],'NO':[1,6,1,1,10],'SG':[1,4,1,1,8],'U6':[1,4,1,1,8],
-  'G8':[1,4,1,1,8],'OZ':[1,6,1,1,9],'S7':[1,4,1,1,8],'PN':[1,4,1,1,8],'8L':[1,4,1,1,8],'9H':[1,4,1,1,8],
-  'DE':[1,6,2,1,9],'AF':[1,9,1,1,11],'N0':[1,5,1,1,11],'C6':[1,4,1,1,8],'QZ':[1,3,1,1,7],
+  '3K':[2,4,1,2,8], '3U':[2,4,1,2,8], '6B':[2,5,2,2,10], '6E':[2,5,1,6,9], '8L':[2,4,1,2,8], '8M':[2,3,1,2,7],
+  '9C':[2,5,1,2,9], '9H':[2,4,1,2,8], 'AF':[2,9,1,2,13], 'AI':[2,6,1,2,10], 'AK':[2,3,1,2,7], 'AQ':[2,3,1,2,7],
+  'AY':[2,5,1,2,9], 'BY':[2,5,2,2,10], 'C6':[2,4,1,2,8], 'CA':[2,6,1,2,10], 'CX':[2,6,2,2,11], 'CZ':[2,6,1,2,10],
+  'DE':[2,6,2,2,11], 'DK':[2,7,1,2,11], 'DV':[2,4,1,2,8], 'EK':[2,7,3,2,13], 'EO':[2,6,1,2,10], 'EY':[2,9,1,2,13],
+  'FM':[2,4,1,2,8], 'FY':[2,4,1,2,8], 'G2':[2,6,1,2,10], 'G8':[2,4,1,2,8], 'G9':[2,4,1,2,8], 'HB':[2,4,1,2,8],
+  'HH':[2,4,1,2,8], 'HO':[2,4,1,2,8], 'HU':[2,6,1,2,10], 'HX':[2,5,1,2,9], 'HY':[2,5,1,2,9], 'IT':[2,4,1,2,8],
+  'JQ':[2,7,1,3,11], 'KC':[2,5,1,2,9], 'KE':[2,8,1,2,12], 'KY':[2,3,1,2,7], 'LJ':[2,4,1,2,8], 'LO':[2,6,1,2,10],
+  'LY':[2,8,1,2,12], 'MH':[2,4,1,2,8], 'MU':[2,4,1,2,8], 'N0':[2,5,1,2,9], 'N4':[2,6,1,2,10], 'NO':[2,6,1,2,10],
+  'OD':[2,5,1,2,9], 'OM':[2,4,1,2,8], 'OQ':[2,4,1,2,8], 'OV':[2,4,1,2,8], 'OZ':[2,6,1,2,10], 'PG':[2,0,1,2,5],
+  'PN':[2,4,1,2,8], 'QR':[2,9,2,2,14], 'QZ':[1,3,1,1,7], 'S7':[2,4,1,2,8], 'SG':[2,4,1,2,8], 'SQ':[2,5,1,2,9],
+  'SU':[2,8,1,2,12], 'TK':[2,8,4,2,15], 'TR':[2,6,1,2,10], 'U6':[2,4,1,2,8], 'UO':[2,4,2,2,9], 'VJ':[2,5,1,2,9],
+  'W5':[2,7,1,2,11], 'WK':[2,6,1,2,10], 'WY':[2,7,1,2,11], 'WZ':[2,6,1,2,10], 'ZF':[2,6,1,2,10], 'ZH':[2,4,1,2,8],
 };
 
 // ── Airline → check-in SYSTEM (ตารางทางการ) ─────────────────────────────────
 var AIRLINE_SYS = {
-  'AI':'Altea','IX':'Gonow','JQ':'Gonow','IT':'iPort',
-  'AK':'Gonow','QZ':'Gonow','8M':'iPort',
-  'SQ':'Altea','CX':'Altea','LY':'Altea',
-  'HH':'iPort','LO':'iPort','G2':'iPort','H4':'iPort','C6':'iPort',
-  'ZF':'Astra','WZ':'Astra','EO':'Lydia DCS','N4':'Lydia DCS','HB':'TravelSky','S7':'TWD',
-  'EK':'AS Connect','6B':'iPort','BY':'iPort','FY':'Gonow','UO':'Gonow',
-  'QR':'Altea','MH':'Altea','DE':'Altea','OM':'iPort',
-  'CA':'TravelSky','3U':'TravelSky','HU':'TravelSky','FM':'TravelSky','MU':'TravelSky','CZ':'TravelSky',
-  'HO':'TravelSky','AQ':'TravelSky','ZH':'TravelSky','PN':'TravelSky','OQ':'TravelSky','GX':'TravelSky',
-  'KX':'TravelSky','8H':'TravelSky','9H':'TravelSky','BK':'TravelSky','HX':'TravelSky',
-  'KE':'Altea','KC':'Altea','AF':'Altea','LJ':'iFlyRes','OV':'iPort','NO':'iPort','OZ':'Altea',
-  'TR':'Gonow','6E':'Gonow','QP':'Gonow','3K':'Gonow',
-  'WY':'Sabre','G9':'Altea','DK':'Altea','9C':'TravelSky','PG':'Altea',
-  'W5':'AVIA','SU':'ASTRA','B2':'ASTRA',
-  'TK':'TOYA','HY':'Altea','SG':'Gonow','N0':'Gonow','VJ':'iPort','OD':'Sabre','VN':'Gonow',
-  'AY':'Altea','EY':'Altea','DV':'TWD',
-  'SV':'Altea','WK':'Altea','KA':'iPort',
+  '3K':'Gonow', '3U':'Angel Lite', '6B':'iPort', '6E':'Gonow', '8H':'TravelSky', '8L':'TravelSky', '8M':'iPort',
+  '9C':'TravelSky', '9H':'TravelSky', 'AF':'Altea', 'AI':'Altea', 'AK':'Gonow', 'AQ':'TravelSky', 'AY':'Altea',
+  'B2':'ASTRA', 'BK':'TravelSky', 'BY':'iPort', 'C6':'iPort', 'CA':'TravelSky', 'CX':'Altea', 'CZ':'TravelSky',
+  'DE':'Altea', 'DK':'Altea', 'DV':'TWD', 'EK':'AS Connect', 'EO':'Lydia DCS', 'EY':'Altea', 'FM':'TravelSky',
+  'FY':'Gonow', 'G2':'iPort', 'G8':'Gonow', 'G9':'Altea', 'GX':'TravelSky', 'H4':'iPort', 'HB':'TravelSky',
+  'HH':'iPort', 'HO':'TravelSky', 'HU':'TravelSky', 'HX':'iPort', 'HY':'Altea', 'IT':'Gonow', 'IX':'Gonow',
+  'JQ':'Gonow', 'KA':'iPort', 'KC':'Altea', 'KE':'Altea', 'KX':'TravelSky', 'KY':'TravelSky', 'LJ':'iFlyRes',
+  'LO':'iPort', 'LY':'Altea', 'MH':'Altea', 'MU':'TravelSky', 'N0':'Gonow', 'N4':'Lydia DCS', 'NO':'Gonow',
+  'OD':'Sabre', 'OM':'iPort', 'OQ':'TravelSky', 'OV':'iPort', 'OZ':'Altea', 'PG':'Altea', 'PN':'TravelSky',
+  'QP':'Gonow', 'QR':'Altea', 'QZ':'Gonow', 'S7':'TWD', 'SG':'Gonow', 'SQ':'Altea', 'SU':'ASTRA',
+  'SV':'Altea', 'TK':'TOYA', 'TR':'Gonow', 'U6':'Gonow', 'UO':'Gonow', 'VJ':'iPort', 'VN':'Gonow',
+  'W5':'AVIA', 'WK':'Altea', 'WY':'Sabre', 'WZ':'ASTRA', 'ZF':'ASTRA', 'ZH':'TravelSky',
 };
 // iPort = ระบบที่ทุกคนทำได้ (ไฟลท์ iPort ใครว่างก็ช่วยเช็คอินได้)
 var SLA_UNIVERSAL_SYS_NORM = 'iport';
@@ -2073,13 +2068,14 @@ function advBuildPool_(tgt) {
   return { pool: pool, airlineTeams: airlineTeams };
 }
 
-function advPickSlot_(pool, f, ph, win) {
+function advPickSlot_(pool, f, ph, win, used) {
   var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '';
   var best = null, bs = 1e9;
   for (var i = 0; i < pool.length; i++) {
     var p = pool[i];
+    if (used && used[p.id]) continue;                                  // ห้ามคนเดิมซ้ำในไฟลท์เดียวกัน
     if (nn && !p.sys[nn]) continue;                                    // CI/SUP ต้องรู้ระบบ (ยกเว้น iPort)
-    if (ph === 'SUP' && p.posGroup !== 'PSS') continue;                // SUP ต้องเป็น Sup
+    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') continue;  // SUP/FC = Sup หรือ Snr
     if (!apFree_(p, win)) continue;
     var sc = apScore_(p, ph, null) + (f.homeTeam[p.team] ? 0 : 8);     // ทีมเจ้าของไฟลท์มาก่อนเสมอ
     if (sc < bs) { bs = sc; best = p; }
@@ -2088,15 +2084,17 @@ function advPickSlot_(pool, f, ph, win) {
     if (win) best.busy.push([win[0], win[1]]);
     best.plan++; best.nflt = best.plan;
     (best.flts = best.flts || []).push(f.flight + ' ' + (SLA_PH_LB[ph] || ph));
+    if (used) used[best.id] = 1;
   }
   return best;
 }
 
 function advSlotCandidates_(pool, f, ph, win) {
-  var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '';
+  var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '', seen = {};
   return pool.filter(function (p) {
+    if (seen[p.id]) return false; seen[p.id] = 1;                       // กันรายชื่อซ้ำใน dropdown
     if (nn && !p.sys[nn]) return false;
-    if (ph === 'SUP' && p.posGroup !== 'PSS') return false;
+    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') return false;
     if (win && !(p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL)) return false;
     return true;
   }).sort(function (a, b) {
@@ -2119,7 +2117,7 @@ function advPlan_(tgt) {
 
   var plan = [];
   flights.forEach(function (f) {
-    var assign = { SUP: [], CI: [], ARR: [], GATE: [] }, shortx = {}, win = {};
+    var assign = { SUP: [], CI: [], ARR: [], GATE: [] }, shortx = {}, win = {}, used = {};
     var phaseReq = { SUP: f.req.SUP, CI: f.req.CI, ARR: f.req.ARR, GATE: f.req.GATE };
     var sumPh = f.req.SUP + f.req.CI + f.req.ARR + f.req.GATE;
     var extra = Math.max(0, (f.req.total || 0) - sumPh);
@@ -2128,7 +2126,7 @@ function advPlan_(tgt) {
       if (!phaseReq[ph]) return;
       win[ph] = slaPhaseWindow_(f, ph);
       for (var k = 0; k < phaseReq[ph]; k++) {
-        var p = advPickSlot_(pool, f, ph, win[ph]);
+        var p = advPickSlot_(pool, f, ph, win[ph], used);             // used = กันคนซ้ำในไฟลท์เดียวกัน
         if (p) assign[ph].push(p);                                     // เก็บ ref ไว้ก่อน (nflt อัปเดตท้ายสุด)
         else { shortx[ph] = phaseReq[ph] - k; break; }
       }
@@ -2245,7 +2243,7 @@ function rbAdvanceHtml(iso) {
   } catch (e) { return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>'; }
 }
 
-function advTest_() {
+function advTest() {
   var d = new Date(); d.setMonth(d.getMonth()); var tgt = { y: 2026, m: 6, d: 1 };
   var emp = advReadEmployees_(), ros = advReadRosterFrontline_(tgt), flt = advReadFlights_(tgt), built = advBuildPool_(tgt), plan = advPlan_(tgt);
   Logger.log('employees=%s frontlineRows=%s working=%s flights=%s pool=%s teams=%s | plan: flights=%s assigned=%s bench=%s',
@@ -3518,8 +3516,8 @@ body{font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased
 .planchip.edited{background:#fff7d6;border-color:#d9a400;}
 .planchip__i{cursor:pointer;color:var(--ink-3);font-weight:600;}
 .planchip__i:hover{color:var(--accent);}
-.pickwrap{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;}
-.namepick{font-family:inherit;font-size:11px;font-weight:600;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink-2);max-width:230px;cursor:pointer;}
+.pickwrap{display:flex;flex-direction:column;gap:3px;margin-top:3px;}
+.namepick{font-family:inherit;font-size:11px;font-weight:600;padding:3px 6px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink-2);width:150px;max-width:150px;cursor:pointer;}
 .namepick:focus{outline:none;border-color:var(--accent);background:#fff;}
 .namepick.edited{background:#fff7d6;border-color:#d9a400;}
 .supbar{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:10px 0 4px;font-size:13px;}

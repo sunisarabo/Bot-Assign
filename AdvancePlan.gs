@@ -277,13 +277,14 @@ function advBuildPool_(tgt) {
 }
 
 /** เลือกคน 1 คนสำหรับ 1 สลอต — "ทีมเจ้าของไฟลท์ก่อน" แล้วค่อยข้ามทีม (ต้องรู้ระบบ) */
-function advPickSlot_(pool, f, ph, win) {
+function advPickSlot_(pool, f, ph, win, used) {
   var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '';
   var best = null, bs = 1e9;
   for (var i = 0; i < pool.length; i++) {
     var p = pool[i];
+    if (used && used[p.id]) continue;                                  // ห้ามคนเดิมซ้ำในไฟลท์เดียวกัน
     if (nn && !p.sys[nn]) continue;                                    // CI/SUP ต้องรู้ระบบ (ยกเว้น iPort)
-    if (ph === 'SUP' && p.posGroup !== 'PSS') continue;                // SUP ต้องเป็น Sup
+    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') continue;  // SUP/FC = Sup หรือ Snr
     if (!apFree_(p, win)) continue;
     var sc = apScore_(p, ph, null) + (f.homeTeam[p.team] ? 0 : 8);     // ทีมเจ้าของไฟลท์มาก่อนเสมอ
     if (sc < bs) { bs = sc; best = p; }
@@ -292,16 +293,18 @@ function advPickSlot_(pool, f, ph, win) {
     if (win) best.busy.push([win[0], win[1]]);
     best.plan++; best.nflt = best.plan;
     (best.flts = best.flts || []).push(f.flight + ' ' + (SLA_PH_LB[ph] || ph));
+    if (used) used[best.id] = 1;
   }
   return best;
 }
 
 /** ผู้สมัครสำรองของสลอต (สำหรับ dropdown เลือก/เปลี่ยนชื่อ) — ทีมก่อน, ดูแค่กะคลุมเวลา+ระบบ+ตำแหน่ง */
 function advSlotCandidates_(pool, f, ph, win) {
-  var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '';
+  var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '', seen = {};
   return pool.filter(function (p) {
+    if (seen[p.id]) return false; seen[p.id] = 1;                       // กันรายชื่อซ้ำใน dropdown
     if (nn && !p.sys[nn]) return false;
-    if (ph === 'SUP' && p.posGroup !== 'PSS') return false;
+    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') return false;
     if (win && !(p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL)) return false;
     return true;
   }).sort(function (a, b) {
@@ -325,7 +328,7 @@ function advPlan_(tgt) {
 
   var plan = [];
   flights.forEach(function (f) {
-    var assign = { SUP: [], CI: [], ARR: [], GATE: [] }, shortx = {}, win = {};
+    var assign = { SUP: [], CI: [], ARR: [], GATE: [] }, shortx = {}, win = {}, used = {};
     var phaseReq = { SUP: f.req.SUP, CI: f.req.CI, ARR: f.req.ARR, GATE: f.req.GATE };
     var sumPh = f.req.SUP + f.req.CI + f.req.ARR + f.req.GATE;
     var extra = Math.max(0, (f.req.total || 0) - sumPh);
@@ -334,7 +337,7 @@ function advPlan_(tgt) {
       if (!phaseReq[ph]) return;
       win[ph] = slaPhaseWindow_(f, ph);
       for (var k = 0; k < phaseReq[ph]; k++) {
-        var p = advPickSlot_(pool, f, ph, win[ph]);
+        var p = advPickSlot_(pool, f, ph, win[ph], used);             // used = กันคนซ้ำในไฟลท์เดียวกัน
         if (p) assign[ph].push(p);                                     // เก็บ ref ไว้ก่อน (nflt อัปเดตท้ายสุด)
         else { shortx[ph] = phaseReq[ph] - k; break; }
       }
@@ -454,8 +457,8 @@ function rbAdvanceHtml(iso) {
   } catch (e) { return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>'; }
 }
 
-/** ทดสอบการอ่านลิงก์สด (รันใน Apps Script editor เพื่อตรวจสิทธิ์/โครงสร้าง) */
-function advTest_() {
+/** ทดสอบการอ่านลิงก์สด (รันใน Apps Script editor เพื่อตรวจสิทธิ์/โครงสร้าง) — ไม่มี _ ท้าย จะได้ขึ้นใน Run */
+function advTest() {
   var d = new Date(); d.setMonth(d.getMonth()); var tgt = { y: 2026, m: 6, d: 1 };
   var emp = advReadEmployees_(), ros = advReadRosterFrontline_(tgt), flt = advReadFlights_(tgt), built = advBuildPool_(tgt), plan = advPlan_(tgt);
   Logger.log('employees=%s frontlineRows=%s working=%s flights=%s pool=%s teams=%s | plan: flights=%s assigned=%s bench=%s',
