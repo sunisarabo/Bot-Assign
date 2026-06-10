@@ -52,17 +52,39 @@ function doGet(e) {
 }
 ```
 
+## Deploy (GitHub Pages)
+`.github/workflows/deploy.yml` builds and publishes on every push to `main`.
+One-time: **Settings → Pages → Source: "GitHub Actions"**. For the AI Assistant
+tab, add a repo secret **`GEMINI_API_KEY`** (Settings → Secrets and variables →
+Actions).
+
+> ⚠️ A client-side Gemini key is embedded in the published bundle and is
+> therefore **public**. Use a restricted/rotated key, or leave the secret unset
+> to ship the dashboard without the assistant. `vite.config.ts` sets
+> `base: './'` so the build works on a Pages project sub-path.
+
 ## Project layout
 ```
+public/favicon.svg         app icon
+index.html                 entry HTML (loads src/main.tsx)
+vite.config.ts             base './', injects API_KEY at build
+.github/workflows/deploy.yml  GitHub Pages CI
+
 src/
-  App.tsx                 top-level state (date, tab, roster load)
-  constants.ts            CI palette, SLA_RQ, AIRLINE_SYS
-  types.ts                RosterRecord / Agg / FlightCoverage
-  data/sampleRoster.ts    bundled sample roster
+  main.tsx                 React entry (renders <App/>, imports index.css)
+  App.tsx                  top-level state (date, tab, roster load)
+  index.css                design system (CI palette, layout)
+  constants.ts             CI palette, SLA_RQ, AIRLINE_SYS
+  types.ts                 RosterRecord / Agg / FlightCoverage
+  data/sampleRoster.ts     bundled sample roster
   services/
-    rosterService.ts      aggregation (rrAddBucket_ port) + loader
-    sla.ts                SLA coverage (slaCollectFlights_ port)
-    geminiService.ts      Gemini chat + roster-context builder
-  components/             AppBar, WeekNav, Tabs, Dashboard, Timetable,
-                          FlightsSLA, AiAssistant
+    rosterService.ts       aggregation (rrAddBucket_ port) + loader
+    sla.ts                 SLA coverage (slaCollectFlights_ port)
+    geminiService.ts       Gemini chat + roster-context builder
+  components/              shared layout: AppBar, WeekNav, Tabs
+  features/
+    dashboard/Dashboard.tsx   KPIs, charts, manpower tables
+    timetable/Timetable.tsx   per-employee schedule
+    flights/FlightsSLA.tsx    flight SLA coverage
+    assistant/AiAssistant.tsx Gemini chat
 ```

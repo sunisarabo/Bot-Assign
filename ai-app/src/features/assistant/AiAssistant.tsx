@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import type { RosterResult } from '../types';
-import { askGemini, buildRosterContext, hasApiKey, type ChatTurn } from '../services/geminiService';
+import type { RosterResult } from '../../types';
+import { askGemini, buildRosterContext, hasApiKey, type ChatTurn } from '../../services/geminiService';
 
 const SUGGESTIONS = [
   'วันนี้ไฟลท์ไหนคนไม่ครบ SLA บ้าง?',

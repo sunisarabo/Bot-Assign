@@ -10,8 +10,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { Agg, RosterResult } from '../types';
-import { CI, PSA_POS_ORDER } from '../constants';
+import type { Agg, RosterResult } from '../../types';
+import { CI, PSA_POS_ORDER } from '../../constants';
 
 function KpiHero({ T }: { T: Agg }) {
   const work = T.working + T.ot_off;

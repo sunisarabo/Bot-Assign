@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import type { FlightCoverage, Phase, RosterResult } from '../types';
-import { collectFlights, systemOf } from '../services/sla';
+import type { FlightCoverage, Phase, RosterResult } from '../../types';
+import { collectFlights, systemOf } from '../../services/sla';
 
 const PH_LABEL: Record<Phase, string> = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 

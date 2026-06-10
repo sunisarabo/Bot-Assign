@@ -6,10 +6,10 @@ import { MONW } from './constants';
 import AppBar from './components/AppBar';
 import WeekNav from './components/WeekNav';
 import Tabs, { type TabId } from './components/Tabs';
-import Dashboard from './components/Dashboard';
-import Timetable from './components/Timetable';
-import FlightsSLA from './components/FlightsSLA';
-import AiAssistant from './components/AiAssistant';
+import Dashboard from './features/dashboard/Dashboard';
+import Timetable from './features/timetable/Timetable';
+import FlightsSLA from './features/flights/FlightsSLA';
+import AiAssistant from './features/assistant/AiAssistant';
 
 function toISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
