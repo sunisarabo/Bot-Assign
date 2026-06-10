@@ -29,7 +29,7 @@ var ADV_MAX_OPT = 40;   // จำกัดตัวเลือกในแต�
 
 // ── ทีม → สายการบินที่ดูแล (ตารางทางการ 16 ทีม) ─────────────────────────────
 var ADV_TEAMS = [
-  { name: 'JQ/AI/HO/IT/IX',                 airlines: ['AI', 'IX', 'JQ', 'IT', 'HO'] },
+  { name: 'JQ/AI/HO/IT/IX',                 airlines: ['AI', 'IX', 'JQ', 'IT'] },
   { name: 'AK/8M/QZ',                       airlines: ['AK', 'QZ', '8M'] },
   { name: 'SQ/CX/LY',                       airlines: ['SQ', 'CX', 'LY'] },
   { name: 'ZF/EO/WZ/HX/HH/LO/G2/S7/HB/H4',  airlines: ['HH', 'LO', 'G2', 'H4', 'C6', 'ZF', 'WZ', 'EO', 'N4', 'HB', 'S7'] },
