@@ -1,5 +1,30 @@
 var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
 
+var PUBLIC_HOLIDAYS = {
+  '2026-01-01': 'วันขึ้นปีใหม่',
+  '2026-03-03': 'วันมาฆบูชา',
+  '2026-04-06': 'วันจักรี',
+  '2026-04-13': 'วันสงกรานต์',
+  '2026-04-14': 'วันสงกรานต์',
+  '2026-05-01': 'วันแรงงานแห่งชาติ',
+  '2026-06-01': 'วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี',
+  '2026-07-28': 'วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระเจ้าอยู่หัว',
+  '2026-07-29': 'วันอาสาฬหบูชา',
+  '2026-08-12': 'วันแม่แห่งชาติ',
+  '2026-10-13': 'วันนวมินทรมหาราช',
+  '2026-10-23': 'วันปิยมหาราช',
+  '2026-12-05': 'วันพ่อแห่งชาติ',
+  '2026-12-31': 'วันสิ้นปี'
+};
+
+function rrPublicHoliday_(date) {
+  var y, m, d;
+  if (date && typeof date.getFullYear === 'function') { y = date.getFullYear(); m = date.getMonth() + 1; d = date.getDate(); }
+  else if (date) { y = date.y; m = date.m; d = date.d; } else return null;
+  var key = y + '-' + ('0' + m).slice(-2) + '-' + ('0' + d).slice(-2);
+  return PUBLIC_HOLIDAYS[key] || null;
+}
+
 // ─── cell helpers ───────────────────────────────────────────────────────────
 function rrClean_(v) {
   if (v === null || v === undefined) return '';
@@ -514,7 +539,7 @@ function rrPosGroup_(pos, team) {
   return 'PSA';                                              // Agent / blank default
 }
 
-function rrAddBucket_(agg, r) {
+function rrAddBucket_(agg, r, isHol) {
   if (r.bucket === 'working') agg.working++;
   else if (r.bucket === 'ot_off') agg.ot_off++;
   else if (r.bucket === 'off') agg.off++;
@@ -526,22 +551,27 @@ function rrAddBucket_(agg, r) {
     else if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
     else { agg.otPost++; agg.otPostHrs += r.ot; }
   }
+  if (isHol && r.bucket === 'working' && r.shiftHrs > 0) {      // วันหยุดประเพณี: ทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ
+    agg.otHol++; agg.otHolHrs += r.shiftHrs;
+  }
   agg.flights += (r.assignments ? r.assignments.length : 0);
   agg.staff++;
 }
 function rrNewAgg_() {
   return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
-           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, flights: 0 };
+           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, otHol: 0, otHolHrs: 0, flights: 0 };
 }
 function rrRoundAgg_(a) {
   a.otHours = Math.round(a.otHours * 10) / 10; a.otPreHrs = Math.round(a.otPreHrs * 10) / 10;
-  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10; return a;
+  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10;
+  a.otHolHrs = Math.round(a.otHolHrs * 10) / 10; return a;
 }
 
-function readRosterFromSpreadsheet(ss) {
+function readRosterFromSpreadsheet(ss, date) {
   var teams = {};
   var positions = {};                                        // exact per-position-group rollup
   var totals = rrNewAgg_();
+  var holName = date ? rrPublicHoliday_(date) : null, isHol = !!holName;  // วันหยุดประเพณี → OT นักขัต X1
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
     if (!recs || !recs.length) return;
@@ -549,10 +579,11 @@ function readRosterFromSpreadsheet(ss) {
     t.records = recs;
     recs.forEach(function (r) {
       r.posGroup = rrPosGroup_(r.pos, ws.getName());
-      rrAddBucket_(t, r);
+      r.isHoliday = isHol;
+      rrAddBucket_(t, r, isHol);
       if (!positions[r.posGroup]) positions[r.posGroup] = rrNewAgg_();
-      rrAddBucket_(positions[r.posGroup], r);
-      rrAddBucket_(totals, r);
+      rrAddBucket_(positions[r.posGroup], r, isHol);
+      rrAddBucket_(totals, r, isHol);
     });
     rrRoundAgg_(t);
     teams[ws.getName().trim()] = t;
@@ -560,7 +591,7 @@ function readRosterFromSpreadsheet(ss) {
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
   rrRoundAgg_(totals);
   delete totals.records;
-  return { teams: teams, positions: positions, totals: totals };
+  return { teams: teams, positions: positions, totals: totals, holiday: holName };
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────
@@ -2631,7 +2662,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
 // ─── MAIN PIPELINE ──────────────────────────────────────────────────────────
 function rbRunForDate_(date) {
   var roster = rbOpenTodayRoster_(date);
-  var res = readRosterFromSpreadsheet(roster.ss);
+  var res = readRosterFromSpreadsheet(roster.ss, date);
 
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) {
@@ -2935,7 +2966,7 @@ function rbWeeklyOT_(date) {
     var roster;
     try { roster = rbOpenTodayRoster_(dt); } catch (e) { continue; }
     var res;
-    try { res = readRosterFromSpreadsheet(roster.ss); } catch (e2) { res = null; }
+    try { res = readRosterFromSpreadsheet(roster.ss, dt); } catch (e2) { res = null; }
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
     if (!res) continue;
     daysRead.push(day);
@@ -3172,7 +3203,7 @@ function doGet(e) {
 
 function rbLoadResLL_(date) {
   var roster = rbOpenTodayRoster_(date);
-  var res = readRosterFromSpreadsheet(roster.ss);
+  var res = readRosterFromSpreadsheet(roster.ss, date);
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
@@ -3545,7 +3576,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
 
   var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
     tt:teamOrder.map(function(t){return res.teams[t].staff;}), work:C.working, off:C.off, sick:C.sick, leave:C.leave,
-    otPreN:C.otPre, otPostN:C.otPost, otOffN:C.ot_off, otPreH:C.otPreHrs, otPostH:C.otPostHrs, otOffH:C.otOffHrs, c:CI };
+    otPreN:C.otPre, otPostN:C.otPost, otOffN:C.ot_off, otPreH:C.otPreHrs, otPostH:C.otPostHrs, otOffH:C.otOffHrs,
+    otHolN:C.otHol, otHolH:C.otHolHrs, c:CI };
 
   var teamHead = '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OFF</th><th>Vac</th><th>OT-Off</th><th>OT ก่อน</th><th>OT หลัง</th><th>%Working</th></tr>';
   var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT ก่อน</th><th>OT หลัง</th></tr>';
@@ -3560,7 +3592,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
   var otbar = '<div class="otsplit"><div class="otrow"><span>⏱️ OT ก่อนกะ</span><b class="tnum">'+C.otPre+' คน · '+C.otPreHrs+'h</b></div>' +
     '<div class="otrow"><span>⏱️ OT หลังกะ</span><b class="tnum">'+C.otPost+' คน · '+C.otPostHrs+'h</b></div>' +
     '<div class="otrow"><span>⏱️ OT OFF</span><b class="tnum">'+C.ot_off+' คน · '+C.otOffHrs+'h</b></div>' +
+    (C.otHolHrs > 0 ? '<div class="otrow"><span>🎉 OT นักขัต ×1</span><b class="tnum">'+C.otHol+' คน · '+C.otHolHrs+'h</b></div>' : '') +
     '<div class="otrow"><span>รวม OT</span><b class="tnum">'+C.otPeople+' คน · '+C.otHours+'h</b></div></div>';
+  var holBanner = res.holiday ? '<div class="sectionlabel" style="background:#fff4e6;border-left:4px solid #f97316;padding:9px 12px;border-radius:8px;margin-bottom:4px">🎉 วันนี้เป็น<b>วันหยุดประเพณี</b>: '+rbEsc_(res.holiday)+' — ผู้ที่มาทำงานได้ <b>OT นักขัต ×1</b> เท่าชั่วโมงกะ ('+C.otHol+' คน · '+C.otHolHrs+'h)</div>' : '';
 
   // tab contents: inline (offline file) or lazy placeholders (web app)
   var ttInner = staticMode
@@ -3589,7 +3623,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<style>' + rbDesignCss_() + otDashCss_() + '</style></head><body><div class="wrap">' +
     rbAppbar_(date) + rbWeekNav_(date, iso, base, tz) + rbTabs_(shortCount, acCount) +
     '<div id="view-dash">' +
-    rbKpiHero_(C, master) + masterLine +
+    holBanner + rbKpiHero_(C, master) + masterLine +
     '<div class="grid grid--charts" style="margin-top:16px">' +
       '<div class="panel"><div class="panel__hd"><h3>📊 Working / Total ต่อทีม</h3></div><canvas id="c1" height="150"></canvas></div>' +
       '<div class="panel"><div class="panel__hd"><h3>🧭 ภาพรวมสถานะ</h3></div><canvas id="c2" height="150"></canvas></div></div>' +
@@ -3650,8 +3684,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'new Chart(c1,{type:"bar",data:{labels:CD.tn,datasets:[{label:"Working",data:CD.tw,backgroundColor:CD.c.teal,borderRadius:5},{label:"Total",data:CD.tt,backgroundColor:"#c9d6e8",borderRadius:5}]},options:{plugins:{legend:{labels:{boxWidth:12}},datalabels:{anchor:"end",align:"end",font:{size:9,weight:"700"},color:"#15233f"}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"},suggestedMax:Math.max.apply(null,CD.tt)+3}}}});' +
     'new Chart(c2,{type:"doughnut",data:{labels:["Working","OFF","Sick","Leave"],datasets:[{data:[CD.work,CD.off,CD.sick,CD.leave],backgroundColor:[CD.c.teal,CD.c.grey,CD.c.red,CD.c.yellow],borderColor:"#fff",borderWidth:2}]},options:{plugins:{legend:{position:"bottom",labels:{boxWidth:12}},datalabels:{color:"#fff",font:{weight:"700"}}}}});' +
     'var OTL=["ก่อนกะ","หลังกะ","OT OFF"],OTC=[CD.c.yellow,CD.c.royal,CD.c.red];' +
-    'new Chart(c3,{type:"bar",data:{labels:OTL,datasets:[{data:[CD.otPreN,CD.otPostN,CD.otOffN],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+" คน";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});' +
-    'new Chart(c4,{type:"bar",data:{labels:OTL,datasets:[{data:[CD.otPreH,CD.otPostH,CD.otOffH],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+"h";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});});' +
+    'if(CD.otHolH>0){OTL.push("นักขัต ×1");OTC.push("#f97316");}' +
+    'new Chart(c3,{type:"bar",data:{labels:OTL,datasets:[{data:CD.otHolH>0?[CD.otPreN,CD.otPostN,CD.otOffN,CD.otHolN]:[CD.otPreN,CD.otPostN,CD.otOffN],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+" คน";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});' +
+    'new Chart(c4,{type:"bar",data:{labels:OTL,datasets:[{data:CD.otHolH>0?[CD.otPreH,CD.otPostH,CD.otOffH,CD.otHolH]:[CD.otPreH,CD.otPostH,CD.otOffH],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+"h";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});});' +
     '</script>' + otDashScript_() + '</body></html>';
 }
 

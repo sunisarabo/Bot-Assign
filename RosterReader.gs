@@ -27,6 +27,34 @@
 
 var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
 
+/** วันหยุดประเพณี/นักขัตฤกษ์ ปี 2569 (2026) ตามประกาศ AOTGA 403/2568
+ *  ทำงานในวันเหล่านี้ = ได้ OT นักขัต X1 (1 เท่า) จากชั่วโมงทำงานในกะวันนั้น */
+var PUBLIC_HOLIDAYS = {
+  '2026-01-01': 'วันขึ้นปีใหม่',
+  '2026-03-03': 'วันมาฆบูชา',
+  '2026-04-06': 'วันจักรี',
+  '2026-04-13': 'วันสงกรานต์',
+  '2026-04-14': 'วันสงกรานต์',
+  '2026-05-01': 'วันแรงงานแห่งชาติ',
+  '2026-06-01': 'วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี',
+  '2026-07-28': 'วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระเจ้าอยู่หัว',
+  '2026-07-29': 'วันอาสาฬหบูชา',
+  '2026-08-12': 'วันแม่แห่งชาติ',
+  '2026-10-13': 'วันนวมินทรมหาราช',
+  '2026-10-23': 'วันปิยมหาราช',
+  '2026-12-05': 'วันพ่อแห่งชาติ',
+  '2026-12-31': 'วันสิ้นปี'
+};
+
+/** คืนชื่อวันหยุดประเพณี ถ้า date เป็นวันหยุด (รับ Date หรือ {y,m,d}) ไม่ใช่ → null */
+function rrPublicHoliday_(date) {
+  var y, m, d;
+  if (date && typeof date.getFullYear === 'function') { y = date.getFullYear(); m = date.getMonth() + 1; d = date.getDate(); }
+  else if (date) { y = date.y; m = date.m; d = date.d; } else return null;
+  var key = y + '-' + ('0' + m).slice(-2) + '-' + ('0' + d).slice(-2);
+  return PUBLIC_HOLIDAYS[key] || null;
+}
+
 // ─── cell helpers ───────────────────────────────────────────────────────────
 function rrClean_(v) {
   if (v === null || v === undefined) return '';
@@ -552,7 +580,7 @@ function rrPosGroup_(pos, team) {
   return 'PSA';                                              // Agent / blank default
 }
 
-function rrAddBucket_(agg, r) {
+function rrAddBucket_(agg, r, isHol) {
   if (r.bucket === 'working') agg.working++;
   else if (r.bucket === 'ot_off') agg.ot_off++;
   else if (r.bucket === 'off') agg.off++;
@@ -564,22 +592,27 @@ function rrAddBucket_(agg, r) {
     else if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
     else { agg.otPost++; agg.otPostHrs += r.ot; }
   }
+  if (isHol && r.bucket === 'working' && r.shiftHrs > 0) {      // วันหยุดประเพณี: ทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ
+    agg.otHol++; agg.otHolHrs += r.shiftHrs;
+  }
   agg.flights += (r.assignments ? r.assignments.length : 0);
   agg.staff++;
 }
 function rrNewAgg_() {
   return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
-           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, flights: 0 };
+           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, otHol: 0, otHolHrs: 0, flights: 0 };
 }
 function rrRoundAgg_(a) {
   a.otHours = Math.round(a.otHours * 10) / 10; a.otPreHrs = Math.round(a.otPreHrs * 10) / 10;
-  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10; return a;
+  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10;
+  a.otHolHrs = Math.round(a.otHolHrs * 10) / 10; return a;
 }
 
-function readRosterFromSpreadsheet(ss) {
+function readRosterFromSpreadsheet(ss, date) {
   var teams = {};
   var positions = {};                                        // exact per-position-group rollup
   var totals = rrNewAgg_();
+  var holName = date ? rrPublicHoliday_(date) : null, isHol = !!holName;  // วันหยุดประเพณี → OT นักขัต X1
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
     if (!recs || !recs.length) return;
@@ -587,10 +620,11 @@ function readRosterFromSpreadsheet(ss) {
     t.records = recs;
     recs.forEach(function (r) {
       r.posGroup = rrPosGroup_(r.pos, ws.getName());
-      rrAddBucket_(t, r);
+      r.isHoliday = isHol;
+      rrAddBucket_(t, r, isHol);
       if (!positions[r.posGroup]) positions[r.posGroup] = rrNewAgg_();
-      rrAddBucket_(positions[r.posGroup], r);
-      rrAddBucket_(totals, r);
+      rrAddBucket_(positions[r.posGroup], r, isHol);
+      rrAddBucket_(totals, r, isHol);
     });
     rrRoundAgg_(t);
     teams[ws.getName().trim()] = t;
@@ -598,7 +632,7 @@ function readRosterFromSpreadsheet(ss) {
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
   rrRoundAgg_(totals);
   delete totals.records;
-  return { teams: teams, positions: positions, totals: totals };
+  return { teams: teams, positions: positions, totals: totals, holiday: holName };
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────

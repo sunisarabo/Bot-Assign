@@ -128,7 +128,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
 // ─── MAIN PIPELINE ──────────────────────────────────────────────────────────
 function rbRunForDate_(date) {
   var roster = rbOpenTodayRoster_(date);
-  var res = readRosterFromSpreadsheet(roster.ss);
+  var res = readRosterFromSpreadsheet(roster.ss, date);
 
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) {
@@ -436,7 +436,7 @@ function rbWeeklyOT_(date) {
     var roster;
     try { roster = rbOpenTodayRoster_(dt); } catch (e) { continue; }
     var res;
-    try { res = readRosterFromSpreadsheet(roster.ss); } catch (e2) { res = null; }
+    try { res = readRosterFromSpreadsheet(roster.ss, dt); } catch (e2) { res = null; }
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
     if (!res) continue;
     daysRead.push(day);
