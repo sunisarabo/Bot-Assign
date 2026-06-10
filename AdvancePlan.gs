@@ -169,7 +169,8 @@ function advReadFlights_(tgt) {
       var fltno = String(row[2] || '').trim();
       if (!airline || !fltno || /cancel/i.test(String(row[20] || ''))) return;   // ข้ามไฟลท์ยกเลิก
       var flight = airline + fltno;
-      if (seen[flight]) return; seen[flight] = 1;
+      var key = flight.replace(/\s+/g, '').toUpperCase();              // เลขไฟลท์ซ้ำ → ตัดออก (เก็บตัวแรก, จับซ้ำแบบไม่สนช่องว่าง/ตัวพิมพ์)
+      if (seen[key]) return; seen[key] = 1;
       out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), gate: String(row[15] == null ? '' : row[15]).trim(), OP: '', CL: '' });
     });
   });
