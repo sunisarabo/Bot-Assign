@@ -1009,6 +1009,38 @@ function slaReq_(airline) {
   return req;
 }
 
+// ── บทบาทเต็มตามตาราง Manpower per Job (สำหรับแท็บ "จัดล่วงหน้า") ──────────────
+// [SUP, FC, Check-in, Arrival, Standby, Gate Monitor, Gate Agent(+Post Dep), sepGate, total]
+var SLA_ROLES = {
+  '3K':[1,1,4,1,0,1,4,0,8], '3U':[1,1,4,1,0,1,4,0,8], '6B':[1,1,5,2,0,1,5,0,10], '6E':[1,1,5,1,0,1,5,1,9], '8L':[1,1,4,1,0,1,4,0,8],
+  '8M':[1,1,3,1,0,1,5,0,7], '9C':[1,1,5,1,0,1,4,0,9], '9H':[1,1,4,1,0,1,4,0,8], 'AF':[1,1,9,1,0,1,5,0,13], 'AI':[1,1,6,1,0,1,4,0,10],
+  'AK':[1,1,3,1,0,1,5,0,7], 'AQ':[1,1,3,1,0,1,4,0,7], 'AY':[1,1,5,1,0,1,5,0,9], 'BY':[1,1,5,2,0,1,5,0,10], 'C6':[1,1,4,1,0,1,4,0,8],
+  'CA':[1,1,6,1,0,1,4,0,10], 'CX':[1,1,6,2,0,1,6,0,11], 'CZ':[1,1,6,1,0,1,4,0,10], 'DE':[1,1,6,2,0,1,6,0,11], 'DK':[1,1,7,1,0,1,6,0,11],
+  'DV':[1,1,4,1,0,1,5,0,8], 'EK':[1,1,7,3,0,1,6,0,13], 'EO':[1,1,6,1,0,1,6,0,10], 'EY':[1,1,9,1,0,1,6,0,13], 'FM':[1,1,4,1,0,1,4,0,8],
+  'FY':[1,1,4,1,0,1,4,0,8], 'G2':[1,1,6,1,0,1,5,0,10], 'G8':[1,1,4,1,0,1,4,0,8], 'G9':[1,1,4,1,0,1,4,0,8], 'HB':[1,1,4,1,0,1,4,0,8],
+  'HH':[1,1,4,1,0,1,5,0,8], 'HO':[1,1,4,1,0,1,4,0,8], 'HU':[1,1,6,1,0,1,4,0,10], 'HX':[1,1,5,1,0,1,4,0,9], 'HY':[1,1,5,1,0,1,5,0,9],
+  'IT':[1,1,4,1,0,1,5,0,8], 'JQ':[1,1,7,1,0,1,9,0,11], 'KC':[1,1,5,1,0,1,4,0,9], 'KE':[1,1,8,1,0,1,4,0,12], 'KY':[1,1,3,1,0,1,4,0,7],
+  'LJ':[1,1,4,1,0,1,4,0,8], 'LO':[1,1,6,1,0,1,5,0,10], 'LY':[1,1,8,1,0,1,10,0,12], 'MH':[1,1,4,1,0,1,4,0,8], 'MU':[1,1,4,1,0,1,4,0,8],
+  'N0':[1,1,5,1,0,1,5,0,9], 'N4':[1,1,6,1,0,1,6,0,10], 'NO':[1,1,6,1,0,1,6,0,10], 'OD':[1,1,5,1,0,1,5,0,9], 'OM':[1,1,4,1,0,1,4,0,8],
+  'OQ':[1,1,4,1,0,1,4,0,8], 'OV':[1,1,4,1,0,1,4,0,8], 'OZ':[1,1,6,1,0,1,5,0,10], 'PG':[1,1,0,1,0,2,4,0,5], 'PN':[1,1,4,1,0,1,4,0,8],
+  'QR':[1,1,9,2,0,1,6,0,14], 'S7':[1,1,4,1,0,1,4,0,8], 'SG':[1,1,4,1,0,1,5,0,8], 'SQ':[1,1,5,1,0,1,5,0,9], 'SU':[1,1,8,1,0,1,5,0,12],
+  'TK':[1,1,8,4,0,1,5,0,15], 'TR':[1,1,6,1,0,1,6,0,10], 'U6':[1,1,4,1,0,1,5,0,8], 'UO':[1,1,4,2,0,1,5,0,9], 'VJ':[1,1,5,1,0,1,5,0,9],
+  'W5':[1,1,7,1,0,1,5,0,11], 'WK':[1,1,6,1,0,1,5,0,10], 'WY':[1,1,7,1,0,1,8,0,11], 'WZ':[1,1,6,1,0,1,6,0,10], 'ZF':[1,1,6,1,0,1,5,0,10],
+  'ZH':[1,1,4,1,0,1,4,0,8],
+};
+
+function slaRoles_(airline) {
+  var c = String(airline || '').toUpperCase();
+  var r = SLA_ROLES[c] || (SLA_ALIAS[c] && SLA_ROLES[SLA_ALIAS[c]]);
+  if (!r) { var q = slaReq_(airline); return { SUP: 1, FC: 1, CI: q.CI, ARR: q.ARR, STB: 0, GM: 1, GA: Math.max(0, (q.total || 0) - 3 - q.CI - q.ARR), sep: false, total: q.total }; }
+  return { SUP: r[0], FC: r[1], CI: r[2], ARR: r[3], STB: r[4], GM: r[5], GA: r[6], sep: !!r[7], total: r[8] };
+}
+
+function slaCounterTime_(f) {
+  var w = slaPhaseWindow_(f, 'CI');
+  return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
+}
+
 function slaPhaseOf_(task) {
   var u = String(task || '').toUpperCase();
   if (!u) return 'CI';
@@ -2023,11 +2055,11 @@ function advSaveProposal(dateStr, rowsJson) {
   var ss = SpreadsheetApp.create('Advance Plan ' + dateStr);
   var sh = ss.getSheets()[0];
   sh.setName(('Plan ' + dateStr).slice(0, 30));
-  var head = ['Flight', 'สายการบิน', 'STA', 'STD', 'SUP', 'Check-in', 'Gate', 'Arrival'];
+  var head = ['Flight', 'สายการบิน', 'STA', 'STD', 'เปิด-ปิดเคาน์เตอร์', 'SUP', 'FC', 'Check-in', 'Arrival', 'Standby', 'Gate Monitor', 'Gate Agent'];
   sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('center');
   if (rows.length) sh.getRange(2, 1, rows.length, head.length).setValues(rows).setWrap(true).setVerticalAlignment('top').setFontSize(9);
   sh.setFrozenRows(1);
-  [110, 80, 55, 55, 210, 250, 210, 190].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  [90, 70, 50, 50, 120, 130, 130, 200, 150, 90, 150, 200].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   return ss.getUrl();
 }
 
@@ -2074,33 +2106,51 @@ function advBuildPool_(tgt) {
   return { pool: pool, airlineTeams: airlineTeams };
 }
 
-function advPickSlot_(pool, f, ph, win, used) {
-  var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '';
+// บทบาทเต็ม 7 อย่าง (ตามตาราง SLA) — win=phase สำหรับช่วงเวลา, sys=ต้องรู้ระบบ, pos=เงื่อนไขตำแหน่ง
+var ADV_ROLES = [
+  { k: 'SUP', lb: 'SUP',          win: 'CI',   sys: true,  pos: 'PSS', sc: 'SUP' },
+  { k: 'FC',  lb: 'FC',           win: 'CI',   sys: true,  pos: 'SNR', sc: 'SUP' },   // Flight Controller = Sup/Snr
+  { k: 'CI',  lb: 'Check-in',     win: 'CI',   sys: true,  pos: '',    sc: 'CI' },
+  { k: 'ARR', lb: 'Arrival',      win: 'ARR',  sys: false, pos: '',    sc: 'ARR' },
+  { k: 'STB', lb: 'Standby',      win: '',     sys: false, pos: '',    sc: 'ARR' },
+  { k: 'GM',  lb: 'Gate Monitor', win: 'GATE', sys: false, pos: '',    sc: 'GATE' },
+  { k: 'GA',  lb: 'Gate Agent',   win: 'GATE', sys: false, pos: '',    sc: 'GATE', fromCI: true },
+];
+var ADV_ROLE_KEYS = ADV_ROLES.map(function (r) { return r.k; });
+
+function advPosOK_(p, posRule) {
+  if (posRule === 'PSS') return p.posGroup === 'PSS';
+  if (posRule === 'SNR') return p.posGroup === 'PSS' || p.posGroup === 'SNR';
+  return true;
+}
+
+function advPickSlot_(pool, f, role, win, used) {
+  var nn = role.sys ? (function () { var s = slaNeedSys_(f.airline, 'CI'); return s ? slaSysNorm_(s) : ''; })() : '';
   var best = null, bs = 1e9;
   for (var i = 0; i < pool.length; i++) {
     var p = pool[i];
     if (used && used[p.id]) continue;                                  // ห้ามคนเดิมซ้ำในไฟลท์เดียวกัน
-    if (nn && !p.sys[nn]) continue;                                    // CI/SUP ต้องรู้ระบบ (ยกเว้น iPort)
-    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') continue;  // SUP/FC = Sup หรือ Snr
+    if (nn && !p.sys[nn]) continue;                                    // SUP/FC/Check-in ต้องรู้ระบบ
+    if (!advPosOK_(p, role.pos)) continue;
     if (!apFree_(p, win)) continue;
-    var sc = apScore_(p, ph, null) + (f.homeTeam[p.team] ? 0 : 8);     // ทีมเจ้าของไฟลท์มาก่อนเสมอ
+    var sc = apScore_(p, role.sc, null) + (f.homeTeam[p.team] ? 0 : 8); // ทีมเจ้าของไฟลท์มาก่อนเสมอ
     if (sc < bs) { bs = sc; best = p; }
   }
   if (best) {
     if (win) best.busy.push([win[0], win[1]]);
     best.plan++; best.nflt = best.plan;
-    (best.flts = best.flts || []).push(f.flight + ' ' + (SLA_PH_LB[ph] || ph));
+    (best.flts = best.flts || []).push(f.flight + ' ' + role.lb);
     if (used) used[best.id] = 1;
   }
   return best;
 }
 
-function advSlotCandidates_(pool, f, ph, win) {
-  var needSys = slaNeedSys_(f.airline, ph), nn = needSys ? slaSysNorm_(needSys) : '', seen = {};
+function advSlotCandidates_(pool, f, role, win) {
+  var nn = role.sys ? (function () { var s = slaNeedSys_(f.airline, 'CI'); return s ? slaSysNorm_(s) : ''; })() : '', seen = {};
   return pool.filter(function (p) {
     if (seen[p.id]) return false; seen[p.id] = 1;                       // กันรายชื่อซ้ำใน dropdown
     if (nn && !p.sys[nn]) return false;
-    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') return false;
+    if (!advPosOK_(p, role.pos)) return false;
     if (win && !(p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL)) return false;
     return true;
   }).sort(function (a, b) {
@@ -2116,38 +2166,41 @@ function advPlan_(tgt) {
     f.airline = slaAirlineOf_(f.flight);
     f.system = slaSystemOf_(f.airline);
     f.homeTeam = airlineTeams[f.airline] || {};
-    f.teams = {};
-    f.req = slaReq_(f.airline);
+    f.roles = slaRoles_(f.airline);
+    f.counter = slaCounterTime_(f);
   });
   flights.sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
 
   var plan = [];
   flights.forEach(function (f) {
-    var assign = { SUP: [], CI: [], ARR: [], GATE: [] }, shortx = {}, win = {}, used = {};
-    var phaseReq = { SUP: f.req.SUP, CI: f.req.CI, ARR: f.req.ARR, GATE: f.req.GATE };
-    var sumPh = f.req.SUP + f.req.CI + f.req.ARR + f.req.GATE;
-    var extra = Math.max(0, (f.req.total || 0) - sumPh);
-    if (f.req.CI > 0) phaseReq.CI += extra; else phaseReq.GATE += extra;   // PG (CI=0) → ส่วนเกินไปเกท
-    AP_PHASES.forEach(function (ph) {
-      if (!phaseReq[ph]) return;
-      win[ph] = slaPhaseWindow_(f, ph);
-      for (var k = 0; k < phaseReq[ph]; k++) {
-        var p = advPickSlot_(pool, f, ph, win[ph], used);             // used = กันคนซ้ำในไฟลท์เดียวกัน
-        if (p) assign[ph].push(p);                                     // เก็บ ref ไว้ก่อน (nflt อัปเดตท้ายสุด)
-        else { shortx[ph] = phaseReq[ph] - k; break; }
+    var assign = {}, shortx = {}, win = {}, used = {}, req = {};
+    ADV_ROLES.forEach(function (role) {
+      var need = f.roles[role.k] || 0;
+      req[role.k] = need; assign[role.k] = [];
+      if (!need) return;
+      win[role.k] = role.win ? slaPhaseWindow_(f, role.win) : null;
+      if (role.fromCI && !f.roles.sep) {                                // Gate Agent = คนเช็คอินย้ายไปเกท (ใช้คนเดิม)
+        assign[role.k] = (assign.CI || []).slice(0, need);
+        if (assign[role.k].length < need) shortx[role.k] = need - assign[role.k].length;
+        return;
+      }
+      for (var k = 0; k < need; k++) {
+        var p = advPickSlot_(pool, f, role, win[role.k], used);
+        if (p) assign[role.k].push(p);
+        else { shortx[role.k] = need - k; break; }
       }
     });
     plan.push({ flight: f.flight, airline: f.airline, system: f.system || '', team: Object.keys(f.homeTeam).join('/'),
-      homeTeam: f.homeTeam, sta: f.STA || '', std: f.STD || '', req: f.req, phaseReq: phaseReq,
+      homeTeam: f.homeTeam, sta: f.STA || '', std: f.STD || '', counter: f.counter, req: req,
       assign: assign, shortx: shortx, win: win, _f: f });
   });
 
   // nflt สรุปครบแล้ว → แปลง ref เป็นวิว + สร้างรายชื่อสำรองของแต่ละสลอต
   plan.forEach(function (row) {
-    AP_PHASES.forEach(function (ph) {
-      if (!row.phaseReq[ph]) return;
-      row.assign[ph] = row.assign[ph].map(apPersonView_);
-      row['cand' + ph] = advSlotCandidates_(pool, row._f, ph, row.win[ph]);
+    ADV_ROLES.forEach(function (role) {
+      if (!row.req[role.k]) return;
+      row.assign[role.k] = row.assign[role.k].map(apPersonView_);
+      row['cand' + role.k] = advSlotCandidates_(pool, row._f, role, row.win[role.k]);
     });
     delete row._f; delete row.win;
   });
@@ -2227,21 +2280,24 @@ function rbAdvanceHtml(iso) {
       (shortF ? '<b class="badd">' + shortF + ' ไฟลท์ยังขาด</b>' : 'ครบทุกไฟลท์ ✅') + '</div>';
 
     function cell(arr, req, shortN, cands, home) {
-      if (!req) return '<span class="muted">— ไม่มี</span>';
+      if (!req) return '<span class="muted">—</span>';
       var picks = (arr || []).map(function (v) { return advBuildSelect_(v, cands, home); }).join('');
       return '<div><b>' + (arr ? arr.length : 0) + '/' + req + '</b> ' + (shortN ? '<span class="badd">⚠️-' + shortN + '</span>' : '<span class="okk">✓</span>') +
         '</div>' + (arr && arr.length ? '<div class="pickwrap">' + picks + '</div>' : '');
     }
     var body = plan.plan.map(function (p) {
       var ok = Object.keys(p.shortx).length === 0, hm = p.homeTeam || {};
+      var roleCells = ADV_ROLES.map(function (role) {
+        return '<td>' + cell(p.assign[role.k], p.req[role.k], p.shortx[role.k], p['cand' + role.k], hm) + '</td>';
+      }).join('');
       return '<tr class="' + (ok ? '' : 'rowbad') + '" data-team="' + rbEsc_(p.airline) + '"><td class="b">' + rbEsc_(p.flight) +
         '</td><td>' + rbEsc_(p.airline) + (p.team ? '<div class="muted" style="font-size:10px">ทีม ' + rbEsc_(p.team) + '</div>' : '<div class="badd" style="font-size:10px">ไม่มีทีม</div>') +
         '</td><td>' + rbEsc_(p.system || 'iPort') + '</td><td class="tnum">' + rbEsc_(p.sta) + '</td><td class="tnum">' + rbEsc_(p.std) +
-        '</td><td>' + cell(p.assign.SUP, p.phaseReq.SUP, p.shortx.SUP, p.candSUP, hm) + '</td><td>' + cell(p.assign.CI, p.phaseReq.CI, p.shortx.CI, p.candCI, hm) +
-        '</td><td>' + cell(p.assign.GATE, p.phaseReq.GATE, p.shortx.GATE, p.candGATE, hm) + '</td><td>' + cell(p.assign.ARR, p.phaseReq.ARR, p.shortx.ARR, p.candARR, hm) + '</td></tr>';
+        '</td><td class="tnum" style="white-space:nowrap">' + rbEsc_(p.counter || '-') + '</td>' + roleCells + '</tr>';
     }).join('');
+    var roleTh = ADV_ROLES.map(function (role) { return '<th>' + role.lb + '</th>'; }).join('');
     var tbl = rbTblCard_('📅 จัด Assignment ล่วงหน้าตาม SLA (จัดคนในทีมก่อน) — ' + dstr,
-      '<tr><th>Flight</th><th>สายการบิน / ทีม</th><th>ระบบ</th><th>STA</th><th>STD</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th></tr>',
+      '<tr><th>Flight</th><th>สายการบิน / ทีม</th><th>ระบบ</th><th>STA</th><th>STD</th><th>เปิด-ปิด<br>เคาน์เตอร์</th>' + roleTh + '</tr>',
       body, rbCtrls_('view-adv', true));
 
     var benchHtml = '';
@@ -3332,7 +3388,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){lazy("otbox","rbWeeklyOTHtml","ot");}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
     'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v);}' +
-    'function advSave(){var v=document.getElementById("view-adv");if(!v)return;var tb=v.querySelector("table.tbl");var di=v.querySelector("input[type=date]");var date=di?di.value:ISO;if(!tb){alert("เลือกวันที่ที่มีไฟลท์ก่อน");return;}var rows=[];[].forEach.call(tb.tBodies[0].rows,function(tr){if(tr.cells.length<9)return;var c=[];for(var i=0;i<4;i++){var ns=[];[].forEach.call(tr.cells[5+i].querySelectorAll(".namepick"),function(x){if(x.value.trim())ns.push(x.value.trim());});c.push(ns.join(", "));}rows.push([tr.cells[0].innerText.trim(),tr.cells[1].innerText.trim(),tr.cells[3].innerText.trim(),tr.cells[4].innerText.trim(),c[0],c[1],c[2],c[3]]);});if(!rows.length){alert("ไม่มีไฟลท์ให้บันทึก");return;}if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อบันทึก");return;}var m=document.getElementById("advsavemsg");if(m)m.innerHTML="⏳ กำลังบันทึก…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="✅ บันทึกแล้ว: <a href=\\""+url+"\\" target=\\"_blank\\">เปิดชีต</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("บันทึกไม่ได้: "+e.message);}).advSaveProposal(date,JSON.stringify(rows));}' +
+    'function advSave(){var v=document.getElementById("view-adv");if(!v)return;var tb=v.querySelector("table.tbl");var di=v.querySelector("input[type=date]");var date=di?di.value:ISO;if(!tb){alert("เลือกวันที่ที่มีไฟลท์ก่อน");return;}var rows=[];[].forEach.call(tb.tBodies[0].rows,function(tr){if(tr.cells.length<13)return;var c=[];for(var i=0;i<7;i++){var ns=[];[].forEach.call(tr.cells[6+i].querySelectorAll(".namepick"),function(x){if(x.value.trim())ns.push(x.value.trim());});c.push(ns.join(", "));}function f(n){return tr.cells[n].innerText.trim().split("\\n")[0];}rows.push([f(0),f(1),f(3),f(4),f(5),c[0],c[1],c[2],c[3],c[4],c[5],c[6]]);});if(!rows.length){alert("ไม่มีไฟลท์ให้บันทึก");return;}if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อบันทึก");return;}var m=document.getElementById("advsavemsg");if(m)m.innerHTML="⏳ กำลังบันทึก…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="✅ บันทึกแล้ว: <a href=\\""+url+"\\" target=\\"_blank\\">เปิดชีต</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("บันทึกไม่ได้: "+e.message);}).advSaveProposal(date,JSON.stringify(rows));}' +
     'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";[].forEach.call(v.querySelectorAll("tbody tr"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;r.style.display=(okT&&okQ)?"":"none";});}' +
     'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function supGrpVis(w){[].forEach.call(w.querySelectorAll(".supgrp"),function(g){var any=[].some.call(g.querySelectorAll(".supchip"),function(c){return c.style.display!=="none";});g.style.display=any?"":"none";});}' +
