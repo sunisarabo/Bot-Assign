@@ -344,7 +344,7 @@ function advPickSlot_(pool, f, role, win, used) {
     if (nn && !p.sys[nn]) continue;                                    // SUP/FC/Check-in ต้องรู้ระบบ
     if (!advPosOK_(p, role.pos)) continue;
     if (!apFree_(p, win)) continue;
-    var sc = apScore_(p, role.sc, null) + (f.homeTeam[p.teamIdx] ? 0 : 8); // ทีมเจ้าของไฟลท์มาก่อนเสมอ
+    var sc = apScore_(p, role.sc, null) + (f.homeTeam[p.teamIdx] ? 0 : 1e6); // ดึงคนในทีมเจ้าของไฟลท์ให้หมดก่อน แล้วค่อยข้ามทีม
     if (sc < bs) { bs = sc; best = p; }
   }
   if (best) {
