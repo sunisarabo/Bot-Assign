@@ -254,7 +254,7 @@ function rbCommonsHtml_(commons){
   if (!commons || !commons.length) return '';
   return commons.map(function(cm){
     var nCt = (cm.counters[0] && cm.counters[0].slots.length) || 0;
-    var h = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 '+rbEsc_(cm.code)+' — เช็คอินคอมมอน '+nCt+' เคาน์เตอร์ (หมุนเวียน ≤3 ชม./คน)</h3></div><div style="padding:6px 14px 12px">';
+    var h = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 '+rbEsc_(cm.code)+' — เช็คอินคอมมอน '+nCt+' เคาน์เตอร์ (หมุนเวียน ≤3 ชม./คน)'+(cm.fc?' <span class="muted" style="font-weight:400;font-size:12px">· 🎧 Flight Controller: <b>'+rbEsc_(cm.fc.name)+'</b> ('+rbEsc_(cm.fc.pos)+')</span>':'')+'</h3></div><div style="padding:6px 14px 12px">';
     cm.counters.forEach(function(b){
       h += '<div class="sectionlabel" style="margin:8px 0 4px">⏱️ ช่วง <b>'+rbEsc_(b.time)+'</b>'+(b.round?' · รอบ '+rbEsc_(b.round):'')+' · ไฟลท์ '+rbEsc_(b.flights)+' · <span class="muted">คนว่าง '+b.nAvail+'</span></div>';
       h += '<div style="display:flex;flex-wrap:wrap;gap:6px">'+b.slots.map(function(s){

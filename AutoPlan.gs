@@ -129,9 +129,19 @@ function apCommonCI_(pool, flights, cfg, commit) {
     if (b && f.ciwin[0] <= b.end + 20) { b.end = Math.max(b.end, f.ciwin[1]); b.flights.push(f.flight); }
     else batches.push({ start: f.ciwin[0], end: f.ciwin[1], flights: [f.flight] });
   });
+  // Flight Controller = หัวหน้า 1 คน (PSS ก่อน) คุมเช็คอินตลอดช่วง — ไม่นั่งเคาน์เตอร์ ไม่ลงเกท
+  var fc = null;
+  if (batches.length) {
+    var ciStart = Math.min.apply(null, batches.map(function (b) { return b.start; }));
+    var ciEnd = Math.max.apply(null, batches.map(function (b) { return b.end; }));
+    fc = su.filter(function (p) { return p.ds <= ciStart + AP_TOL && p.de >= ciEnd - AP_TOL; })
+      .sort(function (a, c) { return (pr[c.posGroup] == null ? -1 : pr[c.posGroup]) - (pr[a.posGroup] == null ? -1 : pr[a.posGroup]) || a.plan - c.plan; })[0] || null;
+    if (fc) { fc.isFC = true; if (commit) { fc.busy.push([ciStart, ciEnd]); fc.plan++; (fc.flts = fc.flts || []).push('Flight Controller เช็คอิน (' + fmt(ciStart) + '-' + fmt(ciEnd) + ')'); } }
+  }
+
   var counters = [];
   batches.forEach(function (b) {
-    var avail = su.filter(function (p) { return p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })
+    var avail = su.filter(function (p) { return !p.isFC && p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })
       .sort(function (a, c) { return (pr[a.posGroup] == null ? 3 : pr[a.posGroup]) - (pr[c.posGroup] == null ? 3 : pr[c.posGroup]) || a.plan - c.plan; });
     var dur = b.end - b.start, nR = Math.max(1, Math.ceil(dur / AP_SU_MAXSIT)), rl = dur / nR;
     var perR = Math.min(ctList.length, Math.ceil(avail.length / nR));
@@ -147,19 +157,25 @@ function apCommonCI_(pool, flights, cfg, commit) {
     }
   });
 
-  // 2) เกทต่อไฟลท์ (เฉพาะ cfg.gate · คนเดิมต่อจากเช็คอินก่อน)
+  // 2) เกทต่อไฟลท์ (เฉพาะ cfg.gate · คนเดิมต่อจากเช็คอินก่อน · FC ไม่ลงเกท)
   var gates = null;
   if (cfg.gate) {
     var sla = (typeof slaGet_ === 'function') ? slaGet_(cfg.code) : null;
     var gdefs = ((sla && sla.roles) || []).filter(function (rr) { return rr[3] === 'GATE' || rr[3] === 'ARR'; })
-      .map(function (rr) { var lb = /MONITOR|GM/.test(String(rr[0]) + rr[2]) ? 'GC' : (rr[3] === 'ARR' ? 'ARR' : 'GA'); return { lb: lb, n: rr[1], phase: rr[3], snr: lb === 'GC' }; });
+      .map(function (rr) { var lb = /MONITOR|GM/.test(String(rr[0]) + rr[2]) ? 'GC' : (rr[3] === 'ARR' ? 'ARR' : 'GA'); return { lb: lb, n: rr[1], phase: rr[3], snr: lb === 'GC' }; })
+      .sort(function (a, b) { return (b.snr ? 1 : 0) - (a.snr ? 1 : 0); });       // จัด GC ก่อน แล้วค่อย GA
     gates = teamFl.slice().sort(function (a, b) { return String(a.STD || '').localeCompare(String(b.STD || '')); }).map(function (f) {
       var usedF = {};
       var roles = gdefs.map(function (rd) {
         var win = slaPhaseWindow_(f, rd.phase) || [0, 0], picks = [];
         var ord = rd.snr ? { PSS: 0, SNR: 1, PSA: 2 } : { PSA: 0, SNR: 1, PSS: 2 };
         for (var i = 0; i < rd.n; i++) {
-          var cand = su.filter(function (p) { var pid = p.id || p.name; return !usedF[pid] && apFree_(p, win) && p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL; })
+          var cand = su.filter(function (p) {
+              var pid = p.id || p.name;
+              if (p.isFC) return false;                                            // FC ไม่ลงเกท (ไม่ทำ GC/GA/ARR)
+              if (rd.lb === 'GA' && !p.suCI) return false;                        // Gate Agent = คนที่เช็คอินแล้ว ต่อเนื่อง
+              return !usedF[pid] && apFree_(p, win) && p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL;
+            })
             .sort(function (a, c) {
               return ((c.suCI ? 1 : 0) - (a.suCI ? 1 : 0))
                 || (ord[a.posGroup] == null ? 3 : ord[a.posGroup]) - (ord[c.posGroup] == null ? 3 : ord[c.posGroup]) || a.plan - c.plan;
@@ -172,7 +188,7 @@ function apCommonCI_(pool, flights, cfg, commit) {
       return { flight: f.flight, std: f.STD || '', roles: roles };
     });
   }
-  return { code: cfg.code, team: cfg.team, counters: counters, gates: gates, flights: teamFl.map(function (f) { return f.flight; }) };
+  return { code: cfg.code, team: cfg.team, fc: fc ? view(fc) : null, counters: counters, gates: gates, flights: teamFl.map(function (f) { return f.flight; }) };
 }
 /** รัน common check-in ทุกทีมที่กำหนด (commit ล็อกเวลา) → [commons] */
 function apRunCommons_(pool, flights, commit) {
