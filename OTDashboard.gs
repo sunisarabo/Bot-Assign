@@ -4,8 +4,9 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11d';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11e';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ ชีต5 OT Yearly
 function otDashBuild() { return OT_DASH_BUILD; }
 
 /** แปลงค่าเวลา/ระยะเวลาในชีต → ชั่วโมง (ทศนิยม) */
@@ -63,14 +64,14 @@ function otYearlyId_() {
 function otDateKey_(d) {
   return Utilities.formatDate(d, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
 }
-/** จุดเริ่มช่วงคำนวณ — override ได้ด้วย Script Property OT_DASH_START (YYYY-MM-DD) ค่าเริ่มต้น = 1 ม.ค. ปีนี้ */
+/** จุดเริ่มช่วงคำนวณจาก Assignment — override ด้วย Script Property OT_DASH_START ; ค่าเริ่มต้น = 1 ของเดือน OT_ASSIGN_MONTH (มิ.ย.) */
 function otRangeStart_(now) {
   try {
     var p = PropertiesService.getScriptProperties().getProperty('OT_DASH_START');
     var m = p && String(p).match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
   } catch (e) {}
-  return new Date(now.getFullYear(), 0, 1);
+  return new Date(now.getFullYear(), OT_ASSIGN_MONTH - 1, 1);
 }
 /** จำนวนวัน (อดีต) สูงสุดที่จะคำนวณใหม่ต่อการเรียก live 1 ครั้ง — override ด้วย OT_DASH_BUDGET
  *  ค่าน้อยเพื่อให้หน้าเว็บตอบไว (ที่เหลือเติมเบื้องหลังด้วย otWarmCache/trigger) */
@@ -223,13 +224,58 @@ function otAggregate_(days) {
   return { months: monthsSet, teams: teams };
 }
 
-/** เรียกจาก client (google.script.run) — คืน OT รายทีมสด คำนวณจาก Assignment (ทยอยเติม cache) */
+/** อ่าน ชีต5 (OT Yearly) แบบ cache 6 ชม. (ไฟล์หนัก เปิดทุกครั้งช้า · ข้อมูล ม.ค.-พ.ค. นิ่งแล้ว) */
+function otSheet5Cached_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var hit = cache.get('ot_sheet5');
+    if (hit) { try { return JSON.parse(hit); } catch (e0) {} }
+    var d = otReadSheet5_();
+    try { cache.put('ot_sheet5', JSON.stringify(d), 21600); } catch (e1) {}   // 6 ชม.
+    return d;
+  } catch (e) { return { months: [], teams: [] }; }
+}
+/** ล้าง cache ชีต5 (ใช้เมื่อแก้ ม.ค.-พ.ค. ใน OT Yearly แล้วอยากให้รีเฟรชทันที) */
+function otRefreshSheet5() { try { CacheService.getScriptCache().remove('ot_sheet5'); } catch (e) {} return 'ok'; }
+
+/** รวมข้อมูล ชีต5 (เฉพาะเดือนก่อน OT_ASSIGN_MONTH) + Assignment (เดือน OT_ASSIGN_MONTH ขึ้นไป)
+ *  จัดชื่อทีมให้ตรงกันด้วย otCanonTeam_ ; คืน {months, teams} */
+function otMergeData_(sheet5, assign) {
+  var teamMap = {}, order = [], monthsSet = {};
+  function add(src, keepMonth) {
+    (src && src.teams || []).forEach(function (t) {
+      var name = (typeof otCanonTeam_ === 'function') ? otCanonTeam_(t.team) : t.team;
+      var T = teamMap[name]; if (!T) { T = teamMap[name] = { team: name, total: 0, months: {} }; order.push(name); }
+      Object.keys(t.months || {}).forEach(function (m) {
+        if (keepMonth && !keepMonth(m)) return;
+        var mm = t.months[m]; if (!mm) return;
+        monthsSet[m] = 1;
+        if (!T.months[m]) T.months[m] = { weeks: (mm.weeks || []).slice(0, 4), total: mm.total || 0 };
+        else {
+          var w = T.months[m].weeks; (mm.weeks || []).forEach(function (x, i) { w[i] = Math.round(((w[i] || 0) + (x || 0)) * 10) / 10; });
+          T.months[m].total = Math.round((T.months[m].total + (mm.total || 0)) * 10) / 10;
+        }
+        T.total = Math.round((T.total + (mm.total || 0)) * 10) / 10;
+      });
+    });
+  }
+  var cut = OT_ASSIGN_MONTH - 1;                                           // index เดือนแรกของ Assignment (มิ.ย.=5)
+  add(sheet5, function (m) { var i = OT_MONTH_ABBR.indexOf(m); return i >= 0 && i < cut; });   // ชีต5: เฉพาะ ม.ค.-พ.ค.
+  add(assign, null);                                                       // Assignment: ทุกเดือนที่คำนวณ (มิ.ย.+)
+  var months = Object.keys(monthsSet).sort(function (a, b) { return OT_MONTH_ABBR.indexOf(a) - OT_MONTH_ABBR.indexOf(b); });
+  var teams = order.map(function (k) { return teamMap[k]; }).sort(function (a, b) { return b.total - a.total; });
+  return { months: months, teams: teams };
+}
+
+/** เรียกจาก client (google.script.run) — OT รายทีม: ม.ค.-พ.ค. จาก ชีต5 · มิ.ย.+ จาก Assignment */
 function otLiveData() {
   try {
     var now = new Date();
     var r = otComputeRange_(otRangeStart_(now), now, otBudget_(), Date.now() + 150000);
-    var agg = otAggregate_(r.days);
-    return { ok: true, months: agg.months, teams: agg.teams, pending: r.pending, source: 'assignment' };
+    var assign = otAggregate_(r.days);
+    var sheet5 = otSheet5Cached_();
+    var merged = otMergeData_(sheet5, assign);
+    return { ok: true, months: merged.months, teams: merged.teams, pending: r.pending, source: 'hybrid' };
   } catch (e) { return { ok: false, err: String(e && e.message || e) }; }
 }
 
@@ -267,7 +313,7 @@ function otDashHtml_() { return OT_DASH_HTML_; }
 function otDashScript_() {
   return '<scr' + 'ipt>(function(){var BAKED=' + JSON.stringify(otDashData_()) + ';' + OT_DASH_JS_ + '})();</scr' + 'ipt>';
 }
-var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · คำนวณจาก Assignment (เวรรายวัน)</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
+var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · ม.ค.-พ.ค. จาก OT Yearly · มิ.ย.+ จาก Assignment</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
 var OT_DASH_CSS_ = `#view-ot{--surface:#fff;--surface2:#eef3f9;--border:#dbe3ee;--accent:#f97316;--accent2:#3b82f6;--accent3:#0891b2;--danger:#ef4444;--warn:#d97706;--ok:#16a34a;--text:#1f2d3d;--muted:#73839a;color:var(--text)}
 #view-ot .ot-head{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#eef3fb,#f6f0ff);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px}
 #view-ot .ot-title{font-size:20px;font-weight:800;letter-spacing:-.3px}
@@ -346,8 +392,8 @@ function thM(m){return MTH[m]||m;}
 function tcol(team){var i=DATA.teams.map(function(t){return t.team;}).indexOf(team);return COLORS[(i<0?0:i)%COLORS.length];}
 function card(c,l,v,s){return '<div class="stat-card" style="--accent-color:'+c+'"><div class="stat-label">'+l+'</div><div class="stat-val">'+v+'</div><div class="stat-sub">'+esc(s)+'</div></div>';}
 function section(title,body){return '<div class="section"><div class="section-header"><div class="section-title"><span class="dot"></span> '+title+'</div></div>'+body+'</div>';}
-function srcBadge(){if(LIVE){var p=window.__otPending||0;return p>0?'<span class="ot-live">🟢 สดจาก Assignment · กำลังประมวลผลอีก '+p+' วัน…</span>':'<span class="ot-live">🟢 สดจาก Assignment</span>';}return '<span class="ot-baked">● ข้อมูลสำรอง (ยังไม่เชื่อมสด)</span>';}
-function infoP(type){var crit=type==='weekly'?'รายสัปดาห์ (1-7, 8-14, 15-21, 22-สิ้นเดือน)':'รายเดือน (รวมทั้งเดือน)';return '<div class="info-panel"><div class="info-item">มุมมอง: <strong>'+crit+'</strong></div><div class="info-item">แหล่งข้อมูล: <strong>Assignment · เวรรายวัน</strong></div><div class="info-item">'+srcBadge()+'</div></div>';}
+function srcBadge(){if(LIVE){var p=window.__otPending||0;return p>0?'<span class="ot-live">🟢 มิ.ย.+ สดจาก Assignment · ประมวลผลอีก '+p+' วัน…</span>':'<span class="ot-live">🟢 ม.ค.-พ.ค. OT Yearly · มิ.ย.+ Assignment</span>';}return '<span class="ot-baked">● ข้อมูลสำรอง (ยังไม่เชื่อมสด)</span>';}
+function infoP(type){var crit=type==='weekly'?'รายสัปดาห์ (1-7, 8-14, 15-21, 22-สิ้นเดือน)':'รายเดือน (รวมทั้งเดือน)';return '<div class="info-panel"><div class="info-item">มุมมอง: <strong>'+crit+'</strong></div><div class="info-item">แหล่งข้อมูล: <strong>ม.ค.-พ.ค. OT Yearly · มิ.ย.+ Assignment</strong></div><div class="info-item">'+srcBadge()+'</div></div>';}
 function bars(items){var mx=Math.max.apply(null,items.map(function(t){return t.v;}).concat([1]));return '<div class="bar-chart">'+items.slice().sort(function(a,b){return b.v-a.v;}).map(function(t){var pct=(t.v/mx*100).toFixed(1),col=tcol(t.team);return '<div class="bar-row"><div class="bar-label" title="'+esc(t.team)+'">'+esc(t.team)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;--fill-color:'+col+'">'+fmt(t.v)+' ชม.</div></div></div>';}).join('')+'</div>';}
 function buildMonthly(){
   var teams=DATA.teams,months=DATA.months;
