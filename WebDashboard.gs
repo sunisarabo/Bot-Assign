@@ -141,7 +141,7 @@ function rbFillPlanHtml(iso) {
         '</td><td class="tnum">' + rbEsc_(g.win) + '</td><td>' + rbEsc_(g.needSys || 'iPort/ใดก็ได้') + '</td><td>' + who + '</td><td>' + st + '</td></tr>';
     }).join('');
     if (!bodyA) bodyA = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA แล้ว — ไม่ต้องเสริม</td></tr>';
-    return hd + rbExpBar_('fill') + rbTblCard_('🤖 เติมคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
+    return hd + rbExpBar_('fill') + rbCommonsHtml_(gaps.commons) + rbTblCard_('🤖 เติมคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>STD/STA</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>ระบบที่ต้องใช้</th><th>คนที่จัดให้</th><th>สถานะ</th></tr>',
       bodyA, rbCtrls_('view-fill', true));
   } catch (e) { return '<div class="panel">โหลด "เติม Assign เดิม" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
@@ -184,7 +184,7 @@ function rbAutoAssignHtml(iso) {
             by[t].map(function (p) { return '<span class="chip">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>'; }).join('') + '</span>';
         }).join('') + '</div></div>';
     }
-    return hd + rbExpBar_('auto') + tblB + benchHtml;
+    return hd + rbExpBar_('auto') + rbCommonsHtml_(rp.commons) + tblB + benchHtml;
   } catch (e) { return '<div class="panel">โหลด "Auto Assign" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
@@ -248,6 +248,34 @@ function rbGapCtrl_(viewId){
     '🕓 ว่างช่วง <input type="time" class="gapfrom" onchange="applyFilter(\''+viewId+'\')" style="padding:4px 6px;border:1px solid #cdd8e6;border-radius:6px">' +
     '– <input type="time" class="gapto" onchange="applyFilter(\''+viewId+'\')" style="padding:4px 6px;border:1px solid #cdd8e6;border-radius:6px">' +
     '<button class="btn" onclick="clearGap(\''+viewId+'\')" style="padding:4px 10px">ล้าง</button></span>';
+}
+/** แสดงผล common check-in (SU/SQ): เคาน์เตอร์รวมหมุนเวียน + เกทต่อไฟลท์ */
+function rbCommonsHtml_(commons){
+  if (!commons || !commons.length) return '';
+  return commons.map(function(cm){
+    var nCt = (cm.counters[0] && cm.counters[0].slots.length) || 0;
+    var h = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 '+rbEsc_(cm.code)+' — เช็คอินคอมมอน '+nCt+' เคาน์เตอร์ (หมุนเวียน ≤3 ชม./คน)</h3></div><div style="padding:6px 14px 12px">';
+    cm.counters.forEach(function(b){
+      h += '<div class="sectionlabel" style="margin:8px 0 4px">⏱️ ช่วง <b>'+rbEsc_(b.time)+'</b>'+(b.round?' · รอบ '+rbEsc_(b.round):'')+' · ไฟลท์ '+rbEsc_(b.flights)+' · <span class="muted">คนว่าง '+b.nAvail+'</span></div>';
+      h += '<div style="display:flex;flex-wrap:wrap;gap:6px">'+b.slots.map(function(s){
+        return '<span class="chip">'+rbEsc_(s.counter)+': '+(s.chosen?rbEsc_(s.chosen.name)+' <span class="muted">'+rbEsc_(s.chosen.pos)+'</span>':'<span class="muted">— ว่าง —</span>')+'</span>';
+      }).join('')+'</div>';
+    });
+    h += '</div></div>';
+    if (cm.gates && cm.gates.length){
+      h += '<div class="tablecard" style="margin-top:10px"><div class="tablecard__hd"><h3>🚪 '+rbEsc_(cm.code)+' — Gate ต่อไฟลท์ (คนต่อเนื่องจากเช็คอิน)</h3></div><div style="padding:6px 14px 12px">';
+      cm.gates.forEach(function(g){
+        h += '<div class="sectionlabel" style="margin:8px 0 4px">✈️ <b>'+rbEsc_(g.flight)+'</b> · STD '+rbEsc_(g.std)+'</div>';
+        h += '<div style="display:flex;flex-wrap:wrap;gap:6px">'+g.roles.map(function(rl){
+          return rl.picks.map(function(pk,idx){
+            return '<span class="chip">'+rbEsc_(rl.lb)+(rl.need>1?' '+(idx+1):'')+' <span class="muted">'+rbEsc_(rl.win)+'</span>: '+(pk?rbEsc_(pk.name)+' <span class="muted">'+rbEsc_(pk.pos)+'</span>':'<span class="badd">— ขาด —</span>')+'</span>';
+          }).join('');
+        }).join('')+'</div>';
+      });
+      h += '</div></div>';
+    }
+    return h;
+  }).join('');
 }
 /** แถบส่งออกไฟล์ชีตรายทีม (FillPlan / AutoAssign) — kind = "fill" | "auto" */
 function rbExpBar_(kind){
