@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11h';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11i';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ ชีต5 OT Yearly
 function otDashBuild() { return OT_DASH_BUILD; }
@@ -49,12 +49,18 @@ function otParseSheet5_(data) {
   return { months: blocks.map(function (b) { return b.month; }), teams: order.map(function (t) { return teams[t]; }) };
 }
 
+/** อ่าน ชีต5 ผ่าน Sheets REST API (อ่านเฉพาะช่วง A1:BZ80 · เบา ไม่โหลดทั้งไฟล์ → ไม่ timeout เหมือน SpreadsheetApp.openById) */
 function otReadSheet5_() {
-  var id = (function () { try { var p = PropertiesService.getScriptProperties().getProperty('OT_YEARLY_ID'); return p || OT_YEARLY_ID; } catch (e) { return OT_YEARLY_ID; } })();
-  var sh = SpreadsheetApp.openById(id).getSheetByName('ชีต5');
-  if (!sh) throw new Error('ไม่พบแท็บ "ชีต5" ในไฟล์ OT Yearly');
-  var rows = Math.min(sh.getLastRow() || 1, 80), cols = sh.getLastColumn() || 1;   // ทีมมีไม่กี่สิบแถว → จำกัดเพื่อลดเวลาอ่าน
-  return otParseSheet5_(sh.getRange(1, 1, rows, cols).getValues());
+  var id = otYearlyId_();
+  var range = encodeURIComponent('ชีต5!A1:BZ80');
+  var url = 'https://sheets.googleapis.com/v4/spreadsheets/' + id + '/values/' + range +
+            '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
+  var res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  var code = res.getResponseCode();
+  if (code !== 200) throw new Error('Sheets API อ่าน ชีต5 ไม่ได้ (HTTP ' + code + '): ' + String(res.getContentText()).slice(0, 200));
+  var data = (JSON.parse(res.getContentText()) || {}).values || [];
+  if (!data.length) throw new Error('ชีต5 ว่าง หรือไม่พบช่วงข้อมูล');
+  return otParseSheet5_(data);
 }
 
 // ─── คำนวณ OT จาก Assignment (เวรรายวัน) ────────────────────────────────────
