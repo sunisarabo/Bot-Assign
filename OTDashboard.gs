@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11g';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11h';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ ชีต5 OT Yearly
 function otDashBuild() { return OT_DASH_BUILD; }
@@ -53,7 +53,8 @@ function otReadSheet5_() {
   var id = (function () { try { var p = PropertiesService.getScriptProperties().getProperty('OT_YEARLY_ID'); return p || OT_YEARLY_ID; } catch (e) { return OT_YEARLY_ID; } })();
   var sh = SpreadsheetApp.openById(id).getSheetByName('ชีต5');
   if (!sh) throw new Error('ไม่พบแท็บ "ชีต5" ในไฟล์ OT Yearly');
-  return otParseSheet5_(sh.getDataRange().getValues());
+  var rows = Math.min(sh.getLastRow() || 1, 80), cols = sh.getLastColumn() || 1;   // ทีมมีไม่กี่สิบแถว → จำกัดเพื่อลดเวลาอ่าน
+  return otParseSheet5_(sh.getRange(1, 1, rows, cols).getValues());
 }
 
 // ─── คำนวณ OT จาก Assignment (เวรรายวัน) ────────────────────────────────────
@@ -224,19 +225,49 @@ function otAggregate_(days) {
   return { months: monthsSet, teams: teams };
 }
 
-/** อ่าน ชีต5 (OT Yearly) แบบ cache 6 ชม. (ไฟล์หนัก เปิดทุกครั้งช้า · ข้อมูล ม.ค.-พ.ค. นิ่งแล้ว) */
+/** อ่าน ชีต5 (OT Yearly) → ใช้ค่าที่เก็บถาวรใน Properties ก่อน (เร็ว/ไม่เปิดไฟล์หนัก)
+ *  ไฟล์ OT Yearly หนักมาก เปิดสดในหน้าเว็บมักจะ timeout → ต้องรัน otCacheSheet5() ครั้งเดียวก่อน */
+var OT_S5_PREFIX = 'ot_s5_';
 function otSheet5Cached_() {
-  try {
-    var cache = CacheService.getScriptCache();
-    var hit = cache.get('ot_sheet5');
-    if (hit) { try { return JSON.parse(hit); } catch (e0) {} }
+  var stored = otSheet5Stored_();
+  if (stored && stored.teams && stored.teams.length) return stored;          // เก็บถาวรแล้ว → เร็ว
+  try {                                                                       // ยังไม่เก็บ → ลองอ่านสด (อาจ timeout)
     var d = otReadSheet5_();
-    try { cache.put('ot_sheet5', JSON.stringify(d), 21600); } catch (e1) {}   // 6 ชม.
+    otStoreSheet5_(d);
     return d;
   } catch (e) { return { months: [], teams: [] }; }
 }
-/** ล้าง cache ชีต5 (ใช้เมื่อแก้ ม.ค.-พ.ค. ใน OT Yearly แล้วอยากให้รีเฟรชทันที) */
-function otRefreshSheet5() { try { CacheService.getScriptCache().remove('ot_sheet5'); } catch (e) {} return 'ok'; }
+/** อ่านค่า ชีต5 ที่เก็บไว้ (ต่อ chunk) จาก Properties */
+function otSheet5Stored_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var n = parseInt(props.getProperty(OT_S5_PREFIX + 'n'), 10);
+    if (!(n > 0)) return null;
+    var all = props.getProperties(), js = '';
+    for (var i = 0; i < n; i++) { var c = all[OT_S5_PREFIX + i]; if (c == null) return null; js += c; }
+    return JSON.parse(js);
+  } catch (e) { return null; }
+}
+/** เก็บผล ชีต5 ลง Properties (แบ่ง chunk ละ 8000 ตัวอักษร) */
+function otStoreSheet5_(d) {
+  var props = PropertiesService.getScriptProperties();
+  var all = props.getProperties();
+  Object.keys(all).forEach(function (k) { if (k.indexOf(OT_S5_PREFIX) === 0) props.deleteProperty(k); });
+  var js = JSON.stringify(d), size = 8000, n = Math.max(1, Math.ceil(js.length / size)), set = {};
+  for (var i = 0; i < n; i++) set[OT_S5_PREFIX + i] = js.substr(i * size, size);
+  set[OT_S5_PREFIX + 'n'] = String(n);
+  props.setProperties(set, false);
+  return n;
+}
+/** รันมือครั้งเดียว (มี budget 6 นาที): อ่าน ชีต5 จาก OT Yearly แล้วเก็บถาวร — ให้หน้าเว็บแสดง ม.ค.-พ.ค. */
+function otCacheSheet5() {
+  var d = otReadSheet5_();
+  var n = otStoreSheet5_(d);
+  Logger.log('otCacheSheet5: เก็บ ชีต5 สำเร็จ — %s ทีม, %s เดือน, %s chunks', (d.teams || []).length, (d.months || []).length, n);
+  return (d.teams || []).length;
+}
+/** รีเฟรช ชีต5 (อ่านใหม่จาก OT Yearly แล้วเก็บถาวร) — ใช้เมื่อแก้ ม.ค.-พ.ค. ใน OT Yearly */
+function otRefreshSheet5() { try { CacheService.getScriptCache().remove('ot_sheet5'); } catch (e) {} return otCacheSheet5(); }
 
 /** รวมข้อมูล ชีต5 (เฉพาะเดือนก่อน OT_ASSIGN_MONTH) + Assignment (เดือน OT_ASSIGN_MONTH ขึ้นไป)
  *  จัดชื่อทีมให้ตรงกันด้วย otCanonTeam_ ; คืน {months, teams} */
