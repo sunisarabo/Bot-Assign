@@ -108,13 +108,14 @@ function apCfgOf_(code) {
 function apFlightCode_(f) {                                              // โค้ดสายการบินของไฟลท์ (เทียบ alias)
   var a = f.airline; return (typeof SLA_ALIAS !== 'undefined' && SLA_ALIAS[a]) ? SLA_ALIAS[a] : a;
 }
-/** จัด common check-in 1 ทีม → {code,team,counters,gates,flights} (commit=true → ล็อกเวลาคน) */
-function apCommonCI_(pool, flights, cfg, commit) {
+/** จัด common check-in 1 ทีม → {code,team,fc,members,counters,gates,flights} (commit=true → ล็อกเวลาคน, fcName=เลือก FC เอง) */
+function apCommonCI_(pool, flights, cfg, commit, fcName) {
   var teamFl = flights.filter(function (f) { return acIsFlight_(f.flight) && apFlightCode_(f) === cfg.code; });
   if (!teamFl.length) return null;
   var teamSet = {};                                                     // ทีมที่ทำไฟลท์เหล่านี้ (รองรับชื่อแท็บที่ต่างกัน)
   teamFl.forEach(function (f) { Object.keys(f.teams || {}).forEach(function (t) { teamSet[t] = 1; }); });
-  var su = pool.filter(function (p) { return teamSet[p.team]; });
+  var su = pool.filter(function (p) { return (typeof otCanonTeam_ === 'function') && otCanonTeam_(p.team) === cfg.team; });  // เฉพาะคนทีมนี้จริง (ไม่ใช่คนข้ามทีมที่มาช่วย)
+  if (!su.length) su = pool.filter(function (p) { return teamSet[p.team]; });   // fallback ถ้าจับทีมไม่ได้
   var ctList = cfg.counters || (function () { var a = []; for (var i = 1; i <= cfg.nCounter; i++) a.push('CT' + i); return a; })();
   var pr = { PSA: 0, SNR: 1, PSS: 2 };
   var view = function (p) { return { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp }; };
@@ -134,8 +135,9 @@ function apCommonCI_(pool, flights, cfg, commit) {
   if (batches.length) {
     var ciStart = Math.min.apply(null, batches.map(function (b) { return b.start; }));
     var ciEnd = Math.max.apply(null, batches.map(function (b) { return b.end; }));
-    fc = su.filter(function (p) { return p.ds <= ciStart + AP_TOL && p.de >= ciEnd - AP_TOL; })
-      .sort(function (a, c) { return (pr[c.posGroup] == null ? -1 : pr[c.posGroup]) - (pr[a.posGroup] == null ? -1 : pr[a.posGroup]) || a.plan - c.plan; })[0] || null;
+    var fcAvail = su.filter(function (p) { return p.ds <= ciStart + AP_TOL && p.de >= ciEnd - AP_TOL; });
+    if (fcName) fc = fcAvail.filter(function (p) { return p.name === fcName; })[0] || null;   // เลือกเอง
+    if (!fc) fc = fcAvail.sort(function (a, c) { return (pr[c.posGroup] == null ? -1 : pr[c.posGroup]) - (pr[a.posGroup] == null ? -1 : pr[a.posGroup]) || a.plan - c.plan; })[0] || null;
     if (fc) { fc.isFC = true; if (commit) { fc.busy.push([ciStart, ciEnd]); fc.plan++; (fc.flts = fc.flts || []).push('Flight Controller เช็คอิน (' + fmt(ciStart) + '-' + fmt(ciEnd) + ')'); } }
   }
 
@@ -188,12 +190,12 @@ function apCommonCI_(pool, flights, cfg, commit) {
       return { flight: f.flight, std: f.STD || '', roles: roles };
     });
   }
-  return { code: cfg.code, team: cfg.team, fc: fc ? view(fc) : null, counters: counters, gates: gates, flights: teamFl.map(function (f) { return f.flight; }) };
+  return { code: cfg.code, team: cfg.team, fc: fc ? view(fc) : null, members: su.map(view), counters: counters, gates: gates, flights: teamFl.map(function (f) { return f.flight; }) };
 }
-/** รัน common check-in ทุกทีมที่กำหนด (commit ล็อกเวลา) → [commons] */
-function apRunCommons_(pool, flights, commit) {
+/** รัน common check-in ทุกทีมที่กำหนด (commit ล็อกเวลา · fcByCode={SU:'ชื่อ'} เลือก FC เอง) → [commons] */
+function apRunCommons_(pool, flights, commit, fcByCode) {
   var out = [];
-  AP_COMMON_CI.forEach(function (cfg) { var r = apCommonCI_(pool, flights, cfg, commit); if (r) out.push(r); });
+  AP_COMMON_CI.forEach(function (cfg) { var r = apCommonCI_(pool, flights, cfg, commit, (fcByCode || {})[cfg.code]); if (r) out.push(r); });
   return out;
 }
 /** map: flight → {phase:1} ที่ถูก common check-in จัดไปแล้ว (ให้ตารางหลักข้าม) */
@@ -207,10 +209,10 @@ function apCommonExcl_(commons) {
 }
 
 /** โหมด A: เติมเฉพาะไฟลท์ที่คนไม่พอ — เลือกคนว่างข้ามทีมมาเสริมจริง (commit) */
-function apFillGaps_(res, ll) {
+function apFillGaps_(res, ll, fcByCode) {
   var flights = slaCollectFlights_(res, ll);
   var pool = apClonePool_(res, ll);
-  var commons = apRunCommons_(pool, flights, true);                       // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคน)
+  var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคน)
   var excl = apCommonExcl_(commons);
   var rows = [];
   flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok; }).forEach(function (f) {
@@ -238,12 +240,12 @@ function apFillGaps_(res, ll) {
 }
 
 /** โหมด B: จัดเวรใหม่ทั้งหมด — ล้าง assign เดิม แล้วจัดทุกคนลงไฟลท์ให้ครบ SLA */
-function apReplan_(res, ll) {
+function apReplan_(res, ll, fcByCode) {
   var flights = slaCollectFlights_(res, ll);
   var owner = acOwnerTeams_(res, ll);
   var pool = apClonePool_(res, ll);
   pool.forEach(function (p) { p.busy = []; p.plan = 0; });                // จัดใหม่ → ล้างงานเดิมทั้งหมด
-  var commons = apRunCommons_(pool, flights, true);                       // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคนก่อน)
+  var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคนก่อน)
   var excl = apCommonExcl_(commons);
 
   var fl = flights.filter(function (f) { return acIsFlight_(f.flight); }).sort(function (a, b) {
