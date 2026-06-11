@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11b';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11c';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function otDashBuild() { return OT_DASH_BUILD; }
 
@@ -110,56 +110,45 @@ function otComputeDay_(date) {
   return out;
 }
 
-/** โหลด cache จากชีตซ่อน → { sh, map:{dateKey:{team:hrs}}, rows:{dateKey:rowNo} } (สร้างชีตถ้ายังไม่มี) */
-function otCacheLoad_(ss) {
-  var sh = ss.getSheetByName(OT_CACHE_SHEET);
-  if (!sh) {
-    sh = ss.insertSheet(OT_CACHE_SHEET);
-    sh.getRange(1, 1, 1, 2).setValues([['date', 'teamsJSON']]);
-    try { sh.hideSheet(); } catch (e) {}
-  }
-  var map = {}, rows = {}, last = sh.getLastRow();
-  if (last >= 2) {
-    var vals = sh.getRange(2, 1, last - 1, 2).getValues();
-    for (var i = 0; i < vals.length; i++) {
-      var k = String(vals[i][0] == null ? '' : vals[i][0]).trim(); if (!k) continue;
-      var t = {}; try { t = JSON.parse(vals[i][1] || '{}') || {}; } catch (e2) { t = {}; }
-      map[k] = t; rows[k] = i + 2;
-    }
-  }
-  return { sh: sh, map: map, rows: rows };
-}
-/** เขียนแถวที่ค้างใน batch ลงชีตทันที (เรียกเป็นระยะ เพื่อไม่ให้ผลหายเมื่อ timeout) */
-function otCacheAppend_(cache, batch) {
-  if (!batch.length) return;
-  try { cache.sh.getRange(cache.sh.getLastRow() + 1, 1, batch.length, 2).setValues(batch); } catch (e) {}
-  batch.length = 0;
+/** cache เก็บใน Script Properties (key = otc_YYYY-MM-DD, value = JSON {team:hrs})
+ *  เร็ว ไม่ต้องเปิด spreadsheet ใดๆ — เลิกพึ่งไฟล์ OT Yearly ที่หนัก/timeout */
+var OT_CACHE_PREFIX = 'otc_';
+function otCacheLoad_() {
+  var all = {};
+  try { all = PropertiesService.getScriptProperties().getProperties() || {}; } catch (e) {}
+  var map = {};
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(OT_CACHE_PREFIX) !== 0) return;
+    var key = k.slice(OT_CACHE_PREFIX.length);
+    try { map[key] = JSON.parse(all[k]) || {}; } catch (e2) { map[key] = {}; }
+  });
+  return map;
 }
 
 /** วนช่วงวัน start→end : ใช้ cache ถ้ามี, ไม่งั้นคำนวณ (จำกัด budget + deadline) ; วันนี้คำนวณสดเสมอ
- *  - flush cache ทีละ 8 แถว → ถ้า service timeout กลางคัน ผลที่ทำไปแล้วไม่หาย (resumable จริง)
+ *  - เขียน cache ลง Properties ทีละ 8 วัน → ถ้า service timeout กลางคัน ผลที่ทำแล้วไม่หาย (resumable จริง)
  *  - otComputeDay_ คืน null = error ชั่วคราว → นับเป็น pending ไม่ cache ว่าง
  *  คืน { days:[{date,teams}], pending } */
-function otComputeRange_(ss, start, end, budget, deadline) {
-  var cache = otCacheLoad_(ss);
+function otComputeRange_(start, end, budget, deadline) {
+  var props = PropertiesService.getScriptProperties();
+  var map = otCacheLoad_();
   var todayKey = otDateKey_(new Date());
-  var batch = [], days = [], pending = 0, computed = 0;
+  var batch = {}, batchN = 0, days = [], pending = 0, computed = 0;
+  function flush() { if (batchN) { try { props.setProperties(batch, false); } catch (e) {} batch = {}; batchN = 0; } }
   var d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
   var endT = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
   while (d.getTime() <= endT) {
     var key = otDateKey_(d), isToday = (key === todayKey), teams = null;
-    if (cache.map.hasOwnProperty(key) && !isToday) {
-      teams = cache.map[key];
+    if (map.hasOwnProperty(key) && !isToday) {
+      teams = map[key];
     } else if (isToday || (computed < budget && Date.now() < deadline)) {
       if (!isToday) computed++;
       teams = otComputeDay_(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
       if (teams === null) {                                   // error ชั่วคราว → ลองใหม่รอบหน้า
-        pending++; teams = null;
-      } else if (cache.rows[key]) {
-        try { cache.sh.getRange(cache.rows[key], 1, 1, 2).setValues([[key, JSON.stringify(teams)]]); } catch (e) {}
+        pending++;
       } else {
-        batch.push([key, JSON.stringify(teams)]); cache.rows[key] = -1;
-        if (batch.length >= 8) otCacheAppend_(cache, batch);  // flush ระหว่างทาง
+        map[key] = teams; batch[OT_CACHE_PREFIX + key] = JSON.stringify(teams);
+        if (++batchN >= 8) flush();                            // flush ระหว่างทาง
       }
     } else {
       pending++;
@@ -167,7 +156,7 @@ function otComputeRange_(ss, start, end, budget, deadline) {
     if (teams && Object.keys(teams).length) days.push({ date: new Date(d.getFullYear(), d.getMonth(), d.getDate()), teams: teams });
     d.setDate(d.getDate() + 1);
   }
-  otCacheAppend_(cache, batch);
+  flush();
   return { days: days, pending: pending };
 }
 
@@ -196,9 +185,8 @@ function otAggregate_(days) {
 /** เรียกจาก client (google.script.run) — คืน OT รายทีมสด คำนวณจาก Assignment (ทยอยเติม cache) */
 function otLiveData() {
   try {
-    var ss = SpreadsheetApp.openById(otYearlyId_());
     var now = new Date();
-    var r = otComputeRange_(ss, otRangeStart_(now), now, otBudget_(), Date.now() + 150000);
+    var r = otComputeRange_(otRangeStart_(now), now, otBudget_(), Date.now() + 150000);
     var agg = otAggregate_(r.days);
     return { ok: true, months: agg.months, teams: agg.teams, pending: r.pending, source: 'assignment' };
   } catch (e) { return { ok: false, err: String(e && e.message || e) }; }
@@ -207,9 +195,8 @@ function otLiveData() {
 /** อุ่น cache ทีละชุด (≤24 วัน/รอบ, ตัดที่ 4 นาที กัน service timeout) แล้วตั้ง trigger ทำต่อเองทุก 10 นาที
  *  จนกว่า pending=0 จึงลบ trigger ทิ้ง — เรียกครั้งเดียวจาก editor พอ (resumable เต็มรูปแบบ) */
 function otWarmCache() {
-  var ss = SpreadsheetApp.openById(otYearlyId_());
   var now = new Date();
-  var r = otComputeRange_(ss, otRangeStart_(now), now, 24, Date.now() + 240000);
+  var r = otComputeRange_(otRangeStart_(now), now, 24, Date.now() + 240000);
   Logger.log('otWarmCache: คำนวณรอบนี้เสร็จ, เหลือค้าง pending=%s วัน', r.pending);
   if (r.pending > 0) otEnsureWarmTrigger_(); else { otRemoveWarmTriggers_(); Logger.log('otWarmCache: cache ครบแล้ว ✅ ลบ trigger ทิ้ง'); }
   return r.pending;
@@ -225,6 +212,13 @@ function otRemoveWarmTriggers_() {
 }
 /** สั่งหยุดการอุ่น cache อัตโนมัติ (ลบ trigger) */
 function otStopWarmCache() { otRemoveWarmTriggers_(); Logger.log('หยุด trigger otWarmCache แล้ว'); }
+/** ล้าง cache OT ทั้งหมด (otc_*) — ใช้เมื่อต้องการคำนวณใหม่ทั้งหมด */
+function otClearCache() {
+  var props = PropertiesService.getScriptProperties(), all = props.getProperties() || {}, n = 0;
+  Object.keys(all).forEach(function (k) { if (k.indexOf(OT_CACHE_PREFIX) === 0) { props.deleteProperty(k); n++; } });
+  Logger.log('otClearCache: ลบ cache %s วัน', n);
+  return n;
+}
 
 function otDashData_() { return {"months":["(สะสม)"],"teams":[{"team":"CHINA","total":3876.0,"months":{"(สะสม)":{"weeks":[],"total":3876.0}}},{"team":"QR/MH/OM/DE","total":3873.5,"months":{"(สะสม)":{"weeks":[],"total":3873.5}}},{"team":"SQ/CX/LY","total":1914.5,"months":{"(สะสม)":{"weeks":[],"total":1914.5}}},{"team":"JQ/IT/IX/AI/N0","total":1434.5,"months":{"(สะสม)":{"weeks":[],"total":1434.5}}},{"team":"EY/AY/DV","total":1367.5,"months":{"(สะสม)":{"weeks":[],"total":1367.5}}},{"team":"WY/G9/9C/DK","total":964.0,"months":{"(สะสม)":{"weeks":[],"total":964.0}}},{"team":"TK/VJ/SG/HY/OD","total":641.0,"months":{"(สะสม)":{"weeks":[],"total":641.0}}},{"team":"SV/WK/KA","total":462.5,"months":{"(สะสม)":{"weeks":[],"total":462.5}}},{"team":"PORTER","total":146.5,"months":{"(สะสม)":{"weeks":[],"total":146.5}}}]}; }
 function otDashCss_() { return OT_DASH_CSS_; }
