@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11c';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11d';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function otDashBuild() { return OT_DASH_BUILD; }
 
@@ -82,6 +82,46 @@ function otBudget_() {
 /** ตัด REV ออกจากชื่อแท็บทีม (ชื่อแท็บใน Assignment = ชื่อกลุ่มทีมอยู่แล้ว เช่น CHINA, QR/MH/OM/DE, PORTER) */
 function otTeamName_(nm) {
   return String(nm).replace(/REV\.?\s*\d+\s*/ig, '').replace(/\s+/g, ' ').trim();
+}
+
+/** เลขทีม → ชื่อทีมมาตรฐาน (ยืนยันจากข้อมูลจริง; เลข 7 ปล่อยให้สายการบินตัดสิน=AK, 1/2 ยังไม่ทราบ) */
+var OT_TEAM_NUM = { '3': 'TR/3K/QP', '4': 'JQ/AI/HO/IT/IX', '5': 'KE/LJ/OV/KC/AF/NO', '6': 'QR/MH/OM/DE', '8': 'CHN', '9': 'CHARTER' };
+/** รหัสสายการบิน[] → ชื่อทีมมาตรฐานที่ทับซ้อนมากสุด (อ้างอิง ADV_TEAMS · SU→SU/W5/B2) */
+function otAirlineTeam_(air) {
+  var best = -1, bestN = 0;
+  for (var i = 0; i < ADV_TEAMS.length; i++) {
+    var n = 0; for (var j = 0; j < air.length; j++) if (ADV_TEAMS[i].airlines.indexOf(air[j]) >= 0) n++;
+    if (n > bestN) { bestN = n; best = i; }
+  }
+  return best >= 0 ? ADV_TEAMS[best].name : '';
+}
+/** รวมชื่อแท็บที่สะกดต่างกัน (REV/สำเนา/วันที่/ชีต/ลำดับสลับ) ให้เป็นทีมมาตรฐานเดียว — ใช้ตอนแสดงผล */
+function otCanonTeam_(raw) {
+  var s0 = String(raw || '').replace(/([A-Za-z0-9])x([A-Za-z0-9])/g, '$1 $2');   // JQxTK → JQ TK
+  var s = ' ' + s0.toUpperCase() + ' ';
+  s = s.replace(/สำเนาของ/g, ' ')
+       .replace(/\bREV\b[\s.\-]*\d*/g, ' ')
+       .replace(/NORMAL\s*FLT|IF\s*FLT\s*CANCELL?ED|VER\.?\s*FLT\s*CANCEL|DAILY|ASSIGNMENT|\bON\b/g, ' ')
+       .replace(/\d{1,2}\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\w*\s*\d{0,4}/g, ' ')   // 03JAN26
+       .replace(/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)/g, ' ')
+       .replace(/ชีต\S*/g, ' ').replace(/_CONFLICT\d*/g, ' ');
+  if (/CHARTER/.test(s)) return 'CHARTER';
+  if (/PORTER/.test(s)) return 'PORTER';
+  if (/\bVIP\b/.test(s)) return 'VIP';
+  if (/\bCHN\b|CHINA/.test(s)) return 'CHN';
+  var num = s.match(/TEAM\s*0*(\d{1,2})/);
+  if (num && OT_TEAM_NUM[num[1]]) return OT_TEAM_NUM[num[1]];           // เลขทีมที่มั่นใจ
+  var air = [];                                                         // รวมรหัสสายการบิน (รวมแบบติดกัน EYAYDV→EY AY DV)
+  s.replace(/[^A-Z0-9]+/g, ' ').split(/\s+/).forEach(function (tk) {
+    if (!tk || tk === 'TEAM') return;
+    if (tk.length >= 2 && tk.length <= 3) air.push(tk);
+    else if (tk.length >= 4 && tk.length % 2 === 0) for (var i = 0; i < tk.length; i += 2) air.push(tk.substr(i, 2));
+  });
+  var byAir = otAirlineTeam_(air);
+  if (byAir) return byAir;                                              // SU → SU/W5/B2 (ไม่ใช่ Charter)
+  if (num) return 'TEAM ' + num[1];                                    // เลขทีมที่ยังไม่ทราบสายการบิน
+  var c = s.replace(/\s+/g, ' ').trim();
+  return c || 'อื่นๆ';
 }
 
 /** error ชั่วคราว (service timeout/quota/rate) → ควรลองใหม่ ไม่ใช่ cache เป็นว่าง */
@@ -167,8 +207,9 @@ function otAggregate_(days) {
   days.forEach(function (rec) {
     var dt = rec.date, mAbbr = OT_MONTH_ABBR[dt.getMonth()], wkIdx = Math.min(3, Math.floor((dt.getDate() - 1) / 7));
     if (monthsSet.indexOf(mAbbr) < 0) monthsSet.push(mAbbr);
-    Object.keys(rec.teams).forEach(function (team) {
-      var hrs = rec.teams[team]; if (!(hrs > 0)) return;
+    Object.keys(rec.teams).forEach(function (rawTeam) {
+      var hrs = rec.teams[rawTeam]; if (!(hrs > 0)) return;
+      var team = otCanonTeam_(rawTeam);                       // รวมชื่อแท็บที่สะกดต่างกัน → ทีมมาตรฐาน
       if (!teamMap[team]) { teamMap[team] = { team: team, total: 0, months: {} }; order.push(team); }
       var T = teamMap[team];
       if (!T.months[mAbbr]) T.months[mAbbr] = { weeks: [0, 0, 0, 0], total: 0 };
