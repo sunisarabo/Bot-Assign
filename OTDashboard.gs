@@ -1,5 +1,10 @@
-/** OT Dashboard (รายทีม) — ดึงสดจาก OT Yearly · ชีต5 (ต่อทีม × สัปดาห์/เดือน) + baked fallback */
+/** OT Dashboard (รายทีม) — คำนวณสดจาก Assignment (เวรรายวัน) → สรุปต่อทีม × สัปดาห์/เดือน + baked fallback
+ *  เดิมดึงจาก OT Yearly · ชีต5 (ยังเก็บ otReadSheet5_/otParseSheet5_ ไว้เป็น fallback)
+ *  ใหม่: วนอ่านไฟล์เวรรายวันผ่าน rbOpenTodayRoster_ + readRosterFromSpreadsheet → OT/ทีม/วัน = otHours + otHolHrs
+ *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
+var OT_CACHE_SHEET = 'OT_DASH_CACHE';
+var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** แปลงค่าเวลา/ระยะเวลาในชีต → ชั่วโมง (ทศนิยม) */
 function otHrs_(v) {
@@ -48,10 +53,146 @@ function otReadSheet5_() {
   return otParseSheet5_(sh.getDataRange().getValues());
 }
 
-/** เรียกจาก client (google.script.run) — คืนข้อมูล OT รายทีมสด */
+// ─── คำนวณ OT จาก Assignment (เวรรายวัน) ────────────────────────────────────
+function otYearlyId_() {
+  try { var p = PropertiesService.getScriptProperties().getProperty('OT_YEARLY_ID'); return p || OT_YEARLY_ID; }
+  catch (e) { return OT_YEARLY_ID; }
+}
+function otDateKey_(d) {
+  return Utilities.formatDate(d, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
+}
+/** จุดเริ่มช่วงคำนวณ — override ได้ด้วย Script Property OT_DASH_START (YYYY-MM-DD) ค่าเริ่มต้น = 1 ม.ค. ปีนี้ */
+function otRangeStart_(now) {
+  try {
+    var p = PropertiesService.getScriptProperties().getProperty('OT_DASH_START');
+    var m = p && String(p).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  } catch (e) {}
+  return new Date(now.getFullYear(), 0, 1);
+}
+/** จำนวนวัน (อดีต) สูงสุดที่จะคำนวณใหม่ต่อการเรียก 1 ครั้ง — override ด้วย OT_DASH_BUDGET */
+function otBudget_() {
+  try { var p = parseInt(PropertiesService.getScriptProperties().getProperty('OT_DASH_BUDGET'), 10); if (p > 0) return p; }
+  catch (e) {}
+  return 30;
+}
+/** ตัด REV ออกจากชื่อแท็บทีม (ชื่อแท็บใน Assignment = ชื่อกลุ่มทีมอยู่แล้ว เช่น CHINA, QR/MH/OM/DE, PORTER) */
+function otTeamName_(nm) {
+  return String(nm).replace(/REV\.?\s*\d+\s*/ig, '').replace(/\s+/g, ' ').trim();
+}
+
+/** อ่านเวรของวันเดียว → {teamName: otHours} ; OT/ทีม = otHours + otHolHrs (รวม OT นักขัต X1)
+ *  คืน {} เมื่อไม่พบไฟล์/อ่านไม่ได้ (จะถูก cache ไว้เพื่อไม่ให้ลองซ้ำ) */
+function otComputeDay_(date) {
+  var roster;
+  try { roster = rbOpenTodayRoster_(date); } catch (e) { return {}; }
+  if (!roster || !roster.ss) return {};
+  var res = null;
+  try { res = readRosterFromSpreadsheet(roster.ss, date); } catch (e2) { res = null; }
+  if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
+  if (!res || !res.teams) return {};
+  var out = {};
+  Object.keys(res.teams).forEach(function (t) {
+    var b = res.teams[t];
+    var hrs = Math.round(((b.otHours || 0) + (b.otHolHrs || 0)) * 10) / 10;
+    if (hrs > 0) { var nm = otTeamName_(t); out[nm] = Math.round(((out[nm] || 0) + hrs) * 10) / 10; }
+  });
+  return out;
+}
+
+/** โหลด cache จากชีตซ่อน → { sh, map:{dateKey:{team:hrs}}, rows:{dateKey:rowNo} } (สร้างชีตถ้ายังไม่มี) */
+function otCacheLoad_(ss) {
+  var sh = ss.getSheetByName(OT_CACHE_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(OT_CACHE_SHEET);
+    sh.getRange(1, 1, 1, 2).setValues([['date', 'teamsJSON']]);
+    try { sh.hideSheet(); } catch (e) {}
+  }
+  var map = {}, rows = {}, last = sh.getLastRow();
+  if (last >= 2) {
+    var vals = sh.getRange(2, 1, last - 1, 2).getValues();
+    for (var i = 0; i < vals.length; i++) {
+      var k = String(vals[i][0] == null ? '' : vals[i][0]).trim(); if (!k) continue;
+      var t = {}; try { t = JSON.parse(vals[i][1] || '{}') || {}; } catch (e2) { t = {}; }
+      map[k] = t; rows[k] = i + 2;
+    }
+  }
+  return { sh: sh, map: map, rows: rows };
+}
+function otCacheFlush_(cache, append, updates) {
+  if (append.length) cache.sh.getRange(cache.sh.getLastRow() + 1, 1, append.length, 2).setValues(append);
+  Object.keys(updates).forEach(function (k) {
+    cache.sh.getRange(updates[k].row, 1, 1, 2).setValues([[k, JSON.stringify(updates[k].teams)]]);
+  });
+}
+
+/** วนช่วงวัน start→end : ใช้ cache ถ้ามี, ไม่งั้นคำนวณ (จำกัด budget + deadline) ; วันนี้คำนวณสดเสมอ
+ *  คืน { days:[{date,teams}], pending } โดย pending = จำนวนวันที่ยังไม่ได้คำนวณ (เกิน budget) */
+function otComputeRange_(ss, start, end, budget, deadline) {
+  var cache = otCacheLoad_(ss);
+  var todayKey = otDateKey_(new Date());
+  var append = [], updates = {}, days = [], pending = 0, computed = 0;
+  var d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  var endT = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+  while (d.getTime() <= endT) {
+    var key = otDateKey_(d), isToday = (key === todayKey), teams = null;
+    if (cache.map.hasOwnProperty(key) && !isToday) {
+      teams = cache.map[key];
+    } else if (isToday || (computed < budget && Date.now() < deadline)) {
+      if (!isToday) computed++;
+      teams = otComputeDay_(new Date(d.getFullYear(), d.getMonth(), d.getDate())) || {};
+      if (cache.rows[key]) updates[key] = { row: cache.rows[key], teams: teams };
+      else { append.push([key, JSON.stringify(teams)]); cache.rows[key] = -1; }
+    } else {
+      pending++;
+    }
+    if (teams && Object.keys(teams).length) days.push({ date: new Date(d.getFullYear(), d.getMonth(), d.getDate()), teams: teams });
+    d.setDate(d.getDate() + 1);
+  }
+  try { otCacheFlush_(cache, append, updates); } catch (e) {}
+  return { days: days, pending: pending };
+}
+
+/** รวมผลรายวัน → โครงสร้างเดียวกับ ชีต5 เดิม: { months:['Jan'..], teams:[{team,total,months:{m:{weeks:[4],total}}}] }
+ *  สัปดาห์: 1-7, 8-14, 15-21, 22-สิ้นเดือน (index 0-3) */
+function otAggregate_(days) {
+  var teamMap = {}, order = [], monthsSet = [];
+  days.forEach(function (rec) {
+    var dt = rec.date, mAbbr = OT_MONTH_ABBR[dt.getMonth()], wkIdx = Math.min(3, Math.floor((dt.getDate() - 1) / 7));
+    if (monthsSet.indexOf(mAbbr) < 0) monthsSet.push(mAbbr);
+    Object.keys(rec.teams).forEach(function (team) {
+      var hrs = rec.teams[team]; if (!(hrs > 0)) return;
+      if (!teamMap[team]) { teamMap[team] = { team: team, total: 0, months: {} }; order.push(team); }
+      var T = teamMap[team];
+      if (!T.months[mAbbr]) T.months[mAbbr] = { weeks: [0, 0, 0, 0], total: 0 };
+      T.months[mAbbr].weeks[wkIdx] = Math.round((T.months[mAbbr].weeks[wkIdx] + hrs) * 10) / 10;
+      T.months[mAbbr].total = Math.round((T.months[mAbbr].total + hrs) * 10) / 10;
+      T.total = Math.round((T.total + hrs) * 10) / 10;
+    });
+  });
+  monthsSet.sort(function (a, b) { return OT_MONTH_ABBR.indexOf(a) - OT_MONTH_ABBR.indexOf(b); });
+  var teams = order.map(function (t) { return teamMap[t]; }).sort(function (a, b) { return b.total - a.total; });
+  return { months: monthsSet, teams: teams };
+}
+
+/** เรียกจาก client (google.script.run) — คืน OT รายทีมสด คำนวณจาก Assignment (ทยอยเติม cache) */
 function otLiveData() {
-  try { var r = otReadSheet5_(); return { ok: true, months: r.months, teams: r.teams }; }
-  catch (e) { return { ok: false, err: String(e && e.message || e) }; }
+  try {
+    var ss = SpreadsheetApp.openById(otYearlyId_());
+    var now = new Date();
+    var r = otComputeRange_(ss, otRangeStart_(now), now, otBudget_(), Date.now() + 240000);
+    var agg = otAggregate_(r.days);
+    return { ok: true, months: agg.months, teams: agg.teams, pending: r.pending, source: 'assignment' };
+  } catch (e) { return { ok: false, err: String(e && e.message || e) }; }
+}
+
+/** รันมือ/ตั้ง trigger เพื่ออุ่น cache ทั้งช่วงรวดเดียว (resumable — เรียกซ้ำจนกว่า pending=0) */
+function otWarmCache() {
+  var ss = SpreadsheetApp.openById(otYearlyId_());
+  var now = new Date();
+  var r = otComputeRange_(ss, otRangeStart_(now), now, 100000, Date.now() + 300000);
+  Logger.log('otWarmCache: days=%s pending=%s', r.days.length, r.pending);
+  return r.pending;
 }
 
 function otDashData_() { return {"months":["(สะสม)"],"teams":[{"team":"CHINA","total":3876.0,"months":{"(สะสม)":{"weeks":[],"total":3876.0}}},{"team":"QR/MH/OM/DE","total":3873.5,"months":{"(สะสม)":{"weeks":[],"total":3873.5}}},{"team":"SQ/CX/LY","total":1914.5,"months":{"(สะสม)":{"weeks":[],"total":1914.5}}},{"team":"JQ/IT/IX/AI/N0","total":1434.5,"months":{"(สะสม)":{"weeks":[],"total":1434.5}}},{"team":"EY/AY/DV","total":1367.5,"months":{"(สะสม)":{"weeks":[],"total":1367.5}}},{"team":"WY/G9/9C/DK","total":964.0,"months":{"(สะสม)":{"weeks":[],"total":964.0}}},{"team":"TK/VJ/SG/HY/OD","total":641.0,"months":{"(สะสม)":{"weeks":[],"total":641.0}}},{"team":"SV/WK/KA","total":462.5,"months":{"(สะสม)":{"weeks":[],"total":462.5}}},{"team":"PORTER","total":146.5,"months":{"(สะสม)":{"weeks":[],"total":146.5}}}]}; }
@@ -60,7 +201,7 @@ function otDashHtml_() { return OT_DASH_HTML_; }
 function otDashScript_() {
   return '<scr' + 'ipt>(function(){var BAKED=' + JSON.stringify(otDashData_()) + ';' + OT_DASH_JS_ + '})();</scr' + 'ipt>';
 }
-var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · ดึงจาก OT Yearly (ชีต5)</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
+var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · คำนวณจาก Assignment (เวรรายวัน)</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
 var OT_DASH_CSS_ = `#view-ot{--surface:#fff;--surface2:#eef3f9;--border:#dbe3ee;--accent:#f97316;--accent2:#3b82f6;--accent3:#0891b2;--danger:#ef4444;--warn:#d97706;--ok:#16a34a;--text:#1f2d3d;--muted:#73839a;color:var(--text)}
 #view-ot .ot-head{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#eef3fb,#f6f0ff);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px}
 #view-ot .ot-title{font-size:20px;font-weight:800;letter-spacing:-.3px}
@@ -139,8 +280,8 @@ function thM(m){return MTH[m]||m;}
 function tcol(team){var i=DATA.teams.map(function(t){return t.team;}).indexOf(team);return COLORS[(i<0?0:i)%COLORS.length];}
 function card(c,l,v,s){return '<div class="stat-card" style="--accent-color:'+c+'"><div class="stat-label">'+l+'</div><div class="stat-val">'+v+'</div><div class="stat-sub">'+esc(s)+'</div></div>';}
 function section(title,body){return '<div class="section"><div class="section-header"><div class="section-title"><span class="dot"></span> '+title+'</div></div>'+body+'</div>';}
-function srcBadge(){return LIVE?'<span class="ot-live">🟢 สดจาก ชีต5</span>':'<span class="ot-baked">● ข้อมูลสำรอง (ยังไม่เชื่อมสด)</span>';}
-function infoP(type){var crit=type==='weekly'?'รายสัปดาห์ (1-7, 8-14, 15-21, 22-สิ้นเดือน)':'รายเดือน (รวมทั้งเดือน)';return '<div class="info-panel"><div class="info-item">มุมมอง: <strong>'+crit+'</strong></div><div class="info-item">แหล่งข้อมูล: <strong>OT Yearly · ชีต5</strong></div><div class="info-item">'+srcBadge()+'</div></div>';}
+function srcBadge(){if(LIVE){var p=window.__otPending||0;return p>0?'<span class="ot-live">🟢 สดจาก Assignment · กำลังประมวลผลอีก '+p+' วัน…</span>':'<span class="ot-live">🟢 สดจาก Assignment</span>';}return '<span class="ot-baked">● ข้อมูลสำรอง (ยังไม่เชื่อมสด)</span>';}
+function infoP(type){var crit=type==='weekly'?'รายสัปดาห์ (1-7, 8-14, 15-21, 22-สิ้นเดือน)':'รายเดือน (รวมทั้งเดือน)';return '<div class="info-panel"><div class="info-item">มุมมอง: <strong>'+crit+'</strong></div><div class="info-item">แหล่งข้อมูล: <strong>Assignment · เวรรายวัน</strong></div><div class="info-item">'+srcBadge()+'</div></div>';}
 function bars(items){var mx=Math.max.apply(null,items.map(function(t){return t.v;}).concat([1]));return '<div class="bar-chart">'+items.slice().sort(function(a,b){return b.v-a.v;}).map(function(t){var pct=(t.v/mx*100).toFixed(1),col=tcol(t.team);return '<div class="bar-row"><div class="bar-label" title="'+esc(t.team)+'">'+esc(t.team)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;--fill-color:'+col+'">'+fmt(t.v)+' ชม.</div></div></div>';}).join('')+'</div>';}
 function buildMonthly(){
   var teams=DATA.teams,months=DATA.months;
@@ -166,6 +307,7 @@ function buildWeekly(){
 function render(){buildMonthly();buildWeekly();}
 window.otSelMonth=function(m){selMonth=m;buildWeekly();};
 window.otSwitchTab=function(tab){var root=document.getElementById('view-ot');if(!root)return;[].forEach.call(root.querySelectorAll('.ot-subtab'),function(t){t.classList.toggle('active',t.getAttribute('data-t')===tab);});[].forEach.call(root.querySelectorAll('.tab-panel'),function(p){p.classList.remove('active');});var el=document.getElementById('ot-tab-'+tab);if(el)el.classList.add('active');};
-function otInit(){if(!document.getElementById('ot-tab-weekly')||window.__otBuilt)return;window.__otBuilt=1;render();if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(d){if(d&&d.ok&&d.teams&&d.teams.length){DATA=d;LIVE=true;render();}}).withFailureHandler(function(){}).otLiveData();}}
+function otFetch(){if(!(window.google&&google.script&&google.script.run))return;google.script.run.withSuccessHandler(function(d){if(d&&d.ok){if(d.teams&&d.teams.length)DATA=d;LIVE=true;window.__otPending=d.pending||0;render();if(d.pending>0&&(window.__otTries=(window.__otTries||0)+1)<80)setTimeout(otFetch,400);}}).withFailureHandler(function(){}).otLiveData();}
+function otInit(){if(!document.getElementById('ot-tab-weekly')||window.__otBuilt)return;window.__otBuilt=1;render();otFetch();}
 if(document.readyState!=='loading')otInit();else window.addEventListener('load',otInit);
 `;
