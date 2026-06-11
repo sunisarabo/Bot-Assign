@@ -138,8 +138,20 @@ function rrRangeCells_(row, col) {
 }
 function rrFmtMin_(m) {
   if (m == null) return '';
-  var h = Math.floor(m / 60) % 24, mm = ((m % 60) + 60) % 60;
-  return ('0' + h).slice(-2) + ':' + ('0' + mm).slice(-2);
+  m = ((Math.round(m) % 1440) + 1440) % 1440;                 // normalize → นาฬิกา 00:00–23:59 (กันค่าติดลบ/ข้ามคืน)
+  return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2);
+}
+/** เลื่อนช่วง [a,b] ด้วย k×1440 ให้แนบชิดช่วงอ้างอิง [rs,re] มากสุด — จัดเวลาข้ามเที่ยงคืนให้อยู่ timeline เดียวกัน */
+function rrAlignTo_(a, b, rs, re) {
+  if (a == null || b == null || rs == null || re == null) return [a, b];
+  if (b <= a) b += 1440;                                       // ช่วงตัวเองข้ามคืน
+  var bestK = 0, bestGap = Infinity;
+  for (var k = -2; k <= 2; k++) {
+    var aa = a + 1440 * k, bb = b + 1440 * k;
+    var gap = (aa > re) ? (aa - re) : (bb < rs ? (rs - bb) : 0);
+    if (gap < bestGap) { bestGap = gap; bestK = k; }
+  }
+  return [a + 1440 * bestK, b + 1440 * bestK];
 }
 function rrFmtRange_(r) { return (r[0] != null && r[1] != null) ? (rrFmtMin_(r[0]) + '-' + rrFmtMin_(r[1])) : ''; }
 
@@ -148,13 +160,11 @@ function rrOtType_(srng, orng, isOff) {
   if (isOff) return 'POST';
   var si = srng[0], so = srng[1], oi = orng[0], oo = orng[1];
   if (oi == null) return 'POST';
-  if (so != null && si != null && so <= si) so += 1440;
-  if (oo != null && oo <= oi) oo += 1440;
-  var TOL = 30;
-  if (si != null && oo != null && oo <= si + TOL) return 'PRE';
-  if (so != null && oi >= so - TOL) return 'POST';
-  if (si != null && oi < si) return 'PRE';
-  return 'POST';
+  if (so != null && si != null && so <= si) so += 1440;       // กะข้ามคืน
+  if (oo != null && oo <= oi) oo += 1440;                      // OT ข้ามคืน
+  if (si == null || so == null) return (si != null && oi < si) ? 'PRE' : 'POST';
+  var al = rrAlignTo_(oi, oo, si, so); oi = al[0]; oo = al[1]; // จัด OT ให้อยู่ timeline เดียวกับกะ
+  return (oo <= si + 30) ? 'PRE' : 'POST';                     // จบ ≤ ต้นกะ = ก่อนกะ, ไม่งั้น = หลังกะ
 }
 
 // ─── header detection (standard + TR NO/ID/NAME/TIME/SHIFT/OT variant) ──────

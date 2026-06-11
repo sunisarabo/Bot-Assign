@@ -85,7 +85,7 @@ function acDuty_(r) {
     // OT OFF = วันหยุดมาทำ OT — เวลางานจริง = ช่วง OT เท่านั้น (ไม่ใช่กะปกติที่ค้างอยู่)
     ds = oi; de = oo;
   } else if (oi != null) {
-    if (ss != null) { while (oi < ss - 720) { oi += 1440; oo += 1440; } }  // จัด OT ให้อยู่ใกล้กะ
+    if (ss != null && se != null) { var al = rrAlignTo_(oi, oo, ss, se); oi = al[0]; oo = al[1]; }  // จัด OT ให้อยู่ timeline เดียวกับกะ (ข้ามเที่ยงคืน)
     ds = (ds == null) ? oi : Math.min(ds, oi);
     de = (de == null) ? oo : Math.max(de, oo);
   } else if (r.ot > 0 && ss != null) {
@@ -119,7 +119,8 @@ function acAnalyzeRecord_(r) {
     var w = acFlightWin_(a);
     if (!w) return;                                          // ไฟลท์ไม่มีเวลา → ข้ามการเช็คครอบคลุม
     var lo = w[0], hi = w[1];
-    if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
+    if (d.ds != null && d.de != null) { var fa = rrAlignTo_(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }  // จัดไฟลท์ให้อยู่ timeline เดียวกับเวลางาน (ข้ามเที่ยงคืน)
+    else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
     out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) });
   });
 
@@ -172,8 +173,8 @@ function acAnalyzeRecord_(r) {
     // OT เกินจำเป็นไหม — ตรวจว่ามีไฟลท์เลยขอบกะจริงหรือไม่
     var justified = out.flightN === 0;                      // ไม่มีไฟลท์ → ตัดสินไม่ได้ ถือว่าผ่าน (อาจเป็นงาน support)
     out.wins.forEach(function (w) {
-      if (r.otType === 'PRE'  && d.ss != null && w.lo <  d.ss - AC_COVER_TOL) justified = true;
-      if (r.otType !== 'PRE'  && d.se != null && w.hi >  d.se + AC_COVER_TOL) justified = true;
+      if (r.otType === 'PRE'  && d.ss != null && w.lo <  d.ss) justified = true;   // ไฟลท์โผล่ก่อนกะ = OT จำเป็น
+      if (r.otType !== 'PRE'  && d.se != null && w.hi >  d.se) justified = true;   // ไฟลท์ลากเลยกะ = OT จำเป็น
     });
     if (!justified && out.flightN > 0) {
       out.status = 'warn';
