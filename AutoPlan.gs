@@ -174,7 +174,7 @@ function apWriteTeamSheet_(sh, tn, dateStr, members) {
   var rows = [[tn + ' — แจ้ง Assignment วันที่ ' + dateStr, '', '', ''], ['', '', '', '']];
   var hdr = rows.length; rows.push(['ชื่อ', 'ตำแหน่ง', 'กะ', 'งานที่ได้รับ (ไฟลท์ · ตำแหน่ง · เวลา)']);
   members.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'th'); })
-    .forEach(function (m) { rows.push([m.name, m.pos, m.shift || '-', (m.jobs || []).join('\n') || '— standby/สำรอง —']); });
+    .forEach(function (m) { rows.push([m.name, m.pos, m.shift || '-', (m.jobs || []).join('\n') || '—']); });
   sh.getRange(1, 1, rows.length, 4).setValues(rows).setWrap(true).setVerticalAlignment('top').setFontSize(10);
   sh.getRange(1, 1, 1, 4).merge().setFontWeight('bold').setFontSize(13).setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('left');
   sh.getRange(hdr + 1, 1, 1, 4).setFontWeight('bold').setBackground('#dce9f7').setFontColor('#1f4e79');
@@ -209,7 +209,7 @@ function apExportFill(dateStr, team) {
   });
   return apExportToSheet_('แจ้ง Assignment (เติม) ' + dateStr, teams, dateStr);
 }
-/** Export "Auto Assign" (replan) → ไฟล์ชีตรายทีม + คนพักเป็น standby (team='' = ทุกทีม) */
+/** Export "Auto Assign" (replan) → ไฟล์ชีตรายทีม (เฉพาะคนที่ถูกจัด ไม่รวม standby; team='' = ทุกทีม) */
 function apExportAuto(dateStr, team) {
   var d = rbLoadResLL_(rbDateFromIso_(dateStr));
   var rp = apReplan_(d.res, d.ll);
@@ -223,10 +223,6 @@ function apExportAuto(dateStr, team) {
         apFindMember_(arr, p).jobs.push(f.flight + ' · ' + PHL[ph] + ' · ' + (f.std || f.sta || ''));
       });
     });
-  });
-  (rp.bench || []).forEach(function (b) {                                    // คนพัก = standby
-    if (team && b.team !== team) return;
-    apFindMember_((teams[b.team] = teams[b.team] || []), b);
   });
   return apExportToSheet_('แจ้ง Assignment (Auto) ' + dateStr, teams, dateStr);
 }

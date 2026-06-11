@@ -252,7 +252,7 @@ function slaAirlineOf_(flight) {
 function slaReq_(airline) {
   var c = String(airline || '').toUpperCase();
   var rq = SLA_RQ[c] || (SLA_ALIAS[c] && SLA_RQ[SLA_ALIAS[c]]);
-  if (rq) return { SUP: rq[0], CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };
+  if (rq) return { SUP: 1, CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   var db = slaGet_(airline);
   var req = { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: db.total || 0 };
   (db.roles || []).forEach(function (r) {
@@ -260,6 +260,7 @@ function slaReq_(airline) {
     if (req[ph] === undefined) ph = 'CI';
     req[ph] += r[1];
   });
+  req.SUP = 1;                                                                   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   return req;
 }
 
@@ -316,11 +317,12 @@ function slaCollectFlights_(res, ll) {
   var flights = {};
   function add(team, rec) {
     (rec.assignments || []).forEach(function (a) {
-      var key = String(a.flight || '').trim();
+      var raw = String(a.flight || '').trim();
+      var key = raw.replace(/\s+/g, '').toUpperCase();       // เลขไฟลท์ซ้ำ (เว้นวรรค/พิมพ์เล็กใหญ่ต่างกัน) → key เดียวกัน เก็บตัวแรก
       if (!key) return;
       if (slaIsSupportFlight_(key)) return;                  // SUPPORT/SUUPORT = งานซัพพอร์ต ไม่ใช่ไฟลท์จริง → ข้าม
       if (!flights[key]) {
-        flights[key] = { flight: key, airline: slaAirlineOf_(key), teams: {},
+        flights[key] = { flight: raw, airline: slaAirlineOf_(key), teams: {},
           STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '',
           assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
       }
