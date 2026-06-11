@@ -90,15 +90,7 @@ function rbAssignHtml(iso) {
         (rbEsc_(r.otVerdict) || '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.issue) + '</td></tr>';
     }).join('');
     if (!rows) rows = '<tr><td colspan="13" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
-    var giveOT = an.rows.filter(function (r) { return /🔴/.test(r.otVerdict || ''); }).map(function (r) { return rbEsc_(r.name) + ' <span class="muted">(' + rbEsc_(r.team) + ')</span>'; });
-    var cutOT = an.rows.filter(function (r) { return /เกินจำเป็น/.test(r.otVerdict || ''); }).map(function (r) { return rbEsc_(r.name) + ' <span class="muted">(' + rbEsc_(r.team) + ')</span>'; });
-    var rec = (giveOT.length || cutOT.length)
-      ? '<div class="panel" style="margin-bottom:12px;background:#fff8e1;border-left:4px solid var(--warn);padding:10px 14px;border-radius:8px"><b>💡 คำแนะนำ OT</b>'
-        + (giveOT.length ? '<div style="margin-top:4px">🔴 <b>ควรให้ OT / Re-Sked</b> (' + giveOT.length + ' คน): ' + giveOT.join(', ') + '</div>' : '')
-        + (cutOT.length ? '<div style="margin-top:4px">🟡 <b>ควรลด OT / ไม่จำเป็นต้องให้</b> (' + cutOT.length + ' คน): ' + cutOT.join(', ') + '</div>' : '')
-        + '</div>'
-      : '';
-    return hd + rec + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
+    return hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
       '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>ไฟลท์</th><th>ไฟลท์ที่ทำ</th>' +
       '<th>ไฟลท์นอกเวลา</th><th>ช่วงว่าง</th><th>OT เหมาะสม?</th><th>ปัญหา/คำแนะนำ</th></tr>',
       rows, rbCtrls_('view-ac', true) + rbGapCtrl_('view-ac'));
