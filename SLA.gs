@@ -9,9 +9,12 @@
  * Requires RosterReader.gs (res = readRosterFromSpreadsheet()).
  */
 
-// ── Airline SLA: timing offsets (รอบ STD) + required headcount per role/phase ──
+// ── Airline SLA: timing offsets (นาที รอบ STD = เวลาออก) + required headcount per role/phase ──
 // roles: [name, count, code, phase]  · phase = ALL(SUP) / CI / ARR / GATE
-// ci/cc = check-in open/close (นาที รอบ STD) · go = gate · brief/post = ก่อน/หลัง
+// ci    = check-in เปิด ก่อน STD (เช่น -180 = 3 ชม.)   · cc = check-in ปิด ก่อน STD (เช่น -60 = 1 ชม.)
+// go    = gate open ก่อน STD (เช่น -45)                · lc = boarding/last call ก่อน STD
+// brief = บรีฟเริ่ม ก่อนเวลาเปิด check-in (นาที)        · post = งาน post-flight หลัง STD (นาที)
+// total = จำนวนพนักงานทั้งหมด · เวลาเปิดเคาน์เตอร์ใช้ OP ในชีตก่อน ถ้าไม่มีจึงใช้ STD+ci
 var SLA_DB = {
   'SQ': {ci:-240,cc:-40,go:-75,lc:-45,brief:60,post:30,total:13,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'SOD/FC','CI'],['CHECK-IN GK',1,'CT1/GK','CI'],
