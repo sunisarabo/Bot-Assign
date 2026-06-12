@@ -57,7 +57,7 @@ function acFlightWin_(a) {
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
   var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post) || 30;
-  var lo = null, hi = std;                                    // hi = STD
+  var lo = null, hi = (std != null) ? std + post : null;      // hi = STD + post (รวมงาน post-flight)
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
   if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ
   if (hi == null && sta != null) { lo = sta - brief; hi = sta + post; }   // ขาเข้าล้วน → รอบ STA
