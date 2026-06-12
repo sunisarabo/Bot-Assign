@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11k';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11l';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
 var OT_SHEET_NAME = 'OT Weekly';   // ชื่อชีตใน OT Yearly ที่เก็บ OT รายสัปดาห์ (override ด้วย Script Property OT_SHEET_NAME)
@@ -22,7 +22,62 @@ function otHrs_(v) {
 }
 function otMonth_(h) { var m = String(h).match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i); return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : ''; }
 
-/** parse ชีต5: ส่วน "Team/Week" เป็นบล็อกต่อเดือนเรียงแนวนอน (team | 4 สัปดาห์ | รวม) */
+/** parse ชีต "OT Weekly" — OT รายคน×รายวัน (คอลัมน์: ทีม|ลำดับ|รหัส|ชื่อ|ตำแหน่ง| [Code,Hrs]×วันที่)
+ *  รวม Hrs ของทุกคน → ทีม × เดือน × สัปดาห์ (ตามวันที่ DD/MM/YYYY ของหัวคอลัมน์) */
+function otParseWeekly_(data) {
+  // หาแถวหัว 'ทีม' + คอลัมน์ทีม
+  var hdr = -1, teamCol = 0;
+  for (var i = 0; i < Math.min(8, data.length) && hdr < 0; i++) {
+    for (var c = 0; c < Math.min(8, data[i].length); c++) {
+      if (String(data[i][c]).trim() === 'ทีม') { hdr = i; teamCol = c; break; }
+    }
+  }
+  if (hdr < 0) throw new Error('ไม่พบคอลัมน์ "ทีม" ในชีต OT Weekly');
+  // แถว Code/Hrs (ภายใน hdr..hdr+2) — แถวที่มี 'Hrs'
+  var subRow = -1;
+  for (var i = hdr; i < Math.min(hdr + 3, data.length) && subRow < 0; i++) {
+    if (data[i].some(function (v) { return String(v).trim() === 'Hrs'; })) subRow = i;
+  }
+  if (subRow < 0) throw new Error('ไม่พบหัวคอลัมน์ "Hrs" ในชีต OT Weekly');
+  var dateRow = Math.max(hdr, subRow - 1);                                  // แถววันที่ = เหนือ Code/Hrs
+  // map คอลัมน์ → วันที่ (carry-forward เผื่อ merge cell)
+  var colDate = [], last = '';
+  for (var c = 0; c < data[dateRow].length; c++) {
+    var dv = String(data[dateRow][c] == null ? '' : data[dateRow][c]).trim();
+    if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(dv)) last = dv;
+    colDate[c] = last;
+  }
+  var agg = {}, MORD = OT_MONTH_ABBR;
+  function bucket(team, dateStr, hrs) {
+    var m = String(dateStr).match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (!m) return;
+    var day = +m[1], mon = +m[2] - 1; if (mon < 0 || mon > 11) return;     // DD/MM/YYYY
+    var ab = MORD[mon], wk = Math.min(3, Math.floor((day - 1) / 7));
+    var T = agg[team] || (agg[team] = {});
+    var M = T[ab] || (T[ab] = { weeks: [0, 0, 0, 0], total: 0 });
+    M.weeks[wk] = Math.round((M.weeks[wk] + hrs) * 10) / 10;
+    M.total = Math.round((M.total + hrs) * 10) / 10;
+  }
+  for (var r = subRow + 1; r < data.length; r++) {
+    var team = String(data[r][teamCol] == null ? '' : data[r][teamCol]).trim();
+    if (!team) continue;
+    var canon = (typeof otCanonTeam_ === 'function') ? otCanonTeam_(team) : team;
+    var row = data[r];
+    for (var c = teamCol + 1; c < row.length; c++) {
+      if (String(data[subRow][c]).trim() !== 'Hrs') continue;
+      var hrs = otHrs_(row[c]);
+      if (hrs > 0) bucket(canon, colDate[c], hrs);
+    }
+  }
+  var monthsSet = {}, teams = [];
+  Object.keys(agg).forEach(function (tn) {
+    var months = agg[tn], total = 0;
+    Object.keys(months).forEach(function (m) { monthsSet[m] = 1; total = Math.round((total + months[m].total) * 10) / 10; });
+    teams.push({ team: tn, total: total, months: months });
+  });
+  var months = Object.keys(monthsSet).sort(function (a, b) { return MORD.indexOf(a) - MORD.indexOf(b); });
+  teams.sort(function (a, b) { return b.total - a.total; });
+  return { months: months, teams: teams };
+}
 function otParseSheet5_(data) {
   var hr = -1;
   for (var i = 0; i < Math.min(6, data.length); i++) { if (data[i].indexOf('Team/Week') >= 0) { hr = i; break; } }
@@ -66,7 +121,9 @@ function otReadSheet5_() {
   if (/<html|<!DOCTYPE/i.test(txt.slice(0, 200))) throw new Error('เข้าถึงชีต "' + name + '" ไม่ได้ (ได้หน้า login) — ตรวจสิทธิ์ไฟล์ OT Yearly');
   var data = Utilities.parseCsv(txt);
   if (!data || !data.length) throw new Error('ชีต "' + name + '" ว่าง หรือไม่พบช่วงข้อมูล');
-  return otParseSheet5_(data);
+  // ตรวจรูปแบบ: Team/Week (สรุปต่อทีม) หรือ OT รายคน×รายวัน
+  var isTeamWeek = data.slice(0, 6).some(function (r) { return (r || []).indexOf('Team/Week') >= 0; });
+  return isTeamWeek ? otParseSheet5_(data) : otParseWeekly_(data);
 }
 
 // ─── คำนวณ OT จาก Assignment (เวรรายวัน) ────────────────────────────────────
