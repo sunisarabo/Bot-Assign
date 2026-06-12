@@ -13,10 +13,10 @@
 // roles: [name, count, code, phase]  · phase = ALL(SUP) / CI / ARR / GATE
 // ci    = check-in เปิด ก่อน STD (เช่น -180 = 3 ชม.)   · cc = check-in ปิด ก่อน STD (เช่น -60 = 1 ชม.)
 // go    = gate open ก่อน STD (เช่น -45)                · lc = boarding/last call ก่อน STD
-// brief = บรีฟเริ่ม ก่อนเวลาเปิด check-in (นาที)        · post = งาน post-flight หลัง STD (นาที)
+// brief = บรีฟเริ่ม ก่อนเวลาเปิด check-in (นาที)        · post = งาน post-flight หลัง STD/STA (นาที) — มีทุกสาย
 // total = จำนวนพนักงานทั้งหมด · เวลาเปิดเคาน์เตอร์ใช้ OP ในชีตก่อน ถ้าไม่มีจึงใช้ STD+ci
-// หมายเหตุ: post-flight ใช้ค่าเดียวกันทุกสายการบิน = SLA_POST (ฟิลด์ post ในตารางไม่ถูกใช้คำนวณ window แล้ว)
-var SLA_POST = 20;   // งาน post-flight = 20 นาที หลัง STD/STA — เท่ากันทุกสายการบิน
+// post-flight ใช้ค่า post รายสาย (full-service 30 / LCC 20) · SLA_POST = ค่า fallback กรณีสายไม่มี post
+var SLA_POST = 20;   // fallback post-flight (นาที) เมื่อสายการบินไม่มีฟิลด์ post
 var SLA_DB = {
   'SQ': {ci:-240,cc:-40,go:-75,lc:-45,brief:60,post:30,total:13,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'SOD/FC','CI'],['CHECK-IN GK',1,'CT1/GK','CI'],
@@ -419,9 +419,10 @@ function slaPhaseWindow_(f, ph) {
   var db = slaGet_(f.airline);
   var std = acMin_(f.STD), sta = acMin_(f.STA);
   if (ph === 'CI')  return std != null ? [std + db.ci, std + db.cc] : null;
-  if (ph === 'GATE')return std != null ? [std - 90, std + SLA_POST] : null;   // Gate เริ่มก่อน STD 90 นาที → post-flight
-  if (ph === 'ARR') return sta != null ? [sta - 30, sta + SLA_POST] : null;   // Arr เริ่มก่อน STA 30 นาที → post-flight
-  if (ph === 'SUP') return std != null ? [std + db.ci, std + SLA_POST] : (sta != null ? [sta - 20, sta + SLA_POST] : null);
+  var post = (db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย (full-service 30 / LCC 20)
+  if (ph === 'GATE')return std != null ? [std - 90, std + post] : null;   // Gate เริ่มก่อน STD 90 นาที → post-flight
+  if (ph === 'ARR') return sta != null ? [sta - 30, sta + post] : null;   // Arr เริ่มก่อน STA 30 นาที → post-flight
+  if (ph === 'SUP') return std != null ? [std + db.ci, std + post] : (sta != null ? [sta - 20, sta + post] : null);
   return null;
 }
 /** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้
