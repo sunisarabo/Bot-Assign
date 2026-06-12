@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11l';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11m';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
 var OT_SHEET_NAME = 'OT Weekly';   // ชื่อชีตใน OT Yearly ที่เก็บ OT รายสัปดาห์ (override ด้วย Script Property OT_SHEET_NAME)
@@ -106,24 +106,81 @@ function otParseSheet5_(data) {
   return { months: blocks.map(function (b) { return b.month; }), teams: order.map(function (t) { return teams[t]; }) };
 }
 
-/** อ่านชีต OT รายสัปดาห์ ผ่าน gviz CSV endpoint (docs.google.com) — ไม่ต้องเปิด Sheets API
- *  อ่านเฉพาะชีตที่ระบุ (เบา ไม่โหลดทั้งไฟล์ → ไม่ timeout เหมือน SpreadsheetApp.openById) */
+/** ดึง gviz CSV (เฉพาะช่วง range ถ้าระบุ) → 2D array */
+function otGvizCsv_(id, name, range) {
+  var url = 'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(name);
+  if (range) url += '&range=' + encodeURIComponent(range);
+  var res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true, followRedirects: true });
+  var code = res.getResponseCode(), txt = res.getContentText();
+  if (code !== 200) throw new Error('gviz HTTP ' + code + ' (' + (range || 'full') + ')');
+  if (/<html|<!DOCTYPE/i.test(txt.slice(0, 200))) throw new Error('เข้าถึงชีตไม่ได้ (หน้า login) — ตรวจสิทธิ์ไฟล์ OT Yearly');
+  return Utilities.parseCsv(txt) || [];
+}
+/** index คอลัมน์ (0-based) → ตัวอักษร A1 (0→A, 26→AA) */
+function otColA1_(n) { var s = '', x = n + 1; while (x > 0) { var r = (x - 1) % 26; s = String.fromCharCode(65 + r) + s; x = Math.floor((x - 1) / 26); } return s; }
+
+/** อ่านชีต OT (OT Weekly รายคน×รายวัน) แบบแบ่ง batch คอลัมน์ — กัน gviz timeout จากชีตใหญ่
+ *  ถ้าเป็นแบบ Team/Week (สรุปเล็ก) จะอ่านทั้งชีตทีเดียว */
 function otReadSheet5_() {
   var id = otYearlyId_(), name = otSheetName_();
-  var url = 'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq'
-          + '?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(name);
-  var res = UrlFetchApp.fetch(url, {
-    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
-    muteHttpExceptions: true, followRedirects: true
+  var hd = otGvizCsv_(id, name, 'A1:' + otColA1_(900) + '10');               // header probe (กว้างพอครอบคอลัมน์วันที่)
+  if (hd.slice(0, 6).some(function (r) { return (r || []).indexOf('Team/Week') >= 0; }))
+    return otParseSheet5_(otGvizCsv_(id, name, ''));                          // สรุปเล็ก → อ่านทีเดียว
+  // OT Weekly ดิบ: หา 'ทีม' + 'Hrs' + แถววันที่
+  var hdr = -1, teamCol = 0;
+  for (var i = 0; i < Math.min(8, hd.length) && hdr < 0; i++)
+    for (var c = 0; c < Math.min(8, (hd[i] || []).length); c++)
+      if (String(hd[i][c]).trim() === 'ทีม') { hdr = i; teamCol = c; break; }
+  if (hdr < 0) throw new Error('ไม่พบคอลัมน์ "ทีม" ในชีต ' + name);
+  var subRow = -1;
+  for (var i = hdr; i < Math.min(hdr + 3, hd.length) && subRow < 0; i++)
+    if ((hd[i] || []).some(function (v) { return String(v).trim() === 'Hrs'; })) subRow = i;
+  if (subRow < 0) throw new Error('ไม่พบหัวคอลัมน์ "Hrs" ในชีต ' + name);
+  var dateRow = Math.max(hdr, subRow - 1), colDate = [], last = '';
+  for (var c = 0; c < (hd[dateRow] || []).length; c++) {
+    var dv = String(hd[dateRow][c] == null ? '' : hd[dateRow][c]).trim();
+    if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(dv)) last = dv;
+    colDate[c] = last;
+  }
+  var hrsCols = [];
+  for (var c = teamCol + 1; c < (hd[subRow] || []).length; c++)
+    if (String(hd[subRow][c]).trim() === 'Hrs' && colDate[c]) hrsCols.push({ col: c, date: colDate[c] });
+  if (!hrsCols.length) throw new Error('ไม่พบคอลัมน์ Hrs ที่มีวันที่ในชีต ' + name);
+  // ทีมต่อแถว
+  var tcl = otColA1_(teamCol);
+  var teamRows = otGvizCsv_(id, name, tcl + '1:' + tcl + '2000');
+  var teamByRow = teamRows.map(function (r) { var t = String((r && r[0]) || '').trim(); return t ? otCanonTeam_(t) : ''; });
+  // รวมยอดทีละ batch คอลัมน์
+  var agg = {}, MORD = OT_MONTH_ABBR;
+  function bucket(team, dateStr, hrs) {
+    var m = String(dateStr).match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (!m) return;
+    var day = +m[1], mon = +m[2] - 1; if (mon < 0 || mon > 11) return;
+    var ab = MORD[mon], wk = Math.min(3, Math.floor((day - 1) / 7));
+    var T = agg[team] || (agg[team] = {});
+    var M = T[ab] || (T[ab] = { weeks: [0, 0, 0, 0], total: 0 });
+    M.weeks[wk] = Math.round((M.weeks[wk] + hrs) * 10) / 10;
+    M.total = Math.round((M.total + hrs) * 10) / 10;
+  }
+  var minC = hrsCols[0].col, maxC = hrsCols[hrsCols.length - 1].col, BATCH = 60;
+  for (var start = minC; start <= maxC; start += BATCH) {
+    var end = Math.min(maxC, start + BATCH - 1);
+    var chunk = otGvizCsv_(id, name, otColA1_(start) + '1:' + otColA1_(end) + '2000');
+    var bh = hrsCols.filter(function (h) { return h.col >= start && h.col <= end; });
+    for (var r = subRow + 1; r < chunk.length; r++) {
+      var team = teamByRow[r]; if (!team) continue;
+      var row = chunk[r]; if (!row) continue;
+      for (var k = 0; k < bh.length; k++) { var hv = otHrs_(row[bh[k].col - start]); if (hv > 0) bucket(team, bh[k].date, hv); }
+    }
+  }
+  var monthsSet = {}, teams = [];
+  Object.keys(agg).forEach(function (tn) {
+    var months = agg[tn], total = 0;
+    Object.keys(months).forEach(function (m) { monthsSet[m] = 1; total = Math.round((total + months[m].total) * 10) / 10; });
+    teams.push({ team: tn, total: total, months: months });
   });
-  var code = res.getResponseCode(), txt = res.getContentText();
-  if (code !== 200) throw new Error('อ่านชีต "' + name + '" ไม่ได้ (HTTP ' + code + ') — ตรวจชื่อชีต/สิทธิ์ไฟล์');
-  if (/<html|<!DOCTYPE/i.test(txt.slice(0, 200))) throw new Error('เข้าถึงชีต "' + name + '" ไม่ได้ (ได้หน้า login) — ตรวจสิทธิ์ไฟล์ OT Yearly');
-  var data = Utilities.parseCsv(txt);
-  if (!data || !data.length) throw new Error('ชีต "' + name + '" ว่าง หรือไม่พบช่วงข้อมูล');
-  // ตรวจรูปแบบ: Team/Week (สรุปต่อทีม) หรือ OT รายคน×รายวัน
-  var isTeamWeek = data.slice(0, 6).some(function (r) { return (r || []).indexOf('Team/Week') >= 0; });
-  return isTeamWeek ? otParseSheet5_(data) : otParseWeekly_(data);
+  var months = Object.keys(monthsSet).sort(function (a, b) { return MORD.indexOf(a) - MORD.indexOf(b); });
+  teams.sort(function (a, b) { return b.total - a.total; });
+  return { months: months, teams: teams };
 }
 
 // ─── คำนวณ OT จาก Assignment (เวรรายวัน) ────────────────────────────────────
@@ -299,12 +356,7 @@ function otAggregate_(days) {
 var OT_S5_PREFIX = 'ot_s5_';
 function otSheet5Cached_() {
   var stored = otSheet5Stored_();
-  if (stored && stored.teams && stored.teams.length) return stored;          // เก็บถาวรแล้ว → เร็ว
-  try {                                                                       // ยังไม่เก็บ → ลองอ่านสด (อาจ timeout)
-    var d = otReadSheet5_();
-    otStoreSheet5_(d);
-    return d;
-  } catch (e) { return { months: [], teams: [] }; }
+  return (stored && stored.teams && stored.teams.length) ? stored : { months: [], teams: [] };
 }
 /** อ่านค่า ชีต5 ที่เก็บไว้ (ต่อ chunk) จาก Properties */
 function otSheet5Stored_() {
