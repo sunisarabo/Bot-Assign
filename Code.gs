@@ -184,7 +184,32 @@ function rrIsFlightHdr_(h) {
 }
 
 // ─── parsers ────────────────────────────────────────────────────────────────
-function rrParseStandard_(rows, team) {
+/** เทากลาง (ไม่ขาว/ไม่ดำสนิท) แบบ neutral grey — ใช้มาร์คไฟลท์ยกเลิก (ระบายเทาทั้งบล็อก) */
+function rrIsCancelGrey_(hex) {
+  var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
+  if (!m) return false;
+  var r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  return (mx - mn) <= 0x16 && mn >= 0x40 && mx <= 0xDC;       // r≈g≈b และอยู่โทนเทากลาง
+}
+/** ไฟลท์ถูกยกเลิกไหม — เช็ค 3 สัญญาณ: ข้อความ CXL/CANCEL/ยกเลิก, ขีดฆ่าหัวไฟลท์, ระบายเทาทั้งบล็อก (หัว+STA+OP) */
+function rrFlightCancelled_(name, col, c1, hi, meta) {
+  if (/\b(CXL|CNL|CANCEL(?:LED)?)\b|ยกเลิก/i.test(String(name || ''))) return true;
+  if (!meta) return false;
+  var bgs = meta.bgs, lines = meta.lines;
+  if (lines && lines[hi] && /line-through/i.test(String(lines[hi][col] || ''))) return true;   // ขีดฆ่า
+  if (bgs && bgs[hi] && rrIsCancelGrey_(bgs[hi][col])) return true;                             // หัวไฟลท์เทา
+  if (bgs) {                                                  // ระบายเทาเกือบทั้งบล็อก (หัว/STA/OP)
+    var grey = 0, tot = 0;
+    for (var rr = hi; rr <= hi + 2 && rr < bgs.length; rr++) {
+      for (var cc = col; cc < c1; cc++) { var hx = bgs[rr] && bgs[rr][cc]; if (!hx) continue; tot++; if (rrIsCancelGrey_(hx)) grey++; }
+    }
+    if (tot >= 3 && grey >= Math.ceil(tot * 0.6)) return true;
+  }
+  return false;
+}
+
+function rrParseStandard_(rows, team, meta) {
   var cm = rrFindHeader_(rows);
   if (!cm) return null;
   var hi = cm.hdr;
@@ -206,6 +231,7 @@ function rrParseStandard_(rows, team) {
       var c0 = fltcols[fi].col;
       var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
       fltcols[fi].end = c1;                                  // flight occupies cols c0..c1-1
+      fltcols[fi].cancelled = rrFlightCancelled_(fltcols[fi].name, c0, c1, hi, meta);   // ไฟลท์ยกเลิก (เทา/ขีดฆ่า/CXL)
       // ใช้ป้าย A:/D: (STA/STD) และ O:/C: (OP/CL) ถ้ามี (กัน STA ว่างแล้ว STD เลื่อนมาผิดช่อง)
       var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
       for (var cc = c0; cc < c1; cc++) {
@@ -220,6 +246,7 @@ function rrParseStandard_(rows, team) {
       if (!clV && posO.length) clV = posO.shift();
       flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV };
     }
+    fltcols = fltcols.filter(function (f) { return !f.cancelled; });   // ตัดไฟลท์ที่ยกเลิกออก (ไม่บันทึก assignment)
   }
 
   var recs = [], seen = {};
@@ -493,12 +520,16 @@ function rrParseSheet_(ws) {
   for (var i = 0; i < SKIP_SHEETS_RR.length; i++) if (n.indexOf(SKIP_SHEETS_RR[i]) >= 0) return null;
   var last = ws.getLastRow();
   if (last < 3) return null;
-  var rows = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 60)).getValues();
+  var rng = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 60));
+  var rows = rng.getValues();
+  // อ่านสีพื้น + ขีดฆ่า เพื่อตรวจไฟลท์ที่ยกเลิก (ระบายเทาทั้งบล็อก / ขีดฆ่า)
+  var meta = null;
+  try { meta = { bgs: rng.getBackgrounds(), lines: rng.getFontLines() }; } catch (e) { meta = null; }
   if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) return rrParseCrewsign_(rows, name);
   if (n === 'PORTER') {
     // New PORTER sheets use the standard ID/REMARK layout; old ones are a
     // 2-column name list. Prefer standard; fall back to the 2-column parser.
-    var pstd = rrParseStandard_(rows, name);
+    var pstd = rrParseStandard_(rows, name, meta);
     if (pstd && pstd.length) return pstd;
     return rrParsePorter_(rows, name);
   }
@@ -507,11 +538,11 @@ function rrParseSheet_(ws) {
     // New SU template (effective 08 JUN) is a standard ID/REMARK staff table
     // (with inline Counter/Gate sections); the old SU sheet is a counter-rotation
     // grid with no ID column. Prefer the standard reader; fall back to the grid.
-    var std = rrParseStandard_(rows, name);
+    var std = rrParseStandard_(rows, name, meta);
     if (std && std.length) return std;
     return rrParseSU_(rows, name);
   }
-  return rrParseStandard_(rows, name);
+  return rrParseStandard_(rows, name, meta);
 }
 
 // เมื่อชีตทีมเดียวกันมีหลายเวอร์ชัน (เช่น AK, REV01 AK, REV02 AK) → เก็บ REV ล่าสุด
