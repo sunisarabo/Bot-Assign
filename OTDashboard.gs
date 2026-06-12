@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-12a';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-12b';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
 var OT_SHEET_NAME = 'สรุป';   // ชื่อชีตสรุป OT ต่อทีม ใน OT Yearly (override ด้วย Script Property OT_SHEET_NAME)
@@ -251,6 +251,7 @@ function otCanonTeam_(raw) {
   if (/CHARTER/.test(s)) return 'CHARTER';
   if (/PORTER/.test(s)) return 'PORTER';
   if (/\bVIP\b/.test(s)) return 'VIP';
+  if (/\bPVT\b|\bPRIVATE\b/.test(s)) return 'PRIVATE';                   // PVT = PRIVATE (ทีมเดียวกัน)
   if (/\bCHN\b|CHINA/.test(s)) return 'CHN';
   var num = s.match(/TEAM\s*0*(\d{1,2})/);
   if (num && OT_TEAM_NUM[num[1]]) return OT_TEAM_NUM[num[1]];           // เลขทีมที่มั่นใจ
