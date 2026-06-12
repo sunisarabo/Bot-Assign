@@ -360,7 +360,7 @@ function slaCollectFlights_(res, ll) {
     });
   }
   // compute requirement + shortages per flight
-  return Object.keys(flights).map(function (k) {
+  var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
     f.req = slaReq_(f.airline);
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
@@ -379,7 +379,17 @@ function slaCollectFlights_(res, ll) {
     f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
     f.teamList = Object.keys(f.teams).join(',');
     return f;
-  }).sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
+  });
+  // เศษขา (fragment): ไฟลท์ noTime ที่ "เลขไฟลท์ทุกตัว" ไปซ้ำกับไฟลท์ที่มีเวลาอยู่แล้ว = ขาที่สองซ้ำ → ซ่อนได้
+  // (ส่วน noTime ที่ไม่มีเลขซ้ำเลย = ข้อมูลเวลาหายจริง → เก็บไว้เตือนให้เติม)
+  var timedNums = {};
+  arr.forEach(function (f) { if (!f.noTime) (String(f.flight).match(/\d+/g) || []).forEach(function (n) { timedNums[+n] = 1; }); });
+  arr.forEach(function (f) {
+    if (!f.noTime) { f.fragment = false; return; }
+    var nums = (String(f.flight).match(/\d+/g) || []).map(Number);
+    f.fragment = nums.length > 0 && nums.every(function (n) { return timedNums[n]; });
+  });
+  return arr.sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
 }
 
 var SLA_PH_TH = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
@@ -486,7 +496,7 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
 
-  var flights = slaCollectFlights_(res, ll);
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); });   // ซ่อนเศษขา (ขาที่สองซ้ำ)
   var W = 13;
   sh.getRange(1, 1, 1, W).merge().setValue('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน — ' + dateStr)
     .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
