@@ -4,9 +4,11 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11i';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11j';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ ชีต5 OT Yearly
+var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
+var OT_SHEET_NAME = 'OT Weekly';   // ชื่อชีตใน OT Yearly ที่เก็บ OT รายสัปดาห์ (override ด้วย Script Property OT_SHEET_NAME)
+function otSheetName_() { try { return PropertiesService.getScriptProperties().getProperty('OT_SHEET_NAME') || OT_SHEET_NAME; } catch (e) { return OT_SHEET_NAME; } }
 function otDashBuild() { return OT_DASH_BUILD; }
 
 /** แปลงค่าเวลา/ระยะเวลาในชีต → ชั่วโมง (ทศนิยม) */
@@ -24,7 +26,7 @@ function otMonth_(h) { var m = String(h).match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug
 function otParseSheet5_(data) {
   var hr = -1;
   for (var i = 0; i < Math.min(6, data.length); i++) { if (data[i].indexOf('Team/Week') >= 0) { hr = i; break; } }
-  if (hr < 0) throw new Error('ไม่พบหัวตาราง Team/Week ใน ชีต5');
+  if (hr < 0) throw new Error('ไม่พบหัวตาราง Team/Week ในชีต OT');
   var blocks = [];
   for (var c = 0; c < data[hr].length; c++) {
     if (String(data[hr][c]).trim() === 'Team/Week') {
@@ -32,7 +34,7 @@ function otParseSheet5_(data) {
       blocks.push({ col: c, weeks: wk, month: otMonth_(wk[0]) });
     }
   }
-  if (!blocks.length) throw new Error('ไม่พบบล็อกเดือนใน ชีต5');
+  if (!blocks.length) throw new Error('ไม่พบบล็อกเดือนในชีต OT');
   var teams = {}, order = [];
   for (var r = hr + 1; r < data.length; r++) {
     var first = String(data[r][blocks[0].col] == null ? '' : data[r][blocks[0].col]).trim();
@@ -49,17 +51,17 @@ function otParseSheet5_(data) {
   return { months: blocks.map(function (b) { return b.month; }), teams: order.map(function (t) { return teams[t]; }) };
 }
 
-/** อ่าน ชีต5 ผ่าน Sheets REST API (อ่านเฉพาะช่วง A1:BZ80 · เบา ไม่โหลดทั้งไฟล์ → ไม่ timeout เหมือน SpreadsheetApp.openById) */
+/** อ่านชีต OT รายสัปดาห์ (OT Weekly) ผ่าน Sheets REST API (อ่านเฉพาะช่วง A1:BZ80 · เบา ไม่โหลดทั้งไฟล์ → ไม่ timeout) */
 function otReadSheet5_() {
-  var id = otYearlyId_();
-  var range = encodeURIComponent('ชีต5!A1:BZ80');
+  var id = otYearlyId_(), name = otSheetName_();
+  var range = encodeURIComponent(name + '!A1:BZ80');
   var url = 'https://sheets.googleapis.com/v4/spreadsheets/' + id + '/values/' + range +
             '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
   var res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
   var code = res.getResponseCode();
-  if (code !== 200) throw new Error('Sheets API อ่าน ชีต5 ไม่ได้ (HTTP ' + code + '): ' + String(res.getContentText()).slice(0, 200));
+  if (code !== 200) throw new Error('Sheets API อ่านชีต "' + name + '" ไม่ได้ (HTTP ' + code + '): ' + String(res.getContentText()).slice(0, 200));
   var data = (JSON.parse(res.getContentText()) || {}).values || [];
-  if (!data.length) throw new Error('ชีต5 ว่าง หรือไม่พบช่วงข้อมูล');
+  if (!data.length) throw new Error('ชีต "' + name + '" ว่าง หรือไม่พบช่วงข้อมูล');
   return otParseSheet5_(data);
 }
 
