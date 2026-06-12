@@ -253,6 +253,15 @@ function slaAirlineOf_(flight) {
   var m2 = s.match(/([A-Z]{1,3})\s*\d/);
   return m2 ? m2[1] : 'DEFAULT';
 }
+/** เวลาเป็นนาที — '' หรือ 00:00 (placeholder) → null (ถือว่าไม่มีขานั้น) */
+function slaRealMin_(x) { var v = acMin_(x); return v ? v : null; }
+/** key รวมไฟลท์ = สายการบิน + เลขไฟลท์ "ตัวแรก" → TK172/173, TK172, TK172/TK173 = key เดียว
+ *  (EY416/EY417 = EY416/417 = EY416 · CX773/778 ≠ CX778 เพราะเลขแรกต่างกัน) */
+function slaFlightKey_(raw) {
+  var s = String(raw || '').trim().toUpperCase();
+  var m = s.match(/\d+/);                                   // เลขไฟลท์ชุดแรก
+  return m ? (slaAirlineOf_(s) + String(parseInt(m[0], 10))) : s.replace(/[\s.\/]+/g, '');
+}
 /** required headcount per phase for an airline — ใช้ SLA_RQ (Manpower) ก่อน, ไม่งั้น roles */
 function slaReq_(airline) {
   var c = String(airline || '').toUpperCase();
@@ -323,7 +332,7 @@ function slaCollectFlights_(res, ll) {
   function add(team, rec) {
     (rec.assignments || []).forEach(function (a) {
       var raw = String(a.flight || '').trim();
-      var key = raw.replace(/\s+/g, '').toUpperCase();       // เลขไฟลท์ซ้ำ (เว้นวรรค/พิมพ์เล็กใหญ่ต่างกัน) → key เดียวกัน เก็บตัวแรก
+      var key = slaFlightKey_(raw);                          // รวมไฟลท์เดียวกัน (เลขไฟลท์แรกตรง = key เดียว) เก็บชื่อตัวแรก
       if (!key) return;
       if (slaIsSupportFlight_(key)) return;                  // SUPPORT/SUUPORT = งานซัพพอร์ต ไม่ใช่ไฟลท์จริง → ข้าม
       if (!acIsFlight_(raw)) return;                         // เคาน์เตอร์/พูล (Counter Gx ของ SU, LP MORNING/AFTERNOON, งานอื่นๆ) ไม่ใช่ไฟลท์ → ไม่วัด SLA
@@ -354,6 +363,13 @@ function slaCollectFlights_(res, ll) {
   return Object.keys(flights).map(function (k) {
     var f = flights[k];
     f.req = slaReq_(f.airline);
+    // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
+    var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
+    var extra = Math.max(0, f.req.total - (f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR));  // เกท "จากเช็คอิน" (departure)
+    if (!hasDep) { f.req.CI = 0; f.req.GATE = 0; extra = 0; } // ไม่มีขาออก → ไม่ต้องการ Check-in/Gate/คนเสริม departure
+    if (!hasArr) { f.req.ARR = 0; }                           // ไม่มีขาเข้า → ไม่ต้องการ Arrival
+    f.req.total = f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR + extra;
+    f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้ง STD/STA → ตรวจ SLA/เวลาไม่ได้
     f.short = {};
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       var d = f.req[ph] - f.assigned[ph];
@@ -503,7 +519,7 @@ var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
 /** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
 function slaSupportRows_(res, ll) {
-  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok && !f.noTime; });
   var teamSys = slaTeamSystems_(res, ll);
   var pool = slaSupportPool_(res, ll, teamSys);
   var rows = [];

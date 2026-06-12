@@ -110,7 +110,7 @@ function apFlightCode_(f) {                                              // โ�
 }
 /** จัด common check-in 1 ทีม → {code,team,fc,members,counters,gates,flights} (commit=true → ล็อกเวลาคน, fcName=เลือก FC เอง) */
 function apCommonCI_(pool, flights, cfg, commit, fcName) {
-  var teamFl = flights.filter(function (f) { return acIsFlight_(f.flight) && apFlightCode_(f) === cfg.code; });
+  var teamFl = flights.filter(function (f) { return acIsFlight_(f.flight) && !f.noTime && apFlightCode_(f) === cfg.code; });
   if (!teamFl.length) return null;
   var teamSet = {};                                                     // ทีมที่ทำไฟลท์เหล่านี้ (รองรับชื่อแท็บที่ต่างกัน)
   teamFl.forEach(function (f) { Object.keys(f.teams || {}).forEach(function (t) { teamSet[t] = 1; }); });
@@ -215,7 +215,7 @@ function apFillGaps_(res, ll, fcByCode) {
   var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคน)
   var excl = apCommonExcl_(commons);
   var rows = [];
-  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok; }).forEach(function (f) {
+  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok && !f.noTime; }).forEach(function (f) {
     var ex = excl[f.flight] || {};
     AP_PHASES.forEach(function (ph) {
       if (ex[ph]) return;                                                 // common check-in จัดแล้ว → ข้าม
@@ -248,7 +248,7 @@ function apReplan_(res, ll, fcByCode) {
   var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคนก่อน)
   var excl = apCommonExcl_(commons);
 
-  var fl = flights.filter(function (f) { return acIsFlight_(f.flight); }).sort(function (a, b) {
+  var fl = flights.filter(function (f) { return acIsFlight_(f.flight) && !f.noTime; }).sort(function (a, b) {
     return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz'));
   });
 

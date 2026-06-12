@@ -211,7 +211,7 @@ function rbSupportHtml(iso) {
       if (r.cands.length) {
         var grps = slaGroupCands_(r.cands);
         function sel(defName) {
-          var h = '<select class="namepick">';
+          var h = '<select class="namepick"><option value=""' + (defName ? '' : ' selected') + '>— เลือกคน —</option>';
           grps.forEach(function (g) {
             h += '<optgroup label="' + rbEsc_(g.team) + ' (' + g.people.length + ')">';
             g.people.forEach(function (p) {
@@ -222,8 +222,9 @@ function rbSupportHtml(iso) {
           });
           return h + '</select>';
         }
+        // 1 ช่อง = 1 คน · ตั้งค่าเริ่มเป็นคนละคน (cands[i]) ช่องที่เกินจำนวนคนว่าง = ปล่อยว่าง (ไม่ซ้ำคนเดิม)
         var slots = [];
-        for (var i = 0; i < r.shortN; i++) slots.push(sel((r.cands[i] || r.cands[0]).name));
+        for (var i = 0; i < r.shortN; i++) slots.push(sel(r.cands[i] ? r.cands[i].name : ''));
         who = '<div class="pickwrap">' + slots.join('') + '</div>';
       } else {
         who = '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
