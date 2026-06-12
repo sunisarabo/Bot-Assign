@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11n';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-12a';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
 var OT_SHEET_NAME = 'สรุป';   // ชื่อชีตสรุป OT ต่อทีม ใน OT Yearly (override ด้วย Script Property OT_SHEET_NAME)
@@ -119,13 +119,28 @@ function otGvizCsv_(id, name, range) {
 /** index คอลัมน์ (0-based) → ตัวอักษร A1 (0→A, 26→AA) */
 function otColA1_(n) { var s = '', x = n + 1; while (x > 0) { var r = (x - 1) % 26; s = String.fromCharCode(65 + r) + s; x = Math.floor((x - 1) / 26); } return s; }
 
-/** อ่านชีต OT (OT Weekly รายคน×รายวัน) แบบแบ่ง batch คอลัมน์ — กัน gviz timeout จากชีตใหญ่
- *  ถ้าเป็นแบบ Team/Week (สรุปเล็ก) จะอ่านทั้งชีตทีเดียว */
+/** อ่านชีต OT → สรุป OT/ทีม/เดือน/สัปดาห์
+ *  ชีตสรุปเล็ก (เช่น "สรุป") → อ่านผ่าน SpreadsheetApp ตรงๆ (อ่านค่า cache ในช่วงข้อมูลจริง
+ *  ไม่ recalc ทั้งไฟล์เหมือน gviz ที่ทำให้ timeout) · auto-detect รูปแบบ Team/Week หรือ ทีม+Hrs
+ *  ชีตใหญ่มาก (OT Weekly ดิบ) → fallback gviz batch */
 function otReadSheet5_() {
   var id = otYearlyId_(), name = otSheetName_();
+  var sh = SpreadsheetApp.openById(id).getSheetByName(name);
+  if (!sh) throw new Error('ไม่พบชีต "' + name + '" ในไฟล์ OT Yearly');
+  var lastR = sh.getLastRow(), lastC = sh.getLastColumn();
+  if (lastR < 1 || lastC < 1) throw new Error('ชีต "' + name + '" ว่าง (ไม่มีข้อมูล)');
+  if (lastR * lastC <= 200000) {                                            // ชีตเล็ก → อ่านทั้งชีตทีเดียว
+    var data = sh.getRange(1, 1, lastR, lastC).getValues();
+    if (data.slice(0, 8).some(function (r) { return (r || []).indexOf('Team/Week') >= 0; }))
+      return otParseSheet5_(data);                                          // รูปแบบ Team/Week
+    return otParseWeekly_(data);                                            // รูปแบบ ทีม + Code/Hrs รายวัน
+  }
+  return otReadWeeklyBatched_(id, name);                                     // ชีตใหญ่ → gviz batch
+}
+
+/** อ่าน OT Weekly ดิบ (รายคน×รายวัน) แบบแบ่ง batch คอลัมน์ผ่าน gviz — กัน timeout จากชีตใหญ่ */
+function otReadWeeklyBatched_(id, name) {
   var hd = otGvizCsv_(id, name, 'A1:' + otColA1_(900) + '10');               // header probe (กว้างพอครอบคอลัมน์วันที่)
-  if (hd.slice(0, 6).some(function (r) { return (r || []).indexOf('Team/Week') >= 0; }))
-    return otParseSheet5_(otGvizCsv_(id, name, ''));                          // สรุปเล็ก → อ่านทีเดียว
   // OT Weekly ดิบ: หา 'ทีม' + 'Hrs' + แถววันที่
   var hdr = -1, teamCol = 0;
   for (var i = 0; i < Math.min(8, hd.length) && hdr < 0; i++)
