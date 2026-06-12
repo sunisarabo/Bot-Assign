@@ -36,15 +36,14 @@ var ADV_TEAMS = [
   { name: 'EK',  airlines: ['UO', 'EK', 'FY', '6B', 'BY'] },
   { name: 'QR',  airlines: ['QR', 'MH', 'DE', 'OM'] },
   { name: 'CHN', airlines: ['CA', '3U', 'MU', 'FM', 'HU', 'HO', 'HX', 'AQ', 'CZ', 'ZH', 'PN', '9H', 'OQ', 'BK', 'GX'] },
-  { name: 'KC',  airlines: ['KC', 'KE', 'OZ', 'NO', 'AF', 'LJ', 'OV'] },
+  { name: 'KE',  airlines: ['KC', 'KE', 'OZ', 'NO', 'AF', 'LJ', 'OV'] },   // ทีมจริงในชีตชื่อ KE (ไม่ใช่ KC)
   { name: 'PVT', airlines: [], sys: ['Gonow', 'ASTRA', 'TWD', 'iPort', 'TravelSky', 'Angel Lite'] },   // PVT = Private/VIP/LP
   { name: 'TR',  airlines: ['TR', '6E', 'QP', '3K'] },
-  { name: 'WY',  airlines: ['WY', 'G9', '9C', 'DK'] },
   { name: 'PG',  airlines: ['PG'] },
   { name: 'SU',  airlines: ['SU', 'W5', 'B2'] },
   { name: 'TK',  airlines: ['OD', 'VJ', 'SG', 'HY', 'TK', 'N0', 'VN'] },
   { name: 'EY',  airlines: ['EY', 'DV', 'AY'] },
-  { name: 'WK',  airlines: ['SV', 'WK', 'KA'] },
+  { name: 'WY/WK', airlines: ['WY', 'G9', '9C', 'DK', 'SV', 'WK', 'KA'] },   // ทีมจริงรวม WY+WK เป็นทีมเดียว
 ];
 var ADV_AIRLINE_TEAMS = (function () { var m = {}; ADV_TEAMS.forEach(function (t, i) { t.airlines.forEach(function (a) { (m[a] = m[a] || []).push(i); }); }); return m; })();
 var ADV_VIP_IDX = (function () { for (var i = 0; i < ADV_TEAMS.length; i++) if (ADV_TEAMS[i].name === 'PVT') return i; return -1; })();

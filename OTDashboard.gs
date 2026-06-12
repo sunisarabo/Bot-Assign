@@ -228,7 +228,7 @@ function otTeamName_(nm) {
 }
 
 /** เลขทีม → ชื่อทีมมาตรฐาน (ยืนยันจากข้อมูลจริง; เลข 7 ปล่อยให้สายการบินตัดสิน=AK, 1/2 ยังไม่ทราบ) */
-var OT_TEAM_NUM = { '3': 'TR', '4': 'JQ', '5': 'KC', '6': 'QR', '8': 'CHN', '9': 'CHARTER' };
+var OT_TEAM_NUM = { '3': 'TR', '4': 'JQ', '5': 'KE', '6': 'QR', '8': 'CHN', '9': 'CHARTER' };
 /** รหัสสายการบิน[] → ชื่อทีมมาตรฐานที่ทับซ้อนมากสุด (อ้างอิง ADV_TEAMS · SU→SU/W5/B2) */
 function otAirlineTeam_(air) {
   var best = -1, bestN = 0;
