@@ -4,7 +4,7 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11j';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11k';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
 var OT_SHEET_NAME = 'OT Weekly';   // ชื่อชีตใน OT Yearly ที่เก็บ OT รายสัปดาห์ (override ด้วย Script Property OT_SHEET_NAME)
@@ -51,17 +51,21 @@ function otParseSheet5_(data) {
   return { months: blocks.map(function (b) { return b.month; }), teams: order.map(function (t) { return teams[t]; }) };
 }
 
-/** อ่านชีต OT รายสัปดาห์ (OT Weekly) ผ่าน Sheets REST API (อ่านเฉพาะช่วง A1:BZ80 · เบา ไม่โหลดทั้งไฟล์ → ไม่ timeout) */
+/** อ่านชีต OT รายสัปดาห์ ผ่าน gviz CSV endpoint (docs.google.com) — ไม่ต้องเปิด Sheets API
+ *  อ่านเฉพาะชีตที่ระบุ (เบา ไม่โหลดทั้งไฟล์ → ไม่ timeout เหมือน SpreadsheetApp.openById) */
 function otReadSheet5_() {
   var id = otYearlyId_(), name = otSheetName_();
-  var range = encodeURIComponent(name + '!A1:BZ80');
-  var url = 'https://sheets.googleapis.com/v4/spreadsheets/' + id + '/values/' + range +
-            '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
-  var res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
-  var code = res.getResponseCode();
-  if (code !== 200) throw new Error('Sheets API อ่านชีต "' + name + '" ไม่ได้ (HTTP ' + code + '): ' + String(res.getContentText()).slice(0, 200));
-  var data = (JSON.parse(res.getContentText()) || {}).values || [];
-  if (!data.length) throw new Error('ชีต "' + name + '" ว่าง หรือไม่พบช่วงข้อมูล');
+  var url = 'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq'
+          + '?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(name);
+  var res = UrlFetchApp.fetch(url, {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true, followRedirects: true
+  });
+  var code = res.getResponseCode(), txt = res.getContentText();
+  if (code !== 200) throw new Error('อ่านชีต "' + name + '" ไม่ได้ (HTTP ' + code + ') — ตรวจชื่อชีต/สิทธิ์ไฟล์');
+  if (/<html|<!DOCTYPE/i.test(txt.slice(0, 200))) throw new Error('เข้าถึงชีต "' + name + '" ไม่ได้ (ได้หน้า login) — ตรวจสิทธิ์ไฟล์ OT Yearly');
+  var data = Utilities.parseCsv(txt);
+  if (!data || !data.length) throw new Error('ชีต "' + name + '" ว่าง หรือไม่พบช่วงข้อมูล');
   return otParseSheet5_(data);
 }
 
