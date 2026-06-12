@@ -4,10 +4,10 @@
  *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
 var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 var OT_CACHE_SHEET = 'OT_DASH_CACHE';
-var OT_DASH_BUILD = '2026-06-11m';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_DASH_BUILD = '2026-06-11n';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
 var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
-var OT_SHEET_NAME = 'OT Weekly';   // ชื่อชีตใน OT Yearly ที่เก็บ OT รายสัปดาห์ (override ด้วย Script Property OT_SHEET_NAME)
+var OT_SHEET_NAME = 'สรุป';   // ชื่อชีตสรุป OT ต่อทีม ใน OT Yearly (override ด้วย Script Property OT_SHEET_NAME)
 function otSheetName_() { try { return PropertiesService.getScriptProperties().getProperty('OT_SHEET_NAME') || OT_SHEET_NAME; } catch (e) { return OT_SHEET_NAME; } }
 function otDashBuild() { return OT_DASH_BUILD; }
 
