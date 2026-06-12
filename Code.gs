@@ -1967,31 +1967,31 @@ var ADV_MAX_OPT = 40;   // จำกัดตัวเลือกในแต�
 
 // ── ทีม → สายการบินที่ดูแล (ตารางทางการ 16 ทีม) ─────────────────────────────
 var ADV_TEAMS = [
-  { name: 'JQ/AI/HO/IT/IX',                 airlines: ['AI', 'IX', 'JQ', 'IT'] },
-  { name: 'AK/8M/QZ',                       airlines: ['AK', 'QZ', '8M'] },
-  { name: 'SQ/CX/LY',                       airlines: ['SQ', 'CX', 'LY'] },
-  { name: 'ZF/EO/WZ/HX/HH/LO/G2/S7/HB/H4',  airlines: ['HH', 'LO', 'G2', 'H4', 'C6', 'ZF', 'WZ', 'EO', 'N4', 'HB', 'S7'] },
-  { name: 'EK/UO/FY/6B/BY',                 airlines: ['EK', '6B', 'BY', 'FY', 'UO'] },
-  { name: 'QR/MH/OM/DE',                    airlines: ['QR', 'MH', 'DE', 'OM'] },
-  { name: 'CHN',                            airlines: ['3U', 'CA', 'ZH', 'CZ', 'HU', 'PN', 'FM', 'MU', '9H', 'OQ', 'BK', 'AQ', 'HO', 'GX', 'HX'] },
-  { name: 'KE/LJ/OV/KC/AF/NO',              airlines: ['KE', 'KC', 'AF', 'OZ', 'LJ', 'OV', 'NO', 'BK', 'AQ'] },
-  { name: 'VIP',                            airlines: [], sys: ['Gonow', 'ASTRA', 'TWD', 'iPort', 'TravelSky', 'Angel Lite'] },
-  { name: 'TR/3K/QP',                       airlines: ['TR', '6E', 'QP', '3K'] },
-  { name: 'WY/9C/DK/G9',                    airlines: ['WY', 'G9', 'DK', '9C'] },
-  { name: 'PG',                             airlines: ['PG'] },
-  { name: 'SU/W5/B2',                       airlines: ['W5', 'SU', 'B2'] },
-  { name: 'TK/OD/SG/VJ/HY/N0',              airlines: ['TK', 'HY', 'VN', 'SG', 'N0', 'VJ', 'OD'] },
-  { name: 'EY/AY/DV',                       airlines: ['AY', 'EY', 'DV'] },
-  { name: 'SV/WK/KA',                       airlines: ['SV', 'WK', 'KA'] },
+  { name: 'JQ',  airlines: ['AI', 'IX', 'JQ', 'IT'] },
+  { name: 'AK',  airlines: ['AK', 'QZ', '8M'] },
+  { name: 'SQ',  airlines: ['SQ', 'CX', 'LY'] },
+  { name: 'ZF',  airlines: ['ZF', 'LO', 'HH', 'EO', 'N4', 'G2', 'H4', 'S7', 'C6', 'WZ', 'HB'] },
+  { name: 'EK',  airlines: ['UO', 'EK', 'FY', '6B', 'BY'] },
+  { name: 'QR',  airlines: ['QR', 'MH', 'DE', 'OM'] },
+  { name: 'CHN', airlines: ['CA', '3U', 'MU', 'FM', 'HU', 'HO', 'HX', 'AQ', 'CZ', 'ZH', 'PN', '9H', 'OQ', 'BK', 'GX'] },
+  { name: 'KC',  airlines: ['KC', 'KE', 'OZ', 'NO', 'AF', 'LJ', 'OV'] },
+  { name: 'PVT', airlines: [], sys: ['Gonow', 'ASTRA', 'TWD', 'iPort', 'TravelSky', 'Angel Lite'] },   // PVT = Private/VIP/LP
+  { name: 'TR',  airlines: ['TR', '6E', 'QP', '3K'] },
+  { name: 'WY',  airlines: ['WY', 'G9', '9C', 'DK'] },
+  { name: 'PG',  airlines: ['PG'] },
+  { name: 'SU',  airlines: ['SU', 'W5', 'B2'] },
+  { name: 'TK',  airlines: ['OD', 'VJ', 'SG', 'HY', 'TK', 'N0', 'VN'] },
+  { name: 'EY',  airlines: ['EY', 'DV', 'AY'] },
+  { name: 'WK',  airlines: ['SV', 'WK', 'KA'] },
 ];
 var ADV_AIRLINE_TEAMS = (function () { var m = {}; ADV_TEAMS.forEach(function (t, i) { t.airlines.forEach(function (a) { (m[a] = m[a] || []).push(i); }); }); return m; })();
-var ADV_VIP_IDX = (function () { for (var i = 0; i < ADV_TEAMS.length; i++) if (ADV_TEAMS[i].name === 'VIP') return i; return -1; })();
+var ADV_VIP_IDX = (function () { for (var i = 0; i < ADV_TEAMS.length; i++) if (ADV_TEAMS[i].name === 'PVT') return i; return -1; })();
 // SU เช็คอินคอมมอน 16 เคาน์เตอร์
 var ADV_SU_COUNTERS = ['G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12', 'H2', 'H3', 'H4', 'H5', 'H6'];
 
 function advTeamIdxOf_(teamStr) {
   var t = String(teamStr || '').toUpperCase();
-  if (/\bVIP\b|PRIVATE|\bPVT\b/.test(t)) return ADV_VIP_IDX;            // ทีม VIP (ใช้ได้หลายระบบ)
+  if (/\bVIP\b|PRIVATE|\bPVT\b|\bLP\b/.test(t)) return ADV_VIP_IDX;     // ทีม PVT = Private/VIP/LP (ใช้ได้หลายระบบ)
   var as = t.split(/[\/,\s]+/).filter(function (a) { return a.length >= 2 && a.length <= 3 && /[A-Z]/.test(a); });
   if (!as.length) return -1;
   var best = -1, bestN = 0;
@@ -2226,7 +2226,7 @@ function advPivotTeams_(R) {
   var flTeam = {};
   (R.plan || []).forEach(function (p) { if (p.team) flTeam[p.flight] = p.team; });
   (R.commons || []).forEach(function (cm) {                            // ไฟลท์ของทีม common (SU เกท) → ผูกกับทีมนั้น
-    (cm.gates || []).forEach(function (g) { flTeam[g.flight] = cm.code === 'SU' ? 'SU/W5/B2' : cm.code; });
+    (cm.gates || []).forEach(function (g) { flTeam[g.flight] = cm.code === 'SU' ? 'SU' : cm.code; });
   });
   var teams = {};
   var ens = function (tn) { return teams[tn] || (teams[tn] = { members: [], support: [] }); };
@@ -2357,8 +2357,8 @@ function advSlotCandidates_(pool, f, role, win) {
 
 var ADV_SU_MAXSIT = 180;                                              // นั่งต่อเนื่องสูงสุด 3 ชม./คน
 var ADV_COMMON_CI = [
-  { code: 'SU', team: 'SU/W5/B2', counters: ADV_SU_COUNTERS, gate: true,  full: true },   // SU: 16 เคาน์เตอร์ + เกท + ถอดจากตารางหลัก
-  { code: 'SQ', team: 'SQ/CX/LY', nCounter: 7,               gate: false, full: false }    // SQ: ~7 เคาน์เตอร์ เฉพาะเคาน์เตอร์ (เกทอยู่ตารางหลัก)
+  { code: 'SU', team: 'SU', counters: ADV_SU_COUNTERS, gate: true,  full: true },   // SU: 16 เคาน์เตอร์ + เกท + ถอดจากตารางหลัก
+  { code: 'SQ', team: 'SQ', nCounter: 7,               gate: false, full: false }    // SQ: ~7 เคาน์เตอร์ เฉพาะเคาน์เตอร์ (เกทอยู่ตารางหลัก)
 ];
 
 function advCommonCIPlan_(pool, flights, cfg) {
