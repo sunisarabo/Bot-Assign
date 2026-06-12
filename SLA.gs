@@ -417,7 +417,8 @@ function slaSupportPool_(res, ll, teamSys) {
 /** เวลา (นาที) ของแต่ละ phase สำหรับไฟลท์ (อิง STD + offset ของสายการบิน) */
 function slaPhaseWindow_(f, ph) {
   var db = slaGet_(f.airline);
-  var std = acMin_(f.STD), sta = acMin_(f.STA);
+  var m = function (x) { var v = acMin_(x); return v ? v : null; };   // 00:00 = placeholder → null
+  var std = m(f.STD), sta = m(f.STA);
   if (ph === 'CI')  return std != null ? [std + db.ci, std + db.cc] : null;
   var post = (db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย (full-service 30 / LCC 20)
   if (ph === 'GATE')return std != null ? [std - 90, std + post] : null;   // Gate เริ่มก่อน STD 90 นาที → post-flight
