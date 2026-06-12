@@ -1115,6 +1115,7 @@ function slaCollectFlights_(res, ll) {
       var key = String(a.flight || '').trim();
       if (!key) return;
       if (slaIsSupportFlight_(key)) return;                  // SUPPORT/SUUPORT = งานซัพพอร์ต ไม่ใช่ไฟลท์จริง → ข้าม
+      if (!acIsFlight_(key)) return;                         // เคาน์เตอร์/พูล (Counter Gx ของ SU, LP MORNING/AFTERNOON, งานอื่นๆ) ไม่ใช่ไฟลท์ → ไม่วัด SLA
       if (!flights[key]) {
         flights[key] = { flight: key, airline: slaAirlineOf_(key), teams: {},
           STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '',
