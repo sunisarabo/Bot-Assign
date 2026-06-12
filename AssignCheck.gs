@@ -78,18 +78,36 @@ function acDuty_(r) {
   if (ss == null && r.shiftStart != null && r.shiftHrs) {
     ss = r.shiftStart; se = ss + Math.round(r.shiftHrs * 60);
   }
-  var orr = rrRangeStr_(r.otTime || '');
-  var oi = orr[0], oo = orr[1];
-  if (oi != null && oo != null && oo <= oi) oo += 1440;
+  // ช่วง OT ทั้งหมด (EY อาจมีทั้งก่อนกะ+หลังกะ) — ใช้ r.otSpans ถ้ามี ไม่งั้น parse จาก otTime
+  var spans = [];
+  if (r.otSpans && r.otSpans.length) {
+    r.otSpans.forEach(function (sp) { if (sp && sp.a != null) spans.push({ a: sp.a, b: sp.b, type: sp.type || null }); });
+  } else {
+    var orr = rrRangeStr_(r.otTime || '');
+    if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType || null });
+  }
 
   var ds = ss, de = se;
   if (r.bucket === 'ot_off') {
     // OT OFF = วันหยุดมาทำ OT — เวลางานจริง = ช่วง OT เท่านั้น (ไม่ใช่กะปกติที่ค้างอยู่)
-    ds = oi; de = oo;
-  } else if (oi != null) {
-    if (ss != null && se != null) { var al = rrAlignTo_(oi, oo, ss, se); oi = al[0]; oo = al[1]; }  // จัด OT ให้อยู่ timeline เดียวกับกะ (ข้ามเที่ยงคืน)
-    ds = (ds == null) ? oi : Math.min(ds, oi);
-    de = (de == null) ? oo : Math.max(de, oo);
+    if (spans.length) { var s0 = spans[0], a0 = s0.a, b0 = s0.b; if (a0 != null && b0 != null && b0 <= a0) b0 += 1440; ds = a0; de = b0; }
+    else { ds = null; de = null; }
+  } else if (spans.length) {
+    spans.forEach(function (sp) {
+      var oi = sp.a, oo = sp.b; if (oi == null) return;
+      if (oo == null) oo = oi;
+      var a = oi, b = oo; if (b <= a) b += 1440;             // ช่วงข้ามคืนภายในตัว
+      var t = sp.type || rrOtType_([ss, se], [oi, oo], false);
+      if (t === 'PRE') {                                     // OT ก่อนกะ → ปลาย OT แตะต้นกะ, ขยาย ds
+        while (ss != null && b - ss > 720) { a -= 1440; b -= 1440; }
+        while (ss != null && ss - b > 720) { a += 1440; b += 1440; }
+      } else {                                               // OT หลังกะ → ต้น OT ต่อจากปลายกะ (รวมข้ามเที่ยงคืน), ขยาย de
+        while (se != null && a - se > 720) { a -= 1440; b -= 1440; }
+        while (se != null && se - a > 720) { a += 1440; b += 1440; }
+      }
+      ds = (ds == null) ? a : Math.min(ds, a);
+      de = (de == null) ? b : Math.max(de, b);
+    });
   } else if (r.ot > 0 && ss != null) {
     if (r.otType === 'PRE') ds = ss - Math.round(r.ot * 60);
     else de = se + Math.round(r.ot * 60);

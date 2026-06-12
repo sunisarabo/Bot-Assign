@@ -29,8 +29,11 @@ function rrPublicHoliday_(date) {
 function rrClean_(v) {
   if (v === null || v === undefined) return '';
   if (v instanceof Date) {
+    // ค่าเวลา-ล้วน (time-only) ใน Sheets วางอยู่บนวันฐาน epoch (ปี 1899/1900) → เป็น "เวลา" รวมเที่ยงคืน 00:00
+    // ส่วนวันที่ปฏิทินจริง (ปี > 1901 เช่น 12/06/2026) ไม่ใช่เวลา → คืนว่าง
+    if (v.getFullYear() > 1901) return '';
     var h = v.getHours(), m = v.getMinutes();
-    return (h || m) ? (('0' + h).slice(-2) + ':' + ('0' + m).slice(-2)) : '';
+    return ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);   // 00:00 = เที่ยงคืนจริง (เดิม (h||m) ตัดทิ้งผิด)
   }
   var s = String(v).trim();
   return s.replace(/\.0+$/, '');
@@ -145,12 +148,24 @@ function rrFindHeader_(rows) {
     cm.resked = u.indexOf('RE-SKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RESKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RE-SKED.');
-    cm.ot     = u.indexOf('OT');
-    cm.ottot  = -1;
-    for (var c = 0; c < u.length; c++) {
-      var h = u[c].replace(/\./g, '').replace(/\s+/g, ' ').trim();
-      if (h.indexOf('TOTAL') === 0 && cm.ot >= 0 && (c - cm.ot) > 0 && (c - cm.ot) <= 3) cm.ottot = c;
+    // OT: รองรับทั้ง 'OT' ตรง ๆ และเลย์เอาต์ 2 ฝั่ง 'OT(BEFORE)' / 'OT(AFTER)' (เช่น EY มี OT ก่อนกะ + หลังกะ แยกคู่ IN/OUT)
+    var otCols = [];
+    for (var oc = 0; oc < u.length; oc++) {
+      var oh = u[oc].replace(/[\s.]/g, '');
+      if (oh === 'OT' || oh.indexOf('OT(') === 0) otCols.push(oc);
     }
+    cm.ot  = otCols.length     ? otCols[0] : -1;
+    cm.ot2 = otCols.length > 1 ? otCols[1] : -1;
+    function rrTotAfter(otc) {                                  // หา 'TOTAL HRS' ภายใน 3 คอลัมน์ถัดจากกลุ่ม OT
+      if (otc < 0) return -1;
+      for (var c = otc + 1; c < u.length; c++) {
+        var h = u[c].replace(/\./g, '').replace(/\s+/g, ' ').trim();
+        if (h.indexOf('TOTAL') === 0 && (c - otc) > 0 && (c - otc) <= 3) return c;
+      }
+      return -1;
+    }
+    cm.ottot  = rrTotAfter(cm.ot);
+    cm.ottot2 = rrTotAfter(cm.ot2);
     cm.flt = u.indexOf('FLIGHT') >= 0 ? u.indexOf('FLIGHT') + 1 : -1;
     if (cm.flt < 0) {
       // บางวันชีต (เช่น WY) ไม่มีหัว "FLIGHT" — รหัสไฟลท์อยู่ในหัวตารางตรง ๆ
@@ -225,9 +240,6 @@ function rrParseStandard_(rows, team) {
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
     var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
     var remark = (cm.remark >= 0 && cm.remark < row.length) ? rrClean_(row[cm.remark]) : '';
-    // OT ชั่วโมง: ปกติอยู่คอลัมน์ TOTAL หลัง OT; ถ้าไม่มี → ใช้ค่าในคอลัมน์ OT เอง (เช่น "14-20")
-    var otCol = cm.ottot >= 0 ? cm.ottot : cm.ot;
-    var otv   = (otCol >= 0 && otCol < row.length) ? rrClean_(row[otCol]) : '';
 
     var assigns = [];
     fltcols.forEach(function (fc) {
@@ -264,7 +276,14 @@ function rrParseStandard_(rows, team) {
       }
     }
 
-    var oth = rrOtHours_(otv);
+    // OT: รวมทุกกลุ่ม — ปกติ 1 กลุ่ม; EY มี ก่อนกะ(BEFORE) + หลังกะ(AFTER) แยกคู่ IN/OUT
+    var twoSided = cm.ot2 >= 0;
+    var otG1 = rrReadOtGroup_(row, cm.ot, cm.ottot);
+    var otG2 = twoSided ? rrReadOtGroup_(row, cm.ot2, cm.ottot2) : null;
+    var otSpans = [], oth = 0;
+    if (otG1) { oth += otG1.hours; if (otG1.range[0] != null) otSpans.push({ a: otG1.range[0], b: otG1.range[1], type: twoSided ? 'PRE' : null }); }
+    if (otG2) { oth += otG2.hours; if (otG2.range[0] != null) otSpans.push({ a: otG2.range[0], b: otG2.range[1], type: 'POST' }); }
+    oth = Math.round(oth * 10) / 10;
     var bkt = rrClassify_(shift || timev, remark);
     if (bkt === 'off' && oth > 0) bkt = 'ot_off';            // SHIFT=X แต่มี OT (เช่น 14-20) = ทำ OT วันหยุด
     // เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงเวลาจากคอลัมน์ SHIFT เอง (เช่น "09-17")
@@ -275,8 +294,9 @@ function rrParseStandard_(rows, team) {
       var rs = rrRangeCells_(row, cm.resked);
       if (rs[0] != null) { srng = rs; reTime = rrFmtRange_(rs); }
     }
-    var orng = cm.ot >= 0 ? rrRangeCells_(row, cm.ot) : [null, null];
-    var otType = oth > 0 ? rrOtType_(srng, orng, bkt === 'ot_off') : null;
+    // otType (ฟิลด์เดียว สำหรับสถิติ/แสดงผล): มีฝั่งหลังกะ → POST ไม่งั้นจัดประเภทช่วงแรกอัตโนมัติ
+    var primarySpan = otSpans.length ? [otSpans[otSpans.length - 1].a, otSpans[otSpans.length - 1].b] : [null, null];
+    var otType = oth > 0 ? (twoSided ? (otG2 ? 'POST' : 'PRE') : rrOtType_(srng, primarySpan, bkt === 'ot_off')) : null;
     recs.push({
       team: team, id: idd, name: name,
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
@@ -285,7 +305,8 @@ function rrParseStandard_(rows, team) {
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
       shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
-      bucket: bkt, ot: oth, otType: otType, otTime: oth > 0 ? rrFmtRange_(orng) : '',
+      bucket: bkt, ot: oth, otType: otType, otSpans: otSpans,
+      otTime: oth > 0 ? otSpans.map(function (s) { return rrFmtRange_([s.a, s.b]); }).filter(String).join(', ') : '',
       assignments: assigns,
     });
   }
@@ -1369,18 +1390,36 @@ function acDuty_(r) {
   if (ss == null && r.shiftStart != null && r.shiftHrs) {
     ss = r.shiftStart; se = ss + Math.round(r.shiftHrs * 60);
   }
-  var orr = rrRangeStr_(r.otTime || '');
-  var oi = orr[0], oo = orr[1];
-  if (oi != null && oo != null && oo <= oi) oo += 1440;
+  // ช่วง OT ทั้งหมด (EY อาจมีทั้งก่อนกะ+หลังกะ) — ใช้ r.otSpans ถ้ามี ไม่งั้น parse จาก otTime
+  var spans = [];
+  if (r.otSpans && r.otSpans.length) {
+    r.otSpans.forEach(function (sp) { if (sp && sp.a != null) spans.push({ a: sp.a, b: sp.b, type: sp.type || null }); });
+  } else {
+    var orr = rrRangeStr_(r.otTime || '');
+    if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType || null });
+  }
 
   var ds = ss, de = se;
   if (r.bucket === 'ot_off') {
     // OT OFF = วันหยุดมาทำ OT — เวลางานจริง = ช่วง OT เท่านั้น (ไม่ใช่กะปกติที่ค้างอยู่)
-    ds = oi; de = oo;
-  } else if (oi != null) {
-    if (ss != null) { while (oi < ss - 720) { oi += 1440; oo += 1440; } }  // จัด OT ให้อยู่ใกล้กะ
-    ds = (ds == null) ? oi : Math.min(ds, oi);
-    de = (de == null) ? oo : Math.max(de, oo);
+    if (spans.length) { var s0 = spans[0], a0 = s0.a, b0 = s0.b; if (a0 != null && b0 != null && b0 <= a0) b0 += 1440; ds = a0; de = b0; }
+    else { ds = null; de = null; }
+  } else if (spans.length) {
+    spans.forEach(function (sp) {
+      var oi = sp.a, oo = sp.b; if (oi == null) return;
+      if (oo == null) oo = oi;
+      var a = oi, b = oo; if (b <= a) b += 1440;             // ช่วงข้ามคืนภายในตัว
+      var t = sp.type || rrOtType_([ss, se], [oi, oo], false);
+      if (t === 'PRE') {                                     // OT ก่อนกะ → ปลาย OT แตะต้นกะ, ขยาย ds
+        while (ss != null && b - ss > 720) { a -= 1440; b -= 1440; }
+        while (ss != null && ss - b > 720) { a += 1440; b += 1440; }
+      } else {                                               // OT หลังกะ → ต้น OT ต่อจากปลายกะ, ขยาย de
+        while (se != null && a - se > 720) { a -= 1440; b -= 1440; }
+        while (se != null && se - a > 720) { a += 1440; b += 1440; }
+      }
+      ds = (ds == null) ? a : Math.min(ds, a);
+      de = (de == null) ? b : Math.max(de, b);
+    });
   } else if (r.ot > 0 && ss != null) {
     if (r.otType === 'PRE') ds = ss - Math.round(r.ot * 60);
     else de = se + Math.round(r.ot * 60);
