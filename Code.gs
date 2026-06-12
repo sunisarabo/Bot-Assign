@@ -1242,8 +1242,8 @@ function slaPhaseWindow_(f, ph) {
   var db = slaGet_(f.airline);
   var std = acMin_(f.STD), sta = acMin_(f.STA);
   if (ph === 'CI')  return std != null ? [std + db.ci, std + db.cc] : null;
-  if (ph === 'GATE')return std != null ? [std + db.go, std + (db.post || 20)] : null;
-  if (ph === 'ARR') return sta != null ? [sta - 20, sta + (db.post || 30)] : null;
+  if (ph === 'GATE')return std != null ? [std - 90, std + (db.post || 20)] : null;   // Gate เริ่มก่อน STD 90 นาที
+  if (ph === 'ARR') return sta != null ? [sta - 30, sta + (db.post || 30)] : null;   // Arr เริ่มก่อน STA 30 นาที
   if (ph === 'SUP') return std != null ? [std + db.ci, std + (db.post || 30)] : (sta != null ? [sta - 20, sta + 30] : null);
   return null;
 }
