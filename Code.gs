@@ -844,6 +844,8 @@ function debugDumpLL(llFileId, y, m, d) {
 // go    = gate open ก่อน STD (เช่น -45)                · lc = boarding/last call ก่อน STD
 // brief = บรีฟเริ่ม ก่อนเวลาเปิด check-in (นาที)        · post = งาน post-flight หลัง STD (นาที)
 // total = จำนวนพนักงานทั้งหมด · เวลาเปิดเคาน์เตอร์ใช้ OP ในชีตก่อน ถ้าไม่มีจึงใช้ STD+ci
+// หมายเหตุ: post-flight ใช้ค่าเดียวกันทุกสายการบิน = SLA_POST (ฟิลด์ post ในตารางไม่ถูกใช้คำนวณ window แล้ว)
+var SLA_POST = 20;   // งาน post-flight = 20 นาที หลัง STD/STA — เท่ากันทุกสายการบิน
 var SLA_DB = {
   'SQ': {ci:-240,cc:-40,go:-75,lc:-45,brief:60,post:30,total:13,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'SOD/FC','CI'],['CHECK-IN GK',1,'CT1/GK','CI'],
@@ -1242,9 +1244,9 @@ function slaPhaseWindow_(f, ph) {
   var db = slaGet_(f.airline);
   var std = acMin_(f.STD), sta = acMin_(f.STA);
   if (ph === 'CI')  return std != null ? [std + db.ci, std + db.cc] : null;
-  if (ph === 'GATE')return std != null ? [std - 90, std + (db.post || 20)] : null;   // Gate เริ่มก่อน STD 90 นาที
-  if (ph === 'ARR') return sta != null ? [sta - 30, sta + (db.post || 30)] : null;   // Arr เริ่มก่อน STA 30 นาที
-  if (ph === 'SUP') return std != null ? [std + db.ci, std + (db.post || 30)] : (sta != null ? [sta - 20, sta + 30] : null);
+  if (ph === 'GATE')return std != null ? [std - 90, std + SLA_POST] : null;   // Gate เริ่มก่อน STD 90 นาที → post-flight
+  if (ph === 'ARR') return sta != null ? [sta - 30, sta + SLA_POST] : null;   // Arr เริ่มก่อน STA 30 นาที → post-flight
+  if (ph === 'SUP') return std != null ? [std + db.ci, std + SLA_POST] : (sta != null ? [sta - 20, sta + SLA_POST] : null);
   return null;
 }
 
@@ -1404,7 +1406,7 @@ function acFlightWin_(a) {
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
-  var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post) || 30;
+  var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = SLA_POST;   // post-flight = 20 นาที ทุกสาย
   var lo = null, hi = (std != null) ? std + post : null;      // hi = STD + post (รวมงาน post-flight)
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
   if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ

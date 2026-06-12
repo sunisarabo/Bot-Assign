@@ -56,7 +56,7 @@ function acFlightWin_(a) {
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
-  var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post) || 30;
+  var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = SLA_POST;   // post-flight = 20 นาที ทุกสาย
   var lo = null, hi = (std != null) ? std + post : null;      // hi = STD + post (รวมงาน post-flight)
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
   if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ
