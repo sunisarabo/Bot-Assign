@@ -1083,7 +1083,7 @@ body {
 .phase.full .pd { color: var(--good); }
 
 /* ============================ FOOT ====================================== */
-.foot { margin-top: 26px; text-align: center; color: var(--ink-3); font-size: 11.5px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; }
+.foot { margin-top: 26px; text-align: center; color: var(--ink-3); font-size: 11.5px; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
 .foot b { color: var(--ink-2); font-weight: 600; }
 
 .sectionlabel { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--ink-3); margin: 22px 2px 12px; display: flex; align-items: center; gap: 10px; }
