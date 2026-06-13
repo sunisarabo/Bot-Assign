@@ -597,7 +597,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
-    '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA"><br>' : '') + 'แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</div>' +
+    '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
     '</div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
@@ -1083,7 +1083,7 @@ body {
 .phase.full .pd { color: var(--good); }
 
 /* ============================ FOOT ====================================== */
-.foot { margin-top: 26px; text-align: center; color: var(--ink-3); font-size: 11.5px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
+.foot { margin-top: 26px; text-align: center; color: var(--ink-3); font-size: 11.5px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; }
 .foot b { color: var(--ink-2); font-weight: 600; }
 
 .sectionlabel { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--ink-3); margin: 22px 2px 12px; display: flex; align-items: center; gap: 10px; }
@@ -1179,7 +1179,7 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 .brand__mark{ border-radius:13px; }
 /* โลโก้ AOTGA (วางบนชิปขาวเพื่อให้ตัวอักษรน้ำเงินอ่านออกบนหัวเว็บเข้ม) */
 .brand__logo{ height:42px; width:auto; max-width:230px; background:#fff; padding:5px 11px; border-radius:12px; box-shadow:0 5px 14px rgba(0,0,0,.18); object-fit:contain; }
-.foot__logo{ height:40px; width:auto; display:block; margin:0 auto 9px; }
+.foot__logo{ height:46px; width:auto; display:block; margin:0 auto; }
 @media (max-width:520px){ .brand__logo{ height:34px; max-width:170px; } }
 /* เมนูแท็บแบบ segmented control */
 .tabs{ background:var(--card); border:1px solid var(--line); padding:6px; border-radius:16px; box-shadow:var(--shadow-sm); }
