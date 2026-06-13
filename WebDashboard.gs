@@ -39,14 +39,49 @@ function doGet(e) {
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
-/** Load the PSA roster (+ LL) for a date. Used by doGet and the lazy tab loaders. */
+/** Load the PSA roster (+ LL) for a date — cached ~3 นาที (CacheService) เพื่อให้สลับแท็บเร็ว
+ *  ไม่ต้องไล่หาไฟล์ใน Drive / แปลง xlsx / parse ซ้ำทุกแท็บ · กดปุ่ม 🔄 รีเฟรช = ล้างแคชดึงใหม่ */
 function rbLoadResLL_(date) {
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var iso = Utilities.formatDate(date, tz, 'yyyy-MM-dd');
+  var hit = rbCacheGetBig_('resll_' + iso);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var out = rbLoadResLLraw_(date);
+  try { rbCachePutBig_('resll_' + iso, JSON.stringify(out), 180); } catch (e2) {}
+  return out;
+}
+function rbLoadResLLraw_(date) {
   var roster = rbOpenTodayRoster_(date);
   var res = readRosterFromSpreadsheet(roster.ss, date);
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
   return { res: res, ll: ll };
+}
+/** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */
+function rbCachePutBig_(key, str, ttl) {
+  var c = CacheService.getScriptCache(), CH = 95000, n = Math.ceil(str.length / CH), parts = {};
+  parts[key + '_n'] = String(n);
+  for (var i = 0; i < n; i++) parts[key + '_' + i] = str.substr(i * CH, CH);
+  c.putAll(parts, ttl || 180);
+}
+function rbCacheGetBig_(key) {
+  var c = CacheService.getScriptCache(), nn = c.get(key + '_n');
+  if (!nn) return null;
+  var n = +nn, keys = [];
+  for (var i = 0; i < n; i++) keys.push(key + '_' + i);
+  var got = c.getAll(keys), s = '';
+  for (var j = 0; j < n; j++) { var v = got[key + '_' + j]; if (v == null) return null; s += v; }
+  return s;
+}
+/** ล้างแคชของวันที่นั้น (เรียกจากปุ่ม 🔄 รีเฟรช) */
+function rbClearCache(iso) {
+  try {
+    var c = CacheService.getScriptCache(), nn = c.get('resll_' + iso + '_n'), keys = ['resll_' + iso + '_n'];
+    if (nn) for (var i = 0; i < +nn; i++) keys.push('resll_' + iso + '_' + i);
+    c.removeAll(keys);
+  } catch (e) {}
+  return true;
 }
 function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
 
@@ -335,7 +370,8 @@ function rbTabs_(shortCount, acCount) {
     '<button class="tab" id="tab-fill" onclick="showView(\'fill\');loadFill()">🤖 เติม Assign เดิม</button>' +
     '<button class="tab" id="tab-auto" onclick="showView(\'auto\');loadAuto()">🤖 Auto Assign</button>' +
     '<button class="tab" id="tab-adv" onclick="showView(\'adv\');loadAdv()">📅 จัดล่วงหน้า</button>' +
-    '<button class="tab" id="tab-ot" onclick="showView(\'ot\')">⏱️ OT Dashboard</button></div>';
+    '<button class="tab" id="tab-ot" onclick="showView(\'ot\')">⏱️ OT Dashboard</button>' +
+    '<button class="tab" onclick="rbRefresh(this)" title="ล้างแคช ดึงข้อมูลล่าสุดจากชีต" style="margin-left:auto">🔄 รีเฟรช</button></div>';
 }
 
 /** Called from the client (google.script.run) when the OT-week tab is opened.
@@ -552,6 +588,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
+    'function rbRefresh(b){if(b){b.textContent="⏳ กำลังรีเฟรช…";}if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){location.reload();}).withFailureHandler(function(){location.reload();}).rbClearCache(ISO);}else{location.reload();}}' +
     'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v);}' +
     'function advSave(){var v=document.getElementById("view-adv");if(!v)return;var tb=v.querySelector("table.tbl");var di=v.querySelector("input[type=date]");var date=di?di.value:ISO;if(!tb){alert("เลือกวันที่ที่มีไฟลท์ก่อน");return;}var rows=[];[].forEach.call(tb.tBodies[0].rows,function(tr){if(tr.cells.length<13)return;var c=[];for(var i=0;i<7;i++){var ns=[];[].forEach.call(tr.cells[6+i].querySelectorAll(".namepick"),function(x){if(x.value.trim())ns.push(x.value.trim());});c.push(ns.join(", "));}function f(n){return tr.cells[n].innerText.trim().split("\\n")[0];}rows.push([f(0),f(1),f(3),f(4),f(5),c[0],c[1],c[2],c[3],c[4],c[5],c[6]]);});if(!rows.length){alert("ไม่มีไฟลท์ให้บันทึก");return;}if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อบันทึก");return;}var m=document.getElementById("advsavemsg");if(m)m.innerHTML="⏳ กำลังบันทึก…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="✅ บันทึกแล้ว: <a href=\\""+url+"\\" target=\\"_blank\\">เปิดชีต</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("บันทึกไม่ได้: "+e.message);}).advSaveProposal(date,JSON.stringify(rows));}' +
     'function advExport(){var di=document.querySelector("#view-adv input[type=date]");var date=di?di.value:ISO;if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=document.getElementById("advexportmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์แจ้งทีม…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).advExportAssignment(date);}' +
