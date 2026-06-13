@@ -332,7 +332,7 @@ function rbExpBar_(kind){
 function rbAppbar_(date) {
   var be = date.getFullYear()+543;
   return '<div class="appbar rise"><div class="appbar__row">' +
-    '<div class="brand"><div class="brand__mark">✈</div><div><h1>P<span>WMS</span></h1>' +
+    '<div class="brand">' + (AOTGA_LOGO_URL ? '<img class="brand__logo" src="' + AOTGA_LOGO_URL + '" alt="AOTGA">' : '<div class="brand__mark">✈</div>') + '<div><h1>P<span>WMS</span></h1>' +
     '<p>PSA-HKT Workforce Management System</p></div></div>' +
     '<div class="appbar__meta"><div class="datepill"><div class="d tnum">' + date.getDate()+' '+MONW[date.getMonth()]+' '+be +
     '</div><div class="s">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
@@ -578,7 +578,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
-    '<div class="foot">PSA-HKT Workforce Management System (PWMS) · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
+    '<div class="foot">' + (AOTGA_LOGO_URL ? '<img class="foot__logo" src="' + AOTGA_LOGO_URL + '" alt="AOTGA"><br>' : '') + 'แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</div>' +
     '</div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
@@ -1158,6 +1158,10 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 .appbar{ box-shadow:0 12px 34px rgba(16,37,74,.20); }
 .appbar::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:linear-gradient(90deg,var(--sky),var(--teal)); }
 .brand__mark{ border-radius:13px; }
+/* โลโก้ AOTGA (วางบนชิปขาวเพื่อให้ตัวอักษรน้ำเงินอ่านออกบนหัวเว็บเข้ม) */
+.brand__logo{ height:42px; width:auto; max-width:230px; background:#fff; padding:5px 11px; border-radius:12px; box-shadow:0 5px 14px rgba(0,0,0,.18); object-fit:contain; }
+.foot__logo{ height:40px; width:auto; display:block; margin:0 auto 9px; }
+@media (max-width:520px){ .brand__logo{ height:34px; max-width:170px; } }
 /* เมนูแท็บแบบ segmented control */
 .tabs{ background:var(--card); border:1px solid var(--line); padding:6px; border-radius:16px; box-shadow:var(--shadow-sm); }
 .tab{ background:transparent; border:0; box-shadow:none; border-radius:11px; }
