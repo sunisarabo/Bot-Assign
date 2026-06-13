@@ -416,25 +416,30 @@ function slaTeamSystems_(res, ll) {
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
   return sys;
 }
-/** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง) */
-function slaSupportPool_(res, ll, teamSys) {
+/** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง)
+ *  includeOff=true → รวมคนวันหยุด (OFF) ไว้เป็นตัวเลือก "re-sked" (ว่างทุกช่วง · จัดเวลาให้ใหม่ได้) */
+function slaSupportPool_(res, ll, teamSys, includeOff) {
   var pool = [];
   function add(team, r) {
-    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    var off = (r.bucket === 'off');
+    if (!off && r.bucket !== 'working' && r.bucket !== 'ot_off') return;   // sick/leave/vac ไม่ดึง
+    if (off && !includeOff) return;                                        // คน OFF เฉพาะตอนเปิด re-sked
     if (slaSkipTeam_(team)) return;                          // Porter / Crewsign / Admin Doc ไม่เป็นคนช่วย
-    var d = acDuty_(r);
-    if (d.ds == null || d.de == null) return;
+    var d = acDuty_(r), ds = d.ds, de = d.de;
+    if (off) { ds = -100000; de = 100000; }                  // OFF (re-sked) → ว่างทุกช่วง (จัดเวลาใหม่ได้)
+    if (ds == null || de == null) return;
     var busy = [];
-    (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
-    var flts = (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
+    if (!off) (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
+    var flts = off ? [] : (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
       .map(function (a) {
         var tm = (a.STA || a.STD) ? (' ' + (a.STA || '–') + '-' + (a.STD || '–'))
                : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
         return a.flight + tm;
       });
-    pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '',
-      ds: d.ds, de: d.de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
-      shiftDisp: r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-')),
+    pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '', off: off,
+      ds: ds, de: de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
+      shiftDisp: off ? ('OFF · re-sked' + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
+                     : (r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'))),
       otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
       hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, flts: flts });
   }
@@ -476,12 +481,13 @@ function slaCandidates_(f, ph, pool, max) {
     return true;
   });
   if (ph === 'SUP') {
-    cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
   } else {
-    // CI / GATE / ARR: Agent → Senior → Sup ตามลำดับ แล้วคนงานน้อย/ว่างกว่าก่อน
+    // CI / GATE / ARR: Agent → Senior → Sup ตามลำดับ แล้วคนงานน้อย/ว่างกว่าก่อน · คน OFF (re-sked) ไว้ท้ายสุด
     var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
-      return (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+      return (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
+        (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
     });
   }
   return max ? cands.slice(0, max) : cands;
@@ -533,7 +539,7 @@ function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (
 function slaSupportRows_(res, ll) {
   var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok && !f.noTime; });
   var teamSys = slaTeamSystems_(res, ll);
-  var pool = slaSupportPool_(res, ll, teamSys);
+  var pool = slaSupportPool_(res, ll, teamSys, true);          // รวมคน OFF (re-sked) เป็นตัวเลือกท้ายสุด
   var rows = [];
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
@@ -544,7 +550,7 @@ function slaSupportRows_(res, ll) {
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: slaNeedSys_(f.airline, ph),
         cands: cands.map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team,
+          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
                    shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, n: c.nflt, flts: c.flts };
         }),
         nCand: cands.length,
@@ -579,7 +585,7 @@ function slaSOSText_(res, ll, dateStr) {
     g.ph.forEach(function (r) {
       out.push('• ' + r.phase + ' ขาด ' + r.shortN + (r.win ? ' (' + r.win + ')' : ''));
       var picks = (r.cands || []).slice(0, r.shortN);
-      if (picks.length) picks.forEach(function (c, i) { out.push('   ' + (i + 1) + '. ' + c.name + ' / ' + c.team); });
+      if (picks.length) picks.forEach(function (c, i) { out.push('   ' + (i + 1) + '. ' + c.name + ' / ' + c.team + (c.off ? '  (OFF·re-sked)' : '')); });
       else out.push('   — ' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + r.needSys : 'ไม่มีคนว่าง'));
     });
   });
