@@ -144,7 +144,7 @@ function rbPlanChip_(p) {
     ' data-shift="' + rbAttr_(p.shift || '-') + '" data-ot="' + rbAttr_(p.ot || '-') + '" data-hrs="' + (p.hrs || 0) + '" data-n="' + (p.n || 0) + '"' +
     ' data-flts="' + rbAttr_((p.flts || []).join('‖')) + '">' +
     '<span class="editnm" contenteditable="true" spellcheck="false" onclick="event.stopPropagation()"' +
-    ' oninput="var c=this.closest(\'.supchip\');c.dataset.nm=this.textContent;c.classList.add(\'edited\')" title="คลิกเพื่อแก้ไขชื่อ">' + rbEsc_(p.name) + '</span>' +
+    ' oninput="var c=this.closest(\'.supchip\');c.dataset.nm=this.textContent;c.classList.add(\'edited\')" title="' + rbAttr_(p.name) + ' · คลิกแก้ไข">' + rbEsc_(p.name) + '</span>' +
     '<span class="planchip__i" onclick="showPsn(this.closest(\'.supchip\'))" title="ดูงาน/OT/ไฟลท์ที่ทำ"> ' + rbEsc_(p.pos) + ' ⓘ</span></span>';
 }
 
@@ -958,8 +958,8 @@ body {
 .chip:hover { border-color: var(--accent); }
 .chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
 .chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
-.planchip .editnm { display: inline-block; min-width: 22px; padding: 0 2px; border-bottom: 1px dashed var(--accent); outline: none; cursor: text; font-weight: 700; color: var(--ink-2); }
-.planchip .editnm:focus { background: #fff7d6; border-bottom-color: #d9a400; border-radius: 3px; }
+.planchip .editnm { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; min-width: 22px; padding: 0 2px; border-bottom: 1px dashed var(--accent); outline: none; cursor: text; font-weight: 700; color: var(--ink-2); }
+.planchip .editnm:focus { max-width: none; overflow: visible; background: #fff7d6; border-bottom-color: #d9a400; border-radius: 3px; }
 .planchip.edited { background: #fff7d6; border-color: #d9a400; }
 .planchip__i { cursor: pointer; color: var(--ink-3); font-weight: 600; }
 .planchip__i:hover { color: var(--accent); }
