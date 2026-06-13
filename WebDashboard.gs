@@ -1109,5 +1109,49 @@ canvas{max-width:100%}
 .okk{color:var(--good);font-weight:700}.badd{color:var(--red);font-weight:700}
 tr.rowbad td{background:#fdecec}
 .muted{color:var(--ink-3)}
+/* ============ UI REFRESH · modern + corporate (PWMS) ====================== */
+:root{
+  --bg:#f4f7fc; --bg-2:#eaf1f9; --line:#e6edf7; --line-2:#eef3fa;
+  --shadow-sm:0 1px 2px rgba(18,38,76,.04),0 6px 16px rgba(18,38,76,.05);
+  --shadow:0 2px 8px rgba(18,38,76,.05),0 18px 40px rgba(18,38,76,.08);
+}
+body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+/* cards */
+.tablecard,.panel,.kpi,.ttcard{ border-radius:18px; }
+.tablecard{ transition:box-shadow .18s ease; }
+.tablecard:hover{ box-shadow:var(--shadow); }
+.tablecard__hd{ border-bottom:1px solid var(--line-2); padding-bottom:12px; }
+.tablecard__hd h3{ font-size:15px; letter-spacing:.1px; }
+/* tables */
+.tbl th{ font-size:11px; background:#eef3fb; }
+.tbl tbody tr{ transition:background .12s ease; }
+.tbl tbody tr:hover td{ background:color-mix(in srgb,var(--accent) 9%, white); }
+/* tabs (pill + active glow) */
+.tabs{ gap:7px; }
+.tab{ border-radius:11px; padding:10px 16px; font-size:13.5px; box-shadow:var(--shadow-sm); }
+.tab:hover{ transform:translateY(-1px); }
+.tab.active{ box-shadow:0 7px 18px rgba(29,66,138,.28); }
+/* inputs/buttons */
+.search input{ border-radius:11px; transition:border-color .15s, box-shadow .15s; }
+.btn--accent{ box-shadow:0 6px 16px rgba(29,66,138,.20); }
+/* --- responsive: tablet/มือถือ --- */
+@media (max-width:860px){
+  .wrap{ padding:12px 12px 40px; }
+  .appbar{ flex-wrap:wrap; gap:10px; padding:14px 16px; }
+  .tabs{ flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:5px; scrollbar-width:thin; }
+  .tab{ flex:0 0 auto; padding:9px 13px; font-size:13px; }
+  .tablecard__hd{ padding:13px 14px 11px; }
+  .tbl{ font-size:12px; }
+  .tbl th,.tbl td{ padding:8px 9px; }
+  .planchip .editnm{ max-width:78px; }
+  .tablecard__hd h3{ font-size:14px; }
+}
+@media (max-width:520px){
+  .kpis{ grid-template-columns:1fr 1fr; }
+  .brand h1{ font-size:17px; }
+  .brand p{ font-size:11px; }
+  .tab{ padding:8px 11px; font-size:12.5px; }
+  .planchip .editnm{ max-width:66px; }
+}
 @media print{.weeknav,.tabs,.btn,.ttbar{display:none}#view-tt,#view-flt,#view-dash{display:block!important}}
 `;
