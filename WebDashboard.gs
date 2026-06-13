@@ -1153,5 +1153,18 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
   .tab{ padding:8px 11px; font-size:12.5px; }
   .planchip .editnm{ max-width:66px; }
 }
+/* ===== UI REFRESH · phase 2 (header + segmented tabs + rhythm) =========== */
+:root{ --header-grad:linear-gradient(120deg,#10254a 0%,#1D428A 54%,#236192 100%); }
+.appbar{ box-shadow:0 12px 34px rgba(16,37,74,.20); }
+.appbar::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:linear-gradient(90deg,var(--sky),var(--teal)); }
+.brand__mark{ border-radius:13px; }
+/* เมนูแท็บแบบ segmented control */
+.tabs{ background:var(--card); border:1px solid var(--line); padding:6px; border-radius:16px; box-shadow:var(--shadow-sm); }
+.tab{ background:transparent; border:0; box-shadow:none; border-radius:11px; }
+.tab:hover{ background:var(--bg-2); transform:none; color:var(--brand); }
+.tab.active{ background:var(--brand); color:#fff; box-shadow:0 4px 12px rgba(29,66,138,.30); }
+/* ระยะห่าง/จังหวะ */
+.tablecard{ margin-bottom:16px; }
+@media (max-width:860px){ .tabs{ border-radius:13px; padding:5px; } }
 @media print{.weeknav,.tabs,.btn,.ttbar{display:none}#view-tt,#view-flt,#view-dash{display:block!important}}
 `;
