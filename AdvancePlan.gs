@@ -170,10 +170,25 @@ function advReadFlights_(tgt) {
       var flight = airline + fltno;
       var key = flight.replace(/\s+/g, '').toUpperCase();              // เลขไฟลท์ซ้ำ → ตัดออก (เก็บตัวแรก, จับซ้ำแบบไม่สนช่องว่าง/ตัวพิมพ์)
       if (seen[key]) return; seen[key] = 1;
-      out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), gate: String(row[15] == null ? '' : row[15]).trim(), OP: '', CL: '' });
+      out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), gate: String(row[15] == null ? '' : row[15]).trim(), OP: '', CL: '',
+        _nums: (fltno.match(/\d+/g) || []).map(Number) });                // เลขไฟลท์ทุกตัว (สำหรับจับขาซ้ำ)
     });
   });
-  return out;
+  // ตัดขาซ้ำ: ถ้า "เลขไฟลท์ทุกตัว" ของไฟลท์หนึ่งเป็นสับเซ็ตของอีกไฟลท์ (สายการบินเดียวกัน) = ไฟลท์เดียวกัน → ไม่จัดซ้ำ
+  // เช่น EK396/397 มี {396,397}, EK397 มี {397} ⊂ {396,397} → ตัด EK397 (เก็บตัวที่ครบกว่า)
+  var dedup = out.filter(function (f, i) {
+    if (!f._nums.length) return true;
+    var drop = out.some(function (g, j) {
+      if (j === i || g.airline !== f.airline || !g._nums.length) return false;
+      var subset = f._nums.every(function (n) { return g._nums.indexOf(n) >= 0; });
+      if (!subset) return false;
+      if (g._nums.length > f._nums.length) return true;               // g ครบกว่า → f เป็นขาซ้ำ → ตัด f
+      return j < i;                                                   // เลขชุดเดียวกันเป๊ะ → เก็บตัวแรก
+    });
+    return !drop;
+  });
+  dedup.forEach(function (f) { delete f._nums; });
+  return dedup;
 }
 
 var ADV_EN_MON = { JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12 };
