@@ -422,7 +422,10 @@ function rrParseAdminDoc_(rows, team) {
     var row = rows[r];
     var nm = rrClean_(row[0]), sched = row.length > 1 ? rrClean_(row[1]) : '';
     var nU = nm.toUpperCase();
-    if (!nm || nm.length < 2 || nU === 'NAME' || nU === 'SCHEDULE') continue;
+    // ข้ามแถวหัวตาราง/legend ท้ายชีต (ไม่ใช่ชื่อคน) — กันนับ AdminDoc เกินจริง
+    if (!nm || nm.length < 2) continue;
+    if (/^(NAME|SCHEDULE|SHIFT|POSITION|TYPE|ON\s*DUTY|ONDUTY|OT\s*OFF|OFF|RE-?SKED|REMARK|FLIGHT|SUPP|SUPPORT|TOTAL)\b/.test(nU)) continue;
+    if (/^(SL|BL|VAC|ID|XX)$/.test(nU)) continue;
     var flts = [];
     for (var c = 2; c < row.length; c++) { var v = rrClean_(row[c]); if (v) flts.push({ flight: v, task: '' }); }
     recs.push({ team: team, id: '', name: nm, pos: 'ADMINDOC', shift: sched,
