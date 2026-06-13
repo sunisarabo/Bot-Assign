@@ -560,6 +560,32 @@ function slaGroupCands_(cands) {
   return order.map(function (t) { return { team: t, people: by[t] }; });
 }
 
+/** ข้อความ SOS ขอคนซัพ (คัดลอกส่งไลน์) — จัดกลุ่มตามไฟลท์
+ *  · ลิสต์เฉพาะ "คนทีมอื่น" ที่ส่งมาช่วย (cands ตัดทีมเจ้าของไฟลท์ออกแล้วใน slaCandidates_)
+ *  · เลือก top N ตามจำนวนที่ขาด (N = shortN) เป็นตัวตั้งต้น */
+function slaSOSText_(res, ll, dateStr) {
+  var rows = slaSupportRows_(res, ll);
+  var byFlt = {}, order = [];
+  rows.forEach(function (r) {
+    if (!byFlt[r.flight]) { byFlt[r.flight] = { first: r, ph: [] }; order.push(r.flight); }
+    byFlt[r.flight].ph.push(r);
+  });
+  if (!order.length) return '✅ ทุกไฟลท์ส่งคนครบตาม SLA — ไม่ต้องขอ Support';
+  var out = ['🆘 ขอ Support' + (dateStr ? ' — ' + dateStr : '')];
+  order.forEach(function (fl) {
+    var g = byFlt[fl], f = g.first;
+    out.push('');
+    out.push(f.flight + (f.STD ? '  STD ' + f.STD : '') + (f.system ? '  · ' + f.system : ''));
+    g.ph.forEach(function (r) {
+      out.push('• ' + r.phase + ' ขาด ' + r.shortN + (r.win ? ' (' + r.win + ')' : ''));
+      var picks = (r.cands || []).slice(0, r.shortN);
+      if (picks.length) picks.forEach(function (c, i) { out.push('   ' + (i + 1) + '. ' + c.name + ' / ' + c.team); });
+      else out.push('   — ' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + r.needSys : 'ไม่มีคนว่าง'));
+    });
+  });
+  return out.join('\n');
+}
+
 /** Sheet tab: 🆘 Support — ไฟลท์ขาด + แนะนำคนที่ว่างและรู้ระบบเช็คอินมาช่วย */
 function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
   tabName = tabName || '🆘 Support';
