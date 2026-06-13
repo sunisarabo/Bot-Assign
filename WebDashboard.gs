@@ -8,7 +8,7 @@
  */
 
 var AOTGA_LOGO_URL = '';          // ใส่ URL รูป/data-URI ตรงๆ ได้ (มาก่อน)
-var PWMS_LOGO_ID   = '';          // หรือใส่ Google Drive file ID ของโลโก้ → สคริปต์อ่าน+แปลง base64 ให้เอง (cache 6 ชม.)
+var PWMS_LOGO_ID   = '1Ya7VigvuEutlL3oECJQj8dJkiM2of30i';   // Google Drive file ID ของโลโก้ AOTGA → สคริปต์อ่าน+แปลง base64 ให้เอง (cache 6 ชม.)
 var CI = { royal:'#1D428A', bosch:'#236192', sky:'#4EC3E0', teal:'#3FBCBE', yellow:'#FEC909', red:'#D92526', grey:'#7C878F', good:'#1BA37A', sub:'#5a6b86' };
 var MONW = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 var DOWW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
