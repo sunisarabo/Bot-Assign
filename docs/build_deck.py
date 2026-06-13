@@ -42,7 +42,7 @@ def header(s,title,kicker=None,color=NAVY):
     txt(s,Inches(0.55),Inches(0.40),Inches(12.2),Inches(0.7),[[(title,26,WHITE,True)]],anchor=MSO_ANCHOR.MIDDLE)
 
 def footer(s,n):
-    txt(s,Inches(0.55),Inches(7.05),Inches(8),Inches(0.3),[[("AOTGA · ระบบจัดเวร & เช็ค SLA สายการบิน",10,GREY)]])
+    txt(s,Inches(0.55),Inches(7.05),Inches(8),Inches(0.3),[[("PWMS · PSA-HKT Workforce Management System",10,GREY)]])
     txt(s,Inches(12.0),Inches(7.05),Inches(0.9),Inches(0.3),[[(str(n),10,GREY,True)]],align=PP_ALIGN.RIGHT)
 
 def content(title,kicker,blocks,n,foot=True):
@@ -64,10 +64,10 @@ def content(title,kicker,blocks,n,foot=True):
 # ---------- 1 COVER ----------
 s=prs.slides.add_slide(blank); bg(s,NAVY)
 box(s,0,Inches(4.7),SW,Pt(5),fill=ACC)
-txt(s,Inches(0.8),Inches(1.0),Inches(11.7),Inches(0.4),[[("AIRPORT GROUND SERVICES · AOTGA",14,RGBColor(0x9f,0xc0,0xe8),True)]])
+txt(s,Inches(0.8),Inches(1.0),Inches(11.7),Inches(0.4),[[("PASSENGER SERVICES · AOTGA — HKT",14,RGBColor(0x9f,0xc0,0xe8),True)]])
 txt(s,Inches(0.8),Inches(2.0),Inches(12),Inches(2.2),[
-  [("ระบบจัดเวร & เช็ค SLA สายการบิน",40,WHITE,True)],
-  [("Smart Roster · SLA Check · SOS Support Finder",22,RGBColor(0xcf,0xe0,0xf2),False)],
+  [("PWMS",48,WHITE,True)],
+  [("PSA-HKT Workforce Management System",24,RGBColor(0xcf,0xe0,0xf2),False)],
 ])
 txt(s,Inches(0.8),Inches(5.0),Inches(12),Inches(1.6),[
   [("แดชบอร์ดเว็บ อ่านชีต Roster/Flight อัตโนมัติ → เช็คคนครบตาม SLA → หาคนช่วย → สร้างข้อความ SOS",16,RGBColor(0xcf,0xe0,0xf2))],
@@ -207,9 +207,9 @@ txt(s,Inches(0.8),Inches(3.3),Inches(12),Inches(2.6),[
  [("อ่านชีตสดทุกครั้ง · เพิ่ม/ลาออกคนไม่ต้องแก้โค้ด · auto-deploy",14,RGBColor(0xcf,0xe0,0xf2))],
  [("พัฒนาต่อเนื่อง: re-sked ข้ามทีม · อบรมแม่นขึ้น · รายงานย้อนหลัง",14,RGBColor(0xcf,0xe0,0xf2))],
 ])
-txt(s,Inches(0.8),Inches(6.2),Inches(12),Inches(0.5),[[("ขอบคุณครับ · AOTGA Ground Services",14,RGBColor(0x9f,0xc0,0xe8),True)]])
+txt(s,Inches(0.8),Inches(6.2),Inches(12),Inches(0.5),[[("ขอบคุณครับ · PWMS — PSA-HKT / AOTGA",14,RGBColor(0x9f,0xc0,0xe8),True)]])
 
-out="/home/user/Bot-Assign/docs/AOTGA-Roster-SLA-System.pptx"
+out="/home/user/Bot-Assign/docs/PWMS-PSA-HKT-Workforce-Management-System.pptx"
 import os; os.makedirs("/home/user/Bot-Assign/docs",exist_ok=True)
 prs.save(out)
 print("saved", out, "· slides:", len(prs.slides._sldIdLst))

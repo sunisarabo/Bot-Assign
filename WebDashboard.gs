@@ -35,7 +35,7 @@ function doGet(e) {
       '<p class="muted" style="margin-top:8px">' + rbEsc_(err.message) + '</p>' +
       '<p class="muted">ยังไม่มีไฟล์ assignment ของวันนี้ หรือบัญชีไม่มีสิทธิ์ — เลือกวันอื่นจากแถบด้านบน</p></div></div></body></html>';
   }
-  return HtmlService.createHtmlOutput(html).setTitle('AOTGA · Manpower Dashboard')
+  return HtmlService.createHtmlOutput(html).setTitle('PWMS · PSA-HKT Workforce Management System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -332,8 +332,8 @@ function rbExpBar_(kind){
 function rbAppbar_(date) {
   var be = date.getFullYear()+543;
   return '<div class="appbar rise"><div class="appbar__row">' +
-    '<div class="brand"><div class="brand__mark">✈</div><div><h1>AOT<span>GA</span></h1>' +
-    '<p>Passenger Services · การโดยสาร</p></div></div>' +
+    '<div class="brand"><div class="brand__mark">✈</div><div><h1>P<span>WMS</span></h1>' +
+    '<p>PSA-HKT Workforce Management System</p></div></div>' +
     '<div class="appbar__meta"><div class="datepill"><div class="d tnum">' + date.getDate()+' '+MONW[date.getMonth()]+' '+be +
     '</div><div class="s">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
     '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">' +
@@ -578,7 +578,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
-    '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
+    '<div class="foot">PSA-HKT Workforce Management System (PWMS) · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
     '</div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
