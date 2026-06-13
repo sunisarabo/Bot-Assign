@@ -7,7 +7,8 @@
  * Requires RosterReader.gs / LLReader.gs / MasterReader.gs / RosterBot.gs / SLA.gs.
  */
 
-var AOTGA_LOGO_URL = '';
+var AOTGA_LOGO_URL = '';          // ใส่ URL รูป/data-URI ตรงๆ ได้ (มาก่อน)
+var PWMS_LOGO_ID   = '';          // หรือใส่ Google Drive file ID ของโลโก้ → สคริปต์อ่าน+แปลง base64 ให้เอง (cache 6 ชม.)
 var CI = { royal:'#1D428A', bosch:'#236192', sky:'#4EC3E0', teal:'#3FBCBE', yellow:'#FEC909', red:'#D92526', grey:'#7C878F', good:'#1BA37A', sub:'#5a6b86' };
 var MONW = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 var DOWW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
@@ -84,6 +85,22 @@ function rbClearCache(iso) {
   return true;
 }
 function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+
+/** โลโก้: ใช้ AOTGA_LOGO_URL (URL/data-URI) ก่อน · ไม่งั้นอ่านจาก Google Drive (PWMS_LOGO_ID / Script Property)
+ *  แปลงเป็น base64 data-URI แล้ว cache 6 ชม. (สคริปต์มีสิทธิ์ Drive อยู่แล้ว) */
+function rbLogoDataUri_() {
+  if (AOTGA_LOGO_URL) return AOTGA_LOGO_URL;
+  var id = PWMS_LOGO_ID;
+  if (!id) { try { id = PropertiesService.getScriptProperties().getProperty('PWMS_LOGO_ID') || ''; } catch (e) {} }
+  if (!id) return '';
+  var hit = rbCacheGetBig_('pwms_logo'); if (hit) return hit;
+  try {
+    var b = DriveApp.getFileById(id).getBlob();
+    var uri = 'data:' + b.getContentType() + ';base64,' + Utilities.base64Encode(b.getBytes());
+    try { rbCachePutBig_('pwms_logo', uri, 21600); } catch (e2) {}
+    return uri;
+  } catch (e3) { return ''; }
+}
 
 /** Lazy tab: Timetable HTML (called from client via google.script.run). */
 function rbTimetableHtml(iso) {
@@ -332,7 +349,7 @@ function rbExpBar_(kind){
 function rbAppbar_(date) {
   var be = date.getFullYear()+543;
   return '<div class="appbar rise"><div class="appbar__row">' +
-    '<div class="brand">' + (AOTGA_LOGO_URL ? '<img class="brand__logo" src="' + AOTGA_LOGO_URL + '" alt="AOTGA">' : '<div class="brand__mark">✈</div>') + '<div><h1>P<span>WMS</span></h1>' +
+    '<div class="brand">' + (logo ? '<img class="brand__logo" src="' + logo + '" alt="AOTGA">' : '<div class="brand__mark">✈</div>') + '<div><h1>P<span>WMS</span></h1>' +
     '<p>PSA-HKT Workforce Management System</p></div></div>' +
     '<div class="appbar__meta"><div class="datepill"><div class="d tnum">' + date.getDate()+' '+MONW[date.getMonth()]+' '+be +
     '</div><div class="s">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
@@ -498,6 +515,7 @@ function rbTblCard_(title, headHtml, bodyHtml, extraHd) {
 }
 
 function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode) {
+  var logo = ''; try { logo = rbLogoDataUri_(); } catch (elg) {}
   var P = res.totals, L = ll && ll.totals.staff>0 ? ll.totals : null;
   function comb(k){ return P[k] + (L?L[k]:0); }
   var C = { staff:comb('staff'), working:comb('working')+comb('ot_off'), off:comb('off'), sick:comb('sick'),
@@ -578,7 +596,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
-    '<div class="foot">' + (AOTGA_LOGO_URL ? '<img class="foot__logo" src="' + AOTGA_LOGO_URL + '" alt="AOTGA"><br>' : '') + 'แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</div>' +
+    '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA"><br>' : '') + 'แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</div>' +
     '</div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
