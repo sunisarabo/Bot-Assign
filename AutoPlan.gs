@@ -215,7 +215,7 @@ function apFillGaps_(res, ll, fcByCode) {
   var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคน)
   var excl = apCommonExcl_(commons);
   var rows = [];
-  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok && !f.noTime; }).forEach(function (f) {
+  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok; }).forEach(function (f) {   // แสดงไฟลท์ไม่มีเวลาด้วย (ไม่ให้หายจากตาราง) · window=null จัดตามทีมได้
     var ex = excl[f.flight] || {};
     AP_PHASES.forEach(function (ph) {
       if (ex[ph]) return;                                                 // common check-in จัดแล้ว → ข้าม
@@ -248,7 +248,7 @@ function apReplan_(res, ll, fcByCode) {
   var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคนก่อน)
   var excl = apCommonExcl_(commons);
 
-  var fl = flights.filter(function (f) { return acIsFlight_(f.flight) && !f.noTime; }).sort(function (a, b) {
+  var fl = flights.filter(function (f) { return acIsFlight_(f.flight); }).sort(function (a, b) {   // รวมไฟลท์ไม่มีเวลา (จัดเวรครบทุกไฟลท์)
     return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz'));
   });
 

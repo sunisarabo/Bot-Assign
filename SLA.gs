@@ -365,11 +365,13 @@ function slaCollectFlights_(res, ll) {
     f.req = slaReq_(f.airline);
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
     var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
-    var extra = Math.max(0, f.req.total - (f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR));  // เกท "จากเช็คอิน" (departure)
-    if (!hasDep) { f.req.CI = 0; f.req.GATE = 0; extra = 0; } // ไม่มีขาออก → ไม่ต้องการ Check-in/Gate/คนเสริม departure
-    if (!hasArr) { f.req.ARR = 0; }                           // ไม่มีขาเข้า → ไม่ต้องการ Arrival
-    f.req.total = f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR + extra;
-    f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้ง STD/STA → ตรวจ SLA/เวลาไม่ได้
+    f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้งคู่ = ข้อมูลเวลาหาย (ไม่ใช่ขาเดียว) → คงความต้องการเต็ม
+    if (!f.noTime) {                                          // ตัด phase เฉพาะกรณี "มีขาเดียวจริง"
+      var extra = Math.max(0, f.req.total - (f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR));  // เกท "จากเช็คอิน" (departure)
+      if (!hasDep) { f.req.CI = 0; f.req.GATE = 0; extra = 0; } // ขาเข้าอย่างเดียว → ไม่ต้องการ Check-in/Gate/คนเสริม
+      if (!hasArr) { f.req.ARR = 0; }                           // ขาออกอย่างเดียว → ไม่ต้องการ Arrival
+      f.req.total = f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR + extra;
+    }
     f.short = {};
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       var d = f.req[ph] - f.assigned[ph];
