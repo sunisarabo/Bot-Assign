@@ -348,6 +348,7 @@ function rbExpBar_(kind){
 // ── header + week nav + tabs ────────────────────────────────────────────────
 function rbAppbar_(date) {
   var be = date.getFullYear()+543;
+  var logo = ''; try { logo = rbLogoDataUri_(); } catch (elg) {}
   return '<div class="appbar rise"><div class="appbar__row">' +
     '<div class="brand">' + (logo ? '<img class="brand__logo" src="' + logo + '" alt="AOTGA">' : '<div class="brand__mark">✈</div>') + '<div><h1>P<span>WMS</span></h1>' +
     '<p>PSA-HKT Workforce Management System</p></div></div>' +
