@@ -504,7 +504,9 @@ def parse_sheet(ws, name):
         std = parse_standard(rows, name)
         return std if std else parse_porter(rows, name)
     if 'ADMIN' in n and 'DOC' in n:
-        return parse_admindoc(rows, name)
+        # Admin Doc แบบใหม่ใช้เลย์เอาต์มาตรฐาน (อ่านสถานะ Onduty/Off ถูก) · เก่า → fallback
+        std = parse_standard(rows, name)
+        return std if std else parse_admindoc(rows, name)
     if n == 'SU' or n.startswith('SU '):
         std = parse_standard(rows, name)          # new SU template = standard table
         return std if std else parse_su(rows, name)  # else old counter-rotation grid

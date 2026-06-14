@@ -610,7 +610,13 @@ function rrParseSheet_(ws) {
     if (pstd && pstd.length) return pstd;
     return rrParsePorter_(rows, name);
   }
-  if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) return rrParseAdminDoc_(rows, name);
+  if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) {
+    // ชีต Admin Doc แบบใหม่ใช้เลย์เอาต์มาตรฐาน (ID/Position/NAME/SHIFT + REMARK สถานะ Onduty/Off)
+    // → อ่านชื่อ/กะ/สถานะ off ถูกต้อง · เลย์เอาต์เก่า 2 คอลัมน์ → fallback
+    var astd = rrParseStandard_(rows, name, meta);
+    if (astd && astd.length) return astd;
+    return rrParseAdminDoc_(rows, name);
+  }
   if (n === 'SU' || n.indexOf('SU ') === 0) {
     // New SU template (effective 08 JUN) is a standard ID/REMARK staff table
     // (with inline Counter/Gate sections); the old SU sheet is a counter-rotation
