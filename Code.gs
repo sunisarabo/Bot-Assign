@@ -1382,6 +1382,11 @@ function slaTeamSystems_(res, ll) {
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
   return sys;
 }
+/** ทีมลอย/สแตนด์บายที่ Duty เรียกมาช่วยก่อน (PVTLP = PRIVATE/LP pool, STBY) */
+function slaIsFloatTeam_(team) {
+  var t = String(team || '').toUpperCase();
+  return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY/.test(t);
+}
 /** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง)
  *  includeOff=true → รวมคนวันหยุด (OFF) ไว้เป็นตัวเลือก "re-sked" (ว่างทุกช่วง · จัดเวลาให้ใหม่ได้) */
 function slaSupportPool_(res, ll, teamSys, includeOff) {
@@ -1406,9 +1411,13 @@ function slaSupportPool_(res, ll, teamSys, includeOff) {
                : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
         return a.flight + tm;
       });
+    // ช่วงเวลา re-sked (แบบ Duty: "re-sked 11-20") — จากกะรายสัปดาห์ที่เคารพไว้ · ไม่มีกะ → "ทุกช่วง"
+    var offWin = (off && ds > -100000 && de < 100000)
+      ? (rrFmtMin_(((ds % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((de % 1440) + 1440) % 1440)) : '';
     pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '', off: off,
+      float: slaIsFloatTeam_(team),
       ds: ds, de: de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
-      shiftDisp: off ? ('OFF · re-sked' + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
+      shiftDisp: off ? ('OFF · re-sked ' + (offWin || 'ทุกช่วง') + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
                      : (r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'))),
       otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
       hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, flts: flts });
@@ -1424,8 +1433,16 @@ function slaPhaseWindow_(f, ph) {
   var std = m(f.STD), sta = m(f.STA);
   if (ph === 'CI')  return std != null ? [std + db.ci, std + db.cc] : null;
   var post = (db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย (full-service 30 / LCC 20)
-  if (ph === 'GATE')return std != null ? [std - 90, std + post] : null;   // Gate เริ่มก่อน STD 90 นาที → post-flight
-  if (ph === 'ARR') return sta != null ? [sta - 30, sta + post] : null;   // Arr เริ่มก่อน STA 30 นาที → post-flight
+  if (ph === 'GATE') {                                  // Duty: STA−30 → STD (turnaround) · ขาออกอย่างเดียว → STD−90
+    var gs = sta != null ? sta - 30 : (std != null ? std - 90 : null);
+    var ge = std != null ? std + post : (sta != null ? sta + post : null);
+    return (gs != null && ge != null) ? [gs, ge] : null;
+  }
+  if (ph === 'ARR') {                                   // Duty: STA−30 → STD (arrival/transfer ถึงขาออก) · ไม่มี STD → STA+post
+    var as = sta != null ? sta - 30 : null;
+    var ae = std != null ? std + post : (sta != null ? sta + post : null);
+    return (as != null && ae != null) ? [as, ae] : null;
+  }
   if (ph === 'SUP') return std != null ? [std + db.ci, std + post] : (sta != null ? [sta - 20, sta + post] : null);
   return null;
 }
@@ -1451,12 +1468,14 @@ function slaCandidates_(f, ph, pool, max) {
     return true;
   });
   if (ph === 'SUP') {
-    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+    // ทำงานก่อน OFF · ทีมลอย(PVTLP/STBY)ก่อน · งานน้อยกว่าก่อน (Duty เรียกทีมลอยก่อน)
+    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
   } else {
-    // CI / GATE / ARR: Agent → Senior → Sup ตามลำดับ แล้วคนงานน้อย/ว่างกว่าก่อน · คน OFF (re-sked) ไว้ท้ายสุด
+    // CI / GATE / ARR: ทำงานก่อน OFF · ทีมลอยก่อน · Agent → Senior → Sup · งานน้อย/ว่างกว่าก่อน
     var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
       return (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
+        (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
         (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
     });
   }
