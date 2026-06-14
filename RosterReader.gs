@@ -201,7 +201,9 @@ function rrFindHeader_(rows) {
     cm.shift  = u.indexOf('SHIFT');
     cm.time   = u.indexOf('TIME');
     cm.pos    = u.indexOf('POSITION') >= 0 ? u.indexOf('POSITION') : u.indexOf('POS.');
-    cm.remark = u.indexOf('REMARK');
+    // คอลัมน์สถานะ (Onduty/Off/OT OFF/VAC…): บางชีต (PVTLP) ใช้หัว 'STATUS', ที่เหลือใช้ 'REMARK'
+    // ('REMARK FOR SUPPORT OTHER FLT' = โน้ต ไม่ใช่สถานะ → ไม่แมตช์ 'REMARK' ตรง ๆ อยู่แล้ว)
+    cm.remark = u.indexOf('STATUS') >= 0 ? u.indexOf('STATUS') : u.indexOf('REMARK');
     cm.re     = u.indexOf('RE');
     cm.resked = u.indexOf('RE-SKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RESKED');

@@ -160,7 +160,7 @@ def find_header(rows):
         cm['shift']  = u.index('SHIFT') if 'SHIFT' in u else -1
         cm['time']   = u.index('TIME') if 'TIME' in u else -1
         cm['pos']    = u.index('POSITION') if 'POSITION' in u else (u.index('POS.') if 'POS.' in u else -1)
-        cm['remark'] = u.index('REMARK') if 'REMARK' in u else -1
+        cm['remark'] = u.index('STATUS') if 'STATUS' in u else (u.index('REMARK') if 'REMARK' in u else -1)
         cm['resked'] = u.index('RE-SKED') if 'RE-SKED' in u else (u.index('RESKED') if 'RESKED' in u else -1)
         cm['ot']     = u.index('OT') if 'OT' in u else -1
         # OT total-hours column = a "Total Hrs" header within 3 cols after OT
