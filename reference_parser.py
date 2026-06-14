@@ -497,7 +497,9 @@ def parse_sheet(ws, name):
         return None
     rows = list(ws.iter_rows(values_only=True))
     if 'PORTER' in n and 'CREW' in n:
-        return parse_crewsign(rows, name)
+        # Crewsign แบบใหม่ใช้เลย์เอาต์มาตรฐาน (ID/Position/NAME/SHIFT) — นับครบทุกคน; เก่า 2 คอลัมน์ → fallback
+        std = parse_standard(rows, name)
+        return std if std else parse_crewsign(rows, name)
     if n == 'PORTER':
         std = parse_standard(rows, name)
         return std if std else parse_porter(rows, name)

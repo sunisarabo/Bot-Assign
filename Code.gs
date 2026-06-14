@@ -525,7 +525,13 @@ function rrParseSheet_(ws) {
   // อ่านสีพื้น + ขีดฆ่า เพื่อตรวจไฟลท์ที่ยกเลิก (ระบายเทาทั้งบล็อก / ขีดฆ่า)
   var meta = null;
   try { meta = { bgs: rng.getBackgrounds(), lines: rng.getFontLines() }; } catch (e) { meta = null; }
-  if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) return rrParseCrewsign_(rows, name);
+  if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) {
+    // ชีต Crewsign แบบใหม่ใช้เลย์เอาต์มาตรฐาน (ID/Position/NAME/SHIFT/IN-OUT) — นับครบทุกคน
+    // (ทีมมี "CREW" → rrPosGroup_ จัดเป็น Crewsign อยู่แล้ว) · เลย์เอาต์เก่า 2 คอลัมน์ → fallback
+    var cstd = rrParseStandard_(rows, name, meta);
+    if (cstd && cstd.length) return cstd;
+    return rrParseCrewsign_(rows, name);
+  }
   if (n === 'PORTER') {
     // New PORTER sheets use the standard ID/REMARK layout; old ones are a
     // 2-column name list. Prefer standard; fall back to the 2-column parser.
