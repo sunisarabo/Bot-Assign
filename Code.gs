@@ -1,5 +1,42 @@
+/**
+ * SmartShift Roster Bot — All-in-One (AOTGA design web app)
+ * setupTriggers() = รันทุกวัน 08:00 และ 14:00 ส่งเข้า Google Chat
+ */
+
+
+// ===== RosterReader.gs =====
+
+/**
+ * RosterReader.gs — unified roster reader for Google Apps Script
+ * =============================================================================
+ * Replaces the brittle, sheet-NAME based routing of the previous assignment
+ * script. Parsing is now HEADER-DRIVEN, which is the real fix: team layouts
+ * drift between days (e.g. TR is the standard ID/Position/NAME layout on
+ * 01–03 JUN but switches to the NO/ID/NAME/TIME/SHIFT/OT variant on 04 JUN;
+ * AK/CHN/KE used to have bespoke layouts and are now standard). Routing by name
+ * silently mis-read those teams.
+ *
+ * What it reads correctly for EVERY team:
+ *   • headcount  : working / OT-off / off / sick / leave(personal+vacation)
+ *   • OT         : number of people on OT + total OT hours
+ *   • flights    : per-team flight count, and per-employee flight assignments
+ *                  with shift code and flight OP/CL & STA/STD times
+ *
+ * GROUND-TRUTH RULE (most important): attendance comes from the REMARK column,
+ * never from the shift code. A row can show shift "X9" (00:00-09:00) yet REMARK
+ * says "OFF" / "OFF (NO RQ OT)" / "OT OFF" — that person is not working.
+ *
+ * Entry points:
+ *   readRosterFromSpreadsheet(ss) -> { teams:{...}, totals:{...} }
+ *   debugDumpRoster(ssId)         -> logs the per-team summary
+ * The Drive-navigation / monthly-file / Chat plumbing from the original script
+ * can call readRosterFromSpreadsheet() in place of detectAndParse().
+ */
+
 var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
 
+/** วันหยุดประเพณี/นักขัตฤกษ์ ปี 2569 (2026) ตามประกาศ AOTGA 403/2568
+ *  ทำงานในวันเหล่านี้ = ได้ OT นักขัต X1 (1 เท่า) จากชั่วโมงทำงานในกะวันนั้น */
 var PUBLIC_HOLIDAYS = {
   '2026-01-01': 'วันขึ้นปีใหม่',
   '2026-03-03': 'วันมาฆบูชา',
@@ -17,6 +54,7 @@ var PUBLIC_HOLIDAYS = {
   '2026-12-31': 'วันสิ้นปี'
 };
 
+/** คืนชื่อวันหยุดประเพณี ถ้า date เป็นวันหยุด (รับ Date หรือ {y,m,d}) ไม่ใช่ → null */
 function rrPublicHoliday_(date) {
   var y, m, d;
   if (date && typeof date.getFullYear === 'function') { y = date.getFullYear(); m = date.getMonth() + 1; d = date.getDate(); }
@@ -87,6 +125,22 @@ function rrOtHours_(v) {
   if (/^\d+(\.\d+)?$/.test(s)) { var f = parseFloat(s); return (f > 0 && f <= 14) ? f : 0; }
   return rrRangeHours_(s);
 }
+/** อ่าน OT หนึ่งกลุ่ม (คู่ IN/OUT ที่คอลัมน์ otc, total ที่ totc) → {hours, range:[s,e]} หรือ null
+ *  ถ้ามีคอลัมน์ TOTAL → ใช้ค่ารวม (ว่าง+มี IN-OUT → คำนวณจากช่วง) ; ไม่มี TOTAL → ใช้ค่าในคอลัมน์ OT เอง */
+function rrReadOtGroup_(row, otc, totc) {
+  if (otc < 0) return null;
+  var rng = rrRangeCells_(row, otc), h;
+  if (totc >= 0) {
+    h = rrOtHours_(totc < row.length ? row[totc] : '');
+    if (!(h > 0) && rng[0] != null && rng[1] != null) {
+      var a = rng[0], b = rng[1]; if (b <= a) b += 1440; h = Math.round((b - a) / 60 * 10) / 10;
+    }
+  } else {
+    h = rrOtHours_(otc < row.length ? row[otc] : '');
+  }
+  if (!(h > 0) && rng[0] == null) return null;
+  return { hours: h > 0 ? h : 0, range: rng };
+}
 
 // ── OT pre/post (ก่อนกะ / หลังกะ) classification ────────────────────────────
 function rrMin_(v) {
@@ -95,14 +149,14 @@ function rrMin_(v) {
   m = s.match(/^(\d{2})(\d{2})$/); if (m) return +m[1] * 60 + +m[2];
   return null;
 }
-
+/** [start,end] minutes from a 'HH-HH' range string, else [null,null]. */
 function rrRangeStr_(s) {
   s = rrClean_(s);
   var m = s.match(/(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
   if (m) return [(+m[1]) * 60 + (m[2] ? +m[2] : 0), (+m[3]) * 60 + (m[4] ? +m[4] : 0)];
   return [null, null];
 }
-
+/** [start,end] minutes from a clock-in cell (+ next col), or a range cell. */
 function rrRangeCells_(row, col) {
   if (col < 0 || col >= row.length) return [null, null];
   var r = rrRangeStr_(row[col]);
@@ -111,22 +165,34 @@ function rrRangeCells_(row, col) {
 }
 function rrFmtMin_(m) {
   if (m == null) return '';
-  var h = Math.floor(m / 60) % 24, mm = ((m % 60) + 60) % 60;
-  return ('0' + h).slice(-2) + ':' + ('0' + mm).slice(-2);
+  m = ((Math.round(m) % 1440) + 1440) % 1440;                 // normalize → นาฬิกา 00:00–23:59 (กันค่าติดลบ/ข้ามคืน)
+  return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2);
+}
+/** เลื่อนช่วง [a,b] ด้วย k×1440 ให้แนบชิดช่วงอ้างอิง [rs,re] มากสุด — จัดเวลาข้ามเที่ยงคืนให้อยู่ timeline เดียวกัน */
+function rrAlignTo_(a, b, rs, re) {
+  if (a == null || b == null || rs == null || re == null) return [a, b];
+  if (b <= a) b += 1440;                                       // ช่วงตัวเองข้ามคืน
+  var bestK = 0, bestGap = Infinity;
+  for (var k = -2; k <= 2; k++) {
+    var aa = a + 1440 * k, bb = b + 1440 * k;
+    var gap = (aa > re) ? (aa - re) : (bb < rs ? (rs - bb) : 0);
+    if (gap < bestGap) { bestGap = gap; bestK = k; }
+  }
+  return [a + 1440 * bestK, b + 1440 * bestK];
 }
 function rrFmtRange_(r) { return (r[0] != null && r[1] != null) ? (rrFmtMin_(r[0]) + '-' + rrFmtMin_(r[1])) : ''; }
 
+/** 'PRE' (OT before shift) or 'POST' (OT after shift). Defaults POST. */
 function rrOtType_(srng, orng, isOff) {
   if (isOff) return 'POST';
   var si = srng[0], so = srng[1], oi = orng[0], oo = orng[1];
   if (oi == null) return 'POST';
-  if (so != null && si != null && so <= si) so += 1440;
-  if (oo != null && oo <= oi) oo += 1440;
-  var TOL = 30;
-  if (si != null && oo != null && oo <= si + TOL) return 'PRE';
-  if (so != null && oi >= so - TOL) return 'POST';
-  if (si != null && oi < si) return 'PRE';
-  return 'POST';
+  if (oo == null) return (si != null && oi < si) ? 'PRE' : 'POST';   // ไม่มีเวลาเลิก OT → เทียบ in กับต้นกะ (กัน null<=x เป็น PRE ผิด)
+  if (so != null && si != null && so <= si) so += 1440;       // กะข้ามคืน
+  if (oo != null && oo <= oi) oo += 1440;                      // OT ข้ามคืน
+  if (si == null || so == null) return (si != null && oi < si) ? 'PRE' : 'POST';
+  var al = rrAlignTo_(oi, oo, si, so); oi = al[0]; oo = al[1]; // จัด OT ให้อยู่ timeline เดียวกับกะ
+  return (oo <= si + 30) ? 'PRE' : 'POST';                     // จบ ≤ ต้นกะ = ก่อนกะ, ไม่งั้น = หลังกะ
 }
 
 // ─── header detection (standard + TR NO/ID/NAME/TIME/SHIFT/OT variant) ──────
@@ -179,6 +245,7 @@ function rrFindHeader_(rows) {
   return null;
 }
 
+/** หัวคอลัมน์ที่เป็น 'รหัสไฟลท์' (G9687/688, WY831/832, CA413, 6E1077, SQ726). */
 function rrIsFlightHdr_(h) {
   return /(?:^|[\s\/])(?:[A-Z]{1,3}\s?\d{2,4}|\d[A-Z]\d{2,4})/.test(String(h || ''));
 }
@@ -363,7 +430,10 @@ function rrParseAdminDoc_(rows, team) {
     var row = rows[r];
     var nm = rrClean_(row[0]), sched = row.length > 1 ? rrClean_(row[1]) : '';
     var nU = nm.toUpperCase();
-    if (!nm || nm.length < 2 || nU === 'NAME' || nU === 'SCHEDULE') continue;
+    // ข้ามแถวหัวตาราง/legend ท้ายชีต (ไม่ใช่ชื่อคน) — กันนับ AdminDoc เกินจริง
+    if (!nm || nm.length < 2) continue;
+    if (/^(NAME|SCHEDULE|SHIFT|POSITION|TYPE|ON\s*DUTY|ONDUTY|OT\s*OFF|OFF|RE-?SKED|REMARK|FLIGHT|SUPP|SUPPORT|TOTAL)\b/.test(nU)) continue;
+    if (/^(SL|BL|VAC|ID|XX)$/.test(nU)) continue;
     var flts = [];
     for (var c = 2; c < row.length; c++) { var v = rrClean_(row[c]); if (v) flts.push({ flight: v, task: '' }); }
     recs.push({ team: team, id: '', name: nm, pos: 'ADMINDOC', shift: sched,
@@ -400,6 +470,15 @@ function rrParseCrewsign_(rows, team) {
   return recs;
 }
 
+/**
+ * SU has a bespoke 3-section template (rolls out for SU specifically):
+ *   1) CHECK-IN COUNTER rotation  — staff sit a long stretch ("check-in
+ *      common") rotating across time slots, covering MANY flights.
+ *   2) ARRIVAL & DEPARTURE GATE   — per-flight gate roles.
+ *   3) JOB DETAIL                 — per-flight job roles (SOD/OB/RF/...).
+ * A staff member therefore gets ONE long CHECK-IN block plus per-flight
+ * gate/job assignments — matching how SU actually schedules.
+ */
 function rrIsSuName_(raw) {
   var n = String(raw || '').trim();
   // strip a trailing borrowed-team / status suffix (e.g. "TANADON PVT", "ANUTTRI JQ")
@@ -679,6 +758,22 @@ function debugDumpRoster(ssId) {
   return res;
 }
 
+
+// ===== MasterReader.gs =====
+
+/**
+ * MasterReader.gs — total active-headcount per department from the MASTER file
+ * =============================================================================
+ * The Pax Manpower master ("Total" sheet) lists every employee with their team,
+ * department and status. This gives the *establishment* headcount (all active
+ * staff) for PSA (การโดยสาร) and LL (ติดตามสัมภาระ) — independent of who is on
+ * duty today. The daily attendance still comes from the assignment files; this
+ * only adds "จำนวนพนักงานทั้งหมด" per department.
+ *
+ * Master "Total" sheet columns (0-indexed), per the original SmartShift bot:
+ *   1 ID | 2 Team | 4 NameTH | 6 Dept | 7 Position | 10 NameEN | 12 ResignDate | 13 Status
+ */
+
 // ใส่ ID ไฟล์ Pax Manpower ถ้าบัญชีที่รันมีสิทธิ์เข้า (เว้นว่าง = ข้าม ไม่แสดงจำนวนพนักงานรวม)
 // ของเดิม: '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8'
 var MASTER_FILE_ID_RB = '';
@@ -733,6 +828,25 @@ function debugDumpMaster(masterFileId) {
   return hc;
 }
 
+
+// ===== LLReader.gs =====
+
+/**
+ * LLReader.gs — LL (ติดตามสัมภาระ / baggage tracing) daily assignment reader
+ * =============================================================================
+ * The LL daily tab is sectioned by job area (SOD / CENTER / RUSH BAG /
+ * FOUND PROPERTY / TRAINEE / ADMIN / LL PORTER). Each section repeats the
+ * header: NO | NAME | POSITION | SCHEDULE | RESKED | REMARK | OT code | OT time
+ * | job columns…
+ *
+ * Attendance for LL comes from SCHEDULE (there is no Onduty/Off REMARK):
+ *   OFF / blank → off,  SL/SICK → sick,  VAC/BL → leave,  time range → working.
+ *
+ * Requires RosterReader.gs (reuses rrClean_, rrUp_, rrOtHours_, rrNewAgg_,
+ * rrAddBucket_). Returns the same aggregate shape as readRosterFromSpreadsheet,
+ * with `sections` in place of `teams`.
+ */
+
 function rrLLPosGroup_(pos) {
   var u = String(pos || '').toUpperCase().replace(/ACT\.?\s*/g, '').trim();
   if (u.indexOf('PSS') === 0 || u.indexOf('SUPERVISOR') >= 0) return 'PSS';
@@ -753,6 +867,7 @@ function rrLLClassify_(sched, remark) {
   return 'working';
 }
 
+/** Parse one LL daily tab → { sections, positions, totals }. */
 function readLLFromTab(ss, tabName) {
   var ws = ss.getSheetByName(tabName);
   if (!ws) throw new Error('ไม่พบแท็บ LL: ' + tabName);
@@ -798,6 +913,7 @@ function readLLFromTab(ss, tabName) {
   return { sections: sections, positions: positions, totals: totals };
 }
 
+/** Find the LL daily tab for a date. Handles "06JUN26" and "6 JUN 2569" forms. */
 function findLLTab_(ss, date) {
   var d = date.getDate();
   var dPad = ('0' + d).slice(-2);
@@ -820,6 +936,7 @@ function findLLTab_(ss, date) {
   return null;
 }
 
+/** Open the LL file (by id) and read the tab for the given date. */
 function readLLForDate(llFileId, date) {
   var ss = SpreadsheetApp.openById(llFileId);
   var tab = findLLTab_(ss, date);
@@ -843,6 +960,20 @@ function debugDumpLL(llFileId, y, m, d) {
   Logger.log(lines.join('\n'));
   return res;
 }
+
+
+// ===== SLA.gs =====
+
+/**
+ * SLA.gs — airline SLA (service level) staffing check + daily flight list.
+ * =============================================================================
+ * For each flight in the day's roster it counts how many staff were assigned to
+ * each phase (Supervisor / Check-in / Gate / Arrival) and compares against the
+ * airline SLA requirement, flagging shortages (which phase, how many short) =
+ * the "support needed" check. (Renamed from the old SOP_* naming to SLA_*.)
+ *
+ * Requires RosterReader.gs (res = readRosterFromSpreadsheet()).
+ */
 
 // ── Airline SLA: timing offsets (นาที รอบ STD = เวลาออก) + required headcount per role/phase ──
 // roles: [name, count, code, phase]  · phase = ALL(SUP) / CI / ARR / GATE
@@ -1026,11 +1157,11 @@ var SLA_RQ = {
   'AY':[2,5,1,2,9], 'BY':[2,5,2,2,10], 'C6':[2,4,1,2,8], 'CA':[2,6,1,2,10], 'CX':[2,6,2,2,11], 'CZ':[2,6,1,2,10],
   'DE':[2,6,2,2,11], 'DK':[2,7,1,2,11], 'DV':[2,4,1,2,8], 'EK':[2,7,3,2,13], 'EO':[2,6,1,2,10], 'EY':[2,9,1,2,13],
   'FM':[2,4,1,2,8], 'FY':[2,4,1,2,8], 'G2':[2,6,1,2,10], 'G8':[2,4,1,2,8], 'G9':[2,4,1,2,8], 'HB':[2,4,1,2,8],
-  'HH':[2,4,1,2,8], 'HO':[2,4,1,2,8], 'HU':[2,6,1,2,10], 'HX':[2,5,1,2,9], 'HY':[2,5,1,2,9], 'IT':[2,4,1,2,8],
+  'HH':[2,4,1,2,8], 'HO':[2,4,1,2,8], 'HU':[2,6,1,2,10], 'HX':[2,5,1,2,9], 'HY':[2,5,1,2,9], 'IT':[2,4,1,2,8], 'IX':[2,4,1,2,8],
   'JQ':[2,7,1,3,11], 'KC':[2,5,1,2,9], 'KE':[2,8,1,2,12], 'KY':[2,3,1,2,7], 'LJ':[2,4,1,2,8], 'LO':[2,6,1,2,10],
   'LY':[2,8,1,2,12], 'MH':[2,4,1,2,8], 'MU':[2,4,1,2,8], 'N0':[2,5,1,2,9], 'N4':[2,6,1,2,10], 'NO':[2,6,1,2,10],
   'OD':[2,5,1,2,9], 'OM':[2,4,1,2,8], 'OQ':[2,4,1,2,8], 'OV':[2,4,1,2,8], 'OZ':[2,6,1,2,10], 'PG':[2,0,1,2,5],
-  'PN':[2,4,1,2,8], 'QR':[2,9,2,2,14], 'QZ':[1,3,1,1,7], 'S7':[2,4,1,2,8], 'SG':[2,4,1,2,8], 'SQ':[2,5,1,2,9],
+  'PN':[2,4,1,2,8], 'QP':[2,4,1,2,8], 'QR':[2,9,2,2,14], 'QZ':[1,3,1,1,7], 'S7':[2,4,1,2,8], 'SG':[2,4,1,2,8], 'SQ':[2,5,1,2,9],
   'SU':[2,8,1,2,12], 'TK':[2,8,4,2,15], 'TR':[2,6,1,2,10], 'U6':[2,4,1,2,8], 'UO':[2,4,2,2,9], 'VJ':[2,5,1,2,9],
   'W5':[2,7,1,2,11], 'WK':[2,6,1,2,10], 'WY':[2,7,1,2,11], 'WZ':[2,6,1,2,10], 'ZF':[2,6,1,2,10], 'ZH':[2,4,1,2,8],
 };
@@ -1054,7 +1185,7 @@ var AIRLINE_SYS = {
 var SLA_UNIVERSAL_SYS_NORM = 'iport';
 function slaSysNorm_(s) { return String(s || '').toLowerCase().replace(/[\s.]+/g, ''); }   // Astra=ASTRA, iPort=iport
 function slaSystemOf_(airline) { return AIRLINE_SYS[String(airline || '').toUpperCase()] || ''; }
-
+/** ระบบที่ "ต้องรู้" เพื่อช่วยเช็คอินไฟลท์นี้ ('' = ไม่จำกัด เช่น iPort หรือไม่ใช่ CI/SUP) */
 function slaNeedSys_(airline, ph) {
   if (ph !== 'CI' && ph !== 'SUP') return '';
   var s = slaSystemOf_(airline);
@@ -1079,7 +1210,7 @@ function slaGet_(airline) {
   if (SLA_ALIAS[c] && SLA_DB[SLA_ALIAS[c]]) return SLA_DB[SLA_ALIAS[c]];
   return SLA_DB.DEFAULT;
 }
-
+/** หัวไฟลท์ที่เป็นงานซัพพอร์ต (มีคำว่า SUPPORT/SUUPORT/SUPPORT ฯลฯ) — ไม่นับเป็นไฟลท์จริง */
 function slaIsSupportFlight_(name) { return /SUU?PP?ORT/i.test(String(name || '')); }
 function slaAirlineOf_(flight) {
   var s = String(flight || '').trim().toUpperCase();
@@ -1088,11 +1219,20 @@ function slaAirlineOf_(flight) {
   var m2 = s.match(/([A-Z]{1,3})\s*\d/);
   return m2 ? m2[1] : 'DEFAULT';
 }
-
+/** เวลาเป็นนาที — '' หรือ 00:00 (placeholder) → null (ถือว่าไม่มีขานั้น) */
+function slaRealMin_(x) { var v = acMin_(x); return v ? v : null; }
+/** key รวมไฟลท์ = สายการบิน + เลขไฟลท์ "ตัวแรก" → TK172/173, TK172, TK172/TK173 = key เดียว
+ *  (EY416/EY417 = EY416/417 = EY416 · CX773/778 ≠ CX778 เพราะเลขแรกต่างกัน) */
+function slaFlightKey_(raw) {
+  var s = String(raw || '').trim().toUpperCase();
+  var m = s.match(/\d+/);                                   // เลขไฟลท์ชุดแรก
+  return m ? (slaAirlineOf_(s) + String(parseInt(m[0], 10))) : s.replace(/[\s.\/]+/g, '');
+}
+/** required headcount per phase for an airline — ใช้ SLA_RQ (Manpower) ก่อน, ไม่งั้น roles */
 function slaReq_(airline) {
   var c = String(airline || '').toUpperCase();
   var rq = SLA_RQ[c] || (SLA_ALIAS[c] && SLA_RQ[SLA_ALIAS[c]]);
-  if (rq) return { SUP: rq[0], CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };
+  if (rq) return { SUP: 1, CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   var db = slaGet_(airline);
   var req = { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: db.total || 0 };
   (db.roles || []).forEach(function (r) {
@@ -1100,6 +1240,7 @@ function slaReq_(airline) {
     if (req[ph] === undefined) ph = 'CI';
     req[ph] += r[1];
   });
+  req.SUP = 1;                                                                   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   return req;
 }
 
@@ -1113,28 +1254,28 @@ var SLA_ROLES = {
   'DV':[1,1,4,1,0,1,5,0,8], 'EK':[1,1,7,3,0,1,6,0,13], 'EO':[1,1,6,1,0,1,6,0,10], 'EY':[1,1,9,1,0,1,6,0,13], 'FM':[1,1,4,1,0,1,4,0,8],
   'FY':[1,1,4,1,0,1,4,0,8], 'G2':[1,1,6,1,0,1,5,0,10], 'G8':[1,1,4,1,0,1,4,0,8], 'G9':[1,1,4,1,0,1,4,0,8], 'HB':[1,1,4,1,0,1,4,0,8],
   'HH':[1,1,4,1,0,1,5,0,8], 'HO':[1,1,4,1,0,1,4,0,8], 'HU':[1,1,6,1,0,1,4,0,10], 'HX':[1,1,5,1,0,1,4,0,9], 'HY':[1,1,5,1,0,1,5,0,9],
-  'IT':[1,1,4,1,0,1,5,0,8], 'JQ':[1,1,7,1,0,1,9,0,11], 'KC':[1,1,5,1,0,1,4,0,9], 'KE':[1,1,8,1,0,1,4,0,12], 'KY':[1,1,3,1,0,1,4,0,7],
+  'IT':[1,1,4,1,0,1,5,0,8], 'IX':[1,1,4,1,0,1,4,0,8], 'JQ':[1,1,7,1,0,1,9,0,11], 'KC':[1,1,5,1,0,1,4,0,9], 'KE':[1,1,8,1,0,1,4,0,12], 'KY':[1,1,3,1,0,1,4,0,7],
   'LJ':[1,1,4,1,0,1,4,0,8], 'LO':[1,1,6,1,0,1,5,0,10], 'LY':[1,1,8,1,0,1,10,0,12], 'MH':[1,1,4,1,0,1,4,0,8], 'MU':[1,1,4,1,0,1,4,0,8],
   'N0':[1,1,5,1,0,1,5,0,9], 'N4':[1,1,6,1,0,1,6,0,10], 'NO':[1,1,6,1,0,1,6,0,10], 'OD':[1,1,5,1,0,1,5,0,9], 'OM':[1,1,4,1,0,1,4,0,8],
   'OQ':[1,1,4,1,0,1,4,0,8], 'OV':[1,1,4,1,0,1,4,0,8], 'OZ':[1,1,6,1,0,1,5,0,10], 'PG':[1,1,0,1,0,2,4,0,5], 'PN':[1,1,4,1,0,1,4,0,8],
-  'QR':[1,1,9,2,0,1,6,0,14], 'S7':[1,1,4,1,0,1,4,0,8], 'SG':[1,1,4,1,0,1,5,0,8], 'SQ':[1,1,5,1,0,1,5,0,9], 'SU':[1,1,8,1,0,1,5,0,12],
+  'QP':[1,1,4,1,0,1,4,0,8], 'QR':[1,1,9,2,0,1,6,0,14], 'QZ':[1,1,3,1,0,1,5,0,7], 'S7':[1,1,4,1,0,1,4,0,8], 'SG':[1,1,4,1,0,1,5,0,8], 'SQ':[1,1,5,1,0,1,5,0,9], 'SU':[1,1,8,1,0,1,5,0,12],
   'TK':[1,1,8,4,0,1,5,0,15], 'TR':[1,1,6,1,0,1,6,0,10], 'U6':[1,1,4,1,0,1,5,0,8], 'UO':[1,1,4,2,0,1,5,0,9], 'VJ':[1,1,5,1,0,1,5,0,9],
   'W5':[1,1,7,1,0,1,5,0,11], 'WK':[1,1,6,1,0,1,5,0,10], 'WY':[1,1,7,1,0,1,8,0,11], 'WZ':[1,1,6,1,0,1,6,0,10], 'ZF':[1,1,6,1,0,1,5,0,10],
   'ZH':[1,1,4,1,0,1,4,0,8],
 };
-
+/** บทบาทเต็มต่อไฟลท์ → {SUP,FC,CI,ARR,STB,GM,GA,sep,total} */
 function slaRoles_(airline) {
   var c = String(airline || '').toUpperCase();
   var r = SLA_ROLES[c] || (SLA_ALIAS[c] && SLA_ROLES[SLA_ALIAS[c]]);
   if (!r) { var q = slaReq_(airline); return { SUP: 1, FC: 1, CI: q.CI, ARR: q.ARR, STB: 0, GM: 1, GA: Math.max(0, (q.total || 0) - 3 - q.CI - q.ARR), sep: false, total: q.total }; }
   return { SUP: r[0], FC: r[1], CI: r[2], ARR: r[3], STB: r[4], GM: r[5], GA: r[6], sep: !!r[7], total: r[8] };
 }
-
+/** เวลาเปิด-ปิดเคาน์เตอร์เช็คอินของไฟลท์ (จาก CI window) → "HH:MM-HH:MM" */
 function slaCounterTime_(f) {
   var w = slaPhaseWindow_(f, 'CI');
   return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
 }
-
+/** classify a job task code into a phase */
 function slaPhaseOf_(task) {
   var u = String(task || '').toUpperCase();
   if (!u) return 'CI';
@@ -1144,22 +1285,25 @@ function slaPhaseOf_(task) {
   return 'CI';   // check-in default (CT, C, Y, J, W, F, WEB, KIOSK, PSM, FC, GK, SD...)
 }
 
+/** ทีมที่ไม่เกี่ยวกับ SLA เช็คอิน/เกท — ไม่นับใน Flights & SLA / Support */
 function slaSkipTeam_(team) {
   var t = String(team || '').toUpperCase();
   return t.indexOf('PORTER') >= 0 || t.indexOf('CREWSIGN') >= 0 || t.indexOf('CREW SIGN') >= 0 ||
          (t.indexOf('ADMIN') >= 0 && t.indexOf('DOC') >= 0);
 }
 
+/** collect all flights from the day's roster (PSA + LL), with assigned staff. */
 function slaCollectFlights_(res, ll) {
   var flights = {};
   function add(team, rec) {
     (rec.assignments || []).forEach(function (a) {
-      var key = String(a.flight || '').trim();
+      var raw = String(a.flight || '').trim();
+      var key = slaFlightKey_(raw);                          // รวมไฟลท์เดียวกัน (เลขไฟลท์แรกตรง = key เดียว) เก็บชื่อตัวแรก
       if (!key) return;
       if (slaIsSupportFlight_(key)) return;                  // SUPPORT/SUUPORT = งานซัพพอร์ต ไม่ใช่ไฟลท์จริง → ข้าม
-      if (!acIsFlight_(key)) return;                         // เคาน์เตอร์/พูล (Counter Gx ของ SU, LP MORNING/AFTERNOON, งานอื่นๆ) ไม่ใช่ไฟลท์ → ไม่วัด SLA
+      if (!acIsFlight_(raw)) return;                         // เคาน์เตอร์/พูล (Counter Gx ของ SU, LP MORNING/AFTERNOON, งานอื่นๆ) ไม่ใช่ไฟลท์ → ไม่วัด SLA
       if (!flights[key]) {
-        flights[key] = { flight: key, airline: slaAirlineOf_(key), teams: {},
+        flights[key] = { flight: raw, airline: slaAirlineOf_(key), teams: {},
           STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '',
           assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
       }
@@ -1182,9 +1326,18 @@ function slaCollectFlights_(res, ll) {
     });
   }
   // compute requirement + shortages per flight
-  return Object.keys(flights).map(function (k) {
+  var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
     f.req = slaReq_(f.airline);
+    // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
+    var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
+    f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้งคู่ = ข้อมูลเวลาหาย (ไม่ใช่ขาเดียว) → คงความต้องการเต็ม
+    if (!f.noTime) {                                          // ตัด phase เฉพาะกรณี "มีขาเดียวจริง"
+      var extra = Math.max(0, f.req.total - (f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR));  // เกท "จากเช็คอิน" (departure)
+      if (!hasDep) { f.req.CI = 0; f.req.GATE = 0; extra = 0; } // ขาเข้าอย่างเดียว → ไม่ต้องการ Check-in/Gate/คนเสริม
+      if (!hasArr) { f.req.ARR = 0; }                           // ขาออกอย่างเดียว → ไม่ต้องการ Arrival
+      f.req.total = f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR + extra;
+    }
     f.short = {};
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       var d = f.req[ph] - f.assigned[ph];
@@ -1194,7 +1347,17 @@ function slaCollectFlights_(res, ll) {
     f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
     f.teamList = Object.keys(f.teams).join(',');
     return f;
-  }).sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
+  });
+  // เศษขา (fragment): ไฟลท์ noTime ที่ "เลขไฟลท์ทุกตัว" ไปซ้ำกับไฟลท์ที่มีเวลาอยู่แล้ว = ขาที่สองซ้ำ → ซ่อนได้
+  // (ส่วน noTime ที่ไม่มีเลขซ้ำเลย = ข้อมูลเวลาหายจริง → เก็บไว้เตือนให้เติม)
+  var timedNums = {};
+  arr.forEach(function (f) { if (!f.noTime) (String(f.flight).match(/\d+/g) || []).forEach(function (n) { timedNums[+n] = 1; }); });
+  arr.forEach(function (f) {
+    if (!f.noTime) { f.fragment = false; return; }
+    var nums = (String(f.flight).match(/\d+/g) || []).map(Number);
+    f.fragment = nums.length > 0 && nums.every(function (n) { return timedNums[n]; });
+  });
+  return arr.sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
 }
 
 var SLA_PH_TH = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
@@ -1205,7 +1368,7 @@ function slaShortText_(f) {
 }
 
 // ── SUPPORT FINDER: ใครว่าง + รู้ระบบเช็คอิน มาช่วยไฟลท์ที่ขาดได้ ──────────────
-
+/** ระบบเช็คอินที่แต่ละทีม "ทำเป็น" = ระบบของสายการบินที่ทีมนั้นบินวันนี้ */
 function slaTeamSystems_(res, ll) {
   var sys = {};
   function add(team, r) {
@@ -1219,25 +1382,34 @@ function slaTeamSystems_(res, ll) {
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
   return sys;
 }
-
-function slaSupportPool_(res, ll, teamSys) {
+/** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง)
+ *  includeOff=true → รวมคนวันหยุด (OFF) ไว้เป็นตัวเลือก "re-sked" (ว่างทุกช่วง · จัดเวลาให้ใหม่ได้) */
+function slaSupportPool_(res, ll, teamSys, includeOff) {
   var pool = [];
   function add(team, r) {
-    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    var off = (r.bucket === 'off');
+    if (!off && r.bucket !== 'working' && r.bucket !== 'ot_off') return;   // sick/leave/vac ไม่ดึง
+    if (off && !includeOff) return;                                        // คน OFF เฉพาะตอนเปิด re-sked
     if (slaSkipTeam_(team)) return;                          // Porter / Crewsign / Admin Doc ไม่เป็นคนช่วย
-    var d = acDuty_(r);
-    if (d.ds == null || d.de == null) return;
+    var d = acDuty_(r), ds = d.ds, de = d.de;
+    if (off) {
+      // OFF (re-sked): ถ้ายังมี "กะรายสัปดาห์" ติดอยู่ (เช่น X9=00:00-09:00) → เคารพเวลากะนั้น
+      // ไม่สมมุติว่าว่าง 24 ชม. (กันแนะคนกะเช้าไปช่วยไฟลท์บ่าย) · ไม่มีกะระบุ → ว่างทุกช่วง จัดเวลาใหม่ได้
+      if (ds == null || de == null) { ds = -100000; de = 100000; }
+    }
+    if (ds == null || de == null) return;
     var busy = [];
-    (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
-    var flts = (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
+    if (!off) (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
+    var flts = off ? [] : (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
       .map(function (a) {
         var tm = (a.STA || a.STD) ? (' ' + (a.STA || '–') + '-' + (a.STD || '–'))
                : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
         return a.flight + tm;
       });
-    pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '',
-      ds: d.ds, de: d.de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
-      shiftDisp: r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-')),
+    pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '', off: off,
+      ds: ds, de: de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
+      shiftDisp: off ? ('OFF · re-sked' + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
+                     : (r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'))),
       otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
       hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, flts: flts });
   }
@@ -1245,7 +1417,7 @@ function slaSupportPool_(res, ll, teamSys) {
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
   return pool;
 }
-
+/** เวลา (นาที) ของแต่ละ phase สำหรับไฟลท์ (อิง STD + offset ของสายการบิน) */
 function slaPhaseWindow_(f, ph) {
   var db = slaGet_(f.airline);
   var m = function (x) { var v = acMin_(x); return v ? v : null; };   // 00:00 = placeholder → null
@@ -1257,7 +1429,10 @@ function slaPhaseWindow_(f, ph) {
   if (ph === 'SUP') return std != null ? [std + db.ci, std + post] : (sta != null ? [sta - 20, sta + post] : null);
   return null;
 }
-
+/** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้
+ *  · CI  = รู้ระบบเช็คอินของสายการบินนั้น + ว่าง (ตำแหน่งใดก็ได้)
+ *  · SUP = ต้องเป็นตำแหน่ง Sup + รู้ระบบนั้น + ว่าง (สำหรับ Sup/Flight Controller)
+ *  · GATE/ARR = ไม่ต้องใช้ระบบ · เรียงลำดับ Agent → Senior → Sup */
 function slaCandidates_(f, ph, pool, max) {
   var win = slaPhaseWindow_(f, ph);
   var needSys = slaNeedSys_(f.airline, ph);                   // '' = iPort/ไม่จำกัด → ทุกคนช่วยได้
@@ -1276,12 +1451,13 @@ function slaCandidates_(f, ph, pool, max) {
     return true;
   });
   if (ph === 'SUP') {
-    cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
   } else {
-    // CI / GATE / ARR: Agent → Senior → Sup ตามลำดับ แล้วคนงานน้อย/ว่างกว่าก่อน
+    // CI / GATE / ARR: Agent → Senior → Sup ตามลำดับ แล้วคนงานน้อย/ว่างกว่าก่อน · คน OFF (re-sked) ไว้ท้ายสุด
     var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
-      return (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+      return (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
+        (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
     });
   }
   return max ? cands.slice(0, max) : cands;
@@ -1291,13 +1467,14 @@ function slaWinTxt_(f, ph) {
   return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
 }
 
+/** Sheet tab: ✈️ Flights & SLA — day's flights + required vs assigned + shortage */
 function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   tabName = tabName || '✈️ Flights & SLA';
   var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
 
-  var flights = slaCollectFlights_(res, ll);
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); });   // ซ่อนเศษขา (ขาที่สองซ้ำ)
   var W = 13;
   sh.getRange(1, 1, 1, W).merge().setValue('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน — ' + dateStr)
     .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
@@ -1328,11 +1505,11 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
 var SLA_MAX_CAND = 24;     // pool คนช่วยต่อ 1 ตำแหน่งที่ขาด (มีเผื่อไว้ดึงทดแทนข้ามทีม)
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
-
+/** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
 function slaSupportRows_(res, ll) {
-  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok && !f.noTime; });
   var teamSys = slaTeamSystems_(res, ll);
-  var pool = slaSupportPool_(res, ll, teamSys);
+  var pool = slaSupportPool_(res, ll, teamSys, true);          // รวมคน OFF (re-sked) เป็นตัวเลือกท้ายสุด
   var rows = [];
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
@@ -1343,7 +1520,7 @@ function slaSupportRows_(res, ll) {
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: slaNeedSys_(f.airline, ph),
         cands: cands.map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team,
+          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
                    shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, n: c.nflt, flts: c.flts };
         }),
         nCand: cands.length,
@@ -1352,13 +1529,40 @@ function slaSupportRows_(res, ll) {
   });
   return rows;
 }
-
+/** จัดกลุ่มคนช่วยตามทีม (ให้เลือกได้ว่าจะดึงจากทีมไหน) → [{team, people:[...]}] */
 function slaGroupCands_(cands) {
   var by = {}, order = [];
   cands.forEach(function (c) { if (!by[c.team]) { by[c.team] = []; order.push(c.team); } by[c.team].push(c); });
   return order.map(function (t) { return { team: t, people: by[t] }; });
 }
 
+/** ข้อความ SOS ขอคนซัพ (คัดลอกส่งไลน์) — จัดกลุ่มตามไฟลท์
+ *  · ลิสต์เฉพาะ "คนทีมอื่น" ที่ส่งมาช่วย (cands ตัดทีมเจ้าของไฟลท์ออกแล้วใน slaCandidates_)
+ *  · เลือก top N ตามจำนวนที่ขาด (N = shortN) เป็นตัวตั้งต้น */
+function slaSOSText_(res, ll, dateStr) {
+  var rows = slaSupportRows_(res, ll);
+  var byFlt = {}, order = [];
+  rows.forEach(function (r) {
+    if (!byFlt[r.flight]) { byFlt[r.flight] = { first: r, ph: [] }; order.push(r.flight); }
+    byFlt[r.flight].ph.push(r);
+  });
+  if (!order.length) return '✅ ทุกไฟลท์ส่งคนครบตาม SLA — ไม่ต้องขอ Support';
+  var out = ['🆘 ขอ Support' + (dateStr ? ' — ' + dateStr : '')];
+  order.forEach(function (fl) {
+    var g = byFlt[fl], f = g.first;
+    out.push('');
+    out.push(f.flight + (f.STD ? '  STD ' + f.STD : '') + (f.system ? '  · ' + f.system : ''));
+    g.ph.forEach(function (r) {
+      out.push('• ' + r.phase + ' ขาด ' + r.shortN + (r.win ? ' (' + r.win + ')' : ''));
+      var picks = (r.cands || []).slice(0, r.shortN);
+      if (picks.length) picks.forEach(function (c, i) { out.push('   ' + (i + 1) + '. ' + c.name + ' / ' + c.team + (c.off ? '  (OFF·re-sked)' : '')); });
+      else out.push('   — ' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + r.needSys : 'ไม่มีคนว่าง'));
+    });
+  });
+  return out.join('\n');
+}
+
+/** Sheet tab: 🆘 Support — ไฟลท์ขาด + แนะนำคนที่ว่างและรู้ระบบเช็คอินมาช่วย */
 function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
   tabName = tabName || '🆘 Support';
   var old = ss.getSheetByName(tabName);
@@ -1394,6 +1598,36 @@ function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
   sh.setFrozenRows(2);
 }
 
+
+// ===== AssignCheck.gs =====
+
+/**
+ * AssignCheck.gs — ตรวจความเหมาะสมของการ Assign รายคน
+ * =============================================================================
+ * ต่อยอดจาก record ที่ RosterReader ผลิต (shiftTime / shiftStart / shiftHrs,
+ * ot / otType / otTime, assignments[]{flight,task,STA,STD,OP,CL}) เพื่อตอบ 4 คำถาม
+ * ที่หัวหน้าใช้ตัดสินตารางจริง:
+ *
+ *   1) เวลากะ (รวม OT) ครอบคลุมเที่ยวบินที่ได้รับมอบหมายไหม  → COVERAGE
+ *   2) ให้ OT มาก/น้อยไปไหม                                  → OT FIT
+ *   3) มีช่วงว่าง (idle gap) ตรงไหนบ้าง                        → GAP
+ * คนที่ไม่มีไฟลท์เลย (bench/standby/support เช่น WY SNR/Agent) จะนับเป็น
+ * ตัวเลขสรุปเฉย ๆ ไม่ flag เป็นปัญหารายแถว เพื่อไม่ให้ตารางรก.
+ *
+ * หน้าต่าง "เวลางาน" (duty window) = ช่วงเวลากะ ขยายด้วย OT ก่อนกะ/หลังกะ
+ * (ถ้ามีช่วงเวลา OT ระบุก็ใช้ช่วงนั้น ไม่งั้นขยายด้วยจำนวนชั่วโมง OT).
+ * "หน้าต่างไฟลท์" = ช่วง min–max ของเวลา STA/STD/OP/CL ของไฟลท์นั้น.
+ * ไฟลท์ถือว่า "ครอบคลุม" เมื่ออยู่ในเวลางาน (มี tolerance ±COVER_TOL นาที).
+ *
+ * เกณฑ์ (ปรับได้):
+ *   COVER_TOL = 60 นาที   — ผ่อนผันก่อน/หลังไฟลท์ (มาทันเคาน์เตอร์เปิด = ครอบคลุม)
+ *   GAP_MIN   = 180 นาที  — ช่วงว่างระหว่างไฟลท์ (split-duty dead time) ที่จะแจ้ง
+ *   EDGE_MIN  = 240 นาที  — ช่วงว่างก่อนไฟลท์แรก/หลังไฟลท์สุดท้าย (prep/standby) ที่จะแจ้ง
+ *
+ * Entry: acAnalyze_(res, ll) -> { rows:[...], summary:{...} }
+ *        rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) -> เขียนแท็บรายงาน
+ */
+
 var AC_COVER_TOL = 60;   // ผ่อนให้ "มาทันเคาน์เตอร์เปิด" = ครอบคลุม (บรีฟ 60 นาทีเป็นช่วงเตรียม)
 var AC_GAP_MIN   = 180;
 var AC_EDGE_MIN  = 240;
@@ -1403,14 +1637,39 @@ function acMin_(s) {
   return m ? (+m[1] * 60 + +m[2]) : null;
 }
 
+/** ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คครอบคลุม — ไม่ใช่ pool/counter/common
+ *  (CHECK-IN COMMON, LP MORNING/AFTERNOON, Counter G2/G11, Gate A1 ฯลฯ).
+ *  รหัสไฟลท์จริงจะ "ขึ้นต้น" ด้วยโค้ดสายการบิน (EK378, 6E1077, G9687, QZ246) —
+ *  งานเคาน์เตอร์/zone จะขึ้นต้นด้วยคำอังกฤษ (Counter/Gate/LP …) จึงตัดด้วย prefix. */
 function acIsFlight_(name) {
   var s = String(name || '').trim().toUpperCase();
   if (!s) return false;
   if (/^(COUNTER|GATE|CHECK|ZONE|BELT|PIER|STBY|STAND|POOL|OFFICE|BRIEF|NIL|OFF\b|LP\s+(MORNING|AFTERNOON|NIGHT|DAY))/.test(s)) return false;
-  return /[A-Z]{1,3}\s*\d{2,4}/.test(s);
+  // ต้องขึ้นต้นด้วยรหัสสายการบิน IATA 2 ตัว (ตัวอักษร+ตัวอักษร/เลข หรือ เลข+ตัวอักษร) ตามด้วยเลขไฟลท์
+  // กันรหัสสนามบิน 3 ตัวอักษร (เช่น "ORY 08", "DMK 12") ที่ไม่ใช่ไฟลท์จริง
+  return /^(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s*\d{2,4}/.test(s);
 }
 
+/** งานอบรม/เทรน/ประชุม/กิจกรรม (ไม่ใช่งานหน้าไฟลท์จริง) — นับเป็น "งาน 1 อย่าง" แต่ไม่นับเป็นไฟลท์ที่ต้องครอบคลุม
+ *  (เช็คจาก task หรือชื่อรายการ · เลี่ยง CLASS/COURSE เพราะชน Business/First Class · เลี่ยง OJT/MEET เพราะเป็นงานหน้าไฟลท์) */
+function acIsActivity_(s) {
+  var u = String(s || '').toUpperCase();
+  if (!u) return false;
+  return /TRAINING|RECURRENT|WORKSHOP|ORIENTATION|SEMINAR|MEETING|E-?LEARNING|\bLMS\b|\bEXAM\b|อบรม|เทรน|ประชุม|สัมมนา|กิจกรรม|สอนงาน|ทดสอบ|\bสอบ\b/.test(u);
+}
+
+/** [lo,hi] นาทีที่พนักงาน "cover" ไฟลท์ = ตั้งแต่ "เวลาบรีฟ" จนถึง STD
+ *  · เวลาบรีฟ = เวลาเปิดเคาน์เตอร์ (OP จากไฟล์ หรือ STD+ci) ลบเวลาบรีฟของสายการบิน
+ *  · จบที่ STD (เครื่องออก)
+ *  · ไฟลท์ขาเข้าล้วน (ไม่มี STD) → รอบ STA (บรีฟ→STA+post)
+ *  00:00 เป็น placeholder ตัดทิ้ง. คืน null ถ้าไม่มีเวลา. */
 function acFlightWin_(a) {
+  // อบรม/เทรน/ประชุม ที่ระบุช่วงเวลาในข้อความ (เช่น "TRAINING ... 08-17") → ใช้ช่วงนั้นเป็นเวลางาน (busy/gap ถูกต้อง)
+  var atxt = String((a.task || '') + ' ' + (a.flight || ''));
+  if (acIsActivity_(atxt)) {
+    var rg = atxt.match(/(\d{1,2})(?:[:.](\d{2}))?\s*[-–]\s*(\d{1,2})(?:[:.](\d{2}))?/);
+    if (rg) { var alo = (+rg[1]) * 60 + (+(rg[2] || 0)), ahi = (+rg[3]) * 60 + (+(rg[4] || 0)); if (ahi <= alo) ahi += 1440; return [alo, ahi]; }
+  }
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
@@ -1428,6 +1687,7 @@ function acFlightWin_(a) {
   return [lo, hi];
 }
 
+/** หน้าต่างเวลางาน (duty) ของหนึ่ง record. */
 function acDuty_(r) {
   var sr = rrRangeStr_(r.shiftTime || '');
   var ss = sr[0], se = sr[1];
@@ -1458,7 +1718,7 @@ function acDuty_(r) {
       if (t === 'PRE') {                                     // OT ก่อนกะ → ปลาย OT แตะต้นกะ, ขยาย ds
         while (ss != null && b - ss > 720) { a -= 1440; b -= 1440; }
         while (ss != null && ss - b > 720) { a += 1440; b += 1440; }
-      } else {                                               // OT หลังกะ → ต้น OT ต่อจากปลายกะ, ขยาย de
+      } else {                                               // OT หลังกะ → ต้น OT ต่อจากปลายกะ (รวมข้ามเที่ยงคืน), ขยาย de
         while (se != null && a - se > 720) { a -= 1440; b -= 1440; }
         while (se != null && se - a > 720) { a += 1440; b += 1440; }
       }
@@ -1472,6 +1732,7 @@ function acDuty_(r) {
   return { ss: ss, se: se, ds: ds, de: de };
 }
 
+/** วิเคราะห์ความเหมาะสมของหนึ่ง record (ที่มาทำงาน). */
 function acAnalyzeRecord_(r) {
   var d = acDuty_(r);
   // เชื่อถือได้เมื่อมีเวลากะจริง (ss) หรือเป็น OT OFF (ทำเฉพาะ OT วันหยุด).
@@ -1492,11 +1753,13 @@ function acAnalyzeRecord_(r) {
   // หน้าต่างไฟลท์ (เฉพาะที่มีเวลา) — รอบแรกเก็บ window
   (r.assignments || []).forEach(function (a) {
     if (!a || !a.flight) return;
+    var isAct = acIsActivity_(a.task) || acIsActivity_(a.flight);   // เทรน/อบรม/ประชุม = งาน แต่ไม่นับเป็นไฟลท์ที่ต้องครอบคลุม (ไม่ flag นอกเวลา)
     var w = acFlightWin_(a);
-    if (!w) return;                                          // ไฟลท์ไม่มีเวลา → ข้ามการเช็คครอบคลุม
+    if (!w) { if (isAct) out.actN = (out.actN || 0) + 1; return; }   // กิจกรรมไม่มีเวลา → ยังนับเป็นงาน
     var lo = w[0], hi = w[1];
-    if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
-    out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) });
+    if (d.ds != null && d.de != null) { var fa = rrAlignTo_(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }  // จัดไฟลท์ให้อยู่ timeline เดียวกับเวลางาน (ข้ามเที่ยงคืน)
+    else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
+    out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) && !isAct, activity: isAct });
   });
 
   // OT OFF: เวลางาน = ครอบช่วง OT + ไฟลท์ที่ได้รับทั้งหมด (มาช่วยวันหยุด ทำเฉพาะที่ได้รับมอบหมาย)
@@ -1548,8 +1811,8 @@ function acAnalyzeRecord_(r) {
     // OT เกินจำเป็นไหม — ตรวจว่ามีไฟลท์เลยขอบกะจริงหรือไม่
     var justified = out.flightN === 0;                      // ไม่มีไฟลท์ → ตัดสินไม่ได้ ถือว่าผ่าน (อาจเป็นงาน support)
     out.wins.forEach(function (w) {
-      if (r.otType === 'PRE'  && d.ss != null && w.lo <  d.ss - AC_COVER_TOL) justified = true;
-      if (r.otType !== 'PRE'  && d.se != null && w.hi >  d.se + AC_COVER_TOL) justified = true;
+      if (r.otType === 'PRE'  && d.ss != null && w.lo <  d.ss) justified = true;   // ไฟลท์โผล่ก่อนกะ = OT จำเป็น
+      if (r.otType !== 'PRE'  && d.se != null && w.hi >  d.se) justified = true;   // ไฟลท์ลากเลยกะ = OT จำเป็น
     });
     if (!justified && out.flightN > 0) {
       out.status = 'warn';
@@ -1572,10 +1835,12 @@ function acAnalyzeRecord_(r) {
   }
 
   // ไม่มีไฟลท์เลย = นับเป็นข้อมูล (bench/standby/support) ไม่ flag เป็นปัญหา เพื่อไม่ให้ตารางรก
-  out.noFlight = (out.flightN === 0 && out.wins.length === 0 && r.bucket === 'working');  // มีงานเคาน์เตอร์ (wins) = ไม่ใช่ว่าง
+  out.noFlight = (out.flightN === 0 && out.wins.length === 0 && !out.actN && r.bucket === 'working');  // มีงานเคาน์เตอร์/อบรม = ไม่ใช่ว่าง
   return out;
 }
 
+/** ทีม "เจ้าของ" ของแต่ละสายการบิน = ทีมที่มีพนักงานทำไฟลท์สายการบินนั้นมากสุด
+ *  (ใช้บอกว่าไฟลท์ไหนเป็นการ "ซัพพอร์ตข้ามทีม") */
 function acOwnerTeams_(res, ll) {
   var cnt = {};
   function tally(team, r) {
@@ -1598,6 +1863,7 @@ function acOwnerTeams_(res, ll) {
   return owner;
 }
 
+/** วิเคราะห์ทั้งไฟล์ (PSA teams + LL sections). คืน rows ที่ต้องตรวจ + summary. */
 function acAnalyze_(res, ll) {
   var rows = [];
   var owner = acOwnerTeams_(res, ll);
@@ -1638,6 +1904,7 @@ function acAnalyze_(res, ll) {
         flights: a.flightN ? (a.coveredN + '/' + a.flightN + ' ครอบคลุม') : (a.wins.length ? a.wins.length + ' เคาน์เตอร์/งาน' : 'ไม่มี'),
         uncovered: a.uncovered.join('; '),
         gaps: a.gaps.map(function (g) { return rrFmtMin_(g.a) + '–' + rrFmtMin_(g.b); }).join(', '),
+        gapsRaw: a.gaps.map(function (g) { return g.a + '~' + g.b; }).join(','),   // นาทีดิบ สำหรับกรองช่วงเวลา (~ กันค่าติดลบ)
         otVerdict: a.otVerdict,
         issue: a.issues.join(' · '),
         status: a.status,
@@ -1714,8 +1981,37 @@ function rbWriteAssignCheck_(ss, res, dateStr, ll, tabName) {
   return an.summary;
 }
 
+
+// ===== AutoPlan.gs =====
+
+/**
+ * AutoPlan.gs — ตัวช่วยจัดเวรอัตโนมัติ (ข้อเสนอ "อ่านอย่างเดียว" ไม่แตะไฟล์ต้นฉบับ)
+ * =============================================================================
+ * สร้างแท็บข้อเสนอ "🤖 จัดเวรอัตโนมัติ" จากข้อมูลที่ parse แล้ว 2 โหมด:
+ *
+ *   A) เติมเฉพาะไฟลท์ที่คนไม่พอ (gap-fill) — ต่อยอดจากตารางจริง
+ *      ดูว่าไฟลท์ไหนส่งคนไม่ครบ SLA แล้ว "จัดคนว่าง (ข้ามทีม)" มาเสริมจริง
+ *      โดยไม่ให้คนคนเดียวถูกดึงซ้ำ (commit แล้วล็อกเวลาไว้)
+ *
+ *   B) จัดเวรใหม่ทั้งหมด (full re-plan) — ล้างการ assign เดิม แล้วเอาคนที่
+ *      ขึ้นเวรวันนั้นทั้งพูล มาจัดลงไฟลท์/บทบาทใหม่ให้ครบ SLA ทุกไฟลท์
+ *
+ * ใช้ primitive จาก SLA.gs / AssignCheck.gs ทั้งหมด:
+ *   slaCollectFlights_ · slaSupportPool_ · slaTeamSystems_ · slaPhaseWindow_ ·
+ *   slaNeedSys_ · slaWinTxt_ · slaReq_ · acOwnerTeams_ · rrFmtMin_
+ *
+ * หลักการจัด (greedy): ไล่ไฟลท์ตามเวลา → แต่ละ phase ที่ต้องการ → เลือกคนที่
+ *   1) ระบบเช็คอินตรง (เฉพาะ CI/SUP, iPort = ใครก็ได้)  2) ตำแหน่งเหมาะกับ phase
+ *   3) เวลางานครอบช่วงนั้น & ไม่ติดไฟลท์อื่น  4) งานยังน้อย (กระจายงาน)
+ * เลือกได้ก็ "ล็อก" เวลาคนนั้นไว้ กันโดนจัดซ้ำ. ถ้าไม่พอ → บันทึกว่ายังขาดกี่คน.
+ *
+ * Entry: apFillGaps_(res, ll) · apReplan_(res, ll)
+ *        rbWriteFillPlan_ / rbWriteAutoAssign_ (ชีต) · rbFillPlanHtml / rbAutoAssignHtml (เว็บ)
+ */
+
 var AP_TOL = 30;   // ผ่อนเวลาเข้า/ออกงานรอบหน้าต่าง phase (นาที)
 
+/** clone พูลคนว่าง ให้พร้อมจัด (ก๊อป busy เพื่อไม่กระทบของจริง + ตัวนับงานที่จัด) */
 function apClonePool_(res, ll) {
   var teamSys = slaTeamSystems_(res, ll);
   var pool = slaSupportPool_(res, ll, teamSys);
@@ -1726,6 +2022,7 @@ function apClonePool_(res, ll) {
   return pool;
 }
 
+/** คน p ว่างในหน้าต่าง win ไหม (เวลางานครอบ + ไม่ชนงานที่ถือ/จัดไว้แล้ว) */
 function apFree_(p, win) {
   if (!win) return true;                                                  // ไม่มีเวลา → ไม่จำกัด
   if (!(p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL)) return false;
@@ -1736,6 +2033,7 @@ function apFree_(p, win) {
   return true;
 }
 
+/** คน p ทำ phase ph ของไฟลท์ f ได้ไหม (ระบบ + ตำแหน่ง + เวลาว่าง) */
 function apEligible_(p, f, ph, win, sameTeamOk) {
   if (!sameTeamOk && f.teams && f.teams[p.team]) return false;            // โหมดเสริม = ข้ามทีมเท่านั้น
   var needSys = slaNeedSys_(f.airline, ph);
@@ -1744,6 +2042,7 @@ function apEligible_(p, f, ph, win, sameTeamOk) {
   return apFree_(p, win);
 }
 
+/** คะแนนเลือกคน (น้อย = ดีกว่า): ตำแหน่งเหมาะ + ทีมเดิม + งานน้อย */
 function apScore_(p, ph, homeTeam) {
   var s = 0;
   if (ph === 'SUP')      s += (p.posGroup === 'PSS' ? 0 : 6);
@@ -1754,6 +2053,7 @@ function apScore_(p, ph, homeTeam) {
   return s;
 }
 
+/** เลือกคนดีที่สุด 1 คนมาจัด 1 สลอต แล้ว "ล็อก" เวลาไว้ (กันจัดซ้ำ) */
 function apPick_(pool, f, ph, win, sameTeamOk, homeTeam) {
   var best = null, bs = 1e9;
   for (var i = 0; i < pool.length; i++) {
@@ -1771,17 +2071,140 @@ function apPick_(pool, f, ph, win, sameTeamOk, homeTeam) {
 
 var AP_PHASES = ['SUP', 'CI', 'ARR', 'GATE'];     // ลำดับจัด: ระบบ/หายากก่อน (SUP, CI) แล้วค่อย ARR/GATE
 
+/** ข้อมูลคนที่ถูกจัด (พร้อมรายละเอียดงาน/OT/ไฟลท์ สำหรับโชว์ชิพ + popup) */
 function apPersonView_(p) {
   return { name: p.name, pos: slaPosShort_(p.posGroup), team: p.team,
            shift: p.shiftDisp, ot: p.otDisp, hrs: p.hrs, n: p.nflt, flts: p.flts || [] };
 }
 
-function apFillGaps_(res, ll) {
+// ─── Common check-in (SU/SQ): เคาน์เตอร์รวมหมุนเวียน + เกทต่อไฟลท์ ────────────
+var AP_SU_MAXSIT = 180;                                                 // นั่งเคาน์เตอร์รวมต่อเนื่องสูงสุด 3 ชม./คน
+var AP_COMMON_CI = [
+  { code: 'SU', team: 'SU',
+    counters: (typeof ADV_SU_COUNTERS !== 'undefined' ? ADV_SU_COUNTERS
+      : ['G2','G3','G4','G5','G6','G7','G8','G9','G10','G11','G12','H2','H3','H4','H5','H6']),
+    gate: true,  mainExclude: ['SUP', 'CI', 'GATE', 'ARR'] },             // SU: ถอดทั้งไฟลท์จากตารางหลัก (เคาน์เตอร์+เกทคุมเอง)
+  { code: 'SQ', team: 'SQ', nCounter: 7,
+    gate: false, mainExclude: ['CI'] },                                   // SQ: เฉพาะเช็คอินคอมมอน (เกท/อื่นๆ ยังอยู่ตารางหลัก)
+];
+function apCfgOf_(code) {
+  for (var i = 0; i < AP_COMMON_CI.length; i++) if (AP_COMMON_CI[i].code === code) return AP_COMMON_CI[i];
+  return null;
+}
+function apFlightCode_(f) {                                              // โค้ดสายการบินของไฟลท์ (เทียบ alias)
+  var a = f.airline; return (typeof SLA_ALIAS !== 'undefined' && SLA_ALIAS[a]) ? SLA_ALIAS[a] : a;
+}
+/** จัด common check-in 1 ทีม → {code,team,fc,members,counters,gates,flights} (commit=true → ล็อกเวลาคน, fcName=เลือก FC เอง) */
+function apCommonCI_(pool, flights, cfg, commit, fcName) {
+  var teamFl = flights.filter(function (f) { return acIsFlight_(f.flight) && !f.noTime && apFlightCode_(f) === cfg.code; });
+  if (!teamFl.length) return null;
+  var teamSet = {};                                                     // ทีมที่ทำไฟลท์เหล่านี้ (รองรับชื่อแท็บที่ต่างกัน)
+  teamFl.forEach(function (f) { Object.keys(f.teams || {}).forEach(function (t) { teamSet[t] = 1; }); });
+  var su = pool.filter(function (p) { return (typeof otCanonTeam_ === 'function') && otCanonTeam_(p.team) === cfg.team; });  // เฉพาะคนทีมนี้จริง (ไม่ใช่คนข้ามทีมที่มาช่วย)
+  if (!su.length) su = pool.filter(function (p) { return teamSet[p.team]; });   // fallback ถ้าจับทีมไม่ได้
+  var ctList = cfg.counters || (function () { var a = []; for (var i = 1; i <= cfg.nCounter; i++) a.push('CT' + i); return a; })();
+  var pr = { PSA: 0, SNR: 1, PSS: 2 };
+  var view = function (p) { return { name: p.name, pos: slaPosShort_(p.posGroup), shift: p.shiftDisp }; };
+  var fmt = function (m) { return rrFmtMin_(((m % 1440) + 1440) % 1440); };
+  teamFl.forEach(function (f) { f.ciwin = slaPhaseWindow_(f, 'CI'); });
+
+  // 1) เช็คอินคอมมอน — รวมไฟลท์เวลาใกล้กันเป็นแบทช์ + หมุนเวียนรอบละ ≤3 ชม.
+  var ciFl = teamFl.filter(function (f) { return f.ciwin; }).sort(function (a, b) { return a.ciwin[0] - b.ciwin[0]; });
+  var batches = [];
+  ciFl.forEach(function (f) {
+    var b = batches[batches.length - 1];
+    if (b && f.ciwin[0] <= b.end + 20) { b.end = Math.max(b.end, f.ciwin[1]); b.flights.push(f.flight); }
+    else batches.push({ start: f.ciwin[0], end: f.ciwin[1], flights: [f.flight] });
+  });
+  // Flight Controller = หัวหน้า 1 คน (PSS ก่อน) คุมเช็คอินตลอดช่วง — ไม่นั่งเคาน์เตอร์ ไม่ลงเกท
+  var fc = null;
+  if (batches.length) {
+    var ciStart = Math.min.apply(null, batches.map(function (b) { return b.start; }));
+    var ciEnd = Math.max.apply(null, batches.map(function (b) { return b.end; }));
+    var fcAvail = su.filter(function (p) { return p.ds <= ciStart + AP_TOL && p.de >= ciEnd - AP_TOL; });
+    if (fcName) fc = fcAvail.filter(function (p) { return p.name === fcName; })[0] || null;   // เลือกเอง
+    if (!fc) fc = fcAvail.sort(function (a, c) { return (pr[c.posGroup] == null ? -1 : pr[c.posGroup]) - (pr[a.posGroup] == null ? -1 : pr[a.posGroup]) || a.plan - c.plan; })[0] || null;
+    if (fc) { fc.isFC = true; if (commit) { fc.busy.push([ciStart, ciEnd]); fc.plan++; (fc.flts = fc.flts || []).push('Flight Controller เช็คอิน (' + fmt(ciStart) + '-' + fmt(ciEnd) + ')'); } }
+  }
+
+  var counters = [];
+  batches.forEach(function (b) {
+    var avail = su.filter(function (p) { return !p.isFC && p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })
+      .sort(function (a, c) { return (pr[a.posGroup] == null ? 3 : pr[a.posGroup]) - (pr[c.posGroup] == null ? 3 : pr[c.posGroup]) || a.plan - c.plan; });
+    var dur = b.end - b.start, nR = Math.max(1, Math.ceil(dur / AP_SU_MAXSIT)), rl = dur / nR;
+    var perR = Math.min(ctList.length, Math.ceil(avail.length / nR));
+    for (var r = 0; r < nR; r++) {
+      var rs = b.start + Math.round(r * rl), re = (r === nR - 1) ? b.end : b.start + Math.round((r + 1) * rl);
+      var people = avail.slice(r * perR, (r + 1) * perR);
+      if (commit) people.forEach(function (p) { p.busy.push([rs, re]); p.plan++; (p.suCI = p.suCI || []).push([rs, re]); });
+      var slots = ctList.map(function (ct, i) {
+        if (commit && people[i]) (people[i].flts = people[i].flts || []).push('CI ' + ct + ' (' + fmt(rs) + '-' + fmt(re) + ')');
+        return { counter: ct, chosen: people[i] ? view(people[i]) : null };
+      });
+      counters.push({ time: fmt(rs) + '-' + fmt(re), flights: b.flights.join(', '), round: nR > 1 ? (r + 1) + '/' + nR : 0, nAvail: avail.length, slots: slots });
+    }
+  });
+
+  // 2) เกทต่อไฟลท์ (เฉพาะ cfg.gate · คนเดิมต่อจากเช็คอินก่อน · FC ไม่ลงเกท)
+  var gates = null;
+  if (cfg.gate) {
+    var sla = (typeof slaGet_ === 'function') ? slaGet_(cfg.code) : null;
+    var gdefs = ((sla && sla.roles) || []).filter(function (rr) { return rr[3] === 'GATE' || rr[3] === 'ARR'; })
+      .map(function (rr) { var lb = /MONITOR|GM/.test(String(rr[0]) + rr[2]) ? 'GC' : (rr[3] === 'ARR' ? 'ARR' : 'GA'); return { lb: lb, n: rr[1], phase: rr[3], snr: lb === 'GC' }; })
+      .sort(function (a, b) { return (b.snr ? 1 : 0) - (a.snr ? 1 : 0); });       // จัด GC ก่อน แล้วค่อย GA
+    gates = teamFl.slice().sort(function (a, b) { return String(a.STD || '').localeCompare(String(b.STD || '')); }).map(function (f) {
+      var usedF = {};
+      var roles = gdefs.map(function (rd) {
+        var win = slaPhaseWindow_(f, rd.phase) || [0, 0], picks = [];
+        var ord = rd.snr ? { PSS: 0, SNR: 1, PSA: 2 } : { PSA: 0, SNR: 1, PSS: 2 };
+        for (var i = 0; i < rd.n; i++) {
+          var cand = su.filter(function (p) {
+              var pid = p.id || p.name;
+              if (p.isFC) return false;                                            // FC ไม่ลงเกท (ไม่ทำ GC/GA/ARR)
+              if (rd.lb === 'GA' && !p.suCI) return false;                        // Gate Agent = คนที่เช็คอินแล้ว ต่อเนื่อง
+              return !usedF[pid] && apFree_(p, win) && p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL;
+            })
+            .sort(function (a, c) {
+              return ((c.suCI ? 1 : 0) - (a.suCI ? 1 : 0))
+                || (ord[a.posGroup] == null ? 3 : ord[a.posGroup]) - (ord[c.posGroup] == null ? 3 : ord[c.posGroup]) || a.plan - c.plan;
+            })[0];
+          if (cand) { if (commit) { cand.busy.push([win[0], win[1]]); cand.plan++; (cand.flts = cand.flts || []).push(f.flight + ' ' + rd.lb); } usedF[cand.id || cand.name] = 1; picks.push(view(cand)); }
+          else picks.push(null);
+        }
+        return { lb: rd.lb, need: rd.n, win: fmt(win[0]) + '-' + fmt(win[1]), picks: picks };
+      });
+      return { flight: f.flight, std: f.STD || '', roles: roles };
+    });
+  }
+  return { code: cfg.code, team: cfg.team, fc: fc ? view(fc) : null, members: su.map(view), counters: counters, gates: gates, flights: teamFl.map(function (f) { return f.flight; }) };
+}
+/** รัน common check-in ทุกทีมที่กำหนด (commit ล็อกเวลา · fcByCode={SU:'ชื่อ'} เลือก FC เอง) → [commons] */
+function apRunCommons_(pool, flights, commit, fcByCode) {
+  var out = [];
+  AP_COMMON_CI.forEach(function (cfg) { var r = apCommonCI_(pool, flights, cfg, commit, (fcByCode || {})[cfg.code]); if (r) out.push(r); });
+  return out;
+}
+/** map: flight → {phase:1} ที่ถูก common check-in จัดไปแล้ว (ให้ตารางหลักข้าม) */
+function apCommonExcl_(commons) {
+  var m = {};
+  (commons || []).forEach(function (cm) {
+    var cfg = apCfgOf_(cm.code); if (!cfg) return;
+    (cm.flights || []).forEach(function (fl) { m[fl] = m[fl] || {}; (cfg.mainExclude || []).forEach(function (ph) { m[fl][ph] = 1; }); });
+  });
+  return m;
+}
+
+/** โหมด A: เติมเฉพาะไฟลท์ที่คนไม่พอ — เลือกคนว่างข้ามทีมมาเสริมจริง (commit) */
+function apFillGaps_(res, ll, fcByCode) {
   var flights = slaCollectFlights_(res, ll);
   var pool = apClonePool_(res, ll);
+  var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคน)
+  var excl = apCommonExcl_(commons);
   var rows = [];
-  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok; }).forEach(function (f) {
+  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok; }).forEach(function (f) {   // แสดงไฟลท์ไม่มีเวลาด้วย (ไม่ให้หายจากตาราง) · window=null จัดตามทีมได้
+    var ex = excl[f.flight] || {};
     AP_PHASES.forEach(function (ph) {
+      if (ex[ph]) return;                                                 // common check-in จัดแล้ว → ข้าม
       var need = f.short[ph]; if (!need) return;
       var win = slaPhaseWindow_(f, ph);
       var picked = [];
@@ -1798,22 +2221,27 @@ function apFillGaps_(res, ll) {
       });
     });
   });
+  rows.commons = commons;                                                 // แนบ commons (ไม่กระทบ caller เดิมที่ใช้ array)
   return rows;
 }
 
-function apReplan_(res, ll) {
+/** โหมด B: จัดเวรใหม่ทั้งหมด — ล้าง assign เดิม แล้วจัดทุกคนลงไฟลท์ให้ครบ SLA */
+function apReplan_(res, ll, fcByCode) {
   var flights = slaCollectFlights_(res, ll);
   var owner = acOwnerTeams_(res, ll);
   var pool = apClonePool_(res, ll);
   pool.forEach(function (p) { p.busy = []; p.plan = 0; });                // จัดใหม่ → ล้างงานเดิมทั้งหมด
+  var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคนก่อน)
+  var excl = apCommonExcl_(commons);
 
-  var fl = flights.filter(function (f) { return acIsFlight_(f.flight); }).sort(function (a, b) {
+  var fl = flights.filter(function (f) { return acIsFlight_(f.flight); }).sort(function (a, b) {   // รวมไฟลท์ไม่มีเวลา (จัดเวรครบทุกไฟลท์)
     return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz'));
   });
 
   var plan = [];
   fl.forEach(function (f) {
     var home = owner[f.airline] || (f.teamList || '').split(',')[0] || '';
+    var ex = excl[f.flight] || {};
     var assign = { SUP: [], CI: [], ARR: [], GATE: [] };
     var shortx = {};
     var phaseReq = { SUP: f.req.SUP, CI: f.req.CI, ARR: f.req.ARR, GATE: f.req.GATE };
@@ -1822,8 +2250,10 @@ function apReplan_(res, ll) {
     var sumPh = f.req.SUP + f.req.CI + f.req.ARR + f.req.GATE;
     var extra = Math.max(0, (f.req.total || 0) - sumPh);
     if (f.req.CI > 0) phaseReq.CI += extra; else phaseReq.GATE += extra;
+    if (!AP_PHASES.some(function (ph) { return phaseReq[ph] && !ex[ph]; })) return;   // common check-in คุมทั้งไฟลท์ → ไม่ลงตารางหลัก
     AP_PHASES.forEach(function (ph) {
       if (!phaseReq[ph]) return;                                         // ไม่ต้องการ phase นี้ (เช่น PG ไม่มีเช็คอิน)
+      if (ex[ph]) return;                                                // common check-in จัดแล้ว → ข้าม
       var win = slaPhaseWindow_(f, ph);
       for (var k = 0; k < phaseReq[ph]; k++) {
         var p = apPick_(pool, f, ph, win, true, home);                   // จัดใหม่ = ทีมเดียวกันได้
@@ -1840,11 +2270,99 @@ function apReplan_(res, ll) {
 
   var bench = pool.filter(function (p) { return p.plan === 0; })
     .map(function (p) { return { name: p.name, pos: slaPosShort_(p.posGroup), team: p.team, shift: p.shiftDisp, sys: p.sys }; });
-  return { plan: plan, bench: bench, nPeople: pool.length,
+  return { plan: plan, bench: bench, commons: commons, nPeople: pool.length,
     nAssigned: pool.filter(function (p) { return p.plan > 0; }).length,
     nFlights: plan.length };
 }
 
+// ─── ส่งออกผลจัดคนเป็นไฟล์ชีตแยก (1 แท็บ/ทีม) ส่งให้พนักงาน ──────────────────
+/** หา/สร้างแถวพนักงานในกลุ่มทีม (รวมงานหลายไฟลท์ของคนเดียว) */
+function apFindMember_(arr, p) {
+  for (var i = 0; i < arr.length; i++) if (arr[i].name === p.name && arr[i].pos === p.pos) return arr[i];
+  var row = { name: p.name, pos: p.pos, shift: p.shift || '-', jobs: [] };
+  arr.push(row); return row;
+}
+/** ใส่คนที่ทำ common check-in (เคาน์เตอร์/เกท) ลงในกลุ่มทีมของ export */
+function apAddCommonsToTeams_(teams, commons, teamFilter) {
+  (commons || []).forEach(function (cm) {
+    var cfg = apCfgOf_(cm.code); var tn = (cfg && cfg.team) || cm.team || cm.code;
+    if (teamFilter && tn !== teamFilter) return;
+    var arr = (teams[tn] = teams[tn] || []);
+    cm.counters.forEach(function (b) {
+      b.slots.forEach(function (s) {
+        if (s.chosen) apFindMember_(arr, { name: s.chosen.name, pos: s.chosen.pos, shift: s.chosen.shift }).jobs.push('เช็คอิน ' + s.counter + ' · ' + b.time);
+      });
+    });
+    (cm.gates || []).forEach(function (g) {
+      g.roles.forEach(function (rl) {
+        rl.picks.forEach(function (pk) {
+          if (pk) apFindMember_(arr, { name: pk.name, pos: pk.pos, shift: pk.shift }).jobs.push(g.flight + ' · ' + rl.lb + ' · ' + rl.win);
+        });
+      });
+    });
+  });
+}
+/** เขียน 1 แท็บ/ทีม: ชื่อ · ตำแหน่ง · กะ · งานที่ได้รับ */
+function apWriteTeamSheet_(sh, tn, dateStr, members) {
+  var rows = [[tn + ' — แจ้ง Assignment วันที่ ' + dateStr, '', '', ''], ['', '', '', '']];
+  var hdr = rows.length; rows.push(['ชื่อ', 'ตำแหน่ง', 'กะ', 'งานที่ได้รับ (ไฟลท์ · ตำแหน่ง · เวลา)']);
+  members.slice().sort(function (a, b) { return String(a.name).localeCompare(String(b.name), 'th'); })
+    .forEach(function (m) { rows.push([m.name, m.pos, m.shift || '-', (m.jobs || []).join('\n') || '—']); });
+  sh.getRange(1, 1, rows.length, 4).setValues(rows).setWrap(true).setVerticalAlignment('top').setFontSize(10);
+  sh.getRange(1, 1, 1, 4).merge().setFontWeight('bold').setFontSize(13).setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('left');
+  sh.getRange(hdr + 1, 1, 1, 4).setFontWeight('bold').setBackground('#dce9f7').setFontColor('#1f4e79');
+  [180, 95, 110, 470].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(hdr + 1);
+}
+/** สร้างไฟล์ชีตใหม่ 1 แท็บ/ทีม จาก { teamName: [members] } */
+function apExportToSheet_(title, teams, dateStr) {
+  var names = Object.keys(teams).filter(function (t) { return teams[t].length; }).sort();
+  if (!names.length) throw new Error('ไม่มีข้อมูลการจัดคนให้ส่งออก');
+  var ss = SpreadsheetApp.create(title);
+  var first = true, used = {};
+  names.forEach(function (tn) {
+    var nm = String(tn).replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
+    var n = nm, k = 2; while (used[n]) n = (nm.slice(0, 22) + ' ' + (k++)); used[n] = 1;
+    var sh = first ? ss.getSheets()[0] : ss.insertSheet(); first = false; sh.setName(n);
+    apWriteTeamSheet_(sh, tn, dateStr, teams[tn]);
+  });
+  return ss.getUrl();
+}
+/** Export "เติม Assign เดิม" (FillPlan) → ไฟล์ชีตรายทีม (team='' = ทุกทีม) */
+function apExportFill(dateStr, team) {
+  var d = rbLoadResLL_(rbDateFromIso_(dateStr));
+  var gaps = apFillGaps_(d.res, d.ll);
+  var teams = {};
+  gaps.forEach(function (g) {
+    (g.picked || []).forEach(function (p) {
+      if (team && p.team !== team) return;
+      var arr = (teams[p.team] = teams[p.team] || []);
+      apFindMember_(arr, p).jobs.push(g.flight + ' · ' + g.phase + ' · ' + g.win + (g.airline ? ' [' + g.airline + ']' : ''));
+    });
+  });
+  apAddCommonsToTeams_(teams, gaps.commons, team);                        // SU/SQ เคาน์เตอร์+เกท
+  return apExportToSheet_('แจ้ง Assignment (เติม) ' + dateStr, teams, dateStr);
+}
+/** Export "Auto Assign" (replan) → ไฟล์ชีตรายทีม (เฉพาะคนที่ถูกจัด ไม่รวม standby; team='' = ทุกทีม) */
+function apExportAuto(dateStr, team) {
+  var d = rbLoadResLL_(rbDateFromIso_(dateStr));
+  var rp = apReplan_(d.res, d.ll);
+  var PHL = { SUP: 'SUP', CI: 'Check-in', ARR: 'Arrival', GATE: 'Gate' };
+  var teams = {};
+  rp.plan.forEach(function (f) {
+    AP_PHASES.forEach(function (ph) {
+      (f.assign[ph] || []).forEach(function (p) {
+        if (team && p.team !== team) return;
+        var arr = (teams[p.team] = teams[p.team] || []);
+        apFindMember_(arr, p).jobs.push(f.flight + ' · ' + PHL[ph] + ' · ' + (f.std || f.sta || ''));
+      });
+    });
+  });
+  apAddCommonsToTeams_(teams, rp.commons, team);                          // SU/SQ เคาน์เตอร์+เกท
+  return apExportToSheet_('แจ้ง Assignment (Auto) ' + dateStr, teams, dateStr);
+}
+
+/** รวมรายชื่อคนเป็นข้อความสั้น (จัดกลุ่มตามทีม) */
 function apNames_(arr) {
   if (!arr.length) return '';
   var by = {}, order = [];
@@ -1956,6 +2474,7 @@ function rbWriteAutoAssign_(ss, res, dateStr, ll, tabName) {
   return { replanAssigned: rp.nAssigned, bench: rp.bench.length, shortFlights: shortF };
 }
 
+/** รายชื่อคน (จัดกลุ่มทีม) แบบมีรายละเอียดงาน/OT/ไฟลท์ — สำหรับเซลล์ในชีต */
 function apNamesFull_(arr) {
   if (!arr.length) return '';
   var by = {}, order = [];
@@ -1968,6 +2487,29 @@ function apNamesFull_(arr) {
     }).join(', ');
   }).join('\n');
 }
+
+
+// ===== AdvancePlan.gs =====
+
+/**
+ * AdvancePlan.gs — จัดเวร/Assignment "ล่วงหน้า" จากข้อมูลจริง (ลิงก์ 3 ชีต)
+ * =============================================================================
+ * แหล่งข้อมูล (ลิงก์สด ผ่าน SpreadsheetApp.openById — ตั้ง ID ได้ใน Script Properties):
+ *   · ROSTER  : ปฏิทินกะล่วงหน้า (รหัส | ชื่อ | วันที่→[รหัสกะ, ชนิดวัน])
+ *   · FLIGHT  : ตารางบินล่วงหน้า (วันที่ | สายการบิน | เลขไฟลท์ | routing | STA | STD ...)
+ *   · EMPLOYEE: รายชื่อพนักงานจริง ชีต "Total" (รหัส | ทีม | ตำแหน่ง | Name | Surname | สถานะ)
+ *
+ * แนวทาง (ตามที่ตกลง): ใช้กะที่มีอยู่แล้วใน ROSTER เป็นพูลคนว่างของวันนั้น แล้ว
+ *   "จัด assignment ตามจำนวนไฟลท์ + SLA" — เป็นข้อเสนอ (ไม่เขียนทับไฟล์จริง),
+ *   เลือก/แก้ชื่อคนในแต่ละช่องได้ (เหมาะสมก่อน → หรือเลือกจากพนักงานทั้งหมด).
+ *
+ * รหัสกะ → เวลา: ตัวอักษรตัวแรก = ชั่วโมงเริ่ม (E=05, F=06, G=07, J=10 ...),
+ *   ตัวเลขท้าย = จำนวนชั่วโมง (เช่น G12 = 07:00–19:00, M6 = 13:00–19:00).
+ *   รหัสกะดึก/พิเศษ (อักษรซ้ำ NN0/GG2 ฯลฯ) ที่แปลงเวลาไม่ได้ → ไม่นำเข้าพูลจัดงาน.
+ *
+ * ใช้ greedy ตัวเดียวกับ AutoPlan (apPick_/apEligible_/apScore_).
+ * Entry: advPlan_(date) · rbAdvanceHtml(iso) · advTest_() (debug live reads)
+ */
 
 var ADV_ROSTER_ID = '1varvj0xmFPbyB7zMYCisTDOwmYGcWAoKHPVkIuC_9I0';
 var ADV_FLIGHT_ID = '1Y3ft-vkHQ5Rm2LVmq1Zz_2j8n5T8wLgCJtdBKhqfBAA';
@@ -1987,21 +2529,20 @@ var ADV_TEAMS = [
   { name: 'EK',  airlines: ['UO', 'EK', 'FY', '6B', 'BY'] },
   { name: 'QR',  airlines: ['QR', 'MH', 'DE', 'OM'] },
   { name: 'CHN', airlines: ['CA', '3U', 'MU', 'FM', 'HU', 'HO', 'HX', 'AQ', 'CZ', 'ZH', 'PN', '9H', 'OQ', 'BK', 'GX'] },
-  { name: 'KC',  airlines: ['KC', 'KE', 'OZ', 'NO', 'AF', 'LJ', 'OV'] },
+  { name: 'KE',  airlines: ['KC', 'KE', 'OZ', 'NO', 'AF', 'LJ', 'OV'] },   // ทีมจริงในชีตชื่อ KE (ไม่ใช่ KC)
   { name: 'PVT', airlines: [], sys: ['Gonow', 'ASTRA', 'TWD', 'iPort', 'TravelSky', 'Angel Lite'] },   // PVT = Private/VIP/LP
   { name: 'TR',  airlines: ['TR', '6E', 'QP', '3K'] },
-  { name: 'WY',  airlines: ['WY', 'G9', '9C', 'DK'] },
   { name: 'PG',  airlines: ['PG'] },
   { name: 'SU',  airlines: ['SU', 'W5', 'B2'] },
   { name: 'TK',  airlines: ['OD', 'VJ', 'SG', 'HY', 'TK', 'N0', 'VN'] },
   { name: 'EY',  airlines: ['EY', 'DV', 'AY'] },
-  { name: 'WK',  airlines: ['SV', 'WK', 'KA'] },
+  { name: 'WY/WK', airlines: ['WY', 'G9', '9C', 'DK', 'SV', 'WK', 'KA'] },   // ทีมจริงรวม WY+WK เป็นทีมเดียว
 ];
 var ADV_AIRLINE_TEAMS = (function () { var m = {}; ADV_TEAMS.forEach(function (t, i) { t.airlines.forEach(function (a) { (m[a] = m[a] || []).push(i); }); }); return m; })();
 var ADV_VIP_IDX = (function () { for (var i = 0; i < ADV_TEAMS.length; i++) if (ADV_TEAMS[i].name === 'PVT') return i; return -1; })();
 // SU เช็คอินคอมมอน 16 เคาน์เตอร์
 var ADV_SU_COUNTERS = ['G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11', 'G12', 'H2', 'H3', 'H4', 'H5', 'H6'];
-
+/** จับคนเข้าทีมทางการจากสตริง "ทีม" ใน Total (เลือกทีมที่สายการบินทับซ้อนมากสุด) */
 function advTeamIdxOf_(teamStr) {
   var t = String(teamStr || '').toUpperCase();
   if (/\bVIP\b|PRIVATE|\bPVT\b|\bLP\b/.test(t)) return ADV_VIP_IDX;     // ทีม PVT = Private/VIP/LP (ใช้ได้หลายระบบ)
@@ -2015,6 +2556,7 @@ function advTeamIdxOf_(teamStr) {
   return best;
 }
 
+/** รหัสกะ → [นาทีเริ่ม, นาทีเลิก] (อักษรแรก=ชม.เริ่ม, เลข=จำนวน ชม.) */
 function advShiftTime_(code) {
   code = String(code || '').toUpperCase().trim();
   if (!code) return null;
@@ -2030,6 +2572,7 @@ function advShiftTime_(code) {
   return null;                                        // OPS / อักษรซ้ำ / ดึก → แปลงเวลาไม่ได้
 }
 
+/** แปลงค่าเซลล์วันที่ (Date object / "D/M/YYYY" / "D เดือนไทย YYYY") → {y,m,d} */
 var ADV_TH_MON = { 'ม.ค.':1,'ก.พ.':2,'มี.ค.':3,'เม.ย.':4,'พ.ค.':5,'มิ.ย.':6,'ก.ค.':7,'ส.ค.':8,'ก.ย.':9,'ต.ค.':10,'พ.ย.':11,'ธ.ค.':12 };
 function advParseDate_(v) {
   if (v == null || v === '') return null;
@@ -2053,6 +2596,7 @@ function advHHMM_(v) {
   return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : '';
 }
 
+/** อ่านรายชื่อพนักงานจริง (ชีต Total) → { id: {id,team,pos,name,active} } */
 function advReadEmployees_() {
   var ss = SpreadsheetApp.openById(advCfg_('ADV_EMP_ID', ADV_EMP_ID));
   var sh = ss.getSheetByName('Total') || ss.getSheets()[0];
@@ -2077,6 +2621,7 @@ function advReadEmployees_() {
   return emp;
 }
 
+/** อ่านปฏิทินกะ ROSTER สำหรับวันที่ tgt → [{id,name,shift,dayType,off}] */
 function advReadRoster_(tgt) {
   var ss = SpreadsheetApp.openById(advCfg_('ADV_ROSTER_ID', ADV_ROSTER_ID));
   var sh = ss.getSheets()[0];                                          // แท็บแรก = ปฏิทินกะ
@@ -2104,6 +2649,7 @@ function advReadRoster_(tgt) {
   return { rows: out, found: true, hi: hi, dateCol: dateCol };
 }
 
+/** อ่านตารางบิน FLIGHT สำหรับวันที่ tgt (อ่านทุกแท็บ) → [{flight,airline,STA,STD,OP,CL}] */
 function advReadFlights_(tgt) {
   var ss = SpreadsheetApp.openById(advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID));
   var out = [], seen = {};
@@ -2117,16 +2663,31 @@ function advReadFlights_(tgt) {
       var flight = airline + fltno;
       var key = flight.replace(/\s+/g, '').toUpperCase();              // เลขไฟลท์ซ้ำ → ตัดออก (เก็บตัวแรก, จับซ้ำแบบไม่สนช่องว่าง/ตัวพิมพ์)
       if (seen[key]) return; seen[key] = 1;
-      out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), gate: String(row[15] == null ? '' : row[15]).trim(), OP: '', CL: '' });
+      out.push({ flight: flight, airline: airline, STA: advHHMM_(row[4]), STD: advHHMM_(row[5]), gate: String(row[15] == null ? '' : row[15]).trim(), OP: '', CL: '',
+        _nums: (fltno.match(/\d+/g) || []).map(Number) });                // เลขไฟลท์ทุกตัว (สำหรับจับขาซ้ำ)
     });
   });
-  return out;
+  // ตัดขาซ้ำ: ถ้า "เลขไฟลท์ทุกตัว" ของไฟลท์หนึ่งเป็นสับเซ็ตของอีกไฟลท์ (สายการบินเดียวกัน) = ไฟลท์เดียวกัน → ไม่จัดซ้ำ
+  // เช่น EK396/397 มี {396,397}, EK397 มี {397} ⊂ {396,397} → ตัด EK397 (เก็บตัวที่ครบกว่า)
+  var dedup = out.filter(function (f, i) {
+    if (!f._nums.length) return true;
+    var drop = out.some(function (g, j) {
+      if (j === i || g.airline !== f.airline || !g._nums.length) return false;
+      var subset = f._nums.every(function (n) { return g._nums.indexOf(n) >= 0; });
+      if (!subset) return false;
+      if (g._nums.length > f._nums.length) return true;               // g ครบกว่า → f เป็นขาซ้ำ → ตัด f
+      return j < i;                                                   // เลขชุดเดียวกันเป๊ะ → เก็บตัวแรก
+    });
+    return !drop;
+  });
+  dedup.forEach(function (f) { delete f._nums; });
+  return dedup;
 }
 
 var ADV_EN_MON = { JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12 };
-
+/** ดึงเลขวันจากป้ายหัวคอลัมน์ (เช่น "1/MON/TIME" หรือ "SAT/30/TIME") */
 function advHdrDay_(s) { var m = String(s || '').match(/\d{1,2}/); return m ? +m[0] : null; }
-
+/** ดึงรหัสสายการบินจากชื่อบล็อก (เช่น "JUNE 2026 /EK UO FY 6B BY") */
 function advBlockAirlines_(s) {
   s = String(s || '');
   var m = s.match(/\d{4}\s*\/?\s*(.+)$/);                      // เอาส่วนหลังปี
@@ -2134,6 +2695,8 @@ function advBlockAirlines_(s) {
   return (tail.match(/[A-Z0-9]{2,3}/g) || []).filter(function (c) { return !/^\d+$/.test(c); });
 }
 
+/** อ่าน ROSTER แบบ "บล็อกหน้างาน" (No|Pos|ID|Name|Sur| ต่อวัน [TIME|CODE|HR|OT|OTHR|REMARK])
+ *  คืนพนักงานหน้างานที่ขึ้นเวรวันที่ tgt → [{id,name,pos,team,airlines,range,off}] */
 function advReadRosterFrontline_(tgt) {
   var ss = SpreadsheetApp.openById(advCfg_('ADV_ROSTER_ID', ADV_ROSTER_ID));
   var sheets = ss.getSheets();
@@ -2144,7 +2707,7 @@ function advReadRosterFrontline_(tgt) {
   });
   return out;
 }
-
+/** สแกน rows (1 ชีต) หาบล็อกหน้างาน + คนที่ขึ้นเวรวัน tgt — แยกไว้เพื่อทดสอบ offline ได้ */
 function advScanFrontlineRows_(data, tgt, out) {
   var cur = null;                                              // {timeCol, airlines} ของบล็อกปัจจุบัน
   for (var i = 0; i < data.length; i++) {
@@ -2181,6 +2744,7 @@ function advScanFrontlineRows_(data, tgt, out) {
   }
 }
 
+/** วันที่ทั้งหมดที่มีในตารางบิน (ISO เรียง, อ่านทุกแท็บ) */
 function advFlightDates_() {
   var ss = SpreadsheetApp.openById(advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID));
   var set = {}, out = [];
@@ -2192,7 +2756,7 @@ function advFlightDates_() {
   });
   return out.sort();
 }
-
+/** วันที่มีไฟลท์ที่ "ใกล้ที่สุด" กับ iso ที่ขอ (เสมอกันเลือกวันถัดไป) */
 function advNearestFlightDate_(iso, dates) {
   dates = dates || advFlightDates_();
   if (!dates.length) return null;
@@ -2203,6 +2767,7 @@ function advNearestFlightDate_(iso, dates) {
   })[0];
 }
 
+/** บันทึกข้อเสนอ (รวมชื่อที่แก้ในหน้าจอ) ลง "ชีตใหม่" — ไม่เขียนทับไฟล์ต้นฉบับ. คืน URL */
 function advSaveProposal(dateStr, rowsJson) {
   var rows = JSON.parse(rowsJson || '[]');
   var ss = SpreadsheetApp.create('Advance Plan ' + dateStr);
@@ -2216,6 +2781,7 @@ function advSaveProposal(dateStr, rowsJson) {
   return ss.getUrl();
 }
 
+/** แจ้ง Assignment: สร้าง Google Sheet ใหม่ ผังเต็มต่อทีม (ASSIGNMENT คนในทีม + SUPPORT คนข้ามทีมที่มาช่วย) — เรียกจากปุ่ม UI */
 function advExportAssignment(dateStr) {
   var d = dateStr ? rbDateFromIso_(dateStr) : new Date();
   var tgt = { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };  // advPlan_ ต้องการ {y,m,d} ไม่ใช่ Date
@@ -2235,6 +2801,7 @@ function advExportAssignment(dateStr) {
   return ss.getUrl();
 }
 
+/** รวมแผน → ต่อทีม: {teamName: {members:[{name,pos,shift,jobs[]}], support:[{name,pos,team,job}]}} */
 function advPivotTeams_(R) {
   var flTeam = {};
   (R.plan || []).forEach(function (p) { if (p.team) flTeam[p.flight] = p.team; });
@@ -2255,6 +2822,7 @@ function advPivotTeams_(R) {
   return teams;
 }
 
+/** เขียนชีตผังต่อทีม (ASSIGNMENT + SUPPORT) */
 function advWriteTeamSheet_(sh, tn, dateStr, data) {
   var rows = [[tn + ' — แจ้ง Assignment วันที่ ' + dateStr, '', '', ''], ['', '', '', '']];
   var secRows = [], hdrRows = [];
@@ -2277,6 +2845,7 @@ function advWriteTeamSheet_(sh, tn, dateStr, data) {
   sh.setFrozenRows(1);
 }
 
+/** ระบบเช็คอินที่พนักงานทำได้ = ระบบของสายการบินในทีมตัวเอง (เช่น "JQ/IT/IX/AI") */
 function advSysForTeam_(teamStr) {
   var sys = {};
   String(teamStr || '').split(/[\/,\s]+/).forEach(function (code) {
@@ -2287,6 +2856,9 @@ function advSysForTeam_(teamStr) {
   return sys;
 }
 
+/** สร้างพูลคนว่างของวันนั้น (พนักงานหน้างานจาก ROSTER + ทีม/ระบบจากทะเบียน Total)
+ *  ทีม = จับเข้า "ทีมทางการ 16 ทีม" จากสตริงทีมใน Total → ได้สายการบิน+ระบบครบ
+ *  คืน { pool, airlineTeams } */
 function advBuildPool_(tgt) {
   var emp = advReadEmployees_();
   var ros = advReadRosterFrontline_(tgt);
@@ -2334,6 +2906,7 @@ function advPosOK_(p, posRule) {
   return true;
 }
 
+/** เลือกคน 1 คนสำหรับ 1 สลอตของบทบาท role — ทีมเจ้าของไฟลท์ก่อน แล้วข้ามทีม */
 function advPickSlot_(pool, f, role, win, used) {
   var nn = role.sys ? (function () { var s = slaNeedSys_(f.airline, 'CI'); return s ? slaSysNorm_(s) : ''; })() : '';
   var best = null, bs = 1e9;
@@ -2355,6 +2928,7 @@ function advPickSlot_(pool, f, role, win, used) {
   return best;
 }
 
+/** ผู้สมัครสำรองของสลอต (สำหรับ dropdown) ตามบทบาท */
 function advSlotCandidates_(pool, f, role, win) {
   var nn = role.sys ? (function () { var s = slaNeedSys_(f.airline, 'CI'); return s ? slaSysNorm_(s) : ''; })() : '', seen = {};
   return pool.filter(function (p) {
@@ -2368,12 +2942,16 @@ function advSlotCandidates_(pool, f, role, win) {
   });
 }
 
+/** ทีมที่ทำ "common check-in" (รวมไฟลท์ที่เวลาใกล้กัน นั่งเคาน์เตอร์รวม)
+ *  full=true: จัดเต็ม (ล็อกเวลา+ถอดจากตารางหลัก+มีการ์ดเกท) · full=false: เฉพาะเคาน์เตอร์ (ไม่แตะตารางหลัก) */
 var ADV_SU_MAXSIT = 180;                                              // นั่งต่อเนื่องสูงสุด 3 ชม./คน
 var ADV_COMMON_CI = [
   { code: 'SU', team: 'SU', counters: ADV_SU_COUNTERS, gate: true,  full: true },   // SU: 16 เคาน์เตอร์ + เกท + ถอดจากตารางหลัก
   { code: 'SQ', team: 'SQ', nCounter: 7,               gate: false, full: false }    // SQ: ~7 เคาน์เตอร์ เฉพาะเคาน์เตอร์ (เกทอยู่ตารางหลัก)
 ];
 
+/** common check-in ของทีมหนึ่ง: (1) เคาน์เตอร์รวม หมุนเวียนรอบละ ≤3 ชม. (2) เกทต่อไฟลท์ (เฉพาะ cfg.gate)
+ *  cfg.full=true → ล็อกเวลาคน (busy) กันชนตารางหลัก · คืน {code, counters, gates} หรือ null ถ้าทีมนี้ไม่มีไฟลท์ */
 function advCommonCIPlan_(pool, flights, cfg) {
   var teamIdx = advTeamIdxOf_(cfg.team);
   var ctList = cfg.counters || (function () { var a = []; for (var i = 1; i <= cfg.nCounter; i++) a.push('CT' + i); return a; })();
@@ -2392,9 +2970,19 @@ function advCommonCIPlan_(pool, flights, cfg) {
     if (b && f.ciwin[0] <= b.end + 20) { b.end = Math.max(b.end, f.ciwin[1]); b.flights.push(f.flight); }
     else batches.push({ start: f.ciwin[0], end: f.ciwin[1], flights: [f.flight] });
   });
+  // Flight Controller = หัวหน้า 1 คน (PSS ก่อน) คุมเช็คอินตลอดช่วง — ไม่นั่งเคาน์เตอร์ ไม่ลงเกท (เฉพาะ full)
+  var fc = null;
+  if (cfg.full && batches.length) {
+    var ciStart = Math.min.apply(null, batches.map(function (b) { return b.start; }));
+    var ciEnd = Math.max.apply(null, batches.map(function (b) { return b.end; }));
+    fc = su.filter(function (p) { return p.ds <= ciStart + AP_TOL && p.de >= ciEnd - AP_TOL; })
+      .sort(function (a, c) { return (pr[c.posGroup] == null ? -1 : pr[c.posGroup]) - (pr[a.posGroup] == null ? -1 : pr[a.posGroup]) || a.plan - c.plan; })[0] || null;
+    if (fc) { fc.isFC = true; fc.busy.push([ciStart, ciEnd]); fc.plan++; (fc.flts = fc.flts || []).push('Flight Controller เช็คอิน (' + fmt(ciStart) + '-' + fmt(ciEnd) + ')'); }
+  }
+
   var counters = [];
   batches.forEach(function (b) {
-    var avail = su.filter(function (p) { return p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })  // กะคลุมช่วงแบทช์
+    var avail = su.filter(function (p) { return !p.isFC && p.ds <= b.start + AP_TOL && p.de >= b.end - AP_TOL; })  // กะคลุมช่วงแบทช์ (ไม่รวม FC)
       .sort(function (a, c) { return (pr[a.posGroup] == null ? 3 : pr[a.posGroup]) - (pr[c.posGroup] == null ? 3 : pr[c.posGroup]) || a.plan - c.plan; });
     var dur = b.end - b.start, nR = Math.max(1, Math.ceil(dur / ADV_SU_MAXSIT)), rl = dur / nR;
     var perR = Math.min(ctList.length, Math.ceil(avail.length / nR));                  // คนต่อรอบ (ต่างคน → ไม่มีใครนั่งซ้อนรอบ)
@@ -2411,19 +2999,20 @@ function advCommonCIPlan_(pool, flights, cfg) {
     }
   });
 
-  // ---------- 2) เกทต่อไฟลท์ (เฉพาะ cfg.gate · คนเดิมต่อเนื่องจากเช็คอิน) ----------
+  // ---------- 2) เกทต่อไฟลท์ (เฉพาะ cfg.gate · คนเดิมต่อเนื่องจากเช็คอิน · FC ไม่ลงเกท) ----------
   var gates = null;
   if (cfg.gate) {
     var sla = (typeof slaGet_ === 'function') ? slaGet_(cfg.code) : null;
     var gdefs = ((sla && sla.roles) || []).filter(function (rr) { return rr[3] === 'GATE' || rr[3] === 'ARR'; })
-      .map(function (rr) { var lb = /MONITOR|GM/.test(String(rr[0]) + rr[2]) ? 'GC' : (rr[3] === 'ARR' ? 'ARR' : 'GA'); return { lb: lb, n: rr[1], phase: rr[3], snr: lb === 'GC' }; });
+      .map(function (rr) { var lb = /MONITOR|GM/.test(String(rr[0]) + rr[2]) ? 'GC' : (rr[3] === 'ARR' ? 'ARR' : 'GA'); return { lb: lb, n: rr[1], phase: rr[3], snr: lb === 'GC' }; })
+      .sort(function (a, b) { return (b.snr ? 1 : 0) - (a.snr ? 1 : 0); });       // จัด GC (Flight Controller) ก่อน แล้วค่อย GA
     gates = teamFl.slice().sort(function (a, b) { return String(a.STD || '').localeCompare(String(b.STD || '')); }).map(function (f) {
       var usedF = {};
       var roles = gdefs.map(function (rd) {
         var win = slaPhaseWindow_(f, rd.phase) || [0, 0], picks = [];
         var ord = rd.snr ? { PSS: 0, SNR: 1, PSA: 2 } : { PSA: 0, SNR: 1, PSS: 2 };
         for (var i = 0; i < rd.n; i++) {
-          var cand = su.filter(function (p) { return !usedF[p.id] && apFree_(p, win) && p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL; })
+          var cand = su.filter(function (p) { if (p.isFC) return false; if (rd.lb === 'GA' && !p.suCI) return false; return !usedF[p.id] && apFree_(p, win) && p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL; })
             .sort(function (a, c) {
               return ((c.suCI ? 1 : 0) - (a.suCI ? 1 : 0))              // คนที่เช็คอินแล้วมาก่อน = ต่อเนื่อง
                 || (ord[a.posGroup] == null ? 3 : ord[a.posGroup]) - (ord[c.posGroup] == null ? 3 : ord[c.posGroup]) || a.plan - c.plan;
@@ -2438,9 +3027,10 @@ function advCommonCIPlan_(pool, flights, cfg) {
     });
   }
 
-  return { code: cfg.code, counters: counters, gates: gates };
+  return { code: cfg.code, fc: fc ? view(fc) : null, counters: counters, gates: gates };
 }
 
+/** จัด assignment ล่วงหน้า — แยกตามบทบาทเต็ม SLA (SUP/FC/Check-in/Arrival/Standby/Gate Monitor/Gate Agent) */
 function advPlan_(tgt) {
   var built = advBuildPool_(tgt);
   var pool = built.pool, airlineTeams = built.airlineTeams;            // สายการบิน → ทีมที่ดูแล (รวมคนหยุด)
@@ -2505,19 +3095,22 @@ function advPlan_(tgt) {
     nPeople: pool.length, nAssigned: pool.filter(function (p) { return p.plan > 0; }).length, nFlights: plan.length };
 }
 
+/** รายชื่อพนักงาน Active ทั้งหมด (เรียง) — สำหรับ datalist เลือกข้ามได้ทุกคน */
 function advActiveNames_() {
   var emp = advReadEmployees_(), names = {};
   Object.keys(emp).forEach(function (id) { var e = emp[id]; if (e.active !== false && e.name) names[e.name] = 1; });
   return Object.keys(names).sort();
 }
 
+/** ข้อความตัวเลือก: รองรับทั้ง view (pos/shift/n) และ pool (posGroup/shiftDisp/nflt) */
 function advOptText_(c) {
   var pos = c.posGroup ? slaPosShort_(c.posGroup) : (c.pos || '');
   var shift = c.shiftDisp || c.shift || '';
   var n = (c.nflt != null ? c.nflt : (c.n != null ? c.n : 0));
   return c.name + ' · ' + pos + ' · ' + (c.team || '-') + ' · ' + shift + ' · ' + n + ' ไฟลท์';
 }
-
+/** dropdown เลือกชื่อ: คนที่จัดให้ = ตัวเลือกแรก (selected) เสมอ แล้วตามด้วยทีมเจ้าของไฟลท์ → ข้ามทีม
+ *  (สำคัญ: ต้องโชว์คนที่จัดให้เสมอ แม้จะไม่อยู่ใน 30 ตัวแรกของรายชื่อข้ามทีม) */
 function advBuildSelect_(chosen, cands, home) {
   var inT = [], ot = [];
   (cands || []).forEach(function (c) {
@@ -2532,6 +3125,7 @@ function advBuildSelect_(chosen, cands, home) {
   return h + '</select>';
 }
 
+/** Lazy tab: 📅 จัดเวรล่วงหน้า — อ่าน ROSTER+FLIGHT+Total สด แล้วจัด assignment ตามไฟลท์ */
 function rbAdvanceHtml(iso) {
   try {
     var reqIso = iso, switched = false, allDates = [];
@@ -2649,6 +3243,7 @@ function rbAdvanceHtml(iso) {
   } catch (e) { return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>'; }
 }
 
+/** ทดสอบการอ่านลิงก์สด (รันใน Apps Script editor เพื่อตรวจสิทธิ์/โครงสร้าง) — ไม่มี _ ท้าย จะได้ขึ้นใน Run */
 function advTest() {
   var d = new Date(); d.setMonth(d.getMonth()); var tgt = { y: 2026, m: 6, d: 1 };
   var emp = advReadEmployees_(), ros = advReadRosterFrontline_(tgt), flt = advReadFlights_(tgt), built = advBuildPool_(tgt), plan = advPlan_(tgt);
@@ -2658,8 +3253,23 @@ function advTest() {
   return { employees: Object.keys(emp).length, rosterRows: ros.length, flights: flt.length, pool: built.pool.length, nFlights: plan.nFlights, nAssigned: plan.nAssigned };
 }
 
-var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
 
+// ===== OTDashboard.gs =====
+
+/** OT Dashboard (รายทีม) — คำนวณสดจาก Assignment (เวรรายวัน) → สรุปต่อทีม × สัปดาห์/เดือน + baked fallback
+ *  เดิมดึงจาก OT Yearly · ชีต5 (ยังเก็บ otReadSheet5_/otParseSheet5_ ไว้เป็น fallback)
+ *  ใหม่: วนอ่านไฟล์เวรรายวันผ่าน rbOpenTodayRoster_ + readRosterFromSpreadsheet → OT/ทีม/วัน = otHours + otHolHrs
+ *        เก็บผลต่อวันถาวรในชีตซ่อน OT_DASH_CACHE (1 แถว/วัน) แล้วทยอยคำนวณวันที่ยังไม่มี cache ทีละ budget */
+var OT_YEARLY_ID = '1zESOKHDpNqbkXxd3YV0EqVHv6JDeyPjKKpjwJsOMVQ0';
+var OT_CACHE_SHEET = 'OT_DASH_CACHE';
+var OT_DASH_BUILD = '2026-06-12c';  // build marker — เช็คได้ว่าเวอร์ชันไหนขึ้นระบบจริง (otDashBuild())
+var OT_MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+var OT_ASSIGN_MONTH = 6;   // เดือนแรกที่นับจาก Assignment (มิ.ย.) — ก่อนหน้านี้ (ม.ค.-พ.ค.) ใช้ OT Yearly
+var OT_SHEET_NAME = 'สรุป';   // ชื่อชีตสรุป OT ต่อทีม ใน OT Yearly (override ด้วย Script Property OT_SHEET_NAME)
+function otSheetName_() { try { return PropertiesService.getScriptProperties().getProperty('OT_SHEET_NAME') || OT_SHEET_NAME; } catch (e) { return OT_SHEET_NAME; } }
+function otDashBuild() { return OT_DASH_BUILD; }
+
+/** แปลงค่าเวลา/ระยะเวลาในชีต → ชั่วโมง (ทศนิยม) */
 function otHrs_(v) {
   if (v == null || v === '') return 0;
   if (Object.prototype.toString.call(v) === '[object Date]') return Math.round((v.getHours() + v.getMinutes() / 60) * 100) / 100;
@@ -2670,10 +3280,66 @@ function otHrs_(v) {
 }
 function otMonth_(h) { var m = String(h).match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i); return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : ''; }
 
+/** parse ชีต "OT Weekly" — OT รายคน×รายวัน (คอลัมน์: ทีม|ลำดับ|รหัส|ชื่อ|ตำแหน่ง| [Code,Hrs]×วันที่)
+ *  รวม Hrs ของทุกคน → ทีม × เดือน × สัปดาห์ (ตามวันที่ DD/MM/YYYY ของหัวคอลัมน์) */
+function otParseWeekly_(data) {
+  // หาแถวหัว 'ทีม' + คอลัมน์ทีม
+  var hdr = -1, teamCol = 0;
+  for (var i = 0; i < Math.min(8, data.length) && hdr < 0; i++) {
+    for (var c = 0; c < Math.min(8, data[i].length); c++) {
+      if (String(data[i][c]).trim() === 'ทีม') { hdr = i; teamCol = c; break; }
+    }
+  }
+  if (hdr < 0) throw new Error('ไม่พบคอลัมน์ "ทีม" ในชีต OT Weekly');
+  // แถว Code/Hrs (ภายใน hdr..hdr+2) — แถวที่มี 'Hrs'
+  var subRow = -1;
+  for (var i = hdr; i < Math.min(hdr + 3, data.length) && subRow < 0; i++) {
+    if (data[i].some(function (v) { return String(v).trim() === 'Hrs'; })) subRow = i;
+  }
+  if (subRow < 0) throw new Error('ไม่พบหัวคอลัมน์ "Hrs" ในชีต OT Weekly');
+  var dateRow = Math.max(hdr, subRow - 1);                                  // แถววันที่ = เหนือ Code/Hrs
+  // map คอลัมน์ → วันที่ (carry-forward เผื่อ merge cell)
+  var colDate = [], last = '';
+  for (var c = 0; c < data[dateRow].length; c++) {
+    var dv = String(data[dateRow][c] == null ? '' : data[dateRow][c]).trim();
+    if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(dv)) last = dv;
+    colDate[c] = last;
+  }
+  var agg = {}, MORD = OT_MONTH_ABBR;
+  function bucket(team, dateStr, hrs) {
+    var m = String(dateStr).match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (!m) return;
+    var day = +m[1], mon = +m[2] - 1; if (mon < 0 || mon > 11) return;     // DD/MM/YYYY
+    var ab = MORD[mon], wk = Math.min(3, Math.floor((day - 1) / 7));
+    var T = agg[team] || (agg[team] = {});
+    var M = T[ab] || (T[ab] = { weeks: [0, 0, 0, 0], total: 0 });
+    M.weeks[wk] = Math.round((M.weeks[wk] + hrs) * 10) / 10;
+    M.total = Math.round((M.total + hrs) * 10) / 10;
+  }
+  for (var r = subRow + 1; r < data.length; r++) {
+    var team = String(data[r][teamCol] == null ? '' : data[r][teamCol]).trim();
+    if (!team) continue;
+    var canon = (typeof otCanonTeam_ === 'function') ? otCanonTeam_(team) : team;
+    var row = data[r];
+    for (var c = teamCol + 1; c < row.length; c++) {
+      if (String(data[subRow][c]).trim() !== 'Hrs') continue;
+      var hrs = otHrs_(row[c]);
+      if (hrs > 0) bucket(canon, colDate[c], hrs);
+    }
+  }
+  var monthsSet = {}, teams = [];
+  Object.keys(agg).forEach(function (tn) {
+    var months = agg[tn], total = 0;
+    Object.keys(months).forEach(function (m) { monthsSet[m] = 1; total = Math.round((total + months[m].total) * 10) / 10; });
+    teams.push({ team: tn, total: total, months: months });
+  });
+  var months = Object.keys(monthsSet).sort(function (a, b) { return MORD.indexOf(a) - MORD.indexOf(b); });
+  teams.sort(function (a, b) { return b.total - a.total; });
+  return { months: months, teams: teams };
+}
 function otParseSheet5_(data) {
   var hr = -1;
   for (var i = 0; i < Math.min(6, data.length); i++) { if (data[i].indexOf('Team/Week') >= 0) { hr = i; break; } }
-  if (hr < 0) throw new Error('ไม่พบหัวตาราง Team/Week ใน ชีต5');
+  if (hr < 0) throw new Error('ไม่พบหัวตาราง Team/Week ในชีต OT');
   var blocks = [];
   for (var c = 0; c < data[hr].length; c++) {
     if (String(data[hr][c]).trim() === 'Team/Week') {
@@ -2681,7 +3347,7 @@ function otParseSheet5_(data) {
       blocks.push({ col: c, weeks: wk, month: otMonth_(wk[0]) });
     }
   }
-  if (!blocks.length) throw new Error('ไม่พบบล็อกเดือนใน ชีต5');
+  if (!blocks.length) throw new Error('ไม่พบบล็อกเดือนในชีต OT');
   var teams = {}, order = [];
   for (var r = hr + 1; r < data.length; r++) {
     var first = String(data[r][blocks[0].col] == null ? '' : data[r][blocks[0].col]).trim();
@@ -2698,16 +3364,372 @@ function otParseSheet5_(data) {
   return { months: blocks.map(function (b) { return b.month; }), teams: order.map(function (t) { return teams[t]; }) };
 }
 
+/** ดึง gviz CSV (เฉพาะช่วง range ถ้าระบุ) → 2D array */
+function otGvizCsv_(id, name, range) {
+  var url = 'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=out:csv&headers=0&sheet=' + encodeURIComponent(name);
+  if (range) url += '&range=' + encodeURIComponent(range);
+  var res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true, followRedirects: true });
+  var code = res.getResponseCode(), txt = res.getContentText();
+  if (code !== 200) throw new Error('gviz HTTP ' + code + ' (' + (range || 'full') + ')');
+  if (/<html|<!DOCTYPE/i.test(txt.slice(0, 200))) throw new Error('เข้าถึงชีตไม่ได้ (หน้า login) — ตรวจสิทธิ์ไฟล์ OT Yearly');
+  return Utilities.parseCsv(txt) || [];
+}
+/** index คอลัมน์ (0-based) → ตัวอักษร A1 (0→A, 26→AA) */
+function otColA1_(n) { var s = '', x = n + 1; while (x > 0) { var r = (x - 1) % 26; s = String.fromCharCode(65 + r) + s; x = Math.floor((x - 1) / 26); } return s; }
+
+/** อ่านชีต OT → สรุป OT/ทีม/เดือน/สัปดาห์
+ *  ชีตสรุปเล็ก (เช่น "สรุป") → อ่านผ่าน SpreadsheetApp ตรงๆ (อ่านค่า cache ในช่วงข้อมูลจริง
+ *  ไม่ recalc ทั้งไฟล์เหมือน gviz ที่ทำให้ timeout) · auto-detect รูปแบบ Team/Week หรือ ทีม+Hrs
+ *  ชีตใหญ่มาก (OT Weekly ดิบ) → fallback gviz batch */
 function otReadSheet5_() {
-  var id = (function () { try { var p = PropertiesService.getScriptProperties().getProperty('OT_YEARLY_ID'); return p || OT_YEARLY_ID; } catch (e) { return OT_YEARLY_ID; } })();
-  var sh = SpreadsheetApp.openById(id).getSheetByName('ชีต5');
-  if (!sh) throw new Error('ไม่พบแท็บ "ชีต5" ในไฟล์ OT Yearly');
-  return otParseSheet5_(sh.getDataRange().getValues());
+  var id = otYearlyId_(), name = otSheetName_();
+  var sh = SpreadsheetApp.openById(id).getSheetByName(name);
+  if (!sh) throw new Error('ไม่พบชีต "' + name + '" ในไฟล์ OT Yearly');
+  var lastR = sh.getLastRow(), lastC = sh.getLastColumn();
+  if (lastR < 1 || lastC < 1) throw new Error('ชีต "' + name + '" ว่าง (ไม่มีข้อมูล)');
+  if (lastR * lastC <= 200000) {                                            // ชีตเล็ก → อ่านทั้งชีตทีเดียว
+    var data = sh.getRange(1, 1, lastR, lastC).getValues();
+    if (data.slice(0, 8).some(function (r) { return (r || []).indexOf('Team/Week') >= 0; }))
+      return otParseSheet5_(data);                                          // รูปแบบ Team/Week
+    return otParseWeekly_(data);                                            // รูปแบบ ทีม + Code/Hrs รายวัน
+  }
+  return otReadWeeklyBatched_(id, name);                                     // ชีตใหญ่ → gviz batch
 }
 
+/** อ่าน OT Weekly ดิบ (รายคน×รายวัน) แบบแบ่ง batch คอลัมน์ผ่าน gviz — กัน timeout จากชีตใหญ่ */
+function otReadWeeklyBatched_(id, name) {
+  var hd = otGvizCsv_(id, name, 'A1:' + otColA1_(900) + '10');               // header probe (กว้างพอครอบคอลัมน์วันที่)
+  // OT Weekly ดิบ: หา 'ทีม' + 'Hrs' + แถววันที่
+  var hdr = -1, teamCol = 0;
+  for (var i = 0; i < Math.min(8, hd.length) && hdr < 0; i++)
+    for (var c = 0; c < Math.min(8, (hd[i] || []).length); c++)
+      if (String(hd[i][c]).trim() === 'ทีม') { hdr = i; teamCol = c; break; }
+  if (hdr < 0) throw new Error('ไม่พบคอลัมน์ "ทีม" ในชีต ' + name);
+  var subRow = -1;
+  for (var i = hdr; i < Math.min(hdr + 3, hd.length) && subRow < 0; i++)
+    if ((hd[i] || []).some(function (v) { return String(v).trim() === 'Hrs'; })) subRow = i;
+  if (subRow < 0) throw new Error('ไม่พบหัวคอลัมน์ "Hrs" ในชีต ' + name);
+  var dateRow = Math.max(hdr, subRow - 1), colDate = [], last = '';
+  for (var c = 0; c < (hd[dateRow] || []).length; c++) {
+    var dv = String(hd[dateRow][c] == null ? '' : hd[dateRow][c]).trim();
+    if (/\d{1,2}\/\d{1,2}\/\d{2,4}/.test(dv)) last = dv;
+    colDate[c] = last;
+  }
+  var hrsCols = [];
+  for (var c = teamCol + 1; c < (hd[subRow] || []).length; c++)
+    if (String(hd[subRow][c]).trim() === 'Hrs' && colDate[c]) hrsCols.push({ col: c, date: colDate[c] });
+  if (!hrsCols.length) throw new Error('ไม่พบคอลัมน์ Hrs ที่มีวันที่ในชีต ' + name);
+  // ทีมต่อแถว
+  var tcl = otColA1_(teamCol);
+  var teamRows = otGvizCsv_(id, name, tcl + '1:' + tcl + '2000');
+  var teamByRow = teamRows.map(function (r) { var t = String((r && r[0]) || '').trim(); return t ? otCanonTeam_(t) : ''; });
+  // รวมยอดทีละ batch คอลัมน์
+  var agg = {}, MORD = OT_MONTH_ABBR;
+  function bucket(team, dateStr, hrs) {
+    var m = String(dateStr).match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (!m) return;
+    var day = +m[1], mon = +m[2] - 1; if (mon < 0 || mon > 11) return;
+    var ab = MORD[mon], wk = Math.min(3, Math.floor((day - 1) / 7));
+    var T = agg[team] || (agg[team] = {});
+    var M = T[ab] || (T[ab] = { weeks: [0, 0, 0, 0], total: 0 });
+    M.weeks[wk] = Math.round((M.weeks[wk] + hrs) * 10) / 10;
+    M.total = Math.round((M.total + hrs) * 10) / 10;
+  }
+  var minC = hrsCols[0].col, maxC = hrsCols[hrsCols.length - 1].col, BATCH = 60;
+  for (var start = minC; start <= maxC; start += BATCH) {
+    var end = Math.min(maxC, start + BATCH - 1);
+    var chunk = otGvizCsv_(id, name, otColA1_(start) + '1:' + otColA1_(end) + '2000');
+    var bh = hrsCols.filter(function (h) { return h.col >= start && h.col <= end; });
+    for (var r = subRow + 1; r < chunk.length; r++) {
+      var team = teamByRow[r]; if (!team) continue;
+      var row = chunk[r]; if (!row) continue;
+      for (var k = 0; k < bh.length; k++) { var hv = otHrs_(row[bh[k].col - start]); if (hv > 0) bucket(team, bh[k].date, hv); }
+    }
+  }
+  var monthsSet = {}, teams = [];
+  Object.keys(agg).forEach(function (tn) {
+    var months = agg[tn], total = 0;
+    Object.keys(months).forEach(function (m) { monthsSet[m] = 1; total = Math.round((total + months[m].total) * 10) / 10; });
+    teams.push({ team: tn, total: total, months: months });
+  });
+  var months = Object.keys(monthsSet).sort(function (a, b) { return MORD.indexOf(a) - MORD.indexOf(b); });
+  teams.sort(function (a, b) { return b.total - a.total; });
+  return { months: months, teams: teams };
+}
+
+// ─── คำนวณ OT จาก Assignment (เวรรายวัน) ────────────────────────────────────
+function otYearlyId_() {
+  try { var p = PropertiesService.getScriptProperties().getProperty('OT_YEARLY_ID'); return p || OT_YEARLY_ID; }
+  catch (e) { return OT_YEARLY_ID; }
+}
+function otDateKey_(d) {
+  return Utilities.formatDate(d, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
+}
+/** จุดเริ่มช่วงคำนวณจาก Assignment — override ด้วย Script Property OT_DASH_START ; ค่าเริ่มต้น = 1 ของเดือน OT_ASSIGN_MONTH (มิ.ย.) */
+function otRangeStart_(now) {
+  try {
+    var p = PropertiesService.getScriptProperties().getProperty('OT_DASH_START');
+    var m = p && String(p).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  } catch (e) {}
+  return new Date(now.getFullYear(), OT_ASSIGN_MONTH - 1, 1);
+}
+/** จำนวนวัน (อดีต) สูงสุดที่จะคำนวณใหม่ต่อการเรียก live 1 ครั้ง — override ด้วย OT_DASH_BUDGET
+ *  ค่าน้อยเพื่อให้หน้าเว็บตอบไว (ที่เหลือเติมเบื้องหลังด้วย otWarmCache/trigger) */
+function otBudget_() {
+  try { var p = parseInt(PropertiesService.getScriptProperties().getProperty('OT_DASH_BUDGET'), 10); if (p > 0) return p; }
+  catch (e) {}
+  return 12;
+}
+/** ตัด REV ออกจากชื่อแท็บทีม (ชื่อแท็บใน Assignment = ชื่อกลุ่มทีมอยู่แล้ว เช่น CHINA, QR/MH/OM/DE, PORTER) */
+function otTeamName_(nm) {
+  return String(nm).replace(/REV\.?\s*\d+\s*/ig, '').replace(/\s+/g, ' ').trim();
+}
+
+/** เลขทีม → ชื่อทีมมาตรฐาน (ยืนยันจากข้อมูลจริง; เลข 7 ปล่อยให้สายการบินตัดสิน=AK, 1/2 ยังไม่ทราบ) */
+var OT_TEAM_NUM = { '3': 'TR', '4': 'JQ', '5': 'KE', '6': 'QR', '8': 'CHN', '9': 'CHARTER' };
+/** รหัสสายการบิน[] → ชื่อทีมมาตรฐานที่ทับซ้อนมากสุด (อ้างอิง ADV_TEAMS · SU→SU/W5/B2) */
+function otAirlineTeam_(air) {
+  var best = -1, bestN = 0;
+  for (var i = 0; i < ADV_TEAMS.length; i++) {
+    var n = 0; for (var j = 0; j < air.length; j++) if (ADV_TEAMS[i].airlines.indexOf(air[j]) >= 0) n++;
+    if (n > bestN) { bestN = n; best = i; }
+  }
+  return best >= 0 ? ADV_TEAMS[best].name : '';
+}
+/** รวมชื่อแท็บที่สะกดต่างกัน (REV/สำเนา/วันที่/ชีต/ลำดับสลับ) ให้เป็นทีมมาตรฐานเดียว — ใช้ตอนแสดงผล */
+function otCanonTeam_(raw) {
+  var s0 = String(raw || '').replace(/([A-Za-z0-9])x([A-Za-z0-9])/g, '$1 $2');   // JQxTK → JQ TK
+  var s = ' ' + s0.toUpperCase() + ' ';
+  s = s.replace(/สำเนาของ/g, ' ')
+       .replace(/\bREV\b[\s.\-]*\d*/g, ' ')
+       .replace(/NORMAL\s*FLT|IF\s*FLT\s*CANCELL?ED|VER\.?\s*FLT\s*CANCEL|DAILY|ASSIGNMENT|\bON\b/g, ' ')
+       .replace(/\d{1,2}\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\w*\s*\d{0,4}/g, ' ')   // 03JAN26
+       .replace(/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)/g, ' ')
+       .replace(/ชีต\S*/g, ' ').replace(/_CONFLICT\d*/g, ' ');
+  if (/CHARTER/.test(s)) return 'CHARTER';
+  if (/PORTER/.test(s)) return 'PORTER';
+  if (/PVT|PRIVATE|\bVIP\b|\bLP\b/.test(s)) return 'PVT';               // ทีม PVT = Private/VIP/LP (รวมเป็นทีมเดียว)
+  if (/\bCHN\b|CHINA/.test(s)) return 'CHN';
+  var num = s.match(/TEAM\s*0*(\d{1,2})/);
+  if (num && OT_TEAM_NUM[num[1]]) return OT_TEAM_NUM[num[1]];           // เลขทีมที่มั่นใจ
+  var air = [];                                                         // รวมรหัสสายการบิน (รวมแบบติดกัน EYAYDV→EY AY DV)
+  s.replace(/[^A-Z0-9]+/g, ' ').split(/\s+/).forEach(function (tk) {
+    if (!tk || tk === 'TEAM') return;
+    if (tk.length >= 2 && tk.length <= 3) air.push(tk);
+    else if (tk.length >= 4 && tk.length % 2 === 0) for (var i = 0; i < tk.length; i += 2) air.push(tk.substr(i, 2));
+  });
+  var byAir = otAirlineTeam_(air);
+  if (byAir) return byAir;                                              // SU → SU/W5/B2 (ไม่ใช่ Charter)
+  if (num) return 'TEAM ' + num[1];                                    // เลขทีมที่ยังไม่ทราบสายการบิน
+  var c = s.replace(/\s+/g, ' ').trim();
+  return c || 'อื่นๆ';
+}
+
+/** error ชั่วคราว (service timeout/quota/rate) → ควรลองใหม่ ไม่ใช่ cache เป็นว่าง */
+function otTransient_(e) {
+  return /timed?\s*out|timeout|too many|rate limit|quota|temporarily|try again|service error|internal error/i
+    .test(String(e && (e.message || e)));
+}
+/** อ่านเวรของวันเดียว → {teamName: otHours} ; OT/ทีม = otHours + otHolHrs (รวม OT นักขัต X1)
+ *  คืน {} = ไม่มีไฟล์/โครงสร้างผิด (cache กันลองซ้ำ) ; คืน null = error ชั่วคราว (อย่า cache, ลองใหม่รอบหน้า) */
+function otComputeDay_(date) {
+  var roster;
+  try { roster = rbOpenTodayRoster_(date); }
+  catch (e) { return otTransient_(e) ? null : {}; }          // ไม่พบไฟล์ → {} ; timeout → null
+  if (!roster || !roster.ss) return {};
+  var res = null, err = null;
+  try { res = readRosterFromSpreadsheet(roster.ss, date); } catch (e2) { err = e2; }
+  if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
+  if (err) return otTransient_(err) ? null : {};
+  if (!res || !res.teams) return {};
+  var out = {};
+  Object.keys(res.teams).forEach(function (t) {
+    var b = res.teams[t];
+    var hrs = Math.round(((b.otHours || 0) + (b.otHolHrs || 0)) * 10) / 10;
+    if (hrs > 0) { var nm = otTeamName_(t); out[nm] = Math.round(((out[nm] || 0) + hrs) * 10) / 10; }
+  });
+  return out;
+}
+
+/** cache เก็บใน Script Properties (key = otc_YYYY-MM-DD, value = JSON {team:hrs})
+ *  เร็ว ไม่ต้องเปิด spreadsheet ใดๆ — เลิกพึ่งไฟล์ OT Yearly ที่หนัก/timeout */
+var OT_CACHE_PREFIX = 'otc_';
+function otCacheLoad_() {
+  var all = {};
+  try { all = PropertiesService.getScriptProperties().getProperties() || {}; } catch (e) {}
+  var map = {};
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(OT_CACHE_PREFIX) !== 0) return;
+    var key = k.slice(OT_CACHE_PREFIX.length);
+    try { map[key] = JSON.parse(all[k]) || {}; } catch (e2) { map[key] = {}; }
+  });
+  return map;
+}
+
+/** วนช่วงวัน start→end : ใช้ cache ถ้ามี, ไม่งั้นคำนวณ (จำกัด budget + deadline) ; วันนี้คำนวณสดเสมอ
+ *  - เขียน cache ลง Properties ทีละ 8 วัน → ถ้า service timeout กลางคัน ผลที่ทำแล้วไม่หาย (resumable จริง)
+ *  - otComputeDay_ คืน null = error ชั่วคราว → นับเป็น pending ไม่ cache ว่าง
+ *  คืน { days:[{date,teams}], pending } */
+function otComputeRange_(start, end, budget, deadline) {
+  var props = PropertiesService.getScriptProperties();
+  var map = otCacheLoad_();
+  var todayKey = otDateKey_(new Date());
+  var batch = {}, batchN = 0, days = [], pending = 0, computed = 0;
+  function flush() { if (batchN) { try { props.setProperties(batch, false); } catch (e) {} batch = {}; batchN = 0; } }
+  var d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  var endT = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+  while (d.getTime() <= endT) {
+    var key = otDateKey_(d), isToday = (key === todayKey), teams = null;
+    if (map.hasOwnProperty(key) && !isToday) {
+      teams = map[key];
+    } else if (isToday || (computed < budget && Date.now() < deadline)) {
+      if (!isToday) computed++;
+      teams = otComputeDay_(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+      if (teams === null) {                                   // error ชั่วคราว → ลองใหม่รอบหน้า
+        pending++;
+      } else {
+        map[key] = teams; batch[OT_CACHE_PREFIX + key] = JSON.stringify(teams);
+        if (++batchN >= 8) flush();                            // flush ระหว่างทาง
+      }
+    } else {
+      pending++;
+    }
+    if (teams && Object.keys(teams).length) days.push({ date: new Date(d.getFullYear(), d.getMonth(), d.getDate()), teams: teams });
+    d.setDate(d.getDate() + 1);
+  }
+  flush();
+  return { days: days, pending: pending };
+}
+
+/** รวมผลรายวัน → โครงสร้างเดียวกับ ชีต5 เดิม: { months:['Jan'..], teams:[{team,total,months:{m:{weeks:[4],total}}}] }
+ *  สัปดาห์: 1-7, 8-14, 15-21, 22-สิ้นเดือน (index 0-3) */
+function otAggregate_(days) {
+  var teamMap = {}, order = [], monthsSet = [];
+  days.forEach(function (rec) {
+    var dt = rec.date, mAbbr = OT_MONTH_ABBR[dt.getMonth()], wkIdx = Math.min(3, Math.floor((dt.getDate() - 1) / 7));
+    if (monthsSet.indexOf(mAbbr) < 0) monthsSet.push(mAbbr);
+    Object.keys(rec.teams).forEach(function (rawTeam) {
+      var hrs = rec.teams[rawTeam]; if (!(hrs > 0)) return;
+      var team = otCanonTeam_(rawTeam);                       // รวมชื่อแท็บที่สะกดต่างกัน → ทีมมาตรฐาน
+      if (!teamMap[team]) { teamMap[team] = { team: team, total: 0, months: {} }; order.push(team); }
+      var T = teamMap[team];
+      if (!T.months[mAbbr]) T.months[mAbbr] = { weeks: [0, 0, 0, 0], total: 0 };
+      T.months[mAbbr].weeks[wkIdx] = Math.round((T.months[mAbbr].weeks[wkIdx] + hrs) * 10) / 10;
+      T.months[mAbbr].total = Math.round((T.months[mAbbr].total + hrs) * 10) / 10;
+      T.total = Math.round((T.total + hrs) * 10) / 10;
+    });
+  });
+  monthsSet.sort(function (a, b) { return OT_MONTH_ABBR.indexOf(a) - OT_MONTH_ABBR.indexOf(b); });
+  var teams = order.map(function (t) { return teamMap[t]; }).sort(function (a, b) { return b.total - a.total; });
+  return { months: monthsSet, teams: teams };
+}
+
+/** อ่าน ชีต5 (OT Yearly) → ใช้ค่าที่เก็บถาวรใน Properties ก่อน (เร็ว/ไม่เปิดไฟล์หนัก)
+ *  ไฟล์ OT Yearly หนักมาก เปิดสดในหน้าเว็บมักจะ timeout → ต้องรัน otCacheSheet5() ครั้งเดียวก่อน */
+var OT_S5_PREFIX = 'ot_s5_';
+function otSheet5Cached_() {
+  var stored = otSheet5Stored_();
+  return (stored && stored.teams && stored.teams.length) ? stored : { months: [], teams: [] };
+}
+/** อ่านค่า ชีต5 ที่เก็บไว้ (ต่อ chunk) จาก Properties */
+function otSheet5Stored_() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var n = parseInt(props.getProperty(OT_S5_PREFIX + 'n'), 10);
+    if (!(n > 0)) return null;
+    var all = props.getProperties(), js = '';
+    for (var i = 0; i < n; i++) { var c = all[OT_S5_PREFIX + i]; if (c == null) return null; js += c; }
+    return JSON.parse(js);
+  } catch (e) { return null; }
+}
+/** เก็บผล ชีต5 ลง Properties (แบ่ง chunk ละ 8000 ตัวอักษร) */
+function otStoreSheet5_(d) {
+  var props = PropertiesService.getScriptProperties();
+  var all = props.getProperties();
+  Object.keys(all).forEach(function (k) { if (k.indexOf(OT_S5_PREFIX) === 0) props.deleteProperty(k); });
+  var js = JSON.stringify(d), size = 8000, n = Math.max(1, Math.ceil(js.length / size)), set = {};
+  for (var i = 0; i < n; i++) set[OT_S5_PREFIX + i] = js.substr(i * size, size);
+  set[OT_S5_PREFIX + 'n'] = String(n);
+  props.setProperties(set, false);
+  return n;
+}
+/** รันมือครั้งเดียว (มี budget 6 นาที): อ่าน ชีต5 จาก OT Yearly แล้วเก็บถาวร — ให้หน้าเว็บแสดง ม.ค.-พ.ค. */
+function otCacheSheet5() {
+  var d = otReadSheet5_();
+  var n = otStoreSheet5_(d);
+  Logger.log('otCacheSheet5: เก็บ ชีต5 สำเร็จ — %s ทีม, %s เดือน, %s chunks', (d.teams || []).length, (d.months || []).length, n);
+  return (d.teams || []).length;
+}
+/** รีเฟรช ชีต5 (อ่านใหม่จาก OT Yearly แล้วเก็บถาวร) — ใช้เมื่อแก้ ม.ค.-พ.ค. ใน OT Yearly */
+function otRefreshSheet5() { try { CacheService.getScriptCache().remove('ot_sheet5'); } catch (e) {} return otCacheSheet5(); }
+
+/** รวมข้อมูล ชีต5 (เฉพาะเดือนก่อน OT_ASSIGN_MONTH) + Assignment (เดือน OT_ASSIGN_MONTH ขึ้นไป)
+ *  จัดชื่อทีมให้ตรงกันด้วย otCanonTeam_ ; คืน {months, teams} */
+function otMergeData_(sheet5, assign) {
+  var teamMap = {}, order = [], monthsSet = {};
+  function add(src, keepMonth) {
+    (src && src.teams || []).forEach(function (t) {
+      var name = (typeof otCanonTeam_ === 'function') ? otCanonTeam_(t.team) : t.team;
+      var T = teamMap[name]; if (!T) { T = teamMap[name] = { team: name, total: 0, months: {} }; order.push(name); }
+      Object.keys(t.months || {}).forEach(function (m) {
+        if (keepMonth && !keepMonth(m)) return;
+        var mm = t.months[m]; if (!mm) return;
+        monthsSet[m] = 1;
+        if (!T.months[m]) T.months[m] = { weeks: (mm.weeks || []).slice(0, 4), total: mm.total || 0 };
+        else {
+          var w = T.months[m].weeks; (mm.weeks || []).forEach(function (x, i) { w[i] = Math.round(((w[i] || 0) + (x || 0)) * 10) / 10; });
+          T.months[m].total = Math.round((T.months[m].total + (mm.total || 0)) * 10) / 10;
+        }
+        T.total = Math.round((T.total + (mm.total || 0)) * 10) / 10;
+      });
+    });
+  }
+  var cut = OT_ASSIGN_MONTH - 1;                                           // index เดือนแรกของ Assignment (มิ.ย.=5)
+  add(sheet5, function (m) { var i = OT_MONTH_ABBR.indexOf(m); return i >= 0 && i < cut; });   // ชีต5: เฉพาะ ม.ค.-พ.ค.
+  add(assign, null);                                                       // Assignment: ทุกเดือนที่คำนวณ (มิ.ย.+)
+  var months = Object.keys(monthsSet).sort(function (a, b) { return OT_MONTH_ABBR.indexOf(a) - OT_MONTH_ABBR.indexOf(b); });
+  var teams = order.map(function (k) { return teamMap[k]; }).sort(function (a, b) { return b.total - a.total; });
+  return { months: months, teams: teams };
+}
+
+/** เรียกจาก client (google.script.run) — OT รายทีม: ม.ค.-พ.ค. จาก ชีต5 · มิ.ย.+ จาก Assignment */
 function otLiveData() {
-  try { var r = otReadSheet5_(); return { ok: true, months: r.months, teams: r.teams }; }
-  catch (e) { return { ok: false, err: String(e && e.message || e) }; }
+  try {
+    var now = new Date();
+    var r = otComputeRange_(otRangeStart_(now), now, otBudget_(), Date.now() + 150000);
+    var assign = otAggregate_(r.days);
+    var sheet5 = otSheet5Cached_();
+    var merged = otMergeData_(sheet5, assign);
+    return { ok: true, months: merged.months, teams: merged.teams, pending: r.pending, source: 'hybrid' };
+  } catch (e) { return { ok: false, err: String(e && e.message || e) }; }
+}
+
+/** อุ่น cache ทีละชุด (≤24 วัน/รอบ, ตัดที่ 4 นาที กัน service timeout) แล้วตั้ง trigger ทำต่อเองทุก 10 นาที
+ *  จนกว่า pending=0 จึงลบ trigger ทิ้ง — เรียกครั้งเดียวจาก editor พอ (resumable เต็มรูปแบบ) */
+function otWarmCache() {
+  var now = new Date();
+  var r = otComputeRange_(otRangeStart_(now), now, 24, Date.now() + 240000);
+  Logger.log('otWarmCache: คำนวณรอบนี้เสร็จ, เหลือค้าง pending=%s วัน', r.pending);
+  if (r.pending > 0) otEnsureWarmTrigger_(); else { otRemoveWarmTriggers_(); Logger.log('otWarmCache: cache ครบแล้ว ✅ ลบ trigger ทิ้ง'); }
+  return r.pending;
+}
+function otEnsureWarmTrigger_() {
+  var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'otWarmCache'; });
+  if (!has) ScriptApp.newTrigger('otWarmCache').timeBased().everyMinutes(10).create();
+}
+function otRemoveWarmTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'otWarmCache') ScriptApp.deleteTrigger(t);
+  });
+}
+/** สั่งหยุดการอุ่น cache อัตโนมัติ (ลบ trigger) */
+function otStopWarmCache() { otRemoveWarmTriggers_(); Logger.log('หยุด trigger otWarmCache แล้ว'); }
+/** ล้าง cache OT ทั้งหมด (otc_*) — ใช้เมื่อต้องการคำนวณใหม่ทั้งหมด */
+function otClearCache() {
+  var props = PropertiesService.getScriptProperties(), all = props.getProperties() || {}, n = 0;
+  Object.keys(all).forEach(function (k) { if (k.indexOf(OT_CACHE_PREFIX) === 0) { props.deleteProperty(k); n++; } });
+  Logger.log('otClearCache: ลบ cache %s วัน', n);
+  return n;
 }
 
 function otDashData_() { return {"months":["(สะสม)"],"teams":[{"team":"CHINA","total":3876.0,"months":{"(สะสม)":{"weeks":[],"total":3876.0}}},{"team":"QR/MH/OM/DE","total":3873.5,"months":{"(สะสม)":{"weeks":[],"total":3873.5}}},{"team":"SQ/CX/LY","total":1914.5,"months":{"(สะสม)":{"weeks":[],"total":1914.5}}},{"team":"JQ/IT/IX/AI/N0","total":1434.5,"months":{"(สะสม)":{"weeks":[],"total":1434.5}}},{"team":"EY/AY/DV","total":1367.5,"months":{"(สะสม)":{"weeks":[],"total":1367.5}}},{"team":"WY/G9/9C/DK","total":964.0,"months":{"(สะสม)":{"weeks":[],"total":964.0}}},{"team":"TK/VJ/SG/HY/OD","total":641.0,"months":{"(สะสม)":{"weeks":[],"total":641.0}}},{"team":"SV/WK/KA","total":462.5,"months":{"(สะสม)":{"weeks":[],"total":462.5}}},{"team":"PORTER","total":146.5,"months":{"(สะสม)":{"weeks":[],"total":146.5}}}]}; }
@@ -2716,7 +3738,7 @@ function otDashHtml_() { return OT_DASH_HTML_; }
 function otDashScript_() {
   return '<scr' + 'ipt>(function(){var BAKED=' + JSON.stringify(otDashData_()) + ';' + OT_DASH_JS_ + '})();</scr' + 'ipt>';
 }
-var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · ดึงจาก OT Yearly (ชีต5)</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
+var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · ม.ค.-พ.ค. จาก OT Yearly · มิ.ย.+ จาก Assignment</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
 var OT_DASH_CSS_ = `#view-ot{--surface:#fff;--surface2:#eef3f9;--border:#dbe3ee;--accent:#f97316;--accent2:#3b82f6;--accent3:#0891b2;--danger:#ef4444;--warn:#d97706;--ok:#16a34a;--text:#1f2d3d;--muted:#73839a;color:var(--text)}
 #view-ot .ot-head{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#eef3fb,#f6f0ff);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px}
 #view-ot .ot-title{font-size:20px;font-weight:800;letter-spacing:-.3px}
@@ -2795,8 +3817,8 @@ function thM(m){return MTH[m]||m;}
 function tcol(team){var i=DATA.teams.map(function(t){return t.team;}).indexOf(team);return COLORS[(i<0?0:i)%COLORS.length];}
 function card(c,l,v,s){return '<div class="stat-card" style="--accent-color:'+c+'"><div class="stat-label">'+l+'</div><div class="stat-val">'+v+'</div><div class="stat-sub">'+esc(s)+'</div></div>';}
 function section(title,body){return '<div class="section"><div class="section-header"><div class="section-title"><span class="dot"></span> '+title+'</div></div>'+body+'</div>';}
-function srcBadge(){return LIVE?'<span class="ot-live">🟢 สดจาก ชีต5</span>':'<span class="ot-baked">● ข้อมูลสำรอง (ยังไม่เชื่อมสด)</span>';}
-function infoP(type){var crit=type==='weekly'?'รายสัปดาห์ (1-7, 8-14, 15-21, 22-สิ้นเดือน)':'รายเดือน (รวมทั้งเดือน)';return '<div class="info-panel"><div class="info-item">มุมมอง: <strong>'+crit+'</strong></div><div class="info-item">แหล่งข้อมูล: <strong>OT Yearly · ชีต5</strong></div><div class="info-item">'+srcBadge()+'</div></div>';}
+function srcBadge(){if(LIVE){var p=window.__otPending||0;return p>0?'<span class="ot-live">🟢 ประมวลผลอีก '+p+' วัน…</span>':'<span class="ot-live">🟢 ข้อมูลสด</span>';}return '<span class="ot-baked">● ข้อมูลสำรอง (ยังไม่เชื่อมสด)</span>';}
+function infoP(type){var crit=type==='weekly'?'รายสัปดาห์ (1-7, 8-14, 15-21, 22-สิ้นเดือน)':'รายเดือน (รวมทั้งเดือน)';return '<div class="info-panel"><div class="info-item">มุมมอง: <strong>'+crit+'</strong></div><div class="info-item">'+srcBadge()+'</div></div>';}
 function bars(items){var mx=Math.max.apply(null,items.map(function(t){return t.v;}).concat([1]));return '<div class="bar-chart">'+items.slice().sort(function(a,b){return b.v-a.v;}).map(function(t){var pct=(t.v/mx*100).toFixed(1),col=tcol(t.team);return '<div class="bar-row"><div class="bar-label" title="'+esc(t.team)+'">'+esc(t.team)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%;--fill-color:'+col+'">'+fmt(t.v)+' ชม.</div></div></div>';}).join('')+'</div>';}
 function buildMonthly(){
   var teams=DATA.teams,months=DATA.months;
@@ -2821,10 +3843,34 @@ function buildWeekly(){
 }
 function render(){buildMonthly();buildWeekly();}
 window.otSelMonth=function(m){selMonth=m;buildWeekly();};
-window.otSwitchTab=function(tab){var root=document.getElementById('view-ot');if(!root)return;[].forEach.call(root.querySelectorAll('.ot-subtab'),function(t){t.classList.toggle('active',t.getAttribute('data-t')===tab);});[].forEach.call(root.querySelectorAll('.tab-panel'),function(p){p.classList.remove('active');});var el=document.getElementById('ot-tab-'+tab);if(el)el.classList.add('active');};
-function otInit(){if(!document.getElementById('ot-tab-weekly')||window.__otBuilt)return;window.__otBuilt=1;render();if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(d){if(d&&d.ok&&d.teams&&d.teams.length){DATA=d;LIVE=true;render();}}).withFailureHandler(function(){}).otLiveData();}}
+window.otSwitchTab=function(tab){var root=document.getElementById('view-ot');if(!root)return;[].forEach.call(root.querySelectorAll('.ot-subtab'),function(t){t.classList.toggle('active',t.getAttribute('data-t')===tab);});[].forEach.call(root.querySelectorAll('.tab-panel'),function(p){p.classList.remove('active');});var el=document.getElementById('ot-tab-'+tab);if(el)el.classList.add('active');if(tab==='weekly')buildWeekly();else buildMonthly();};
+function otFetch(){if(!(window.google&&google.script&&google.script.run))return;google.script.run.withSuccessHandler(function(d){if(d&&d.ok){if(d.teams&&d.teams.length)DATA=d;LIVE=true;window.__otPending=d.pending||0;render();if(d.pending>0&&(window.__otTries=(window.__otTries||0)+1)<80)setTimeout(otFetch,400);}}).withFailureHandler(function(){}).otLiveData();}
+function otInit(){if(!document.getElementById('ot-tab-weekly')||window.__otBuilt)return;window.__otBuilt=1;render();otFetch();}
 if(document.readyState!=='loading')otInit();else window.addEventListener('load',otInit);
 `;
+
+
+// ===== RosterBot.gs =====
+
+/**
+ * RosterBot.gs — integration layer on top of RosterReader.gs
+ * =============================================================================
+ * Turns the validated roster reader into the actual outputs:
+ *   • a Dashboard tab  — per-team headcount + OT + flight counts (+ grand total)
+ *   • a Timetable tab  — per-team, per-employee flights with shift / OT and each
+ *                        flight's task and open–close (OP/CL) or STA/STD times,
+ *                        for judging schedule appropriateness
+ *   • a Google Chat summary
+ *
+ * Requires RosterReader.gs in the same Apps Script project
+ * (uses readRosterFromSpreadsheet()).
+ *
+ * Quick test against a real roster file (recommended first step):
+ *   1. put a roster spreadsheet's ID in testRosterFromId()
+ *   2. Run → testRosterFromId  → it writes "📊 Dashboard" and "🕓 Timetable"
+ *      tabs into a fresh output spreadsheet and logs the link.
+ * Daily automation: set CONFIG_RB + a time trigger on runDailyRosterReport.
+ */
 
 var CONFIG_RB = {
   ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
@@ -2847,6 +3893,11 @@ function runRosterForDate(y, m, d) {
   catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
 }
 
+/**
+ * รันครั้งเดียวเพื่อตั้ง trigger ให้รายงานออกอัตโนมัติทุกวัน 08:00 และ 14:00
+ * (เวลาอิงตาม Time zone ของโปรเจกต์ — ตั้งเป็น Asia/Bangkok ใน Project Settings)
+ * แต่ละรอบจะอ่านไฟล์ของวันนั้น + อัปเดตแท็บ + ส่งเข้า Google Chat
+ */
 function setupTriggers() {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'runDailyRosterReport') ScriptApp.deleteTrigger(t);
@@ -2857,6 +3908,12 @@ function setupTriggers() {
   Logger.log('✅ ตั้ง trigger รันทุกวัน 08:00 และ 14:00 แล้ว · Google Chat webhook: ' + w);
 }
 
+/**
+ * รันครั้งเดียวเพื่อบันทึก Google Chat webhook ลง Script Properties
+ * (อย่าใส่ URL ลงในโค้ดที่ commit ขึ้น GitHub — เป็นความลับ)
+ * วิธีใช้: วาง URL ในตัวแปร url ด้านล่าง → Run setupChatWebhook → แล้วลบ URL ออก
+ * หรือไปที่ Project Settings → Script Properties → เพิ่ม GCHAT_WEBHOOK_REPORT เอง
+ */
 function setupChatWebhook() {
   var url = 'PASTE_GOOGLE_CHAT_WEBHOOK_URL_HERE';
   if (url.indexOf('http') !== 0) { Logger.log('⚠️ วาง URL webhook ในฟังก์ชัน setupChatWebhook ก่อน'); return; }
@@ -2864,6 +3921,11 @@ function setupChatWebhook() {
   Logger.log('✅ บันทึก webhook แล้ว → รายงานรายวันจะส่งเข้า Google Chat');
 }
 
+/**
+ * Open any spreadsheet by id whether it is a native Google Sheet OR an uploaded
+ * .xlsx (which SpreadsheetApp.openById cannot read). Returns { ss, tempId }.
+ * Requires the Drive API advanced service for the .xlsx case.
+ */
 function rbOpenAnyById_(id) {
   var file = DriveApp.getFileById(id);
   var mime = file.getMimeType();
@@ -2876,6 +3938,12 @@ function rbOpenAnyById_(id) {
   throw new Error('ไฟล์นี้ไม่ใช่ Spreadsheet (mime=' + mime + ') — ต้องชี้ไปที่ไฟล์ assignment PSA');
 }
 
+/**
+ * Simplest manual test: read ONE PSA roster file by ID, write the reports.
+ * Works on a native Google Sheet OR an .xlsx assignment file.
+ * Pass an LL file id + date to include the LL department, e.g.
+ *   testRosterFromId('<psaId>', '<llId>', 2026, 6, 6);
+ */
 function testRosterFromId(ssId, llId, y, m, d) {
   ssId = ssId || 'PUT_A_ROSTER_SPREADSHEET_ID_HERE';
   var opened = rbOpenAnyById_(ssId);
@@ -2960,6 +4028,7 @@ function rbRunForDate_(date) {
 var KPI_BG_ = ['#e8f0fe', '#e6f4ea', '#f5f5f5', '#fff8e1', '#fff3e0', '#fce4ec'];
 var KPI_FC_ = ['#1a237e', '#1b5e20', '#424242', '#e65100', '#bf360c', '#880e4f'];
 
+/** Write a row of KPI cards: label row + big value row, one card per column. */
 function rbCards_(sh, top, labels, values) {
   for (var i = 0; i < labels.length; i++) {
     sh.getRange(top, i + 1).setValue(labels[i]).setBackground(KPI_BG_[i % 6]).setFontColor(KPI_FC_[i % 6])
@@ -2972,6 +4041,7 @@ function rbCards_(sh, top, labels, values) {
 
 function rbOtCell_(people, hrs) { return people > 0 ? (people + ' (' + hrs + 'h)') : '-'; }
 
+/** Manpower-by-X table: X | Total | Working | OT-Off | OT ก่อนกะ | OT หลังกะ | %Working */
 function rbManpowerTable_(sh, top, title, rowsData, headColor) {
   var W = 9;
   sh.getRange(top, 1, 1, W).merge().setValue(title)
@@ -3095,7 +4165,7 @@ function rbShiftCell_(r) {
   var code = r.shift || '';
   return (r.shiftTime && r.shiftTime !== code) ? (code + ' (' + r.shiftTime + ')') : code;
 }
-
+/** [OT ก่อนกะ, OT หลังกะ, OT OFF] cell strings for one record. */
 function rbOtCols_(r) {
   var cell = (r.otTime ? r.otTime + ' ' : '') + (r.ot ? '(' + r.ot + 'h)' : '');
   if (r.bucket === 'ot_off') return ['', '', r.ot ? cell : '✔'];
@@ -3202,6 +4272,9 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
 // ─── WEEKLY OT (>36h/week check) ────────────────────────────────────────────
 var OT_WEEK_LIMIT = 36;
 
+/** บล็อกสัปดาห์ 7 วันในเดือน เริ่มวันที่ 1 (1-7, 8-14, 15-21, …)
+ *  ตั้งแต่ มิ.ย. 2026 เป็นต้นไป: สัปดาห์สุดท้าย = 22 ถึงสิ้นเดือน (รวมวัน 29-31 เข้าสัปดาห์เดียว)
+ *  ก่อน มิ.ย. 2026: คงเดิม (1-7, 8-14, 15-21, 22-28, 29-สิ้นเดือน) */
 function rbWeekRange_(date) {
   var d = date.getDate();
   var daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
@@ -3212,6 +4285,7 @@ function rbWeekRange_(date) {
   return { startDay: startDay, endDay: endDay };
 }
 
+/** Accumulate OT hours per employee across the week (week-to-date up to `date`). */
 function rbWeeklyOT_(date) {
   var wr = rbWeekRange_(date);
   var upto = Math.min(date.getDate(), wr.endDay);
@@ -3246,6 +4320,7 @@ function rbWeeklyOT_(date) {
            over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
 }
 
+/** Sheet tab: ⏱️ OT รายสัปดาห์ — per-person weekly OT + >36h flag. */
 function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   tabName = tabName || '⏱️ OT สัปดาห์';
   var old = ss.getSheetByName(tabName);
@@ -3286,6 +4361,7 @@ function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   sh.setFrozenRows(2);
 }
 
+/** Standalone: build the weekly-OT tab for a date into the monthly file. */
 function runWeeklyOTReport(y, m, d) {
   var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
   var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
@@ -3424,7 +4500,20 @@ function rbGetMonthlyOutput_(mon, be) {
   return ss;
 }
 
-var AOTGA_LOGO_URL = '';
+
+// ===== WebDashboard.gs =====
+
+/**
+ * WebDashboard.gs — AOTGA Daily Manpower Dashboard web app (doGet).
+ * =============================================================================
+ * Visual design adopted from the AOTGA dashboard design system (corporate CI,
+ * Kanit, appbar / week nav / KPI hero / panels / tables). Server-rendered so it
+ * runs as an Apps Script web app. Deploy → Web app → open the /exec URL.
+ * Requires RosterReader.gs / LLReader.gs / MasterReader.gs / RosterBot.gs / SLA.gs.
+ */
+
+var AOTGA_LOGO_URL = '';          // ใส่ URL รูป/data-URI ตรงๆ ได้ (มาก่อน)
+var PWMS_LOGO_ID   = '1Ya7VigvuEutlL3oECJQj8dJkiM2of30i';   // Google Drive file ID ของโลโก้ AOTGA → สคริปต์อ่าน+แปลง base64 ให้เอง (cache 6 ชม.)
 var CI = { royal:'#1D428A', bosch:'#236192', sky:'#4EC3E0', teal:'#3FBCBE', yellow:'#FEC909', red:'#D92526', grey:'#7C878F', good:'#1BA37A', sub:'#5a6b86' };
 var MONW = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
 var DOWW = ['อา','จ','อ','พ','พฤ','ศ','ส'];
@@ -3452,11 +4541,22 @@ function doGet(e) {
       '<p class="muted" style="margin-top:8px">' + rbEsc_(err.message) + '</p>' +
       '<p class="muted">ยังไม่มีไฟล์ assignment ของวันนี้ หรือบัญชีไม่มีสิทธิ์ — เลือกวันอื่นจากแถบด้านบน</p></div></div></body></html>';
   }
-  return HtmlService.createHtmlOutput(html).setTitle('AOTGA · Manpower Dashboard')
+  return HtmlService.createHtmlOutput(html).setTitle('PWMS · PSA-HKT Workforce Management System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
+/** Load the PSA roster (+ LL) for a date — cached ~3 นาที (CacheService) เพื่อให้สลับแท็บเร็ว
+ *  ไม่ต้องไล่หาไฟล์ใน Drive / แปลง xlsx / parse ซ้ำทุกแท็บ · กดปุ่ม 🔄 รีเฟรช = ล้างแคชดึงใหม่ */
 function rbLoadResLL_(date) {
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var iso = Utilities.formatDate(date, tz, 'yyyy-MM-dd');
+  var hit = rbCacheGetBig_('resll_' + iso);
+  if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  var out = rbLoadResLLraw_(date);
+  try { rbCachePutBig_('resll_' + iso, JSON.stringify(out), 180); } catch (e2) {}
+  return out;
+}
+function rbLoadResLLraw_(date) {
   var roster = rbOpenTodayRoster_(date);
   var res = readRosterFromSpreadsheet(roster.ss, date);
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
@@ -3464,8 +4564,50 @@ function rbLoadResLL_(date) {
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
   return { res: res, ll: ll };
 }
+/** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */
+function rbCachePutBig_(key, str, ttl) {
+  var c = CacheService.getScriptCache(), CH = 95000, n = Math.ceil(str.length / CH), parts = {};
+  parts[key + '_n'] = String(n);
+  for (var i = 0; i < n; i++) parts[key + '_' + i] = str.substr(i * CH, CH);
+  c.putAll(parts, ttl || 180);
+}
+function rbCacheGetBig_(key) {
+  var c = CacheService.getScriptCache(), nn = c.get(key + '_n');
+  if (!nn) return null;
+  var n = +nn, keys = [];
+  for (var i = 0; i < n; i++) keys.push(key + '_' + i);
+  var got = c.getAll(keys), s = '';
+  for (var j = 0; j < n; j++) { var v = got[key + '_' + j]; if (v == null) return null; s += v; }
+  return s;
+}
+/** ล้างแคชของวันที่นั้น (เรียกจากปุ่ม 🔄 รีเฟรช) */
+function rbClearCache(iso) {
+  try {
+    var c = CacheService.getScriptCache(), nn = c.get('resll_' + iso + '_n'), keys = ['resll_' + iso + '_n'];
+    if (nn) for (var i = 0; i < +nn; i++) keys.push('resll_' + iso + '_' + i);
+    c.removeAll(keys);
+  } catch (e) {}
+  return true;
+}
 function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
 
+/** โลโก้: ใช้ AOTGA_LOGO_URL (URL/data-URI) ก่อน · ไม่งั้นอ่านจาก Google Drive (PWMS_LOGO_ID / Script Property)
+ *  แปลงเป็น base64 data-URI แล้ว cache 6 ชม. (สคริปต์มีสิทธิ์ Drive อยู่แล้ว) */
+function rbLogoDataUri_() {
+  if (AOTGA_LOGO_URL) return AOTGA_LOGO_URL;
+  var id = PWMS_LOGO_ID;
+  if (!id) { try { id = PropertiesService.getScriptProperties().getProperty('PWMS_LOGO_ID') || ''; } catch (e) {} }
+  if (!id) return '';
+  var hit = rbCacheGetBig_('pwms_logo'); if (hit) return hit;
+  try {
+    var b = DriveApp.getFileById(id).getBlob();
+    var uri = 'data:' + b.getContentType() + ';base64,' + Utilities.base64Encode(b.getBytes());
+    try { rbCachePutBig_('pwms_logo', uri, 21600); } catch (e2) {}
+    return uri;
+  } catch (e3) { return ''; }
+}
+
+/** Lazy tab: Timetable HTML (called from client via google.script.run). */
 function rbTimetableHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
@@ -3475,16 +4617,17 @@ function rbTimetableHtml(iso) {
       rbCtrls_('view-tt', true));
   } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
-
+/** Lazy tab: Flights & SLA HTML. */
 function rbFlightsHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     return rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Standby</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
       rbFltRows_(d.res, d.ll), rbCtrls_('view-flt', true));
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
+/** Lazy tab: ตรวจความเหมาะสมการ Assign (ครอบคลุมไฟลท์ / OT / ช่วงว่าง). */
 function rbAssignHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
@@ -3496,7 +4639,7 @@ function rbAssignHtml(iso) {
       (s.noWin ? ' · (ไม่มีเวลากะระบุ ' + s.noWin + ' — ข้าม)' : '') + '</div>';
     var rows = an.rows.map(function (r) {
       var emo = r.status === 'bad' ? '🔴' : '🟡';
-      return '<tr class="' + (r.status === 'bad' ? 'rowbad' : '') + '" data-team="' + rbEsc_(r.team) + '"><td>' + emo + '</td><td class="b">' +
+      return '<tr class="' + (r.status === 'bad' ? 'rowbad' : '') + '" data-team="' + rbEsc_(r.team) + '" data-gaps="' + rbEsc_(r.gapsRaw || '') + '"><td>' + emo + '</td><td class="b">' +
         rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.id || '') + '</td><td>' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.pos) + '</td><td class="tnum">' +
         rbEsc_(r.shift) + '</td><td>' + (r.ot && r.ot !== '-' ? rbEsc_(r.ot) : '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.flights) + '</td><td>' +
         (rbEsc_(r.job) || '<span class="muted">—</span>') + '</td><td class="' + (r.uncovered ? 'badd' : 'muted') + '">' +
@@ -3507,7 +4650,7 @@ function rbAssignHtml(iso) {
     return hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
       '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>ไฟลท์</th><th>ไฟลท์ที่ทำ</th>' +
       '<th>ไฟลท์นอกเวลา</th><th>ช่วงว่าง</th><th>OT เหมาะสม?</th><th>ปัญหา/คำแนะนำ</th></tr>',
-      rows, rbCtrls_('view-ac', true));
+      rows, rbCtrls_('view-ac', true) + rbGapCtrl_('view-ac'));
   } catch (e) { return '<div class="panel">โหลดตรวจ Assign ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
@@ -3515,6 +4658,7 @@ function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/<
 function rbAttr_(s){ return rbEsc_(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
 
+/** chip คนที่ถูกจัด: ชื่อ "แก้ไขได้" (contenteditable) + คลิกที่ตำแหน่ง/ℹ ดูงาน/OT/ไฟลท์ (popup) */
 function rbPlanChip_(p) {
   var busyCls = p.n >= 5 ? ' sup--busy' : (p.n === 0 ? ' sup--free' : '');
   return '<span class="chip chip--duty supchip planchip' + busyCls + '"' +
@@ -3522,10 +4666,11 @@ function rbPlanChip_(p) {
     ' data-shift="' + rbAttr_(p.shift || '-') + '" data-ot="' + rbAttr_(p.ot || '-') + '" data-hrs="' + (p.hrs || 0) + '" data-n="' + (p.n || 0) + '"' +
     ' data-flts="' + rbAttr_((p.flts || []).join('‖')) + '">' +
     '<span class="editnm" contenteditable="true" spellcheck="false" onclick="event.stopPropagation()"' +
-    ' oninput="var c=this.closest(\'.supchip\');c.dataset.nm=this.textContent;c.classList.add(\'edited\')" title="คลิกเพื่อแก้ไขชื่อ">' + rbEsc_(p.name) + '</span>' +
+    ' oninput="var c=this.closest(\'.supchip\');c.dataset.nm=this.textContent;c.classList.add(\'edited\')" title="' + rbAttr_(p.name) + ' · คลิกแก้ไข">' + rbEsc_(p.name) + '</span>' +
     '<span class="planchip__i" onclick="showPsn(this.closest(\'.supchip\'))" title="ดูงาน/OT/ไฟลท์ที่ทำ"> ' + rbEsc_(p.pos) + ' ⓘ</span></span>';
 }
 
+/** กลุ่มรายชื่อคน (จัดกลุ่มตามทีม) เป็น chip แบบแก้ไขได้ + มี popup งาน/OT/ไฟลท์ */
 function rbPlanNames_(arr) {
   if (!arr || !arr.length) return '<span class="muted">—</span>';
   var by = {}, order = [];
@@ -3536,10 +4681,12 @@ function rbPlanNames_(arr) {
   }).join('');
 }
 
-function rbFillPlanHtml(iso) {
+/** Lazy tab 1: 🤖 เติมจาก Assign เดิม (โหมด A — gap-fill) */
+function rbFillPlanHtml(iso, fcJson) {
   try {
+    var fcBy = {}; try { fcBy = fcJson ? JSON.parse(fcJson) : {}; } catch (e0) {}
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    var gaps = apFillGaps_(d.res, d.ll);
+    var gaps = apFillGaps_(d.res, d.ll, fcBy);
     var filledN = 0, remainN = 0;
     gaps.forEach(function (g) { filledN += g.picked.length; remainN += g.remain; });
     var hd = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">📋 <b>เติมจาก Assign เดิม</b> — จัดคนว่างข้ามทีมมาเสริมไฟลท์ที่ขาด · เสริม <b class="okk">' + filledN + ' คน</b>' +
@@ -3552,16 +4699,18 @@ function rbFillPlanHtml(iso) {
         '</td><td class="tnum">' + rbEsc_(g.win) + '</td><td>' + rbEsc_(g.needSys || 'iPort/ใดก็ได้') + '</td><td>' + who + '</td><td>' + st + '</td></tr>';
     }).join('');
     if (!bodyA) bodyA = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA แล้ว — ไม่ต้องเสริม</td></tr>';
-    return hd + rbTblCard_('🤖 เติมคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
+    return hd + rbExpBar_('fill') + rbCommonsHtml_(gaps.commons, 'fill') + rbTblCard_('🤖 เติมคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>STD/STA</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>ระบบที่ต้องใช้</th><th>คนที่จัดให้</th><th>สถานะ</th></tr>',
       bodyA, rbCtrls_('view-fill', true));
   } catch (e) { return '<div class="panel">โหลด "เติม Assign เดิม" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
-function rbAutoAssignHtml(iso) {
+/** Lazy tab 2: 🤖 Auto Assign (โหมด B — จัดใหม่ทั้งหมด) */
+function rbAutoAssignHtml(iso, fcJson) {
   try {
+    var fcBy = {}; try { fcBy = fcJson ? JSON.parse(fcJson) : {}; } catch (e0) {}
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    var rp = apReplan_(d.res, d.ll);
+    var rp = apReplan_(d.res, d.ll, fcBy);
     var shortF = 0;
     rp.plan.forEach(function (p) { if (Object.keys(p.shortx).length) shortF++; });
     var hd = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">📋 <b>Auto Assign</b> — จัดเวรใหม่ทั้งหมดตาม SLA · จัดคน <b>' + rp.nAssigned + '/' + rp.nPeople +
@@ -3594,10 +4743,11 @@ function rbAutoAssignHtml(iso) {
             by[t].map(function (p) { return '<span class="chip">' + rbEsc_(p.name) + ' <span class="muted">' + rbEsc_(p.pos) + '</span></span>'; }).join('') + '</span>';
         }).join('') + '</div></div>';
     }
-    return hd + tblB + benchHtml;
+    return hd + rbExpBar_('auto') + rbCommonsHtml_(rp.commons, 'auto') + tblB + benchHtml;
   } catch (e) { return '<div class="panel">โหลด "Auto Assign" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
+/** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
 function rbSupportHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
@@ -3618,7 +4768,7 @@ function rbSupportHtml(iso) {
       if (r.cands.length) {
         var grps = slaGroupCands_(r.cands);
         function sel(defName) {
-          var h = '<select class="namepick">';
+          var h = '<select class="namepick"><option value=""' + (defName ? '' : ' selected') + '>— เลือกคน —</option>';
           grps.forEach(function (g) {
             h += '<optgroup label="' + rbEsc_(g.team) + ' (' + g.people.length + ')">';
             g.people.forEach(function (p) {
@@ -3629,8 +4779,9 @@ function rbSupportHtml(iso) {
           });
           return h + '</select>';
         }
+        // 1 ช่อง = 1 คน · ตั้งค่าเริ่มเป็นคนละคน (cands[i]) ช่องที่เกินจำนวนคนว่าง = ปล่อยว่าง (ไม่ซ้ำคนเดิม)
         var slots = [];
-        for (var i = 0; i < r.shortN; i++) slots.push(sel((r.cands[i] || r.cands[0]).name));
+        for (var i = 0; i < r.shortN; i++) slots.push(sel(r.cands[i] ? r.cands[i].name : ''));
         who = '<div class="pickwrap">' + slots.join('') + '</div>';
       } else {
         who = '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
@@ -3641,23 +4792,71 @@ function rbSupportHtml(iso) {
         '</td><td class="tnum">' + rbEsc_(r.win) + '</td><td>' + who + '</td></tr>';
     }).join('');
     if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA</td></tr>';
-    return hd + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+    var sosTxt = ''; try { sosTxt = slaSOSText_(d.res, d.ll, iso); } catch (es) { sosTxt = ''; }
+    var sosBlock = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">📋 ข้อความ SOS (คัดลอกส่งไลน์ได้เลย · เฉพาะคนทีมอื่น)</summary>' +
+      '<div style="padding:8px 14px"><button class="btn btn--accent" onclick="(function(b){var t=b.parentNode.querySelector(\'textarea\');t.focus();t.select();if(navigator.clipboard){navigator.clipboard.writeText(t.value);}else{document.execCommand(\'copy\');}b.textContent=\'✓ คัดลอกแล้ว\';setTimeout(function(){b.textContent=\'📋 คัดลอกข้อความ\';},1500);})(this)">📋 คัดลอกข้อความ</button>' +
+      '<textarea readonly rows="16" style="width:100%;margin-top:8px;font-family:monospace;font-size:12px;white-space:pre;overflow:auto">' + rbEsc_(sosTxt) + '</textarea></div></details>';
+    return hd + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
-
+/** ตัวกรองหัวการ์ด: ช่องค้นหา + dropdown เลือกทีม (เติม option ด้วย JS หลังโหลด) */
 function rbCtrls_(viewId, withSearch){
   return (withSearch ? '<input class="search" placeholder="🔎 ค้นหา" oninput="applyFilter(\''+viewId+'\')">' : '') +
     '<select class="teamsel" onchange="applyFilter(\''+viewId+'\')"><option value="">ทุกทีม</option></select>';
+}
+/** ตัวกรอง "หาคนว่างในช่วงเวลา" — แสดงเฉพาะแถวที่มีช่วงว่างคาบเกี่ยวเวลาที่เลือก */
+function rbGapCtrl_(viewId){
+  return '<span class="gapfilter" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px">' +
+    '🕓 ว่างช่วง <input type="time" class="gapfrom" onchange="applyFilter(\''+viewId+'\')" style="padding:4px 6px;border:1px solid #cdd8e6;border-radius:6px">' +
+    '– <input type="time" class="gapto" onchange="applyFilter(\''+viewId+'\')" style="padding:4px 6px;border:1px solid #cdd8e6;border-radius:6px">' +
+    '<button class="btn" onclick="clearGap(\''+viewId+'\')" style="padding:4px 10px">ล้าง</button> <span class="gapcount" style="font-size:12px;color:var(--good);font-weight:600"></span></span>';
+}
+/** แสดงผล common check-in (SU/SQ): เคาน์เตอร์รวมหมุนเวียน + เกทต่อไฟลท์ · kind = "fill"|"auto" */
+function rbCommonsHtml_(commons, kind){
+  if (!commons || !commons.length) return '';
+  return commons.map(function(cm){
+    var nCt = (cm.counters[0] && cm.counters[0].slots.length) || 0;
+    var fcSel = cm.fc ? ' <span class="muted" style="font-weight:400;font-size:12px">· 🎧 Flight Controller:</span> <select class="fcpick" data-code="'+rbEsc_(cm.code)+'" onchange="fcPick(\''+(kind||'fill')+'\')" style="padding:3px 6px;border:1px solid #cdd8e6;border-radius:6px;font-size:12px">'+(cm.members||[]).map(function(m){return '<option value="'+rbAttr_(m.name)+'"'+(m.name===cm.fc.name?' selected':'')+'>'+rbEsc_(m.name)+' ('+rbEsc_(m.pos)+')</option>';}).join('')+'</select>' : '';
+    var h = '<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>🛄 '+rbEsc_(cm.code)+' — เช็คอินคอมมอน '+nCt+' เคาน์เตอร์ (หมุนเวียน ≤3 ชม./คน)'+fcSel+'</h3></div><div style="padding:6px 14px 12px">';
+    cm.counters.forEach(function(b){
+      h += '<div class="sectionlabel" style="margin:8px 0 4px">⏱️ ช่วง <b>'+rbEsc_(b.time)+'</b>'+(b.round?' · รอบ '+rbEsc_(b.round):'')+' · ไฟลท์ '+rbEsc_(b.flights)+' · <span class="muted">คนว่าง '+b.nAvail+'</span></div>';
+      h += '<div style="display:flex;flex-wrap:wrap;gap:6px">'+b.slots.map(function(s){
+        return '<span class="chip">'+rbEsc_(s.counter)+': '+(s.chosen?rbEsc_(s.chosen.name)+' <span class="muted">'+rbEsc_(s.chosen.pos)+'</span>':'<span class="muted">— ว่าง —</span>')+'</span>';
+      }).join('')+'</div>';
+    });
+    h += '</div></div>';
+    if (cm.gates && cm.gates.length){
+      h += '<div class="tablecard" style="margin-top:10px"><div class="tablecard__hd"><h3>🚪 '+rbEsc_(cm.code)+' — Gate ต่อไฟลท์ (คนต่อเนื่องจากเช็คอิน)</h3></div><div style="padding:6px 14px 12px">';
+      cm.gates.forEach(function(g){
+        h += '<div class="sectionlabel" style="margin:8px 0 4px">✈️ <b>'+rbEsc_(g.flight)+'</b> · STD '+rbEsc_(g.std)+'</div>';
+        h += '<div style="display:flex;flex-wrap:wrap;gap:6px">'+g.roles.map(function(rl){
+          return rl.picks.map(function(pk,idx){
+            return '<span class="chip">'+rbEsc_(rl.lb)+(rl.need>1?' '+(idx+1):'')+' <span class="muted">'+rbEsc_(rl.win)+'</span>: '+(pk?rbEsc_(pk.name)+' <span class="muted">'+rbEsc_(pk.pos)+'</span>':'<span class="badd">— ขาด —</span>')+'</span>';
+          }).join('');
+        }).join('')+'</div>';
+      });
+      h += '</div></div>';
+    }
+    return h;
+  }).join('');
+}
+/** แถบส่งออกไฟล์ชีตรายทีม (FillPlan / AutoAssign) — kind = "fill" | "auto" */
+function rbExpBar_(kind){
+  return '<div class="expbar" style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+    '<b>📤 ส่งให้พนักงาน:</b> <select class="expteam"><option value="">ทุกทีม</option></select> ' +
+    '<button class="btn btn--accent" onclick="'+kind+'Export()">สร้างไฟล์ชีต (1 แท็บ/ทีม)</button>' +
+    '<span class="expmsg muted"></span></div>';
 }
 
 // ── header + week nav + tabs ────────────────────────────────────────────────
 function rbAppbar_(date) {
   var be = date.getFullYear()+543;
+  var logo = ''; try { logo = rbLogoDataUri_(); } catch (elg) {}
   return '<div class="appbar rise"><div class="appbar__row">' +
-    '<div class="brand"><div class="brand__mark">✈</div><div><h1>AOT<span>GA</span></h1>' +
-    '<p>Passenger Services · การโดยสาร</p></div></div>' +
+    '<div class="brand">' + (logo ? '<img class="brand__logo" src="' + logo + '" alt="AOTGA">' : '<div class="brand__mark">✈</div>') + '<div><h1>P<span>WMS</span></h1>' +
+    '<p>PSA-HKT Workforce Management System</p></div></div>' +
     '<div class="appbar__meta"><div class="datepill"><div class="d tnum">' + date.getDate()+' '+MONW[date.getMonth()]+' '+be +
     '</div><div class="s">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
     '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">' +
@@ -3694,9 +4893,12 @@ function rbTabs_(shortCount, acCount) {
     '<button class="tab" id="tab-fill" onclick="showView(\'fill\');loadFill()">🤖 เติม Assign เดิม</button>' +
     '<button class="tab" id="tab-auto" onclick="showView(\'auto\');loadAuto()">🤖 Auto Assign</button>' +
     '<button class="tab" id="tab-adv" onclick="showView(\'adv\');loadAdv()">📅 จัดล่วงหน้า</button>' +
-    '<button class="tab" id="tab-ot" onclick="showView(\'ot\')">⏱️ OT Dashboard</button></div>';
+    '<button class="tab" id="tab-ot" onclick="showView(\'ot\')">⏱️ OT Dashboard</button>' +
+    '<button class="tab" onclick="rbRefresh(this)" title="ล้างแคช ดึงข้อมูลล่าสุดจากชีต" style="margin-left:auto">🔄 รีเฟรช</button></div>';
 }
 
+/** Called from the client (google.script.run) when the OT-week tab is opened.
+ *  Computes weekly OT (reads the week's files) and returns the table HTML. */
 function rbWeeklyOTHtml(iso) {
   try {
     var a = String(iso).split('-');
@@ -3802,13 +5004,14 @@ function rbTtRows_(res, ll) {
   }).join('');
 }
 function rbFltRows_(res, ll) {
-  return slaCollectFlights_(res, ll).map(function (f) {
+  return slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); }).map(function (f) {   // ซ่อนเศษขา (ขาที่สองซ้ำของไฟลท์ที่มีอยู่แล้ว)
     var R = slaRoles_(f.airline);
     function rc(n){ return '<td class="tnum">'+(n||0)+'</td>'; }
-    var st = f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>';
-    return '<tr class="'+(f.ok?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+f.airline+'</td><td>'+rbEsc_(f.teamList)+
+    var st = f.noTime ? '<span class="badd">⚠️ ขาด STA/STD — เติมเวลาในชีต</span>'
+           : (f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>');
+    return '<tr class="'+(f.ok&&!f.noTime?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+f.airline+'</td><td>'+rbEsc_(f.teamList)+
       '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+f.assigned.total+'</b>/'+(R.total||f.req.total)+'</td>'+
-      rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.STB)+rc(R.GM)+rc(R.GA)+'<td>'+st+'</td></tr>';
+      rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.GM)+rc(R.GA)+'<td>'+st+'</td></tr>';
   }).join('');
 }
 
@@ -3818,6 +5021,7 @@ function rbTblCard_(title, headHtml, bodyHtml, extraHd) {
 }
 
 function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode) {
+  var logo = ''; try { logo = rbLogoDataUri_(); } catch (elg) {}
   var P = res.totals, L = ll && ll.totals.staff>0 ? ll.totals : null;
   function comb(k){ return P[k] + (L?L[k]:0); }
   var C = { staff:comb('staff'), working:comb('working')+comb('ot_off'), off:comb('off'), sick:comb('sick'),
@@ -3826,7 +5030,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
             otPre:comb('otPre'), otPreHrs:Math.round(comb('otPreHrs')*10)/10,
             otPost:comb('otPost'), otPostHrs:Math.round(comb('otPostHrs')*10)/10 };
   var teamOrder = Object.keys(res.teams).sort(function(a,b){ return (res.teams[b].working+res.teams[b].ot_off)-(res.teams[a].working+res.teams[a].ot_off); });
-  var shortCount = 0; try { shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok;}).length; } catch (esc) {}
+  var shortCount = 0; try { shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok && !f.noTime;}).length; } catch (esc) {}
   var acCount = 0; try { acCount = acAnalyze_(res, ll).summary.bad; } catch (eac) {}
 
   var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
@@ -3859,7 +5063,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     : '<div id="ttbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Timetable…</div></div>';
   var fltInner = staticMode
     ? rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Standby</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
+        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
         rbFltRows_(res, ll), rbCtrls_('view-flt', true))
     : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
   var otInner = otDashHtml_();                                         // OT Dashboard (baked-in, client-side) แทนแท็บ OT เดิม
@@ -3898,7 +5102,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
-    '<div class="foot">บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA) · live จาก Apps Script</div>' +
+    '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
     '</div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
@@ -3906,12 +5110,20 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
     'function showView(v){["dash","tt","flt","sup","ac","fill","auto","adv","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
-    'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
+    'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
+    'function rbRefresh(b){if(b){b.textContent="⏳ กำลังรีเฟรช…";}if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){location.reload();}).withFailureHandler(function(){location.reload();}).rbClearCache(ISO);}else{location.reload();}}' +
     'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v);}' +
     'function advSave(){var v=document.getElementById("view-adv");if(!v)return;var tb=v.querySelector("table.tbl");var di=v.querySelector("input[type=date]");var date=di?di.value:ISO;if(!tb){alert("เลือกวันที่ที่มีไฟลท์ก่อน");return;}var rows=[];[].forEach.call(tb.tBodies[0].rows,function(tr){if(tr.cells.length<13)return;var c=[];for(var i=0;i<7;i++){var ns=[];[].forEach.call(tr.cells[6+i].querySelectorAll(".namepick"),function(x){if(x.value.trim())ns.push(x.value.trim());});c.push(ns.join(", "));}function f(n){return tr.cells[n].innerText.trim().split("\\n")[0];}rows.push([f(0),f(1),f(3),f(4),f(5),c[0],c[1],c[2],c[3],c[4],c[5],c[6]]);});if(!rows.length){alert("ไม่มีไฟลท์ให้บันทึก");return;}if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อบันทึก");return;}var m=document.getElementById("advsavemsg");if(m)m.innerHTML="⏳ กำลังบันทึก…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="✅ บันทึกแล้ว: <a href=\\""+url+"\\" target=\\"_blank\\">เปิดชีต</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("บันทึกไม่ได้: "+e.message);}).advSaveProposal(date,JSON.stringify(rows));}' +
     'function advExport(){var di=document.querySelector("#view-adv input[type=date]");var date=di?di.value:ISO;if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=document.getElementById("advexportmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์แจ้งทีม…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).advExportAssignment(date);}' +
-    'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";[].forEach.call(v.querySelectorAll("tbody tr"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;r.style.display=(okT&&okQ)?"":"none";});}' +
+    'function hm2m(s){var m=String(s).match(/(\\d{1,2}):(\\d{2})/);return m?(+m[1]*60+ +m[2]):null;}' +
+    'function gapOverlap(raw,f,t){if(!raw)return false;return raw.split(",").some(function(seg){var p=seg.split("~");if(p.length<2)return false;var a=+p[0],b=+p[1];if(isNaN(a)||isNaN(b))return false;function ov(x,y){return x<t&&y>f;}a=((a%1440)+1440)%1440;b=((b%1440)+1440)%1440;if(b===0)b=1440;return a<=b?ov(a,b):(ov(a,1440)||ov(0,b));});}' +
+    'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");var gfrom=gf&&gf.value?hm2m(gf.value):null,gto=gt&&gt.value?hm2m(gt.value):null;var gOn=(gfrom!=null||gto!=null),gLo=gfrom!=null?gfrom:0,gHi=gto!=null?gto:1440,visN=0;[].forEach.call(v.querySelectorAll("tbody tr"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;var okG=!gOn||gapOverlap(r.getAttribute("data-gaps")||"",gLo,gHi);var show=okT&&okQ&&okG;if(show&&r.getAttribute("data-gaps")!=null&&r.cells.length>1)visN++;r.style.display=show?"":"none";});var gc=v.querySelector(".gapcount");if(gc)gc.textContent=gOn?("· พบ "+visN+" คนว่างช่วงนี้"):"";}' +
+    'function clearGap(viewId){var v=document.getElementById(viewId);if(!v)return;var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");if(gf)gf.value="";if(gt)gt.value="";applyFilter(viewId);}' +
+    'function buildExpTeams(){[].forEach.call(document.querySelectorAll("select.expteam"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll(".supchip[data-pteam]"),function(c){var t=c.getAttribute("data-pteam");if(t)set[t]=1;});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
+    'function fillExport(){expRun("fill","apExportFill");}function autoExport(){expRun("auto","apExportAuto");}' +
+    'function expRun(view,fn){var v=document.getElementById("view-"+view);if(!v)return;var sel=v.querySelector(".expteam"),team=sel?sel.value:"";var m=v.querySelector(".expmsg");if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ชีต…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment"+(team?" ("+team+")":"")+"</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);})[fn](ISO,team);}' +
+    'function fcPick(view){var v=document.getElementById("view-"+view);if(!v||!(window.google&&google.script&&google.script.run))return;var fcBy={};[].forEach.call(v.querySelectorAll(".fcpick"),function(s){fcBy[s.getAttribute("data-code")]=s.value;});var box=view+"box",fn=view==="auto"?"rbAutoAssignHtml":"rbFillPlanHtml";document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ จัดใหม่ตาม Flight Controller…</div>";google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){document.getElementById(box).innerHTML="<div class=\\"panel\\">"+e.message+"</div>";})[fn](ISO,JSON.stringify(fcBy));}' +
     'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function supGrpVis(w){[].forEach.call(w.querySelectorAll(".supgrp"),function(g){var any=[].some.call(g.querySelectorAll(".supchip"),function(c){return c.style.display!=="none";});g.style.display=any?"":"none";});}' +
     'function applySupFilter(){var on={},anyOff=false;[].forEach.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(b){if(b.classList.contains("on"))on[b.getAttribute("data-t")]=1;else anyOff=true;});' +
@@ -3946,285 +5158,542 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
 }
 
 function rbDesignCss_() { return rbDESIGN_CSS_; }
-var rbDESIGN_CSS_ = `:root{--royal:#1D428A;--bosch:#236192;--sky:#4EC3E0;--teal:#3FBCBE;--yellow:#FEC909;--red:#D92526;--grey:#7C878F;--brand:var(--royal);--brand-2:var(--bosch);--accent:var(--sky);--good:#1BA37A;--warn:#E8A400;--alert:var(--red);--bg:#eef3fa;--bg-2:#e3ecf7;--card:#ffffff;--ink:#15233f;--ink-2:#5a6b86;--ink-3:#93a1b8;--line:#e4ebf4;--line-2:#eef2f8;--radius:16px;--radius-sm:11px;--radius-lg:22px;--shadow:0 2px 4px rgba(20,40,80,.04),0 12px 28px rgba(20,40,80,.07);--shadow-sm:0 1px 2px rgba(20,40,80,.05),0 4px 12px rgba(20,40,80,.05);--shadow-lg:0 8px 18px rgba(20,40,80,.08),0 30px 60px rgba(20,40,80,.12);--header-grad:linear-gradient(118deg,#16315f 0%,var(--royal) 46%,var(--bosch) 100%);--maxw:1320px;--font:'Kanit',-apple-system,'Segoe UI',sans-serif;}
-[data-theme="vibrant"]{--bg:#eaf1fb;--bg-2:#dfeafb;--header-grad:linear-gradient(120deg,#1b2a6b 0%,var(--royal) 38%,var(--teal) 100%);--shadow:0 2px 6px rgba(29,66,138,.06),0 16px 36px rgba(29,66,138,.12);--shadow-lg:0 10px 24px rgba(29,66,138,.12),0 36px 70px rgba(29,66,138,.18);}
-[data-theme="soft"]{--bg:#f4f6fb;--bg-2:#eef1f8;--card:#ffffff;--line:#eceff6;--radius:22px;--radius-sm:15px;--radius-lg:28px;--header-grad:linear-gradient(125deg,#2a4f97 0%,#3a6fc0 60%,#5aa9d8 100%);--shadow:0 3px 8px rgba(40,60,100,.05),0 16px 40px rgba(40,60,100,.08);}
-*{box-sizing:border-box;margin:0;padding:0;}
-html,body{background:var(--bg);}
-body{font-family:var(--font);color:var(--ink);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh;background:radial-gradient(1200px 600px at 85% -10%,rgba(78,195,224,.18),transparent 60%),radial-gradient(1000px 500px at -5% 0%,rgba(29,66,138,.10),transparent 55%),var(--bg);}
-.wrap{max-width:var(--maxw);margin:0 auto;padding:20px 24px 56px;}
-.tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;}
-.appbar{position:relative;background:var(--header-grad);border-radius:var(--radius-lg);padding:20px 28px;color:#fff;overflow:hidden;box-shadow:var(--shadow-lg);}
-.appbar::before{content:"";position:absolute;inset:0;background:radial-gradient(520px 520px at 88% -120%,rgba(255,255,255,.14),transparent 60%),repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 1px,transparent 1px 64px);pointer-events:none;}
-.appbar__row{position:relative;display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;}
-.brand{display:flex;align-items:center;gap:15px;}
-.brand__mark{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.4);display:grid;place-items:center;flex:0 0 auto;backdrop-filter:blur(4px);}
-.brand__mark svg{width:30px;height:30px;}
-.brand h1{font-size:21px;font-weight:800;letter-spacing:.6px;line-height:1.05;}
-.brand h1 span{color:var(--sky);}
-.brand p{font-size:12px;font-weight:300;color:#cfe1f5;margin-top:3px;letter-spacing:.2px;white-space:nowrap;}
-.appbar__meta{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
-.datepill{display:flex;flex-direction:column;align-items:flex-end;padding-right:16px;border-right:1px solid rgba(255,255,255,.22);}
-.datepill .d{font-size:19px;font-weight:700;line-height:1.1;white-space:nowrap;}
-.datepill .s{font-size:11px;color:#cfe1f5;font-weight:300;white-space:nowrap;}
-.livedot{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:#d8e8f8;font-weight:400;}
-.livedot i{width:8px;height:8px;border-radius:50%;background:#58e6a0;box-shadow:0 0 0 0 rgba(88,230,160,.6);animation:pulse 2s infinite;}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(88,230,160,.5);}
-70%{box-shadow:0 0 0 7px rgba(88,230,160,0);}
-100%{box-shadow:0 0 0 0 rgba(88,230,160,0);}
+var rbDESIGN_CSS_ = `/* ============================================================================
+ * AOTGA Daily Manpower Dashboard — design system
+ * Aviation operations aesthetic on the AOTGA corporate identity.
+ * Themeable via [data-theme] on <html>: corporate | vibrant | soft
+ * ==========================================================================*/
+
+:root {
+  /* AOTGA CI */
+  --royal: #1D428A;
+  --bosch: #236192;
+  --sky: #4EC3E0;
+  --teal: #3FBCBE;
+  --yellow: #FEC909;
+  --red: #D92526;
+  --grey: #7C878F;
+
+  /* semantic */
+  --brand: var(--royal);
+  --brand-2: var(--bosch);
+  --accent: var(--sky);
+  --good: #1BA37A;
+  --warn: #E8A400;
+  --alert: var(--red);
+
+  /* surfaces */
+  --bg: #eef3fa;
+  --bg-2: #e3ecf7;
+  --card: #ffffff;
+  --ink: #15233f;
+  --ink-2: #5a6b86;
+  --ink-3: #93a1b8;
+  --line: #e4ebf4;
+  --line-2: #eef2f8;
+
+  --radius: 16px;
+  --radius-sm: 11px;
+  --radius-lg: 22px;
+  --shadow: 0 2px 4px rgba(20,40,80,.04), 0 12px 28px rgba(20,40,80,.07);
+  --shadow-sm: 0 1px 2px rgba(20,40,80,.05), 0 4px 12px rgba(20,40,80,.05);
+  --shadow-lg: 0 8px 18px rgba(20,40,80,.08), 0 30px 60px rgba(20,40,80,.12);
+
+  --header-grad: linear-gradient(118deg, #16315f 0%, var(--royal) 46%, var(--bosch) 100%);
+  --maxw: 1320px;
+  --font: 'Kanit', -apple-system, 'Segoe UI', sans-serif;
 }
-.btn{font-family:inherit;cursor:pointer;border:0;border-radius:11px;padding:10px 15px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:7px;transition:transform .12s ease,box-shadow .12s ease,background .12s;}
-.btn:active{transform:translateY(1px);}
-.btn--ghost{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.28);}
-.btn--ghost:hover{background:rgba(255,255,255,.24);}
-.btn--accent{background:var(--sky);color:#0c2c45;}
-.btn--accent:hover{box-shadow:0 6px 16px rgba(78,195,224,.4);}
-.weeknav{display:flex;align-items:center;gap:12px;margin:16px 0 18px;}
-.weeknav__strip{display:flex;gap:7px;overflow-x:auto;flex:1;padding:3px 1px 6px;scrollbar-width:thin;}
-.weeknav__strip::-webkit-scrollbar{height:5px;}
-.weeknav__strip::-webkit-scrollbar-thumb{background:#c7d4e6;border-radius:4px;}
-.wk{flex:0 0 auto;min-width:50px;text-align:center;cursor:pointer;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:7px 6px 8px;line-height:1.1;transition:all .14s ease;user-select:none;}
-.wk:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:var(--shadow-sm);}
-.wk .wd{display:block;font-size:9.5px;color:var(--ink-3);font-weight:500;letter-spacing:.4px;}
-.wk .wn{display:block;font-size:18px;font-weight:700;color:var(--ink);}
-.wk .wm{display:block;font-size:9px;color:var(--ink-3);font-weight:400;}
-.wk.sel{background:var(--brand);border-color:var(--brand);box-shadow:0 8px 18px rgba(29,66,138,.28);}
-.wk.sel .wd,.wk.sel .wm{color:#bcd2ef;}
-.wk.sel .wn{color:#fff;}
-.wk.today:not(.sel){border-color:var(--accent);}
-.wk.today:not(.sel) .wn{color:var(--brand);}
-.weeknav__date{display:flex;align-items:center;gap:8px;}
-.weeknav__date input{font-family:inherit;background:var(--card);border:1px solid var(--line);color:var(--ink);border-radius:11px;padding:9px 11px;font-size:13px;font-weight:500;}
-.iconbtn{width:38px;height:38px;flex:0 0 auto;border-radius:11px;border:1px solid var(--line);background:var(--card);color:var(--brand);cursor:pointer;display:grid;place-items:center;font-size:16px;transition:all .14s;}
-.iconbtn:hover{border-color:var(--accent);color:var(--accent);}
-.tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;}
-.tab{font-family:inherit;cursor:pointer;background:var(--card);border:1px solid var(--line);color:var(--ink-2);border-radius:13px;padding:11px 18px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:9px;transition:all .15s ease;}
-.tab svg{width:17px;height:17px;}
-.tab:hover{color:var(--brand);border-color:#cdd9ec;}
-.tab.active{background:var(--brand);color:#fff;border-color:var(--brand);box-shadow:0 8px 18px rgba(29,66,138,.24);}
-.tab .badge{font-size:11px;font-weight:700;background:rgba(255,255,255,.22);color:#fff;border-radius:20px;padding:1px 8px;min-width:20px;text-align:center;}
-.tab:not(.active) .badge{background:#fdeaea;color:var(--red);}
-.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:16px;}
-.kpi{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px 16px 15px;box-shadow:var(--shadow-sm);overflow:hidden;transition:transform .16s ease,box-shadow .16s ease;}
-.kpi:hover{transform:translateY(-3px);box-shadow:var(--shadow);}
-.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--c);}
-.kpi__top{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;}
-.kpi__ico{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 14%,white);color:var(--c);}
-.kpi__ico svg{width:19px;height:19px;}
-.kpi__trend{font-size:11px;font-weight:600;color:var(--ink-3);display:inline-flex;align-items:center;gap:3px;}
-.kpi__trend.up{color:var(--good);}
-.kpi__trend.down{color:var(--alert);}
-.kpi__val{font-size:34px;font-weight:800;color:var(--ink);line-height:1;letter-spacing:-.5px;}
-.kpi__val small{font-size:15px;font-weight:600;color:var(--ink-3);margin-left:2px;}
-.kpi__lbl{font-size:12.5px;color:var(--ink-2);font-weight:500;margin-top:5px;}
-.kpi__sub{font-size:11px;color:var(--ink-3);margin-top:2px;}
-.attband{display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:14px;margin-bottom:16px;}
-.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow-sm);}
-.panel--brand{background:var(--header-grad);color:#fff;border:0;box-shadow:var(--shadow);position:relative;overflow:hidden;}
-.panel--brand::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(115deg,rgba(255,255,255,.05) 0 1px,transparent 1px 54px);}
-.panel h3{font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
-.panel--brand h3{color:#cfe1f5;}
-.panel__hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
-.panel__hd h3{margin-bottom:0;}
-.attring{position:relative;display:flex;align-items:center;gap:18px;}
-.ring{position:relative;width:132px;height:132px;flex:0 0 auto;}
-.ring__center{position:absolute;inset:0;display:grid;place-content:center;text-align:center;}
-.ring__center .big{font-size:30px;font-weight:800;line-height:1;color:#fff;}
-.ring__center .lbl{font-size:10.5px;color:#cfe1f5;margin-top:3px;}
-.attlegend{display:flex;flex-direction:column;gap:9px;flex:1;}
-.leg{display:flex;align-items:center;gap:9px;font-size:13px;}
-.leg i{width:11px;height:11px;border-radius:4px;flex:0 0 auto;}
-.leg .lk{color:#d6e4f5;font-weight:300;flex:1;}
-.leg .lv{font-weight:700;font-size:15px;}
-.statlist{display:flex;flex-direction:column;gap:12px;}
-.statrow{display:flex;align-items:center;gap:12px;}
-.statrow__ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 13%,white);color:var(--c);flex:0 0 auto;}
-.statrow__ico svg{width:18px;height:18px;}
-.statrow__t{flex:1;}
-.statrow__t .k{font-size:12px;color:var(--ink-2);font-weight:500;}
-.statrow__t .v{font-size:19px;font-weight:800;color:var(--ink);line-height:1.1;}
-.statrow__t .v small{font-size:12px;color:var(--ink-3);font-weight:600;}
-.otsplit{display:flex;flex-direction:column;gap:13px;}
-.otrow .otrow__top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;}
-.otrow .otrow__top .k{font-size:12.5px;font-weight:500;color:var(--ink-2);}
-.otrow .otrow__top .v{font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;padding-left:10px;}
-.otrow .otrow__top .v small{color:var(--ink-3);font-weight:500;}
-.track{height:9px;background:var(--line-2);border-radius:6px;overflow:hidden;}
-.track>i{display:block;height:100%;border-radius:6px;}
-.grid{display:grid;gap:16px;}
-.grid--2{grid-template-columns:1.35fr 1fr;}
-.grid--charts{grid-template-columns:1.4fr 1fr;margin-bottom:16px;}
-.barchart{display:flex;flex-direction:column;gap:11px;}
-.barchart__row{display:grid;grid-template-columns:116px 1fr 46px;align-items:center;gap:12px;}
-.barchart__lbl{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--ink);}
-.barchart__lbl .tag{font-size:10px;font-weight:700;color:#fff;background:var(--brand);border-radius:6px;padding:1px 7px;letter-spacing:.3px;}
-.barchart__bar{position:relative;height:24px;background:var(--line-2);border-radius:8px;overflow:hidden;}
-.barchart__fill{position:relative;z-index:1;height:100%;border-radius:8px;background:linear-gradient(90deg,var(--teal),var(--sky));display:flex;align-items:center;transition:width .9s cubic-bezier(.2,.8,.2,1);}
-.barchart__ghost{position:absolute;inset:0;z-index:0;}
-.barchart__val{font-size:13px;font-weight:700;color:var(--ink);text-align:right;}
-.barchart__val small{color:var(--ink-3);font-weight:500;}
-.donut-wrap{display:flex;align-items:center;gap:20px;}
-.donut{width:150px;height:150px;flex:0 0 auto;}
-.donut-legend{display:flex;flex-direction:column;gap:11px;flex:1;}
-.tablecard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden;}
-.teamsel{font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);padding:7px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);cursor:pointer;margin-left:8px;}
-.tablecard__hd{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:16px 20px 13px;}
-.tablecard__hd h3{font-size:14.5px;font-weight:700;color:var(--brand);display:flex;align-items:center;gap:9px;}
-.tablecard__hd .pill{font-size:11px;font-weight:600;color:var(--ink-2);background:var(--bg-2);border-radius:20px;padding:3px 11px;}
-.tbl{width:100%;border-collapse:collapse;font-size:13px;}
-.tbl th{text-align:right;color:var(--ink-3);font-weight:600;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase;padding:8px 12px;background:var(--bg-2);}
-.tbl th:first-child{text-align:left;}
-.tbl td{text-align:right;padding:9px 12px;border-bottom:1px solid var(--line-2);color:var(--ink);}
-.tbl td:first-child{text-align:left;}
-.tbl tbody tr:last-child td{border-bottom:0;}
-.tbl tbody tr:hover td{background:color-mix(in srgb,var(--accent) 7%,white);}
-.tbl tr.total td{background:color-mix(in srgb,var(--brand) 6%,white);font-weight:700;border-top:2px solid var(--line);}
-.tbl .nm{font-weight:600;color:var(--ink);display:flex;align-items:center;gap:9px;}
-.dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;}
-.tag{display:inline-flex;align-items:center;justify-content:center;min-width:34px;font-size:10.5px;font-weight:800;letter-spacing:.4px;color:#fff;background:var(--brand);border-radius:6px;padding:2px 8px;}
-.muted{color:var(--ink-3);font-weight:400;}
-.b{font-weight:700;}
-.cellbar{position:relative;height:18px;background:var(--line-2);border-radius:6px;overflow:hidden;min-width:90px;}
-.cellbar>i{position:absolute;left:0;top:0;bottom:0;border-radius:6px;background:linear-gradient(90deg,var(--teal),var(--sky));}
-.cellbar>span{position:absolute;right:7px;top:0;line-height:18px;font-size:11px;font-weight:700;color:var(--brand);}
-.otcell{font-weight:700;}
-.otcell small{color:var(--ink-3);font-weight:500;font-size:11px;}
-.otcell.pre{color:var(--warn);}
-.otcell.post{color:var(--royal);}
-.ttbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
-.search{position:relative;flex:1;min-width:200px;}
-.search input{width:100%;font-family:inherit;border:1px solid var(--line);border-radius:12px;padding:11px 12px 11px 38px;font-size:13.5px;background:var(--card);color:var(--ink);}
-.search input:focus{outline:2px solid color-mix(in srgb,var(--accent) 50%,white);border-color:var(--accent);}
-.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:17px;height:17px;color:var(--ink-3);}
-.chipgroup{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-start;}
-.tbl td .chipgroup{min-width:320px;}
-.chip{display:inline-block;line-height:1.35;font-family:inherit;cursor:pointer;font-size:11px;font-weight:600;padding:4px 9px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink-2);transition:all .13s;white-space:normal;}
-.chip:hover{border-color:var(--accent);}
-.chip--duty{background:var(--bg-2);color:var(--ink-3);border-style:dashed;}
-.chip--sup{background:#fff3e0;color:#b45309;border-color:#f0a64a;}
-.planchip .editnm{display:inline-block;min-width:22px;padding:0 2px;border-bottom:1px dashed var(--accent);outline:none;cursor:text;font-weight:700;color:var(--ink-2);}
-.planchip .editnm:focus{background:#fff7d6;border-bottom-color:#d9a400;border-radius:3px;}
-.planchip.edited{background:#fff7d6;border-color:#d9a400;}
-.planchip__i{cursor:pointer;color:var(--ink-3);font-weight:600;}
-.planchip__i:hover{color:var(--accent);}
-.pickwrap{display:flex;flex-direction:column;gap:2px;margin-top:2px;}
-.namepick{font-family:inherit;font-size:9.5px;font-weight:600;padding:2px 3px;border-radius:5px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink-2);width:96px;max-width:96px;cursor:pointer;}
-.namepick:focus{outline:none;border-color:var(--accent);background:#fff;}
-#view-adv .tbl th,#view-adv .tbl td{padding:5px 5px;font-size:10.5px;}
-#view-adv .tbl thead th{position:sticky;top:0;z-index:2;font-size:9.5px;}
-#view-sup .namepick{width:210px;max-width:210px;font-size:11px;padding:3px 6px;}
-#view-sup .pickwrap{gap:3px;}
-.namepick.edited{background:#fff7d6;border-color:#d9a400;}
-.supbar{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:10px 0 4px;font-size:13px;}
-.supteam{font-family:inherit;font-size:12px;font-weight:700;padding:5px 11px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink-3);cursor:pointer;}
-.supteam.on{background:var(--brand);color:#fff;border-color:var(--brand);}
-.supteam.supall{background:var(--bg-2);color:var(--ink);}
-.supgrp{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;margin:0 10px 6px 0;padding:3px 4px 3px 0;}
-.supgrp__t{font-size:11px;font-weight:800;color:var(--brand);background:var(--bg-2);border-radius:7px;padding:3px 8px;margin-right:4px;white-space:nowrap;}
-.supwrap{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;max-width:760px;}
-.supchip{font-size:10.5px;padding:3px 7px;white-space:nowrap;cursor:pointer;}
-.supchip:hover{border-color:var(--accent);background:#eef4fb;}
-.supchip.sup--busy{border-color:#e0a96d;}
-.supchip.sup--free{border-color:#56b682;}
-.supchip.sup--sub{background:#fdf2e3;border:1px dashed #e0a96d;color:#9a5b1a;}
-.supchip.sup--sub::before{content:"↪ ";font-weight:700;}
-.psnpop{position:absolute;z-index:9999;width:350px;max-width:92vw;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 34px rgba(20,40,80,.22);padding:13px 15px;font-size:13px;}
-.psn__hd{display:flex;align-items:center;gap:6px;font-size:14px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--line-2);}
-.psn__x{margin-left:auto;cursor:pointer;color:var(--ink-3);font-weight:700;padding:0 4px;}
-.psn__r{margin:4px 0;}
-.psn__flts{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;}
-.psn__flts .chip{font-size:10.5px;padding:3px 7px;}
-.tbl tbody tr.row-off td{background:#eceff1 !important;color:#7c878f;}
-.tbl tbody tr.row-sl td{background:#f8d7da !important;color:#b3261e;font-weight:600;}
-.tbl tbody tr.row-vac td{background:#fff3cd !important;color:#7a5b00;}
-.chip.on{background:var(--brand);color:#fff;border-color:var(--brand);}
-.ttgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:13px;}
-.ttcard{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow-sm);transition:transform .14s,box-shadow .14s;}
-.ttcard:hover{transform:translateY(-2px);box-shadow:var(--shadow);}
-.ttcard__hd{display:flex;align-items:center;gap:11px;margin-bottom:12px;}
-.avatar{width:40px;height:40px;border-radius:12px;flex:0 0 auto;display:grid;place-items:center;color:#fff;font-weight:700;font-size:15px;background:linear-gradient(135deg,var(--royal),var(--bosch));}
-.ttcard__id{flex:1;min-width:0;}
-.ttcard__id .nm{font-size:14.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.ttcard__id .meta{font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:7px;margin-top:1px;}
-.shiftbadge{text-align:right;flex:0 0 auto;}
-.shiftbadge .code{font-size:13px;font-weight:800;color:var(--brand);}
-.shiftbadge .time{font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;}
-.ttcard__ot{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:8px;margin-bottom:11px;}
-.ttcard__ot.pre{background:#fff6e0;color:#9a6b00;}
-.ttcard__ot.post{background:#e9f0fb;color:var(--royal);}
-.ttcard__ot.off{background:#fdeaea;color:var(--red);}
-.fstrip{display:flex;flex-direction:column;gap:7px;}
-.fstrip__item{display:flex;align-items:center;gap:8px;background:var(--bg-2);border-radius:10px;padding:7px 10px;}
-.fstrip__no{font-size:12.5px;font-weight:800;color:var(--brand);min-width:52px;flex:0 0 auto;}
-.fstrip__task{font-size:10px;font-weight:700;color:#fff;background:var(--teal);border-radius:6px;padding:2px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:92px;flex:0 1 auto;}
-.fstrip__time{margin-left:auto;font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums;text-align:right;flex:0 0 auto;white-space:nowrap;}
-.fstrip__time .lab{font-size:8.5px;font-weight:700;color:var(--ink-3);letter-spacing:.3px;display:block;}
-.ttcard__empty{font-size:12px;color:var(--ink-3);font-style:italic;padding:6px 0;}
-.slabar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:16px;}
-.slasum{display:flex;gap:10px;}
-.slasum .pill{display:flex;align-items:center;gap:8px;padding:9px 15px;border-radius:12px;font-size:13px;font-weight:600;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow-sm);}
-.slasum .pill b{font-size:17px;font-weight:800;}
-.slasum .pill.ok b{color:var(--good);}
-.slasum .pill.bad b{color:var(--alert);}
-.fltlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;}
-.boarding{position:relative;display:flex;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-sm);transition:transform .14s,box-shadow .14s;}
-.boarding:hover{transform:translateY(-2px);box-shadow:var(--shadow);}
-.boarding.short{border-color:#f3c9c9;}
-.boarding__stub{width:92px;flex:0 0 auto;background:var(--header-grad);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:14px 8px;position:relative;}
-.boarding.short .boarding__stub{background:linear-gradient(160deg,#b3201f,var(--red));}
-.boarding__stub .ac{font-size:22px;font-weight:800;letter-spacing:1px;}
-.boarding__stub .acn{font-size:8.5px;color:rgba(255,255,255,.8);text-align:center;margin-top:3px;line-height:1.2;font-weight:300;}
-.boarding__perf{position:absolute;right:-7px;top:0;bottom:0;width:14px;background:radial-gradient(circle at center,var(--bg) 0 5px,transparent 5px) repeat-y;background-size:14px 18px;}
-.boarding__body{flex:1;padding:13px 16px 14px;min-width:0;}
-.boarding__top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:11px;}
-.boarding__fl{font-size:18px;font-weight:800;color:var(--ink);letter-spacing:.5px;}
-.boarding__fl small{display:block;font-size:11px;font-weight:400;color:var(--ink-3);}
-.boarding__times{text-align:right;font-size:11px;color:var(--ink-2);}
-.boarding__times .t{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);font-size:13px;}
-.slastatus{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;}
-.slastatus.ok{background:#e3f6ee;color:var(--good);}
-.slastatus.bad{background:#fdeaea;color:var(--red);}
-.phases{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
-.phase{text-align:center;background:var(--bg-2);border-radius:10px;padding:8px 4px;}
-.phase.short{background:#fdecec;}
-.phase .pl{font-size:9.5px;font-weight:700;color:var(--ink-3);letter-spacing:.4px;text-transform:uppercase;}
-.phase .pv{font-size:16px;font-weight:800;color:var(--ink);margin-top:2px;font-variant-numeric:tabular-nums;}
-.phase.short .pv{color:var(--red);}
-.phase .pv span{font-size:11px;color:var(--ink-3);font-weight:600;}
-.phase .pd{font-size:9.5px;font-weight:700;margin-top:1px;}
-.phase.short .pd{color:var(--red);}
-.phase.full .pd{color:var(--good);}
-.foot{margin-top:26px;text-align:center;color:var(--ink-3);font-size:11.5px;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;}
-.foot b{color:var(--ink-2);font-weight:600;}
-.sectionlabel{font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--ink-3);margin:22px 2px 12px;display:flex;align-items:center;gap:10px;}
-.sectionlabel::after{content:"";flex:1;height:1px;background:var(--line);}
-@media (max-width:1080px){.kpis{grid-template-columns:repeat(3,1fr);}
-.attband{grid-template-columns:1fr 1fr;}
-.attband>:first-child{grid-column:1 / -1;}
-.grid--2,.grid--charts{grid-template-columns:1fr;}
+
+/* ---- Theme: VIBRANT (modern & colorful) ---------------------------------- */
+[data-theme="vibrant"] {
+  --bg: #eaf1fb;
+  --bg-2: #dfeafb;
+  --header-grad: linear-gradient(120deg, #1b2a6b 0%, var(--royal) 38%, var(--teal) 100%);
+  --shadow: 0 2px 6px rgba(29,66,138,.06), 0 16px 36px rgba(29,66,138,.12);
+  --shadow-lg: 0 10px 24px rgba(29,66,138,.12), 0 36px 70px rgba(29,66,138,.18);
 }
-@media (max-width:680px){.wrap{padding:14px 14px 44px;}
-.kpis{grid-template-columns:repeat(2,1fr);}
-.attband{grid-template-columns:1fr;}
-.brand h1{font-size:18px;}
-.kpi__val{font-size:28px;}
-.fltlist,.ttgrid{grid-template-columns:1fr;}
+
+/* ---- Theme: SOFT (friendly & rounded) ------------------------------------ */
+[data-theme="soft"] {
+  --bg: #f4f6fb;
+  --bg-2: #eef1f8;
+  --card: #ffffff;
+  --line: #eceff6;
+  --radius: 22px;
+  --radius-sm: 15px;
+  --radius-lg: 28px;
+  --header-grad: linear-gradient(125deg, #2a4f97 0%, #3a6fc0 60%, #5aa9d8 100%);
+  --shadow: 0 3px 8px rgba(40,60,100,.05), 0 16px 40px rgba(40,60,100,.08);
 }
-@keyframes rise{from{transform:translateY(9px);}
-to{transform:none;}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { background: var(--bg); }
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(78,195,224,.18), transparent 60%),
+    radial-gradient(1000px 500px at -5% 0%, rgba(29,66,138,.10), transparent 55%),
+    var(--bg);
 }
-.rise{animation:rise .5s cubic-bezier(.2,.8,.2,1) both;}
-body.flat .kpi,body.flat .panel,body.flat .tablecard,body.flat .ttcard,body.flat .boarding,body.flat .wk,body.flat .tab,body.flat .slasum .pill{box-shadow:none !important;border-color:#d4deec;}
-body.flat .panel--brand{border:1px solid rgba(255,255,255,.2);}
-body.nomotion .rise{animation:none;}
+
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 20px 24px 56px; }
+
+/* tabular numerals everywhere numbers matter */
+.tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+/* ============================ HEADER ====================================== */
+.appbar {
+  position: relative;
+  background: var(--header-grad);
+  border-radius: var(--radius-lg);
+  padding: 20px 28px;
+  color: #fff;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+.appbar::before {
+  /* subtle radar / flight-path arcs */
+  content: "";
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(520px 520px at 88% -120%, rgba(255,255,255,.14), transparent 60%),
+    repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 64px);
+  pointer-events: none;
+}
+.appbar__row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 15px; }
+.brand__mark {
+  width: 52px; height: 52px; border-radius: 14px;
+  background: rgba(255,255,255,.12);
+  border: 1.5px solid rgba(255,255,255,.4);
+  display: grid; place-items: center; flex: 0 0 auto;
+  backdrop-filter: blur(4px);
+}
+.brand__mark svg { width: 30px; height: 30px; }
+.brand h1 { font-size: 21px; font-weight: 800; letter-spacing: .6px; line-height: 1.05; }
+.brand h1 span { color: var(--sky); }
+.brand p { font-size: 12px; font-weight: 300; color: #cfe1f5; margin-top: 3px; letter-spacing: .2px; white-space: nowrap; }
+
+.appbar__meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.datepill {
+  display: flex; flex-direction: column; align-items: flex-end;
+  padding-right: 16px; border-right: 1px solid rgba(255,255,255,.22);
+}
+.datepill .d { font-size: 19px; font-weight: 700; line-height: 1.1; white-space: nowrap; }
+.datepill .s { font-size: 11px; color: #cfe1f5; font-weight: 300; white-space: nowrap; }
+.livedot { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: #d8e8f8; font-weight: 400; }
+.livedot i { width: 8px; height: 8px; border-radius: 50%; background: #58e6a0; box-shadow: 0 0 0 0 rgba(88,230,160,.6); animation: pulse 2s infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(88,230,160,.5); } 70% { box-shadow: 0 0 0 7px rgba(88,230,160,0); } 100% { box-shadow: 0 0 0 0 rgba(88,230,160,0); } }
+
+.btn {
+  font-family: inherit; cursor: pointer; border: 0; border-radius: 11px;
+  padding: 10px 15px; font-size: 13px; font-weight: 600; display: inline-flex;
+  align-items: center; gap: 7px; transition: transform .12s ease, box-shadow .12s ease, background .12s;
+}
+.btn:active { transform: translateY(1px); }
+.btn--ghost { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.28); }
+.btn--ghost:hover { background: rgba(255,255,255,.24); }
+.btn--accent { background: var(--sky); color: #0c2c45; }
+.btn--accent:hover { box-shadow: 0 6px 16px rgba(78,195,224,.4); }
+
+/* ============================ WEEK NAV ==================================== */
+.weeknav { display: flex; align-items: center; gap: 12px; margin: 16px 0 18px; }
+.weeknav__strip { display: flex; gap: 7px; overflow-x: auto; flex: 1; padding: 3px 1px 6px; scrollbar-width: thin; }
+.weeknav__strip::-webkit-scrollbar { height: 5px; }
+.weeknav__strip::-webkit-scrollbar-thumb { background: #c7d4e6; border-radius: 4px; }
+.wk {
+  flex: 0 0 auto; min-width: 50px; text-align: center; cursor: pointer;
+  background: var(--card); border: 1px solid var(--line); border-radius: 13px;
+  padding: 7px 6px 8px; line-height: 1.1; transition: all .14s ease; user-select: none;
+}
+.wk:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow-sm); }
+.wk .wd { display: block; font-size: 9.5px; color: var(--ink-3); font-weight: 500; letter-spacing: .4px; }
+.wk .wn { display: block; font-size: 18px; font-weight: 700; color: var(--ink); }
+.wk .wm { display: block; font-size: 9px; color: var(--ink-3); font-weight: 400; }
+.wk.sel { background: var(--brand); border-color: var(--brand); box-shadow: 0 8px 18px rgba(29,66,138,.28); }
+.wk.sel .wd, .wk.sel .wm { color: #bcd2ef; }
+.wk.sel .wn { color: #fff; }
+.wk.today:not(.sel) { border-color: var(--accent); }
+.wk.today:not(.sel) .wn { color: var(--brand); }
+.weeknav__date { display: flex; align-items: center; gap: 8px; }
+.weeknav__date input {
+  font-family: inherit; background: var(--card); border: 1px solid var(--line);
+  color: var(--ink); border-radius: 11px; padding: 9px 11px; font-size: 13px; font-weight: 500;
+}
+.iconbtn {
+  width: 38px; height: 38px; flex: 0 0 auto; border-radius: 11px; border: 1px solid var(--line);
+  background: var(--card); color: var(--brand); cursor: pointer; display: grid; place-items: center;
+  font-size: 16px; transition: all .14s;
+}
+.iconbtn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ============================ TABS ======================================== */
+.tabs { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.tab {
+  font-family: inherit; cursor: pointer; background: var(--card); border: 1px solid var(--line);
+  color: var(--ink-2); border-radius: 13px; padding: 11px 18px; font-weight: 600; font-size: 14px;
+  display: inline-flex; align-items: center; gap: 9px; transition: all .15s ease;
+}
+.tab svg { width: 17px; height: 17px; }
+.tab:hover { color: var(--brand); border-color: #cdd9ec; }
+.tab.active { background: var(--brand); color: #fff; border-color: var(--brand); box-shadow: 0 8px 18px rgba(29,66,138,.24); }
+.tab .badge {
+  font-size: 11px; font-weight: 700; background: rgba(255,255,255,.22); color: #fff;
+  border-radius: 20px; padding: 1px 8px; min-width: 20px; text-align: center;
+}
+.tab:not(.active) .badge { background: #fdeaea; color: var(--red); }
+
+/* ============================ KPI HERO ==================================== */
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 16px; }
+.kpi {
+  position: relative; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 16px 15px; box-shadow: var(--shadow-sm);
+  overflow: hidden; transition: transform .16s ease, box-shadow .16s ease;
+}
+.kpi:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.kpi::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+.kpi__top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.kpi__ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--c) 14%, white); color: var(--c); }
+.kpi__ico svg { width: 19px; height: 19px; }
+.kpi__trend { font-size: 11px; font-weight: 600; color: var(--ink-3); display: inline-flex; align-items: center; gap: 3px; }
+.kpi__trend.up { color: var(--good); }
+.kpi__trend.down { color: var(--alert); }
+.kpi__val { font-size: 34px; font-weight: 800; color: var(--ink); line-height: 1; letter-spacing: -.5px; }
+.kpi__val small { font-size: 15px; font-weight: 600; color: var(--ink-3); margin-left: 2px; }
+.kpi__lbl { font-size: 12.5px; color: var(--ink-2); font-weight: 500; margin-top: 5px; }
+.kpi__sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+
+/* primary attendance band */
+.attband {
+  display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 14px; margin-bottom: 16px;
+}
+.panel {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; box-shadow: var(--shadow-sm);
+}
+.panel--brand { background: var(--header-grad); color: #fff; border: 0; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+.panel--brand::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 54px); }
+.panel h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.panel--brand h3 { color: #cfe1f5; }
+.panel__hd { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.panel__hd h3 { margin-bottom: 0; }
+
+/* attendance ring */
+.attring { position: relative; display: flex; align-items: center; gap: 18px; }
+.ring { position: relative; width: 132px; height: 132px; flex: 0 0 auto; }
+.ring__center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.ring__center .big { font-size: 30px; font-weight: 800; line-height: 1; color: #fff; }
+.ring__center .lbl { font-size: 10.5px; color: #cfe1f5; margin-top: 3px; }
+.attlegend { display: flex; flex-direction: column; gap: 9px; flex: 1; }
+.leg { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+.leg i { width: 11px; height: 11px; border-radius: 4px; flex: 0 0 auto; }
+.leg .lk { color: #d6e4f5; font-weight: 300; flex: 1; }
+.leg .lv { font-weight: 700; font-size: 15px; }
+
+/* mini stat list */
+.statlist { display: flex; flex-direction: column; gap: 12px; }
+.statrow { display: flex; align-items: center; gap: 12px; }
+.statrow__ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--c) 13%, white); color: var(--c); flex: 0 0 auto; }
+.statrow__ico svg { width: 18px; height: 18px; }
+.statrow__t { flex: 1; }
+.statrow__t .k { font-size: 12px; color: var(--ink-2); font-weight: 500; }
+.statrow__t .v { font-size: 19px; font-weight: 800; color: var(--ink); line-height: 1.1; }
+.statrow__t .v small { font-size: 12px; color: var(--ink-3); font-weight: 600; }
+
+/* OT split mini bars */
+.otsplit { display: flex; flex-direction: column; gap: 13px; }
+.otrow .otrow__top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+.otrow .otrow__top .k { font-size: 12.5px; font-weight: 500; color: var(--ink-2); }
+.otrow .otrow__top .v { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; padding-left: 10px; }
+.otrow .otrow__top .v small { color: var(--ink-3); font-weight: 500; }
+.track { height: 9px; background: var(--line-2); border-radius: 6px; overflow: hidden; }
+.track > i { display: block; height: 100%; border-radius: 6px; }
+
+/* ============================ GRID ======================================= */
+.grid { display: grid; gap: 16px; }
+.grid--2 { grid-template-columns: 1.35fr 1fr; }
+.grid--charts { grid-template-columns: 1.4fr 1fr; margin-bottom: 16px; }
+
+/* ============================ CHARTS ===================================== */
+.barchart { display: flex; flex-direction: column; gap: 11px; }
+.barchart__row { display: grid; grid-template-columns: 116px 1fr 46px; align-items: center; gap: 12px; }
+.barchart__lbl { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.barchart__lbl .tag { font-size: 10px; font-weight: 700; color: #fff; background: var(--brand); border-radius: 6px; padding: 1px 7px; letter-spacing: .3px; }
+.barchart__bar { position: relative; height: 24px; background: var(--line-2); border-radius: 8px; overflow: hidden; }
+.barchart__fill { position: relative; z-index: 1; height: 100%; border-radius: 8px; background: linear-gradient(90deg, var(--teal), var(--sky)); display: flex; align-items: center; transition: width .9s cubic-bezier(.2,.8,.2,1); }
+.barchart__ghost { position: absolute; inset: 0; z-index: 0; }
+.barchart__val { font-size: 13px; font-weight: 700; color: var(--ink); text-align: right; }
+.barchart__val small { color: var(--ink-3); font-weight: 500; }
+
+.donut-wrap { display: flex; align-items: center; gap: 20px; }
+.donut { width: 150px; height: 150px; flex: 0 0 auto; }
+.donut-legend { display: flex; flex-direction: column; gap: 11px; flex: 1; }
+
+/* ============================ TABLES ===================================== */
+.tablecard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+.teamsel { font-family: inherit; font-size: 13px; font-weight: 600; color: var(--ink); padding: 7px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); cursor: pointer; margin-left: 8px; }
+.tablecard__hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 16px 20px 13px; }
+.tablecard__hd h3 { font-size: 14.5px; font-weight: 700; color: var(--brand); display: flex; align-items: center; gap: 9px; }
+.tablecard__hd .pill { font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-radius: 20px; padding: 3px 11px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th { text-align: right; color: var(--ink-3); font-weight: 600; font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; padding: 8px 12px; background: var(--bg-2); }
+.tbl th:first-child { text-align: left; }
+.tbl td { text-align: right; padding: 9px 12px; border-bottom: 1px solid var(--line-2); color: var(--ink); }
+.tbl td:first-child { text-align: left; }
+.tbl tbody tr:last-child td { border-bottom: 0; }
+.tbl tbody tr:hover td { background: color-mix(in srgb, var(--accent) 7%, white); }
+.tbl tr.total td { background: color-mix(in srgb, var(--brand) 6%, white); font-weight: 700; border-top: 2px solid var(--line); }
+.tbl .nm { font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 9px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+.tag {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 34px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: .4px; color: #fff;
+  background: var(--brand); border-radius: 6px; padding: 2px 8px;
+}
+.muted { color: var(--ink-3); font-weight: 400; }
+.b { font-weight: 700; }
+
+/* mini progress in cells */
+.cellbar { position: relative; height: 18px; background: var(--line-2); border-radius: 6px; overflow: hidden; min-width: 90px; }
+.cellbar > i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; background: linear-gradient(90deg, var(--teal), var(--sky)); }
+.cellbar > span { position: absolute; right: 7px; top: 0; line-height: 18px; font-size: 11px; font-weight: 700; color: var(--brand); }
+
+/* ot mini cell */
+.otcell { font-weight: 700; }
+.otcell small { color: var(--ink-3); font-weight: 500; font-size: 11px; }
+.otcell.pre { color: var(--warn); }
+.otcell.post { color: var(--royal); }
+
+/* ============================ TIMETABLE ================================== */
+.ttbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.search { position: relative; flex: 1; min-width: 200px; }
+.search input { width: 100%; font-family: inherit; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px 11px 38px; font-size: 13.5px; background: var(--card); color: var(--ink); }
+.search input:focus { outline: 2px solid color-mix(in srgb, var(--accent) 50%, white); border-color: var(--accent); }
+.search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--ink-3); }
+.chipgroup { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-start; }
+.tbl td .chipgroup { min-width: 320px; }
+.chip { display: inline-block; line-height: 1.35; font-family: inherit; cursor: pointer; font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--ink-2); transition: all .13s; white-space: normal; }
+.chip:hover { border-color: var(--accent); }
+.chip--duty { background: var(--bg-2); color: var(--ink-3); border-style: dashed; }
+.chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
+.planchip .editnm { display: inline-block; max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; min-width: 22px; padding: 0 2px; border-bottom: 1px dashed var(--accent); outline: none; cursor: text; font-weight: 700; color: var(--ink-2); }
+.planchip .editnm:focus { max-width: none; overflow: visible; background: #fff7d6; border-bottom-color: #d9a400; border-radius: 3px; }
+.planchip.edited { background: #fff7d6; border-color: #d9a400; }
+.planchip__i { cursor: pointer; color: var(--ink-3); font-weight: 600; }
+.planchip__i:hover { color: var(--accent); }
+.pickwrap { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.namepick { font-family: inherit; font-size: 9.5px; font-weight: 600; padding: 2px 3px; border-radius: 5px; border: 1px solid var(--line); background: var(--bg-2); color: var(--ink-2); width: 96px; max-width: 96px; cursor: pointer; }
+.namepick:focus { outline: none; border-color: var(--accent); background: #fff; }
+#view-adv .tbl th, #view-adv .tbl td { padding: 5px 5px; font-size: 10.5px; }
+#view-adv .tbl thead th { position: sticky; top: 0; z-index: 2; font-size: 9.5px; }
+#view-sup .namepick { width: 210px; max-width: 210px; font-size: 11px; padding: 3px 6px; }
+#view-sup .pickwrap { gap: 3px; }
+.namepick.edited { background: #fff7d6; border-color: #d9a400; }
+.supbar { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 10px 0 4px; font-size: 13px; }
+.supteam { font-family: inherit; font-size: 12px; font-weight: 700; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--ink-3); cursor: pointer; }
+.supteam.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+.supteam.supall { background: var(--bg-2); color: var(--ink); }
+.supgrp { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 10px 6px 0; padding: 3px 4px 3px 0; }
+.supgrp__t { font-size: 11px; font-weight: 800; color: var(--brand); background: var(--bg-2); border-radius: 7px; padding: 3px 8px; margin-right: 4px; white-space: nowrap; }
+.supwrap { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; max-width: 760px; }
+.supchip { font-size: 10.5px; padding: 3px 7px; white-space: nowrap; cursor: pointer; }
+.supchip:hover { border-color: var(--accent); background: #eef4fb; }
+.supchip.sup--busy { border-color: #e0a96d; }
+.supchip.sup--free { border-color: #56b682; }
+.supchip.sup--sub { background: #fdf2e3; border: 1px dashed #e0a96d; color: #9a5b1a; }
+.supchip.sup--sub::before { content: "↪ "; font-weight: 700; }
+.psnpop { position: absolute; z-index: 9999; width: 350px; max-width: 92vw; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 34px rgba(20,40,80,.22); padding: 13px 15px; font-size: 13px; }
+.psn__hd { display: flex; align-items: center; gap: 6px; font-size: 14px; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line-2); }
+.psn__x { margin-left: auto; cursor: pointer; color: var(--ink-3); font-weight: 700; padding: 0 4px; }
+.psn__r { margin: 4px 0; }
+.psn__flts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.psn__flts .chip { font-size: 10.5px; padding: 3px 7px; }
+.tbl tbody tr.row-off td { background: #eceff1 !important; color: #7c878f; }
+.tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
+.tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
+.chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
+
+.ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }
+.ttcard { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 15px 16px; box-shadow: var(--shadow-sm); transition: transform .14s, box-shadow .14s; }
+.ttcard:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.ttcard__hd { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+.avatar { width: 40px; height: 40px; border-radius: 12px; flex: 0 0 auto; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 15px; background: linear-gradient(135deg, var(--royal), var(--bosch)); }
+.ttcard__id { flex: 1; min-width: 0; }
+.ttcard__id .nm { font-size: 14.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ttcard__id .meta { font-size: 11.5px; color: var(--ink-3); display: flex; align-items: center; gap: 7px; margin-top: 1px; }
+.shiftbadge { text-align: right; flex: 0 0 auto; }
+.shiftbadge .code { font-size: 13px; font-weight: 800; color: var(--brand); }
+.shiftbadge .time { font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ttcard__ot { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 4px 10px; border-radius: 8px; margin-bottom: 11px; }
+.ttcard__ot.pre { background: #fff6e0; color: #9a6b00; }
+.ttcard__ot.post { background: #e9f0fb; color: var(--royal); }
+.ttcard__ot.off { background: #fdeaea; color: var(--red); }
+.fstrip { display: flex; flex-direction: column; gap: 7px; }
+.fstrip__item { display: flex; align-items: center; gap: 8px; background: var(--bg-2); border-radius: 10px; padding: 7px 10px; }
+.fstrip__no { font-size: 12.5px; font-weight: 800; color: var(--brand); min-width: 52px; flex: 0 0 auto; }
+.fstrip__task { font-size: 10px; font-weight: 700; color: #fff; background: var(--teal); border-radius: 6px; padding: 2px 7px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 92px; flex: 0 1 auto; }
+.fstrip__time { margin-left: auto; font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; text-align: right; flex: 0 0 auto; white-space: nowrap; }
+.fstrip__time .lab { font-size: 8.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .3px; display: block; }
+.ttcard__empty { font-size: 12px; color: var(--ink-3); font-style: italic; padding: 6px 0; }
+
+/* ============================ FLIGHTS / SLA ============================== */
+.slabar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.slasum { display: flex; gap: 10px; }
+.slasum .pill { display: flex; align-items: center; gap: 8px; padding: 9px 15px; border-radius: 12px; font-size: 13px; font-weight: 600; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.slasum .pill b { font-size: 17px; font-weight: 800; }
+.slasum .pill.ok b { color: var(--good); }
+.slasum .pill.bad b { color: var(--alert); }
+
+.fltlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.boarding {
+  position: relative; display: flex; background: var(--card); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); transition: transform .14s, box-shadow .14s;
+}
+.boarding:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.boarding.short { border-color: #f3c9c9; }
+.boarding__stub {
+  width: 92px; flex: 0 0 auto; background: var(--header-grad); color: #fff;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 14px 8px; position: relative;
+}
+.boarding.short .boarding__stub { background: linear-gradient(160deg, #b3201f, var(--red)); }
+.boarding__stub .ac { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+.boarding__stub .acn { font-size: 8.5px; color: rgba(255,255,255,.8); text-align: center; margin-top: 3px; line-height: 1.2; font-weight: 300; }
+.boarding__perf { position: absolute; right: -7px; top: 0; bottom: 0; width: 14px; background:
+  radial-gradient(circle at center, var(--bg) 0 5px, transparent 5px) repeat-y; background-size: 14px 18px; }
+.boarding__body { flex: 1; padding: 13px 16px 14px; min-width: 0; }
+.boarding__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 11px; }
+.boarding__fl { font-size: 18px; font-weight: 800; color: var(--ink); letter-spacing: .5px; }
+.boarding__fl small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.boarding__times { text-align: right; font-size: 11px; color: var(--ink-2); }
+.boarding__times .t { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--ink); font-size: 13px; }
+.slastatus { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; }
+.slastatus.ok { background: #e3f6ee; color: var(--good); }
+.slastatus.bad { background: #fdeaea; color: var(--red); }
+.phases { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.phase { text-align: center; background: var(--bg-2); border-radius: 10px; padding: 8px 4px; }
+.phase.short { background: #fdecec; }
+.phase .pl { font-size: 9.5px; font-weight: 700; color: var(--ink-3); letter-spacing: .4px; text-transform: uppercase; }
+.phase .pv { font-size: 16px; font-weight: 800; color: var(--ink); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.phase.short .pv { color: var(--red); }
+.phase .pv span { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+.phase .pd { font-size: 9.5px; font-weight: 700; margin-top: 1px; }
+.phase.short .pd { color: var(--red); }
+.phase.full .pd { color: var(--good); }
+
+/* ============================ FOOT ====================================== */
+.foot { margin-top: 26px; text-align: center; color: var(--ink-3); font-size: 11.5px; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.foot b { color: var(--ink-2); font-weight: 600; }
+
+.sectionlabel { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--ink-3); margin: 22px 2px 12px; display: flex; align-items: center; gap: 10px; }
+.sectionlabel::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* ============================ RESPONSIVE ================================= */
+@media (max-width: 1080px) {
+  .kpis { grid-template-columns: repeat(3, 1fr); }
+  .attband { grid-template-columns: 1fr 1fr; }
+  .attband > :first-child { grid-column: 1 / -1; }
+  .grid--2, .grid--charts { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+  .wrap { padding: 14px 14px 44px; }
+  .kpis { grid-template-columns: repeat(2, 1fr); }
+  .attband { grid-template-columns: 1fr; }
+  .brand h1 { font-size: 18px; }
+  .kpi__val { font-size: 28px; }
+  .fltlist, .ttgrid { grid-template-columns: 1fr; }
+}
+
+/* reveal animation (transform-only so content is never hidden if a frame freezes) */
+@keyframes rise { from { transform: translateY(9px); } to { transform: none; } }
+.rise { animation: rise .5s cubic-bezier(.2,.8,.2,1) both; }
+
+/* Tweak: flat cards */
+body.flat .kpi, body.flat .panel, body.flat .tablecard, body.flat .ttcard,
+body.flat .boarding, body.flat .wk, body.flat .tab, body.flat .slasum .pill {
+  box-shadow: none !important;
+  border-color: #d4deec;
+}
+body.flat .panel--brand { border: 1px solid rgba(255,255,255,.2); }
+
+/* Tweak: disable entrance motion */
+body.nomotion .rise { animation: none; }
+
+/* server-rendered additions */
 canvas{max-width:100%}
 .tbl td .barmini{position:relative;height:16px;background:var(--line-2);border-radius:8px;overflow:hidden;min-width:70px}
 .tbl td .barmini i{position:absolute;inset:0;background:linear-gradient(90deg,var(--teal),var(--sky));border-radius:8px}
 .tbl td .barmini b{position:absolute;right:6px;top:0;line-height:16px;font-size:10px;color:var(--royal);font-weight:700}
-.okk{color:var(--good);font-weight:700}
-.badd{color:var(--red);font-weight:700}
+.okk{color:var(--good);font-weight:700}.badd{color:var(--red);font-weight:700}
 tr.rowbad td{background:#fdecec}
 .muted{color:var(--ink-3)}
-@media print{.weeknav,.tabs,.btn,.ttbar{display:none}
-#view-tt,#view-flt,#view-dash{display:block!important}
-}`;
+/* ============ UI REFRESH · modern + corporate (PWMS) ====================== */
+:root{
+  --bg:#f4f7fc; --bg-2:#eaf1f9; --line:#e6edf7; --line-2:#eef3fa;
+  --shadow-sm:0 1px 2px rgba(18,38,76,.04),0 6px 16px rgba(18,38,76,.05);
+  --shadow:0 2px 8px rgba(18,38,76,.05),0 18px 40px rgba(18,38,76,.08);
+}
+body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+/* cards */
+.tablecard,.panel,.kpi,.ttcard{ border-radius:18px; }
+.tablecard{ transition:box-shadow .18s ease; }
+.tablecard:hover{ box-shadow:var(--shadow); }
+.tablecard__hd{ border-bottom:1px solid var(--line-2); padding-bottom:12px; }
+.tablecard__hd h3{ font-size:15px; letter-spacing:.1px; }
+/* tables */
+.tbl th{ font-size:11px; background:#eef3fb; }
+.tbl tbody tr{ transition:background .12s ease; }
+.tbl tbody tr:hover td{ background:color-mix(in srgb,var(--accent) 9%, white); }
+/* tabs (pill + active glow) */
+.tabs{ gap:7px; }
+.tab{ border-radius:11px; padding:10px 16px; font-size:13.5px; box-shadow:var(--shadow-sm); }
+.tab:hover{ transform:translateY(-1px); }
+.tab.active{ box-shadow:0 7px 18px rgba(29,66,138,.28); }
+/* inputs/buttons */
+.search input{ border-radius:11px; transition:border-color .15s, box-shadow .15s; }
+.btn--accent{ box-shadow:0 6px 16px rgba(29,66,138,.20); }
+/* --- responsive: tablet/มือถือ --- */
+@media (max-width:860px){
+  .wrap{ padding:12px 12px 40px; }
+  .appbar{ flex-wrap:wrap; gap:10px; padding:14px 16px; }
+  .tabs{ flex-wrap:nowrap; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:5px; scrollbar-width:thin; }
+  .tab{ flex:0 0 auto; padding:9px 13px; font-size:13px; }
+  .tablecard__hd{ padding:13px 14px 11px; }
+  .tbl{ font-size:12px; }
+  .tbl th,.tbl td{ padding:8px 9px; }
+  .planchip .editnm{ max-width:78px; }
+  .tablecard__hd h3{ font-size:14px; }
+}
+@media (max-width:520px){
+  .kpis{ grid-template-columns:1fr 1fr; }
+  .brand h1{ font-size:17px; }
+  .brand p{ font-size:11px; }
+  .tab{ padding:8px 11px; font-size:12.5px; }
+  .planchip .editnm{ max-width:66px; }
+}
+/* ===== UI REFRESH · phase 2 (header + segmented tabs + rhythm) =========== */
+:root{ --header-grad:linear-gradient(120deg,#10254a 0%,#1D428A 54%,#236192 100%); }
+.appbar{ box-shadow:0 12px 34px rgba(16,37,74,.20); }
+.appbar::after{ content:""; position:absolute; left:0; right:0; bottom:0; height:3px; background:linear-gradient(90deg,var(--sky),var(--teal)); }
+.brand__mark{ border-radius:13px; }
+/* โลโก้ AOTGA (วางบนชิปขาวเพื่อให้ตัวอักษรน้ำเงินอ่านออกบนหัวเว็บเข้ม) */
+.brand__logo{ height:42px; width:auto; max-width:230px; background:#fff; padding:5px 11px; border-radius:12px; box-shadow:0 5px 14px rgba(0,0,0,.18); object-fit:contain; }
+.foot__logo{ height:46px; width:auto; display:block; margin:0; }
+@media (max-width:520px){ .brand__logo{ height:34px; max-width:170px; } }
+/* เมนูแท็บแบบ segmented control */
+.tabs{ background:var(--card); border:1px solid var(--line); padding:6px; border-radius:16px; box-shadow:var(--shadow-sm); }
+.tab{ background:transparent; border:0; box-shadow:none; border-radius:11px; }
+.tab:hover{ background:var(--bg-2); transform:none; color:var(--brand); }
+.tab.active{ background:var(--brand); color:#fff; box-shadow:0 4px 12px rgba(29,66,138,.30); }
+/* ระยะห่าง/จังหวะ */
+.tablecard{ margin-bottom:16px; }
+@media (max-width:860px){ .tabs{ border-radius:13px; padding:5px; } }
+@media print{.weeknav,.tabs,.btn,.ttbar{display:none}#view-tt,#view-flt,#view-dash{display:block!important}}
+`;
+

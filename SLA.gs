@@ -426,7 +426,11 @@ function slaSupportPool_(res, ll, teamSys, includeOff) {
     if (off && !includeOff) return;                                        // คน OFF เฉพาะตอนเปิด re-sked
     if (slaSkipTeam_(team)) return;                          // Porter / Crewsign / Admin Doc ไม่เป็นคนช่วย
     var d = acDuty_(r), ds = d.ds, de = d.de;
-    if (off) { ds = -100000; de = 100000; }                  // OFF (re-sked) → ว่างทุกช่วง (จัดเวลาใหม่ได้)
+    if (off) {
+      // OFF (re-sked): ถ้ายังมี "กะรายสัปดาห์" ติดอยู่ (เช่น X9=00:00-09:00) → เคารพเวลากะนั้น
+      // ไม่สมมุติว่าว่าง 24 ชม. (กันแนะคนกะเช้าไปช่วยไฟลท์บ่าย) · ไม่มีกะระบุ → ว่างทุกช่วง จัดเวลาใหม่ได้
+      if (ds == null || de == null) { ds = -100000; de = 100000; }
+    }
     if (ds == null || de == null) return;
     var busy = [];
     if (!off) (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
