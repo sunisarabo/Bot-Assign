@@ -356,7 +356,57 @@ function rbAppbar_(date) {
     '</div><div class="s">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
     '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">' +
     '<div class="livedot"><i></i>Live</div>' +
-    '<button class="btn btn--accent" onclick="window.print()">⬇ Export PDF</button></div></div></div></div>';
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn" onclick="pwmsHelp(1)" title="คู่มือการใช้งาน">ℹ️ ช่วยเหลือ</button>' +
+    '<button class="btn btn--accent" onclick="window.print()">⬇ Export PDF</button></div></div></div></div></div>';
+}
+/** หน้าต่างคู่มือการใช้งาน (เปิดด้วยปุ่ม ℹ️ ช่วยเหลือ) */
+function rbHelpModal_() {
+  return '<div id="helpov" class="helpov" style="display:none" onclick="if(event.target===this)pwmsHelp(0)">' +
+    '<div class="helpbox">' +
+    '<div class="helpbox__hd"><h3>ℹ️ คู่มือการใช้งาน PWMS</h3><button class="helpx" onclick="pwmsHelp(0)">✕</button></div>' +
+    '<div class="helpbox__bd">' +
+    '<p class="muted">ระบบอ่านไฟล์ assignment รายวันจาก Drive แล้วสรุปกำลังพล · ตรวจ SLA · หาคนช่วยข้ามทีม — เลือกวันที่ได้จากแถบบน · กด 🔄 เมื่อแก้ไฟล์แล้วอยากให้ดึงใหม่</p>' +
+
+    '<h4>📑 แท็บต่าง ๆ</h4><ul class="helpul">' +
+    '<li><b>▦ Dashboard</b> — ภาพรวมกำลังพล แยกราย<b>ทีม</b>/<b>ตำแหน่ง</b> (Total · มาทำงาน · หยุด · OT)</li>' +
+    '<li><b>🕓 Timetable</b> — รายคน: กะเข้า-ออก · OT · ไฟลท์ที่รับผิดชอบ (ค้นหาชื่อได้)</li>' +
+    '<li><b>✈️ Flights & SLA</b> — ราย<b>ไฟลท์</b>: จัดจริง vs SLA ต้องการ → ✅ ครบ / ⚠️ ขาด</li>' +
+    '<li><b>🆘 ไฟลท์คนไม่ครบ</b> — ไฟลท์ที่ขาด + แนะคนมาช่วยข้ามทีม</li>' +
+    '<li><b>📅 จัดล่วงหน้า</b> — จัดเวรอัตโนมัติลงเคาน์เตอร์/เกท + export 1 แท็บ/ทีม</li>' +
+    '<li><b>🔧 ตรวจ Assign</b> — ตรวจ OT เกิน · ช่วงว่าง · ครอบคลุมไฟลท์</li>' +
+    '<li><b>OT Dashboard</b> — สรุปชั่วโมง OT สะสมรายทีม</li></ul>' +
+
+    '<h4>🆘 วิธีอ่านแท็บ "ไฟลท์คนไม่ครบ"</h4>' +
+    '<p>คอลัมน์: <code>Flight · สายการบิน · ระบบเช็คอิน · ทีม · STD · ตำแหน่งที่ขาด · ช่วงเวลา · เลือกคนมาช่วย</code></p>' +
+    '<ul class="helpul">' +
+    '<li><b>ตำแหน่งที่ขาด</b> เช่น "Check-in ขาด 3 (Sabre)" = ขาดคนเช็คอิน 3 · ต้องรู้ระบบ Sabre</li>' +
+    '<li><b>ช่วงเวลา</b> = คนช่วยต้องว่างครอบช่วงนี้</li>' +
+    '<li>ป้ายคนช่วย: <code>ชื่อ · ตำแหน่ง · กะ · X ไฟลท์</code> → <b>"0 ไฟลท์" = ว่างสุด เลือกก่อน</b></li>' +
+    '<li><b>OFF · re-sked 08:00-20:00</b> = คนหยุด เรียกมาช่วยได้ตามกะเดิม (ทางเลือกท้ายสุด)</li>' +
+    '<li>ลำดับแนะ: <b>ทีมลอย (PVTLP/STBY) ก่อน</b> → คนทำงาน → คนหยุด</li></ul>' +
+
+    '<h4>🟢 สถานะคน (นับเป็น "มาทำงาน" ไหม)</h4><ul class="helpul">' +
+    '<li><b>working</b> (Onduty) → ✅ &nbsp; <b>ot_off</b> (วันหยุดมาทำ OT จริง) → ✅</li>' +
+    '<li><b>off</b> (รวม "OT OFF" ที่ยังไม่มีชั่วโมง OT) → ❌ &nbsp; <b>sick/vac/ลา</b> → ❌</li>' +
+    '<li><b>on-duty = working + ot_off</b></li></ul>' +
+
+    '<h4>✈️ SLA — คนต่อไฟลท์ (ตัวอย่าง)</h4>' +
+    '<table class="helptb"><tr><th>สาย</th><th>ระบบ</th><th>SUP</th><th>Check-in</th><th>Arr</th><th>Gate</th><th>รวม</th></tr>' +
+    '<tr><td>EK</td><td>AS Connect</td><td>1</td><td>7</td><td>3</td><td>2</td><td>13</td></tr>' +
+    '<tr><td>EY</td><td>Altea</td><td>1</td><td>9</td><td>1</td><td>2</td><td>13</td></tr>' +
+    '<tr><td>QR</td><td>Altea</td><td>1</td><td>9</td><td>2</td><td>2</td><td>14</td></tr>' +
+    '<tr><td>SQ</td><td>Altea</td><td>1</td><td>5</td><td>1</td><td>2</td><td>9</td></tr>' +
+    '<tr><td>AK</td><td>Gonow</td><td>1</td><td>3</td><td>1</td><td>2</td><td>7</td></tr>' +
+    '<tr><td>PG</td><td>Altea</td><td>1</td><td>0</td><td>1</td><td>2</td><td>5</td></tr></table>' +
+    '<p class="muted">Gate Agent ใช้คนจากเช็คอินย้ายไปเกท (ไม่นับซ้ำใน "รวม") · ขาออกอย่างเดียว→ไม่นับ Arrival · ขาเข้าอย่างเดียว→ไม่นับ Check-in/Gate · ตารางเต็มดูในเอกสาร docs/</p>' +
+
+    '<h4>⚠️ ตัวเลขเพี้ยน เช็คก่อน</h4><ul class="helpul">' +
+    '<li>แก้ไฟล์แล้วยังเห็นของเก่า → กด <b>🔄 รีเฟรช</b></li>' +
+    '<li>ทีมมาทำงานเยอะผิดปกติ → ไฟล์เปลี่ยนฟอร์ม / คอลัมน์สถานะชื่อแปลก</li>' +
+    '<li>ไฟลท์จัดคนซ้ำ → เลขไฟลท์เขียน 2 แถว (เช่น EK396/397 กับ EK397)</li></ul>' +
+
+    '</div></div></div>';
 }
 function rbWeekNav_(date, iso, base, tz) {
   var chips = [];
@@ -600,10 +650,13 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
     '</div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
+    rbHelpModal_() +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
     'function showView(v){["dash","tt","flt","sup","ac","fill","auto","adv","ot"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
+    'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
@@ -1180,6 +1233,23 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 /* โลโก้ AOTGA (วางบนชิปขาวเพื่อให้ตัวอักษรน้ำเงินอ่านออกบนหัวเว็บเข้ม) */
 .brand__logo{ height:42px; width:auto; max-width:230px; background:#fff; padding:5px 11px; border-radius:12px; box-shadow:0 5px 14px rgba(0,0,0,.18); object-fit:contain; }
 .foot__logo{ height:46px; width:auto; display:block; margin:0; }
+/* หน้าต่างคู่มือ (ℹ️ ช่วยเหลือ) */
+.helpov{ position:fixed; inset:0; z-index:9999; background:rgba(16,37,74,.45); backdrop-filter:blur(2px); display:flex; align-items:flex-start; justify-content:center; padding:5vh 16px; }
+.helpbox{ background:var(--card); border:1px solid var(--line); border-radius:18px; box-shadow:0 24px 60px rgba(16,37,74,.35); width:100%; max-width:720px; max-height:88vh; display:flex; flex-direction:column; overflow:hidden; }
+.helpbox__hd{ display:flex; align-items:center; justify-content:space-between; padding:15px 20px; background:var(--header-grad); color:#fff; }
+.helpbox__hd h3{ margin:0; font-size:16px; }
+.helpx{ background:rgba(255,255,255,.18); color:#fff; border:0; width:30px; height:30px; border-radius:9px; cursor:pointer; font-size:15px; }
+.helpx:hover{ background:rgba(255,255,255,.32); }
+.helpbox__bd{ padding:18px 22px; overflow-y:auto; font-size:13.5px; line-height:1.6; color:var(--ink-2); }
+.helpbox__bd h4{ margin:18px 0 7px; font-size:14px; color:var(--brand); border-top:1px solid var(--line); padding-top:14px; }
+.helpbox__bd h4:first-of-type{ border-top:0; padding-top:0; }
+.helpul{ margin:4px 0 4px 2px; padding-left:18px; }
+.helpul li{ margin:3px 0; }
+.helpbox__bd code{ background:var(--bg-2); border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-size:12px; }
+.helptb{ width:100%; border-collapse:collapse; margin:6px 0; font-size:12.5px; }
+.helptb th,.helptb td{ border:1px solid var(--line); padding:4px 8px; text-align:center; }
+.helptb th{ background:#eef3fb; }
+.helptb td:first-child{ font-weight:600; }
 @media (max-width:520px){ .brand__logo{ height:34px; max-width:170px; } }
 /* เมนูแท็บแบบ segmented control */
 .tabs{ background:var(--card); border:1px solid var(--line); padding:6px; border-radius:16px; box-shadow:var(--shadow-sm); }
