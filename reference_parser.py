@@ -296,6 +296,8 @@ def parse_standard(rows, team):
         bkt = classify(shift or timev, remark)
         if bkt == 'off' and oth > 0:            # SHIFT=X แต่มี OT = ทำ OT วันหยุด
             bkt = 'ot_off'
+        if bkt == 'ot_off' and not (oth > 0):   # REMARK="OT OFF" แต่ไม่มีชั่วโมง OT จริง = ยังไม่ได้มาทำ → หยุด
+            bkt = 'off'
         # เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงจากคอลัมน์ SHIFT เอง (เช่น "09-17")
         srng = _range_cells(row, cm['time']) if cm['time'] >= 0 else _range_str(shift)
         re_time = ''

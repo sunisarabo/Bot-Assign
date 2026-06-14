@@ -380,6 +380,7 @@ function rrParseStandard_(rows, team, meta) {
     oth = Math.round(oth * 10) / 10;
     var bkt = rrClassify_(shift || timev, remark);
     if (bkt === 'off' && oth > 0) bkt = 'ot_off';            // SHIFT=X แต่มี OT (เช่น 14-20) = ทำ OT วันหยุด
+    if (bkt === 'ot_off' && !(oth > 0)) bkt = 'off';         // REMARK="OT OFF" แต่ไม่มีชั่วโมง OT จริง = ยังไม่ได้มาทำ → หยุด (ไม่นับเป็น on-duty)
     // เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงเวลาจากคอลัมน์ SHIFT เอง (เช่น "09-17")
     var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : rrRangeStr_(shift);
     // Re-Sked overrides the shift time when filled (เปลี่ยนเวลาเข้างาน)
