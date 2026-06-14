@@ -1179,7 +1179,7 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 .brand__mark{ border-radius:13px; }
 /* โลโก้ AOTGA (วางบนชิปขาวเพื่อให้ตัวอักษรน้ำเงินอ่านออกบนหัวเว็บเข้ม) */
 .brand__logo{ height:42px; width:auto; max-width:230px; background:#fff; padding:5px 11px; border-radius:12px; box-shadow:0 5px 14px rgba(0,0,0,.18); object-fit:contain; }
-.foot__logo{ height:46px; width:auto; display:block; margin:0 auto; }
+.foot__logo{ height:46px; width:auto; display:block; margin:0; }
 @media (max-width:520px){ .brand__logo{ height:34px; max-width:170px; } }
 /* เมนูแท็บแบบ segmented control */
 .tabs{ background:var(--card); border:1px solid var(--line); padding:6px; border-radius:16px; box-shadow:var(--shadow-sm); }
