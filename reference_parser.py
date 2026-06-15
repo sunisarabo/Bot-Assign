@@ -334,6 +334,14 @@ def parse_standard(rows, team):
                     assigns.append(dict(flight=nm, task='/'.join(tasks),
                                         STA=info.get('STA', ''), STD=info.get('STD', ''),
                                         OP=info.get('OP', ''), CL=info.get('CL', '')))
+                    # common check-in (SU): "FC661" = FC ของ SU661 → เพิ่ม assignment ไฟลท์ของทีม
+                    if re.fullmatch(r'[A-Z]{2}', str(team).upper()) and not _ac_is_flight(nm):
+                        air = str(team).upper()
+                        for tk in tasks:
+                            mm = re.fullmatch(r'([A-Z]+)?(\d{3,4})', str(tk))
+                            if mm and _ac_is_flight(air + mm.group(2)):
+                                assigns.append(dict(flight=air + mm.group(2), task=mm.group(1) or '',
+                                                    STA='', STD='', OP='', CL=''))
         # บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
         # → เพิ่มรหัสไฟลท์ที่ยังไม่มี (กันนับซ้ำด้วยเลขไฟลท์)
         if cm['flt'] - 1 >= 0:

@@ -393,6 +393,17 @@ function rrParseStandard_(rows, team, meta) {
         } else {
           assigns.push({ flight: fc.name, task: tasks.join('/'),
                          STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl });
+          // common check-in (SU): โค้ดเคาน์เตอร์ที่ระบุเลขไฟลท์ เช่น "FC661" = FC ของ SU661
+          // → เพิ่ม assignment ไฟลท์ของทีม (เฉพาะทีมที่ชื่อเป็นรหัสสายการบิน 2 ตัว)
+          if (/^[A-Z]{2}$/.test(String(team).toUpperCase()) && !acIsFlight_(fc.name)) {
+            var air = String(team).toUpperCase();
+            tasks.forEach(function (tk) {
+              var mm = String(tk).match(/^([A-Z]+)?(\d{3,4})$/);   // FC661 / 285
+              if (mm && acIsFlight_(air + mm[2])) {
+                assigns.push({ flight: air + mm[2], task: mm[1] || '', STA: '', STD: '', OP: '', CL: '' });
+              }
+            });
+          }
         }
       }
     });
