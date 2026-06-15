@@ -310,13 +310,19 @@ function slaCounterTime_(f) {
   return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
 }
 /** classify a job task code into a phase */
-function slaPhaseOf_(task) {
+/** คืน "ทุกเฟส" ที่ task ครอบคลุม (agent 1 คนทำหลายงาน เช่น "PRIO/GA/PFD" = เช็คอิน+เกท)
+ *  · [] = ไปเทรน/ประชุม (ไม่นับเป็นคนคุมไฟลท์) · ['CI'] = ค่าเริ่มต้น (เช็คอิน) */
+function slaPhasesOf_(task) {
   var u = String(task || '').toUpperCase();
-  if (!u) return 'CI';
-  if (/SUP|SPVR|^SOD|SM\b|MONITOR|CREW|^CS\b|CRW/.test(u)) return 'SUP';
-  if (/ARR|MEET|^AC\b|^RF\b|ESCORT|BIR/.test(u)) return 'ARR';
-  if (/GATE|^G[\b\/CM-]|^GM|^GC|BOARD|^B\b|BGO|BOCO|MAAS|PFD|GBD|^D\b|DEPART/.test(u)) return 'GATE';
-  return 'CI';   // check-in default (CT, C, Y, J, W, F, WEB, KIOSK, PSM, FC, GK, SD...)
+  if (!u) return ['CI'];
+  if (/TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR/.test(u)) return [];   // เทรน/ประชุม → ไม่คุมไฟลท์
+  var p = {};
+  if (/\bSUP\b|SPVR|\bSOD\b|\bSM\b|FLT\s*CTRL|FLIGHT\s*CONTROL/.test(u)) p.SUP = 1;        // หัวหน้าจริง
+  if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR/.test(u)) p.ARR = 1;                    // arrival
+  if (/\bGA\b|\bGM\b|\bGC\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|^G[\b/CM-]|^D\b/.test(u)) p.GATE = 1;   // gate (GA/GM/GC)
+  if (/\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|WEB|KIOSK|PRIO|PSM|\bFC\b|\bGK\b|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b/.test(u)) p.CI = 1;   // เช็คอิน/เคาน์เตอร์/crew sign
+  var keys = Object.keys(p);
+  return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
 
 /** ทีมที่ไม่เกี่ยวกับ SLA เช็คอิน/เกท — ไม่นับใน Flights & SLA / Support */
@@ -345,9 +351,11 @@ function slaCollectFlights_(res, ll) {
       f.teams[team] = true;
       if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD;
       if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL;
-      var ph = slaPhaseOf_(a.task);
-      f.assigned[ph]++; f.assigned.total++;
-      f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: ph });
+      var phs = slaPhasesOf_(a.task);
+      if (!phs.length) { f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: 'TRAIN' }); return; }   // ไปเทรน → แสดงได้ แต่ไม่นับเป็นคนคุมไฟลท์
+      phs.forEach(function (ph) { f.assigned[ph]++; });          // นับทุกเฟสที่คนนี้ครอบคลุม
+      f.assigned.total++;                                        // total = headcount (1 คน นับ 1)
+      f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: phs.join('/') });
     });
   }
   Object.keys(res.teams).forEach(function (t) {
