@@ -367,6 +367,16 @@ function slaCollectFlights_(res, ll) {
       ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') add('LL·' + s, r); });
     });
   }
+  // หัวหน้า (Sup) ที่ทำงานของแต่ละทีม + ช่วงเวลา — สำหรับเครดิต "ผู้กำกับดูแล" (1 หัวหน้าดูหลายไฟลท์พร้อมกัน)
+  var teamSups = {};
+  Object.keys(res.teams).forEach(function (t) {
+    if (slaSkipTeam_(t)) return;
+    res.teams[t].records.forEach(function (r) {
+      if ((r.bucket !== 'working' && r.bucket !== 'ot_off') || r.posGroup !== 'PSS') return;
+      var d = acDuty_(r); if (d.ds == null || d.de == null) return;
+      (teamSups[t] = teamSups[t] || []).push([d.ds, d.de]);
+    });
+  });
   // compute requirement + shortages per flight
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
@@ -379,6 +389,14 @@ function slaCollectFlights_(res, ll) {
       if (!hasDep) { f.req.CI = 0; f.req.GATE = 0; extra = 0; } // ขาเข้าอย่างเดียว → ไม่ต้องการ Check-in/Gate/คนเสริม
       if (!hasArr) { f.req.ARR = 0; }                           // ขาออกอย่างเดียว → ไม่ต้องการ Arrival
       f.req.total = f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR + extra;
+    }
+    // เครดิต SUP จากผู้กำกับดูแล: ไม่มีคน task=SUP บนไฟลท์ แต่ทีมเจ้าของมีหัวหน้าทำงานคาบช่วงไฟลท์ → มีผู้คุม
+    if (f.req.SUP > 0 && f.assigned.SUP === 0) {
+      var sw = slaPhaseWindow_(f, 'SUP'); var sm = slaRealMin_(f.STD); if (sm == null) sm = slaRealMin_(f.STA);
+      if (!sw && sm != null) sw = [sm - 30, sm + 30];
+      if (sw && Object.keys(f.teams).some(function (t) { return (teamSups[t] || []).some(function (w) { return w[0] <= sw[1] && w[1] >= sw[0]; }); })) {
+        f.assigned.SUP = f.req.SUP;
+      }
     }
     f.short = {};
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
