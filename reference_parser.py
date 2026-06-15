@@ -104,6 +104,11 @@ def parse_job_text(text):
     return out
 
 
+def is_training_task(task):
+    """task อบรม/ประชุม (ไม่ใช่งานไฟลท์)"""
+    return bool(re.search(r'TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP', str(task or ''), re.I))
+
+
 def extract_flights(txt):
     """ดึงรหัสไฟลท์จากข้อความรกๆ (Admin Doc/Crewsign) — เฉพาะที่ผ่าน _ac_is_flight, ตัดซ้ำด้วยเลขไฟลท์"""
     out, seen = [], set()
@@ -326,6 +331,10 @@ def parse_standard(rows, team):
                 info = dict(flights.get(nm, {}))
                 if times and not info.get('OP') and not info.get('CL'):
                     info['OP'], info['CL'] = times[0], times[-1]
+                # คนไปเทรน/ประชุม = ไม่ได้ทำไฟลท์นั้น → แสดงเป็นกิจกรรมอบรม ไม่นับเป็นไฟลท์
+                if is_training_task(' '.join(tasks)):
+                    assigns.append(dict(flight=' '.join(tasks), task='', STA='', STD='', OP='', CL=''))
+                    continue
                 # หัวคอลัมน์เป็น "ป้ายไฟลท์ทั่วไป" (หมายเลขไฟลท์/Job/FLIGHT) → รหัสไฟลท์จริงฝังในข้อความ → ดึง
                 codes = extract_flights(' '.join(tasks)) if re.search(r'หมายเลขไฟลท์|JOB|FLIGHT', nm, re.I) else None
                 if codes:

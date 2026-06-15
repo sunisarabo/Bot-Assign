@@ -121,6 +121,10 @@ function rrParseJobText_(text) {
   });
   return out;
 }
+/** task ที่เป็นการอบรม/ประชุม (ไม่ใช่งานไฟลท์) → ไปเทรน ไม่ได้คุมไฟลท์ */
+function rrIsTrainingTask_(task) {
+  return /TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP/i.test(String(task || ''));
+}
 /** ดึงรหัสไฟลท์ทั้งหมดจากข้อความรกๆ (Admin Doc/Crewsign) — เก็บเฉพาะที่ผ่าน acIsFlight_, ตัดซ้ำด้วยเลขไฟลท์
  *  เช่น "EY414/415 CREWSIGN(0500), AK818-819 STA0805" → [{flight:'EY414/415'},{flight:'AK818-819'}] */
 function rrExtractFlights_(txt) {
@@ -384,6 +388,9 @@ function rrParseStandard_(rows, team, meta) {
         var info = flights[fc.name] || {};
         var op = info.OP || '', cl = info.CL || '';
         if (times.length && !op && !cl) { op = times[0]; cl = times[times.length - 1]; }   // ใช้เวลาในเซลล์เป็น OP/CL
+        // คนไปเทรน/ประชุม (เช่น "TRAINING BASIC LOAD CONTROL 08-17") = ไม่ได้ทำไฟลท์นั้น
+        // → แสดงเป็นกิจกรรมอบรม ไม่นับเป็นไฟลท์ (ทุกทีม)
+        if (rrIsTrainingTask_(tasks.join(' '))) { assigns.push({ flight: tasks.join(' '), task: '', STA: '', STD: '', OP: '', CL: '' }); return; }
         // หัวคอลัมน์เป็น "ป้ายไฟลท์ทั่วไป" (เช่น "หมายเลขไฟลท์ 1", "Job 1", "FLIGHT") — รหัสไฟลท์จริง
         // ฝังในข้อความ (Admin Doc/Crewsign: "EY414/415 CREWSIGN…, AK818-819…") → ดึงออกมา
         // (ไม่แตะคอลัมน์ Counter ของ SU — คงงานเคาน์เตอร์ไว้)

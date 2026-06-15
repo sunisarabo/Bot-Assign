@@ -317,10 +317,10 @@ function slaPhasesOf_(task) {
   if (!u) return ['CI'];
   if (/TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR/.test(u)) return [];   // เทรน/ประชุม → ไม่คุมไฟลท์
   var p = {};
-  if (/\bSUP\b|SPVR|\bSOD\b|\bSM\b|FLT\s*CTRL|FLIGHT\s*CONTROL/.test(u)) p.SUP = 1;        // หัวหน้าจริง
+  if (/\bSUP\b|SPVR|\bSOD\b|\bSM\b|\bFC\b|FLT\s*CTRL|FLIGHT\s*CONTROL/.test(u)) p.SUP = 1;   // หัวหน้า/Flight Controller (FC)
   if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR/.test(u)) p.ARR = 1;                    // arrival
   if (/\bGA\b|\bGM\b|\bGC\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|^G[\b/CM-]|^D\b/.test(u)) p.GATE = 1;   // gate (GA/GM/GC)
-  if (/\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|WEB|KIOSK|PRIO|PSM|\bFC\b|\bGK\b|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b/.test(u)) p.CI = 1;   // เช็คอิน/เคาน์เตอร์/crew sign
+  if (/\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|WEB|KIOSK|PRIO|PSM|\bGK\b|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b/.test(u)) p.CI = 1;   // เช็คอิน/เคาน์เตอร์/crew sign
   var keys = Object.keys(p);
   return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
