@@ -489,7 +489,32 @@ function rrParseStandard_(rows, team, meta) {
       assignments: assigns,
     });
   }
+  // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
+  // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
+  rrApplyTrainingNotes_(rows, recs);
   return recs;
+}
+/** หาโน้ต "…TRAINING/LOAD CONTROL… : ชื่อ" ในชีต แล้วผูกกับพนักงานที่ชื่อตรง (ถ้ายังไม่มีไฟลท์จริง) */
+function rrApplyTrainingNotes_(rows, recs) {
+  var notes = [];
+  rows.forEach(function (row) {
+    (row || []).forEach(function (cell) {
+      var c = rrClean_(cell);
+      if (!c || c.indexOf(':') < 0 || !rrIsTrainingTask_(c)) return;
+      var i = c.indexOf(':'), act = c.slice(0, i).trim(), who = c.slice(i + 1).trim();
+      if (act && who) notes.push({ act: act, who: who.toUpperCase() });
+    });
+  });
+  if (!notes.length) return;
+  recs.forEach(function (r) {
+    var first = String(r.name || '').toUpperCase().split(/[\s(]/)[0];
+    if (first.length < 3) return;
+    var hasReal = (r.assignments || []).some(function (a) { return acIsFlight_(a.flight); });
+    if (hasReal) return;                                   // มีไฟลท์จริงแล้ว → ไม่ทับ
+    notes.forEach(function (n) {
+      if (n.who.indexOf(first) >= 0) r.assignments = [{ flight: n.act, task: '', STA: '', STD: '', OP: '', CL: '' }];
+    });
+  });
 }
 
 function rrParsePorter_(rows, team) {

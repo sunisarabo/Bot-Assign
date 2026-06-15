@@ -402,7 +402,32 @@ def parse_standard(rows, team):
                          shift=shift or timev, shift_time=srng_s or (shift or timev),
                          shift_start=srng[0] if srng[0] is not None else 99999,
                          bucket=bkt, ot=oth, ot_type=otype, ot_time=orng_s, assigns=assigns))
+    apply_training_notes(rows, recs)
     return recs
+
+
+def apply_training_notes(rows, recs):
+    """โน้ตใต้ตาราง '…TRAINING… : ชื่อ' → ผูกกับพนักงานที่ชื่อตรง (ถ้ายังไม่มีไฟลท์จริง)"""
+    notes = []
+    for row in rows:
+        for cell in (row or []):
+            c = cv(cell)
+            if not c or ':' not in c or not is_training_task(c):
+                continue
+            act, who = c.split(':', 1)
+            if act.strip() and who.strip():
+                notes.append((act.strip(), who.strip().upper()))
+    if not notes:
+        return
+    for r in recs:
+        first = re.split(r'[\s(]', str(r['name'] or '').upper())[0]
+        if len(first) < 3:
+            continue
+        if any(_ac_is_flight(a['flight']) for a in r.get('assigns', [])):
+            continue
+        for act, who in notes:
+            if first in who:
+                r['assigns'] = [dict(flight=act, task='', STA='', STD='', OP='', CL='')]
 
 
 def parse_porter(rows, team):
