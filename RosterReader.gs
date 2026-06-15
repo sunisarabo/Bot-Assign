@@ -405,7 +405,7 @@ function rrParseStandard_(rows, team, meta) {
           if (/^[A-Z]{2}$/.test(String(team).toUpperCase()) && !acIsFlight_(fc.name)) {
             var air = String(team).toUpperCase();
             tasks.forEach(function (tk) {
-              var mm = String(tk).match(/^([A-Z]+)?(\d{3,4})$/);   // FC661 / 285
+              var mm = String(tk).match(/^([A-Z]{1,3})(\d{3,4})$/);   // ต้องมี role นำหน้า เช่น FC661 (กัน "0835" = เวลา/เคาน์เตอร์)
               if (mm && acIsFlight_(air + mm[2])) {
                 assigns.push({ flight: air + mm[2], task: mm[1] || '', STA: '', STD: '', OP: '', CL: '' });
               }

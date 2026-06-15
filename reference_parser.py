@@ -347,7 +347,7 @@ def parse_standard(rows, team):
                     if re.fullmatch(r'[A-Z]{2}', str(team).upper()) and not _ac_is_flight(nm):
                         air = str(team).upper()
                         for tk in tasks:
-                            mm = re.fullmatch(r'([A-Z]+)?(\d{3,4})', str(tk))
+                            mm = re.fullmatch(r'([A-Z]{1,3})(\d{3,4})', str(tk))   # ต้องมี role นำหน้า (กัน "0835")
                             if mm and _ac_is_flight(air + mm.group(2)):
                                 assigns.append(dict(flight=air + mm.group(2), task=mm.group(1) or '',
                                                     STA='', STD='', OP='', CL=''))
