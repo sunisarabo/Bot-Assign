@@ -97,6 +97,30 @@ function rrTimePair_(s) {
   var m = rrClean_(s).match(/(\d{1,2})[:.]?(\d{2})/);
   return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : '';
 }
+/** "0820" / "925" → "08:20" / "09:25" */
+function rrHHMM_(s) { var m = String(s || '').match(/(\d{1,2})(\d{2})$/); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
+/** แปลงข้อความจ็อบของทีม LP เป็น assignment list
+ *  เช่น "GATE SU660/661 0925/1055 STBY0930, ARR AK822/823 1530/1600"
+ *  → [{flight:'SU660/661',task:'GATE',STA:'09:25',STD:'10:55'}, {flight:'AK822/823',task:'ARR',STA:'15:30',STD:'16:00'}] */
+function rrParseJobText_(text) {
+  var out = [];
+  if (!text) return out;
+  String(text).split(/[,;\n]+/).forEach(function (chunk) {
+    var c = rrClean_(chunk); if (!c) return;
+    var toks = c.split(/\s+/), flight = '', role = [], times = '';
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i];
+      if (!flight && /^(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}(?:\/\d{2,4})?$/i.test(t)) { flight = t; continue; }
+      if (flight && !times && /^\d{3,4}\/\d{3,4}$/.test(t)) { times = t; continue; }
+      if (!flight && /^[A-Za-z][A-Za-z/().-]*$/.test(t)) role.push(t.toUpperCase());   // คำบทบาทก่อนรหัสไฟลท์ (ARR/GATE…)
+    }
+    if (!flight || !acIsFlight_(flight)) return;     // ไม่มีรหัสไฟลท์ = ไม่ใช่จ็อบไฟลท์ (training/standby) → ข้าม
+    var sta = '', std = '';
+    if (times) { var p = times.split('/'); sta = rrHHMM_(p[0]); std = rrHHMM_(p[1]); }
+    out.push({ flight: flight, task: role.join(' '), STA: sta, STD: std, OP: '', CL: '' });
+  });
+  return out;
+}
 function rrRangeHours_(s) {
   var str = rrClean_(s).replace(/\./g, ':');
   var m = str.match(/^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
@@ -204,6 +228,9 @@ function rrFindHeader_(rows) {
     // คอลัมน์สถานะ (Onduty/Off/OT OFF/VAC…): บางชีต (PVTLP) ใช้หัว 'STATUS', ที่เหลือใช้ 'REMARK'
     // ('REMARK FOR SUPPORT OTHER FLT' = โน้ต ไม่ใช่สถานะ → ไม่แมตช์ 'REMARK' ตรง ๆ อยู่แล้ว)
     cm.remark = u.indexOf('STATUS') >= 0 ? u.indexOf('STATUS') : u.indexOf('REMARK');
+    // คอลัมน์จ็อบแบบข้อความ (ทีม LP): หัวคอลัมน์มี 'SUPPORT' + 'FL' เช่น "REMARK FOR SUPPORT OTHER FLT"
+    cm.jobtext = -1;
+    for (var jt = 0; jt < u.length; jt++) { if (u[jt].indexOf('SUPPORT') >= 0 && /\bFL/.test(u[jt])) { cm.jobtext = jt; break; } }
     cm.re     = u.indexOf('RE');
     cm.resked = u.indexOf('RE-SKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RESKED');
@@ -362,6 +389,19 @@ function rrParseStandard_(rows, team, meta) {
             assigns.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
             cn.forEach(function (n) { nums[n] = 1; });
           }
+        });
+      }
+    }
+    // ทีม LP/Support: จ็อบงานเขียนเป็นข้อความในคอลัมน์ "REMARK FOR SUPPORT OTHER FLT"
+    // (เช่น "GATE SU660/661 0925/1055 STBY0930, ARR AK822/823 1530/1600") → แปลงเป็น assignment
+    if (cm.jobtext >= 0 && cm.jobtext < row.length) {
+      var jobs = rrParseJobText_(rrClean_(row[cm.jobtext]));
+      if (jobs.length) {
+        var jnums = {};
+        assigns.forEach(function (a) { (a.flight.match(/\d{2,4}/g) || []).forEach(function (n) { jnums[n] = 1; }); });
+        jobs.forEach(function (a) {
+          var cn = a.flight.match(/\d{2,4}/g) || [];
+          if (cn.length && !cn.some(function (n) { return jnums[n]; })) { assigns.push(a); cn.forEach(function (n) { jnums[n] = 1; }); }
         });
       }
     }

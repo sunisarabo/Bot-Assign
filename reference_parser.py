@@ -71,6 +71,39 @@ def parse_time_pair(s):
     return f"{m.group(1).zfill(2)}:{m.group(2)}" if m else ''
 
 
+def _hhmm(s):
+    m = re.search(r'(\d{1,2})(\d{2})$', str(s or ''))
+    return f"{m.group(1).zfill(2)}:{m.group(2)}" if m else ''
+
+
+def parse_job_text(text):
+    """ทีม LP: "GATE SU660/661 0925/1055 STBY0930, ARR AK822/823 1530/1600"
+       → [{flight,task,STA,STD}]"""
+    out = []
+    if not text:
+        return out
+    for chunk in re.split(r'[,;\n]+', str(text)):
+        c = cv(chunk)
+        if not c:
+            continue
+        flight, role, times = '', [], ''
+        for t in c.split():
+            if not flight and re.fullmatch(r'(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}(?:/\d{2,4})?', t, re.I):
+                flight = t
+            elif flight and not times and re.fullmatch(r'\d{3,4}/\d{3,4}', t):
+                times = t
+            elif not flight and re.fullmatch(r'[A-Za-z][A-Za-z/().-]*', t):
+                role.append(t.upper())
+        if not flight or not _ac_is_flight(flight):
+            continue
+        sta = std = ''
+        if times:
+            p = times.split('/')
+            sta, std = _hhmm(p[0]), _hhmm(p[1])
+        out.append(dict(flight=flight, task=' '.join(role), STA=sta, STD=std, OP='', CL=''))
+    return out
+
+
 def hours_from_range(s):
     s = cv(s).replace('.', ':')
     m = re.match(r'^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?', s)
@@ -161,6 +194,7 @@ def find_header(rows):
         cm['time']   = u.index('TIME') if 'TIME' in u else -1
         cm['pos']    = u.index('POSITION') if 'POSITION' in u else (u.index('POS.') if 'POS.' in u else -1)
         cm['remark'] = u.index('STATUS') if 'STATUS' in u else (u.index('REMARK') if 'REMARK' in u else -1)
+        cm['jobtext'] = next((i for i, h in enumerate(u) if 'SUPPORT' in h and re.search(r'\bFL', h)), -1)
         cm['resked'] = u.index('RE-SKED') if 'RE-SKED' in u else (u.index('RESKED') if 'RESKED' in u else -1)
         cm['ot']     = u.index('OT') if 'OT' in u else -1
         # OT total-hours column = a "Total Hrs" header within 3 cols after OT
@@ -292,6 +326,16 @@ def parse_standard(rows, team):
                     if cn and not all(n in nums for n in cn) and _ac_is_flight(code):
                         assigns.append(dict(flight=code, task='', STA='', STD='', OP='', CL=''))
                         nums.update(cn)
+        # ทีม LP/Support: จ็อบงานเป็นข้อความในคอลัมน์ "REMARK FOR SUPPORT OTHER FLT"
+        if cm.get('jobtext', -1) >= 0 and cm['jobtext'] < len(row):
+            jnums = set()
+            for a in assigns:
+                jnums.update(re.findall(r'\d{2,4}', a['flight']))
+            for a in parse_job_text(cv(row[cm['jobtext']])):
+                cn = re.findall(r'\d{2,4}', a['flight'])
+                if cn and not any(n in jnums for n in cn):
+                    assigns.append(a)
+                    jnums.update(cn)
         oth = ot_hours(otv)
         bkt = classify(shift or timev, remark)
         if bkt == 'off' and oth > 0:            # SHIFT=X แต่มี OT = ทำ OT วันหยุด
