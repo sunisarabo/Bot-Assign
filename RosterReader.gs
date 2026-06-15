@@ -296,10 +296,12 @@ function rrParseStandard_(rows, team, meta) {
       // ใช้ป้าย A:/D: (STA/STD) และ O:/C: (OP/CL) ถ้ามี (กัน STA ว่างแล้ว STD เลื่อนมาผิดช่อง)
       var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
       for (var cc = c0; cc < c1; cc++) {
+        // ข้าม placeholder 00:00 (สล็อตไฟลท์ว่างในเทมเพลต) + ไม่เขียนทับค่าที่อ่านได้แล้ว
+        // (กันไฟลท์สุดท้ายที่ span ยาวถึงท้ายแถว ไปดูดเวลา 00:00 ของสล็อตว่างมาทับเวลาจริง — เช่น KE677/678)
         var sc = rrClean_(sta[cc]), tv = rrTimePair_(sc);
-        if (tv) { if (/^\s*D/i.test(sc)) stdV = tv; else if (/^\s*A/i.test(sc)) staV = tv; else posS.push(tv); }
+        if (tv && tv !== '00:00') { if (/^\s*D/i.test(sc)) { if (!stdV) stdV = tv; } else if (/^\s*A/i.test(sc)) { if (!staV) staV = tv; } else posS.push(tv); }
         var ocs = rrClean_(opn[cc]), ov = rrTimePair_(ocs);
-        if (ov) { if (/^\s*C/i.test(ocs)) clV = ov; else if (/^\s*O/i.test(ocs)) opV = ov; else posO.push(ov); }
+        if (ov && ov !== '00:00') { if (/^\s*C/i.test(ocs)) { if (!clV) clV = ov; } else if (/^\s*O/i.test(ocs)) { if (!opV) opV = ov; } else posO.push(ov); }
       }
       if (!staV && posS.length) staV = posS.shift();
       if (!stdV && posS.length) stdV = posS.shift();

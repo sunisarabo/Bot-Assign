@@ -212,20 +212,20 @@ def parse_standard(rows, team):
             for cc in range(c, c1):
                 sc = cv(sta[cc]) if cc < len(sta) else ''
                 tv = parse_time_pair(sc)
-                if tv:
+                if tv and tv != '00:00':          # ข้าม placeholder 00:00 + ไม่เขียนทับค่าที่อ่านได้แล้ว
                     if re.match(r'\s*D', sc, re.I):
-                        std_v = tv
+                        if not std_v: std_v = tv
                     elif re.match(r'\s*A', sc, re.I):
-                        sta_v = tv
+                        if not sta_v: sta_v = tv
                     else:
                         pos_s.append(tv)
                 oc_ = cv(opn[cc]) if cc < len(opn) else ''
                 ov = parse_time_pair(oc_)
-                if ov:
+                if ov and ov != '00:00':
                     if re.match(r'\s*C', oc_, re.I):
-                        cl_v = ov
+                        if not cl_v: cl_v = ov
                     elif re.match(r'\s*O', oc_, re.I):
-                        op_v = ov
+                        if not op_v: op_v = ov
                     else:
                         pos_o.append(ov)
             if not sta_v and pos_s:
