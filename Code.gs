@@ -129,6 +129,20 @@ function rrParseJobText_(text) {
   });
   return out;
 }
+/** ดึงรหัสไฟลท์ทั้งหมดจากข้อความรกๆ (Admin Doc/Crewsign) — เก็บเฉพาะที่ผ่าน acIsFlight_, ตัดซ้ำด้วยเลขไฟลท์
+ *  เช่น "EY414/415 CREWSIGN(0500), AK818-819 STA0805" → [{flight:'EY414/415'},{flight:'AK818-819'}] */
+function rrExtractFlights_(txt) {
+  var out = [], seen = {};
+  if (!txt) return out;
+  (String(txt).match(/[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?\d{2,4})?/gi) || []).forEach(function (code) {
+    code = rrClean_(code).replace(/\s+/g, '');
+    if (!acIsFlight_(code)) return;
+    var key = (code.match(/\d{2,4}/g) || []).join('/');
+    if (!key || seen[key]) return; seen[key] = 1;
+    out.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
+  });
+  return out;
+}
 function rrRangeHours_(s) {
   var str = rrClean_(s).replace(/\./g, ':');
   var m = str.match(/^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
@@ -378,8 +392,16 @@ function rrParseStandard_(rows, team, meta) {
         var info = flights[fc.name] || {};
         var op = info.OP || '', cl = info.CL || '';
         if (times.length && !op && !cl) { op = times[0]; cl = times[times.length - 1]; }   // ใช้เวลาในเซลล์เป็น OP/CL
-        assigns.push({ flight: fc.name, task: tasks.join('/'),
-                       STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl });
+        // หัวคอลัมน์เป็น "ป้ายไฟลท์ทั่วไป" (เช่น "หมายเลขไฟลท์ 1", "Job 1", "FLIGHT") — รหัสไฟลท์จริง
+        // ฝังในข้อความ (Admin Doc/Crewsign: "EY414/415 CREWSIGN…, AK818-819…") → ดึงออกมา
+        // (ไม่แตะคอลัมน์ Counter ของ SU — คงงานเคาน์เตอร์ไว้)
+        var codes = /หมายเลขไฟลท์|^(?:JOB|FLIGHT)\b/i.test(fc.name) ? rrExtractFlights_(tasks.join(' ')) : null;
+        if (codes && codes.length) {
+          codes.forEach(function (a) { assigns.push(a); });
+        } else {
+          assigns.push({ flight: fc.name, task: tasks.join('/'),
+                         STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl });
+        }
       }
     });
     // บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)

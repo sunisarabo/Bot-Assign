@@ -104,6 +104,23 @@ def parse_job_text(text):
     return out
 
 
+def extract_flights(txt):
+    """ดึงรหัสไฟลท์จากข้อความรกๆ (Admin Doc/Crewsign) — เฉพาะที่ผ่าน _ac_is_flight, ตัดซ้ำด้วยเลขไฟลท์"""
+    out, seen = [], set()
+    if not txt:
+        return out
+    for code in re.findall(r'[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[/-]\s?\d{2,4})?', str(txt), re.I):
+        code = re.sub(r'\s+', '', cv(code))
+        if not _ac_is_flight(code):
+            continue
+        key = '/'.join(re.findall(r'\d{2,4}', code))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(dict(flight=code, task='', STA='', STD='', OP='', CL=''))
+    return out
+
+
 def hours_from_range(s):
     s = cv(s).replace('.', ':')
     m = re.match(r'^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?', s)
@@ -309,9 +326,14 @@ def parse_standard(rows, team):
                 info = dict(flights.get(nm, {}))
                 if times and not info.get('OP') and not info.get('CL'):
                     info['OP'], info['CL'] = times[0], times[-1]
-                assigns.append(dict(flight=nm, task='/'.join(tasks),
-                                    STA=info.get('STA', ''), STD=info.get('STD', ''),
-                                    OP=info.get('OP', ''), CL=info.get('CL', '')))
+                # หัวคอลัมน์เป็น "ป้ายไฟลท์ทั่วไป" (หมายเลขไฟลท์/Job/FLIGHT) → รหัสไฟลท์จริงฝังในข้อความ → ดึง
+                codes = extract_flights(' '.join(tasks)) if re.search(r'หมายเลขไฟลท์|JOB|FLIGHT', nm, re.I) else None
+                if codes:
+                    assigns.extend(codes)
+                else:
+                    assigns.append(dict(flight=nm, task='/'.join(tasks),
+                                        STA=info.get('STA', ''), STD=info.get('STD', ''),
+                                        OP=info.get('OP', ''), CL=info.get('CL', '')))
         # บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
         # → เพิ่มรหัสไฟลท์ที่ยังไม่มี (กันนับซ้ำด้วยเลขไฟลท์)
         if cm['flt'] - 1 >= 0:
@@ -803,7 +825,8 @@ def _ac_is_flight(name):
         return False
     if re.match(r'(COUNTER|GATE|CHECK|ZONE|BELT|PIER|STBY|STAND|POOL|OFFICE|BRIEF|NIL|OFF\b|LP\s+(MORNING|AFTERNOON|NIGHT|DAY))', s):
         return False
-    return bool(re.search(r'[A-Z]{1,3}\s*\d{2,4}', s))
+    # ต้องขึ้นต้นด้วยรหัสสายการบิน IATA 2 ตัว (ตัวอักษร+ตัวอักษร/เลข หรือ เลข+ตัวอักษร) ตามด้วยเลขไฟลท์
+    return bool(re.match(r'(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s*\d{2,4}', s))
 
 
 def _ac_flight_win(a):
