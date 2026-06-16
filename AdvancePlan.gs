@@ -310,36 +310,43 @@ function advExportAssignment(dateStr) {
   return ss.getUrl();
 }
 
-/** เขียนชีตแบบไฟล์ assignment เดิม: คอลัมน์ = ไฟลท์ (มี STA/STD) · แถว = พนักงาน · เซลล์ = บทบาท */
+/** เขียนชีตแบบไฟล์ assignment เดิม (adapter จาก plan ของ "จัดล่วงหน้า") */
 function advWriteTeamGrid_(sh, tn, dateStr, planRows) {
-  planRows = planRows.slice().sort(function (a, b) { return String(a.std || a.sta || 'zz').localeCompare(String(b.std || b.sta || 'zz')); });
-  var flts = planRows.map(function (p) { return p.flight; });
-  var mem = {}, order = [];
-  planRows.forEach(function (p) {
+  var fr = planRows.map(function (p) {
+    var people = [];
     ADV_ROLES.forEach(function (role) {
-      (p.assign && p.assign[role.k] || []).forEach(function (v) {
-        var m = mem[v.name]; if (!m) { m = mem[v.name] = { name: v.name, pos: v.pos || '', shift: v.shift || '', cells: {} }; order.push(v.name); }
-        m.cells[p.flight] = m.cells[p.flight] ? (m.cells[p.flight] + '/' + role.lb) : role.lb;
-      });
+      (p.assign && p.assign[role.k] || []).forEach(function (v) { people.push({ name: v.name, pos: v.pos, shift: v.shift, role: role.lb }); });
+    });
+    return { flight: p.flight, sta: p.sta, std: p.std, people: people };
+  });
+  rbAssignGrid_(sh, tn, dateStr, fr);
+}
+
+/** ตัวเขียนกริดกลาง (ใช้ร่วมทั้งจัดล่วงหน้า/Auto/เติม): คอลัมน์=ไฟลท์(STA/STD) · แถว=คน · เซลล์=บทบาท
+ *  flightRows = [{flight, sta, std, people:[{name,pos,shift,role}]}] */
+function rbAssignGrid_(sh, tn, dateStr, flightRows) {
+  flightRows = flightRows.slice().sort(function (a, b) { return String(a.std || a.sta || 'zz').localeCompare(String(b.std || b.sta || 'zz')); });
+  var flts = flightRows.map(function (f) { return f.flight; });
+  var mem = {}, order = [];
+  flightRows.forEach(function (f) {
+    (f.people || []).forEach(function (v) {
+      var m = mem[v.name]; if (!m) { m = mem[v.name] = { name: v.name, pos: v.pos || '', shift: v.shift || '', cells: {} }; order.push(v.name); }
+      m.cells[f.flight] = m.cells[f.flight] ? (m.cells[f.flight] + '/' + v.role) : v.role;
     });
   });
   var rank = function (pos) { var p = String(pos).toUpperCase(); return /SUP/.test(p) ? 0 : (/SNR|SENIOR/.test(p) ? 1 : 2); };
   order.sort(function (a, b) { return rank(mem[a].pos) - rank(mem[b].pos) || String(a).localeCompare(String(b)); });
-
   var nCol = 3 + flts.length;
   var pad = function (a) { while (a.length < nCol) a.push(''); return a; };
   var rows = [];
-  rows.push(pad([tn + ' — Assignment ' + dateStr]));                         // 1 title
-  rows.push(['ชื่อ', 'ตำแหน่ง', 'กะ'].concat(flts));                          // 2 header (flight = column)
-  rows.push(['', '', 'STA/STD'].concat(planRows.map(function (p) {           // 3 STA/STD ใต้ชื่อไฟลท์
-    return (p.sta || '–') + ' / ' + (p.std || '–');
-  })));
+  rows.push(pad([tn + ' — Assignment ' + dateStr]));
+  rows.push(['ชื่อ', 'ตำแหน่ง', 'กะ'].concat(flts));
+  rows.push(['', '', 'STA/STD'].concat(flightRows.map(function (f) { return (f.sta || '–') + ' / ' + (f.std || '–'); })));
   order.forEach(function (nm) {
     var m = mem[nm];
-    rows.push([m.name, m.pos, m.shift].concat(planRows.map(function (p) { return m.cells[p.flight] || ''; })));
+    rows.push([m.name, m.pos, m.shift].concat(flightRows.map(function (f) { return m.cells[f.flight] || ''; })));
   });
   if (!order.length) rows.push(pad(['— ยังไม่มีการจัดคน —']));
-
   sh.getRange(1, 1, rows.length, nCol).setValues(rows).setVerticalAlignment('middle').setFontSize(10);
   sh.getRange(1, 1, 1, nCol).merge().setFontWeight('bold').setFontSize(13).setBackground('#1f4e79').setFontColor('#fff');
   sh.getRange(2, 1, 1, nCol).setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('center').setWrap(true);

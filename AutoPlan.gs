@@ -338,38 +338,50 @@ function apExportToSheet_(title, teams, dateStr) {
   });
   return ss.getUrl();
 }
-/** Export "เติม Assign เดิม" (FillPlan) → ไฟล์ชีตรายทีม (team='' = ทุกทีม) */
+/** สร้างไฟล์ชีตกริด (รูปแบบ assignment เดิม) 1 แท็บ/ทีม จาก { teamName: [flightRows] } */
+function apExportGrid_(title, byTeam, dateStr) {
+  var names = Object.keys(byTeam).filter(function (t) { return byTeam[t] && byTeam[t].length; }).sort();
+  if (!names.length) throw new Error('ไม่มีข้อมูลการจัดคนให้ส่งออก');
+  var ss = SpreadsheetApp.create(title);
+  var first = true, used = {};
+  names.forEach(function (tn) {
+    var nm = String(tn).replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
+    var n = nm, k = 2; while (used[n]) n = (nm.slice(0, 22) + ' ' + (k++)); used[n] = 1;
+    var sh = first ? ss.getSheets()[0] : ss.insertSheet(); first = false; sh.setName(n);
+    rbAssignGrid_(sh, tn, dateStr, byTeam[tn]);
+  });
+  return ss.getUrl();
+}
+/** Export "เติม Assign เดิม" (FillPlan) → ชีตกริด (ไฟลท์×คน) แยกทีมเจ้าของไฟลท์ (team='' = ทุกทีม) */
 function apExportFill(dateStr, team) {
   var d = rbLoadResLL_(rbDateFromIso_(dateStr));
   var gaps = apFillGaps_(d.res, d.ll);
-  var teams = {};
+  var owner = acOwnerTeams_(d.res, d.ll);
+  var byTeam = {};                                                        // team → { flight → flightRow }
   gaps.forEach(function (g) {
-    (g.picked || []).forEach(function (p) {
-      if (team && p.team !== team) return;
-      var arr = (teams[p.team] = teams[p.team] || []);
-      apFindMember_(arr, p).jobs.push(g.flight + ' · ' + g.phase + ' · ' + g.win + (g.airline ? ' [' + g.airline + ']' : ''));
-    });
+    if (!(g.picked && g.picked.length)) return;
+    var t = owner[g.airline] || g.airline || '?';
+    if (team && t !== team) return;
+    var tm = byTeam[t] = byTeam[t] || {};
+    var fr = tm[g.flight] = tm[g.flight] || { flight: g.flight, sta: '', std: g.std || '', people: [] };
+    g.picked.forEach(function (p) { fr.people.push({ name: p.name, pos: p.pos, shift: p.shift, role: g.phase + (p.team && p.team !== t ? ' ←' + p.team : '') }); });
   });
-  apAddCommonsToTeams_(teams, gaps.commons, team);                        // SU/SQ เคาน์เตอร์+เกท
-  return apExportToSheet_('แจ้ง Assignment (เติม) ' + dateStr, teams, dateStr);
+  var out = {}; Object.keys(byTeam).forEach(function (t) { out[t] = Object.keys(byTeam[t]).map(function (f) { return byTeam[t][f]; }); });
+  return apExportGrid_('Assignment (เติม) ' + dateStr, out, dateStr);
 }
-/** Export "Auto Assign" (replan) → ไฟล์ชีตรายทีม (เฉพาะคนที่ถูกจัด ไม่รวม standby; team='' = ทุกทีม) */
+/** Export "Auto Assign" (replan) → ชีตกริด (ไฟลท์×คน) แยกทีมเจ้าของไฟลท์ (team='' = ทุกทีม) */
 function apExportAuto(dateStr, team) {
   var d = rbLoadResLL_(rbDateFromIso_(dateStr));
   var rp = apReplan_(d.res, d.ll);
   var PHL = { SUP: 'SUP', CI: 'Check-in', ARR: 'Arrival', GATE: 'Gate' };
-  var teams = {};
+  var byTeam = {};
   rp.plan.forEach(function (f) {
-    AP_PHASES.forEach(function (ph) {
-      (f.assign[ph] || []).forEach(function (p) {
-        if (team && p.team !== team) return;
-        var arr = (teams[p.team] = teams[p.team] || []);
-        apFindMember_(arr, p).jobs.push(f.flight + ' · ' + PHL[ph] + ' · ' + (f.std || f.sta || ''));
-      });
-    });
+    var t = f.home || f.airline || '?'; if (team && t !== team) return;
+    var people = [];
+    AP_PHASES.forEach(function (ph) { (f.assign[ph] || []).forEach(function (p) { people.push({ name: p.name, pos: p.pos, shift: p.shift, role: PHL[ph] + (p.team && p.team !== t ? ' ←' + p.team : '') }); }); });
+    (byTeam[t] = byTeam[t] || []).push({ flight: f.flight, sta: f.sta, std: f.std, people: people });
   });
-  apAddCommonsToTeams_(teams, rp.commons, team);                          // SU/SQ เคาน์เตอร์+เกท
-  return apExportToSheet_('แจ้ง Assignment (Auto) ' + dateStr, teams, dateStr);
+  return apExportGrid_('Assignment (Auto) ' + dateStr, byTeam, dateStr);
 }
 
 /** รวมรายชื่อคนเป็นข้อความสั้น (จัดกลุ่มตามทีม) */
