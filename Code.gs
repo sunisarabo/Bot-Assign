@@ -1599,7 +1599,8 @@ function slaTeamSystems_(res, ll) {
 /** ทีมลอย/สแตนด์บายที่ Duty เรียกมาช่วยก่อน (PVTLP=PVT pool, CHARTER=ZF pool, STBY) */
 function slaIsFloatTeam_(team) {
   var t = String(team || '').toUpperCase();
-  return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY|CHARTER/.test(t);
+  // ทีมลอย/พูลซัพพอร์ตที่ Duty เรียกมาช่วยก่อน — PVTLP(PVT/LP) · CHARTER/ZF(ชาร์เตอร์ ทำหน้าที่พูลซัพพอร์ตหลัก) · STBY
+  return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY|CHARTER|\bZF\b/.test(t);
 }
 /** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง)
  *  includeOff=true → รวมคนวันหยุด (OFF) ไว้เป็นตัวเลือก "re-sked" (ว่างทุกช่วง · จัดเวลาให้ใหม่ได้) */
