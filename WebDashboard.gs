@@ -319,10 +319,34 @@ function rbSupportHtml(iso) {
     var sosBlock = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">📋 ข้อความ SOS (คัดลอกส่งไลน์ได้เลย · เฉพาะคนทีมอื่น)</summary>' +
       '<div style="padding:8px 14px"><button class="btn btn--accent" onclick="(function(b){var t=b.parentNode.querySelector(\'textarea\');t.focus();t.select();if(navigator.clipboard){navigator.clipboard.writeText(t.value);}else{document.execCommand(\'copy\');}b.textContent=\'✓ คัดลอกแล้ว\';setTimeout(function(){b.textContent=\'📋 คัดลอกข้อความ\';},1500);})(this)">📋 คัดลอกข้อความ</button>' +
       '<textarea readonly rows="16" style="width:100%;margin-top:8px;font-family:monospace;font-size:12px;white-space:pre;overflow:auto">' + rbEsc_(sosTxt) + '</textarea></div></details>';
-    return hd + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+    var checkPanel = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">✅ ตรวจรายชื่อที่จะส่งซัพ (วางข้อความ Duty / รายชื่อ แล้วกดตรวจ — เช็ค OFF · กะไม่ครอบ · เวลาซ้อน · ลงเทรน)</summary>' +
+      '<div style="padding:8px 14px"><textarea id="supchkin" rows="6" placeholder="วางข้อความขอซัพจาก Duty ได้เลย (มีเลขไฟลท์+ชื่อ) หรือพิมพ์บรรทัดละ ไฟลท์ ตามด้วยชื่อ" style="width:100%;font-size:13px;font-family:monospace"></textarea>' +
+      '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supCheck()">🔍 ตรวจรายชื่อ</button> <span id="supchkmsg" class="muted"></span></div>' +
+      '<div id="supchkout" style="margin-top:8px"></div></div></details>';
+    return hd + checkPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+
+/** ตรวจรายชื่อที่จะส่งซัพ (เรียกจากปุ่มในแท็บ Support) */
+function rbCheckDeployHtml(iso, text) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    var rows = slaCheckDeploy_(d.res, d.ll, text);
+    if (!rows.length) return '<div class="panel muted" style="padding:14px">ไม่พบชื่อที่ตรงกับ roster วันนี้ — ตรวจการสะกด (ใช้ชื่อตัวแรกให้ตรงตาราง) หรือมีเลขไฟลท์กำกับ</div>';
+    function row(r) {
+      var fl = (r.issues || []).slice(); if (r.overlap) fl.push('เวลาซ้อนกับงานอื่น');
+      return '<tr class="' + (fl.length ? 'rowbad' : '') + '"><td class="b">' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.team) +
+        '</td><td>' + rbEsc_(r.shift || '') + '</td><td class="b">' + rbEsc_(r.flight) + '</td><td>' +
+        (fl.length ? '<span class="badd">⚠️ ' + rbEsc_(fl.join(' · ')) + '</span>' : '<span class="okk">✅ พร้อม</span>') + '</td></tr>';
+    }
+    var bad = rows.filter(function (r) { return r.issues.length || r.overlap; });
+    var ok = rows.filter(function (r) { return !r.issues.length && !r.overlap; });
+    var sum = '<div class="sectionlabel">ตรวจ ' + rows.length + ' รายการ · <b class="badd">' + bad.length + ' ติดปัญหา</b> · <b class="okk">' + ok.length + ' พร้อม</b></div>';
+    return sum + rbTblCard_('ผลตรวจรายชื่อซัพพอร์ต', '<tr><th>ชื่อ</th><th>ทีม</th><th>กะ</th><th>ไฟลท์</th><th>สถานะ</th></tr>',
+      bad.map(row).join('') + ok.map(row).join(''), '');
+  } catch (e) { return '<div class="panel">ตรวจไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 /** ตัวกรองหัวการ์ด: ช่องค้นหา + dropdown เลือกทีม (เติม option ด้วย JS หลังโหลด) */
 function rbCtrls_(viewId, withSearch){
@@ -697,7 +721,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
-    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadDeploy(){lazy("deploybox","rbDeployedHtml","deploy");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadDeploy(){lazy("deploybox","rbDeployedHtml","deploy");}' +
+    'function supCheck(){var el=document.getElementById("supchkin");var t=el?el.value:"";if(!t.trim()){alert("วางรายชื่อก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อใช้ปุ่มตรวจ");return;}var m=document.getElementById("supchkmsg");if(m)m.textContent="⏳ กำลังตรวจ…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supchkout").innerHTML=h;makeSortable();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supchkout").innerHTML="<div class=\\"panel\\">ตรวจไม่ได้: "+e.message+"</div>";}).rbCheckDeployHtml(ISO,t);}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
     'function rbRefresh(b){if(b){b.textContent="⏳ กำลังรีเฟรช…";}if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){location.reload();}).withFailureHandler(function(){location.reload();}).rbClearCache(ISO);}else{location.reload();}}' +
     'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v,cci){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v,cci||"");}' +
     'function advCurDate(){var di=document.querySelector("#view-adv input[type=date]");return di?di.value:ISO;}' +

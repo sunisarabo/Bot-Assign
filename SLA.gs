@@ -223,12 +223,12 @@ var AIRLINE_SYS = {
   'B2':'ASTRA', 'BK':'TravelSky', 'BY':'iPort', 'C6':'iPort', 'CA':'TravelSky', 'CX':'Altea', 'CZ':'TravelSky',
   'DE':'Altea', 'DK':'Altea', 'DV':'TWD', 'EK':'AS Connect', 'EO':'Lydia DCS', 'EY':'Altea', 'FM':'TravelSky',
   'FY':'Gonow', 'G2':'iPort', 'G8':'Gonow', 'G9':'Altea', 'GX':'TravelSky', 'H4':'iPort', 'HB':'TravelSky',
-  'HH':'iPort', 'HO':'TravelSky', 'HU':'TravelSky', 'HX':'iPort', 'HY':'Altea', 'IT':'Gonow', 'IX':'Gonow',
+  'HH':'iPort', 'HO':'TravelSky', 'HU':'TravelSky', 'HX':'iPort', 'HY':'Altea', 'IT':'iPort', 'IX':'Gonow',
   'JQ':'Gonow', 'KA':'iPort', 'KC':'Altea', 'KE':'Altea', 'KX':'TravelSky', 'KY':'TravelSky', 'LJ':'iFlyRes',
-  'LO':'iPort', 'LY':'Altea', 'MH':'Altea', 'MU':'TravelSky', 'N0':'Gonow', 'N4':'Lydia DCS', 'NO':'Gonow',
+  'LO':'iPort', 'LY':'Altea', 'MH':'Altea', 'MU':'TravelSky', 'N0':'Gonow', 'N4':'Lydia DCS', 'NO':'iPort',
   'OD':'Sabre', 'OM':'iPort', 'OQ':'TravelSky', 'OV':'iPort', 'OZ':'Altea', 'PG':'Altea', 'PN':'TravelSky',
   'QP':'Gonow', 'QR':'Altea', 'QZ':'Gonow', 'S7':'TWD', 'SG':'Gonow', 'SQ':'Altea', 'SU':'ASTRA',
-  'SV':'Altea', 'TK':'TOYA', 'TR':'Gonow', 'U6':'Gonow', 'UO':'Gonow', 'VJ':'iPort', 'VN':'Gonow',
+  'SV':'Altea', 'TK':'TOYA', 'TR':'Gonow', 'U6':'Gonow', 'UO':'Gonow', 'VJ':'iPort', 'VN':'Altea',
   'W5':'AVIA', 'WK':'Altea', 'WY':'Sabre', 'WZ':'ASTRA', 'ZF':'ASTRA', 'ZH':'TravelSky',
 };
 // iPort = ระบบที่ทุกคนทำได้ (ไฟลท์ iPort ใครว่างก็ช่วยเช็คอินได้)
@@ -730,6 +730,62 @@ function slaSupportDeployed_(res, ll) {
   }
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { scan(t, r); }); });
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { scan('LL·' + s, r); }); });
+  return rows;
+}
+/** ตรวจรายชื่อที่จะส่งไปซัพ (วางข้อความ Duty) — เช็ค OFF · กะไม่ครอบเวลางาน · เวลาซ้อน · ลงเทรน
+ *  จับชื่อจาก roster เท่านั้น (กัน false positive จากคำว่า ARR/GATE) · ตามเลขไฟลท์ในบรรทัดเหนือชื่อ */
+function slaCheckDeploy_(res, ll, text) {
+  var people = {};
+  function addP(team, r) {
+    var fn = String(r.name || '').toUpperCase().split(/[\s(]/)[0];
+    if (fn.length < 3) return;
+    var d = acDuty_(r);
+    var train = (r.assignments || []).some(function (a) { return rrIsTrainingTask_(String(a.flight)); });
+    (people[fn] = people[fn] || []).push({ name: r.name, team: team, bucket: r.bucket, ds: d.ds, de: d.de, shift: r.shiftTime || r.shift, train: train });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { addP(t, r); }); });
+  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { addP('LL·' + s, r); }); });
+  var flT = {};
+  slaCollectFlights_(res, ll).forEach(function (f) { flT[slaFlightKey_(f.flight)] = f; });
+  var picks = [], cur = null;
+  String(text || '').split(/\n/).forEach(function (ln) {
+    var fm = ln.match(/\b[A-Z0-9]{2}\s?\d{2,4}\b/);
+    if (fm && acIsFlight_(fm[0])) { var k = slaFlightKey_(fm[0]); cur = flT[k] || { flight: fm[0].trim() }; }
+    (ln.match(/[A-Za-z][A-Za-z']{2,}/g) || []).forEach(function (tk) {
+      var u = tk.toUpperCase(); if (people[u]) picks.push({ name: u, flight: cur, line: ln });
+    });
+  });
+  var seen = {}, list = [];
+  picks.forEach(function (p) { var fk = (p.flight && p.flight.flight) || ''; var k = p.name + '|' + fk; if (seen[k]) return; seen[k] = 1; list.push(p); });
+  var byName = {};
+  var rows = list.map(function (p) {
+    var cand = people[p.name], rec = cand[0], f = p.flight, teamMiss = '';
+    // ทีมที่ระบุในข้อความ (เช่น "SUTHIDA ZF") → เลือก record ของทีมนั้น; ถ้าไม่มี → เตือนทีมไม่ตรง
+    var hints = (String(p.line || '').toUpperCase().match(/\b[A-Z]{2,4}\b/g) || []).filter(function (h) { return h !== p.name; });
+    if (hints.length) {
+      var hit = cand.filter(function (c) { var ct = c.team.toUpperCase(); return hints.some(function (h) { return ct === h || ct.indexOf(h) >= 0; }); });
+      if (hit.length) rec = hit[0];
+      else if (cand.length === 1 && hints.length) {
+        var th = hints.filter(function (h) { return Object.keys(res.teams).some(function (t) { return t.toUpperCase().indexOf(h) >= 0; }); });
+        if (th.length && rec.team.toUpperCase().indexOf(th[0]) < 0) teamMiss = 'ทีมในข้อความ (' + th[0] + ') ≠ ที่พบ (' + rec.team + ') — เช็คสะกด/คนละคน';
+      }
+    }
+    var win = (f && (f.STA || f.STD)) ? slaPhaseWindow_(f, 'GATE') : null;
+    var cover = (win && rec.ds != null && rec.de != null) ? (rec.ds <= win[0] + 30 && rec.de >= win[1] - 30) : null;
+    var issues = [];
+    if (rec.bucket === 'off') issues.push('OFF (วันหยุด — ต้อง re-sked/OT)');
+    else if (rec.bucket !== 'working' && rec.bucket !== 'ot_off') issues.push(rec.bucket);
+    if (cover === false) issues.push('กะ ' + (rec.shift || '') + ' ไม่ครอบเวลางาน');
+    if (rec.train) issues.push('ในตารางลงเทรน/ประชุม');
+    if (teamMiss) issues.push(teamMiss);
+    (byName[p.name] = byName[p.name] || []).push(win);
+    return { name: p.name, team: rec.team, bucket: rec.bucket, shift: rec.shift, flight: (f && f.flight) || '(ไม่ระบุไฟลท์)', issues: issues, overlap: false };
+  });
+  Object.keys(byName).forEach(function (nm) {
+    var a = byName[nm].filter(Boolean);
+    for (var i = 0; i < a.length; i++) for (var j = i + 1; j < a.length; j++)
+      if (a[i][0] < a[j][1] - 10 && a[i][1] > a[j][0] + 10) rows.forEach(function (r) { if (r.name === nm) r.overlap = true; });
+  });
   return rows;
 }
 /** จัดกลุ่มคนช่วยตามทีม (ให้เลือกได้ว่าจะดึงจากทีมไหน) → [{team, people:[...]}] */

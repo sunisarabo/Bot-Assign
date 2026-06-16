@@ -1328,12 +1328,12 @@ var AIRLINE_SYS = {
   'B2':'ASTRA', 'BK':'TravelSky', 'BY':'iPort', 'C6':'iPort', 'CA':'TravelSky', 'CX':'Altea', 'CZ':'TravelSky',
   'DE':'Altea', 'DK':'Altea', 'DV':'TWD', 'EK':'AS Connect', 'EO':'Lydia DCS', 'EY':'Altea', 'FM':'TravelSky',
   'FY':'Gonow', 'G2':'iPort', 'G8':'Gonow', 'G9':'Altea', 'GX':'TravelSky', 'H4':'iPort', 'HB':'TravelSky',
-  'HH':'iPort', 'HO':'TravelSky', 'HU':'TravelSky', 'HX':'iPort', 'HY':'Altea', 'IT':'Gonow', 'IX':'Gonow',
+  'HH':'iPort', 'HO':'TravelSky', 'HU':'TravelSky', 'HX':'iPort', 'HY':'Altea', 'IT':'iPort', 'IX':'Gonow',
   'JQ':'Gonow', 'KA':'iPort', 'KC':'Altea', 'KE':'Altea', 'KX':'TravelSky', 'KY':'TravelSky', 'LJ':'iFlyRes',
-  'LO':'iPort', 'LY':'Altea', 'MH':'Altea', 'MU':'TravelSky', 'N0':'Gonow', 'N4':'Lydia DCS', 'NO':'Gonow',
+  'LO':'iPort', 'LY':'Altea', 'MH':'Altea', 'MU':'TravelSky', 'N0':'Gonow', 'N4':'Lydia DCS', 'NO':'iPort',
   'OD':'Sabre', 'OM':'iPort', 'OQ':'TravelSky', 'OV':'iPort', 'OZ':'Altea', 'PG':'Altea', 'PN':'TravelSky',
   'QP':'Gonow', 'QR':'Altea', 'QZ':'Gonow', 'S7':'TWD', 'SG':'Gonow', 'SQ':'Altea', 'SU':'ASTRA',
-  'SV':'Altea', 'TK':'TOYA', 'TR':'Gonow', 'U6':'Gonow', 'UO':'Gonow', 'VJ':'iPort', 'VN':'Gonow',
+  'SV':'Altea', 'TK':'TOYA', 'TR':'Gonow', 'U6':'Gonow', 'UO':'Gonow', 'VJ':'iPort', 'VN':'Altea',
   'W5':'AVIA', 'WK':'Altea', 'WY':'Sabre', 'WZ':'ASTRA', 'ZF':'ASTRA', 'ZH':'TravelSky',
 };
 // iPort = ระบบที่ทุกคนทำได้ (ไฟลท์ iPort ใครว่างก็ช่วยเช็คอินได้)
@@ -1835,6 +1835,62 @@ function slaSupportDeployed_(res, ll) {
   }
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { scan(t, r); }); });
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { scan('LL·' + s, r); }); });
+  return rows;
+}
+/** ตรวจรายชื่อที่จะส่งไปซัพ (วางข้อความ Duty) — เช็ค OFF · กะไม่ครอบเวลางาน · เวลาซ้อน · ลงเทรน
+ *  จับชื่อจาก roster เท่านั้น (กัน false positive จากคำว่า ARR/GATE) · ตามเลขไฟลท์ในบรรทัดเหนือชื่อ */
+function slaCheckDeploy_(res, ll, text) {
+  var people = {};
+  function addP(team, r) {
+    var fn = String(r.name || '').toUpperCase().split(/[\s(]/)[0];
+    if (fn.length < 3) return;
+    var d = acDuty_(r);
+    var train = (r.assignments || []).some(function (a) { return rrIsTrainingTask_(String(a.flight)); });
+    (people[fn] = people[fn] || []).push({ name: r.name, team: team, bucket: r.bucket, ds: d.ds, de: d.de, shift: r.shiftTime || r.shift, train: train });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { addP(t, r); }); });
+  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { addP('LL·' + s, r); }); });
+  var flT = {};
+  slaCollectFlights_(res, ll).forEach(function (f) { flT[slaFlightKey_(f.flight)] = f; });
+  var picks = [], cur = null;
+  String(text || '').split(/\n/).forEach(function (ln) {
+    var fm = ln.match(/\b[A-Z0-9]{2}\s?\d{2,4}\b/);
+    if (fm && acIsFlight_(fm[0])) { var k = slaFlightKey_(fm[0]); cur = flT[k] || { flight: fm[0].trim() }; }
+    (ln.match(/[A-Za-z][A-Za-z']{2,}/g) || []).forEach(function (tk) {
+      var u = tk.toUpperCase(); if (people[u]) picks.push({ name: u, flight: cur, line: ln });
+    });
+  });
+  var seen = {}, list = [];
+  picks.forEach(function (p) { var fk = (p.flight && p.flight.flight) || ''; var k = p.name + '|' + fk; if (seen[k]) return; seen[k] = 1; list.push(p); });
+  var byName = {};
+  var rows = list.map(function (p) {
+    var cand = people[p.name], rec = cand[0], f = p.flight, teamMiss = '';
+    // ทีมที่ระบุในข้อความ (เช่น "SUTHIDA ZF") → เลือก record ของทีมนั้น; ถ้าไม่มี → เตือนทีมไม่ตรง
+    var hints = (String(p.line || '').toUpperCase().match(/\b[A-Z]{2,4}\b/g) || []).filter(function (h) { return h !== p.name; });
+    if (hints.length) {
+      var hit = cand.filter(function (c) { var ct = c.team.toUpperCase(); return hints.some(function (h) { return ct === h || ct.indexOf(h) >= 0; }); });
+      if (hit.length) rec = hit[0];
+      else if (cand.length === 1 && hints.length) {
+        var th = hints.filter(function (h) { return Object.keys(res.teams).some(function (t) { return t.toUpperCase().indexOf(h) >= 0; }); });
+        if (th.length && rec.team.toUpperCase().indexOf(th[0]) < 0) teamMiss = 'ทีมในข้อความ (' + th[0] + ') ≠ ที่พบ (' + rec.team + ') — เช็คสะกด/คนละคน';
+      }
+    }
+    var win = (f && (f.STA || f.STD)) ? slaPhaseWindow_(f, 'GATE') : null;
+    var cover = (win && rec.ds != null && rec.de != null) ? (rec.ds <= win[0] + 30 && rec.de >= win[1] - 30) : null;
+    var issues = [];
+    if (rec.bucket === 'off') issues.push('OFF (วันหยุด — ต้อง re-sked/OT)');
+    else if (rec.bucket !== 'working' && rec.bucket !== 'ot_off') issues.push(rec.bucket);
+    if (cover === false) issues.push('กะ ' + (rec.shift || '') + ' ไม่ครอบเวลางาน');
+    if (rec.train) issues.push('ในตารางลงเทรน/ประชุม');
+    if (teamMiss) issues.push(teamMiss);
+    (byName[p.name] = byName[p.name] || []).push(win);
+    return { name: p.name, team: rec.team, bucket: rec.bucket, shift: rec.shift, flight: (f && f.flight) || '(ไม่ระบุไฟลท์)', issues: issues, overlap: false };
+  });
+  Object.keys(byName).forEach(function (nm) {
+    var a = byName[nm].filter(Boolean);
+    for (var i = 0; i < a.length; i++) for (var j = i + 1; j < a.length; j++)
+      if (a[i][0] < a[j][1] - 10 && a[i][1] > a[j][0] + 10) rows.forEach(function (r) { if (r.name === nm) r.overlap = true; });
+  });
   return rows;
 }
 /** จัดกลุ่มคนช่วยตามทีม (ให้เลือกได้ว่าจะดึงจากทีมไหน) → [{team, people:[...]}] */
@@ -5440,10 +5496,34 @@ function rbSupportHtml(iso) {
     var sosBlock = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">📋 ข้อความ SOS (คัดลอกส่งไลน์ได้เลย · เฉพาะคนทีมอื่น)</summary>' +
       '<div style="padding:8px 14px"><button class="btn btn--accent" onclick="(function(b){var t=b.parentNode.querySelector(\'textarea\');t.focus();t.select();if(navigator.clipboard){navigator.clipboard.writeText(t.value);}else{document.execCommand(\'copy\');}b.textContent=\'✓ คัดลอกแล้ว\';setTimeout(function(){b.textContent=\'📋 คัดลอกข้อความ\';},1500);})(this)">📋 คัดลอกข้อความ</button>' +
       '<textarea readonly rows="16" style="width:100%;margin-top:8px;font-family:monospace;font-size:12px;white-space:pre;overflow:auto">' + rbEsc_(sosTxt) + '</textarea></div></details>';
-    return hd + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+    var checkPanel = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">✅ ตรวจรายชื่อที่จะส่งซัพ (วางข้อความ Duty / รายชื่อ แล้วกดตรวจ — เช็ค OFF · กะไม่ครอบ · เวลาซ้อน · ลงเทรน)</summary>' +
+      '<div style="padding:8px 14px"><textarea id="supchkin" rows="6" placeholder="วางข้อความขอซัพจาก Duty ได้เลย (มีเลขไฟลท์+ชื่อ) หรือพิมพ์บรรทัดละ ไฟลท์ ตามด้วยชื่อ" style="width:100%;font-size:13px;font-family:monospace"></textarea>' +
+      '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supCheck()">🔍 ตรวจรายชื่อ</button> <span id="supchkmsg" class="muted"></span></div>' +
+      '<div id="supchkout" style="margin-top:8px"></div></div></details>';
+    return hd + checkPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+
+/** ตรวจรายชื่อที่จะส่งซัพ (เรียกจากปุ่มในแท็บ Support) */
+function rbCheckDeployHtml(iso, text) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    var rows = slaCheckDeploy_(d.res, d.ll, text);
+    if (!rows.length) return '<div class="panel muted" style="padding:14px">ไม่พบชื่อที่ตรงกับ roster วันนี้ — ตรวจการสะกด (ใช้ชื่อตัวแรกให้ตรงตาราง) หรือมีเลขไฟลท์กำกับ</div>';
+    function row(r) {
+      var fl = (r.issues || []).slice(); if (r.overlap) fl.push('เวลาซ้อนกับงานอื่น');
+      return '<tr class="' + (fl.length ? 'rowbad' : '') + '"><td class="b">' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.team) +
+        '</td><td>' + rbEsc_(r.shift || '') + '</td><td class="b">' + rbEsc_(r.flight) + '</td><td>' +
+        (fl.length ? '<span class="badd">⚠️ ' + rbEsc_(fl.join(' · ')) + '</span>' : '<span class="okk">✅ พร้อม</span>') + '</td></tr>';
+    }
+    var bad = rows.filter(function (r) { return r.issues.length || r.overlap; });
+    var ok = rows.filter(function (r) { return !r.issues.length && !r.overlap; });
+    var sum = '<div class="sectionlabel">ตรวจ ' + rows.length + ' รายการ · <b class="badd">' + bad.length + ' ติดปัญหา</b> · <b class="okk">' + ok.length + ' พร้อม</b></div>';
+    return sum + rbTblCard_('ผลตรวจรายชื่อซัพพอร์ต', '<tr><th>ชื่อ</th><th>ทีม</th><th>กะ</th><th>ไฟลท์</th><th>สถานะ</th></tr>',
+      bad.map(row).join('') + ok.map(row).join(''), '');
+  } catch (e) { return '<div class="panel">ตรวจไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 /** ตัวกรองหัวการ์ด: ช่องค้นหา + dropdown เลือกทีม (เติม option ด้วย JS หลังโหลด) */
 function rbCtrls_(viewId, withSearch){
@@ -5818,7 +5898,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
-    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadDeploy(){lazy("deploybox","rbDeployedHtml","deploy");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadDeploy(){lazy("deploybox","rbDeployedHtml","deploy");}' +
+    'function supCheck(){var el=document.getElementById("supchkin");var t=el?el.value:"";if(!t.trim()){alert("วางรายชื่อก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อใช้ปุ่มตรวจ");return;}var m=document.getElementById("supchkmsg");if(m)m.textContent="⏳ กำลังตรวจ…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supchkout").innerHTML=h;makeSortable();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supchkout").innerHTML="<div class=\\"panel\\">ตรวจไม่ได้: "+e.message+"</div>";}).rbCheckDeployHtml(ISO,t);}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
     'function rbRefresh(b){if(b){b.textContent="⏳ กำลังรีเฟรช…";}if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){location.reload();}).withFailureHandler(function(){location.reload();}).rbClearCache(ISO);}else{location.reload();}}' +
     'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v,cci){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v,cci||"");}' +
     'function advCurDate(){var di=document.querySelector("#view-adv input[type=date]");return di?di.value:ISO;}' +
