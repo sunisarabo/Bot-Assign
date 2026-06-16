@@ -1994,6 +1994,15 @@ function acFlightWin_(a) {
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
   var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย
+  // task เป็น Gate/Arrival ล้วน → ใช้ช่วงตามตำแหน่ง (STA−30 → STD+post) ไม่ใช่ช่วงเช็คอินเต็ม
+  // (กันเตือน "นอกเวลางาน" ผิด สำหรับคนที่ทำเฉพาะเกท/ขาเข้า ซึ่งไม่ได้อยู่ช่วงเช็คอินเปิด)
+  var phs = (typeof slaPhasesOf_ === 'function') ? slaPhasesOf_(a.task) : null;
+  if (phs && phs.length === 1 && (phs[0] === 'GATE' || phs[0] === 'ARR') && (sta != null || std != null)) {
+    var glo = (sta != null) ? sta - 30 : std - 90;
+    var ghi = (std != null) ? std + post : sta + post;
+    if (ghi <= glo) ghi += 1440;
+    return [glo, ghi];
+  }
   var lo = null, hi = (std != null) ? std + post : null;      // hi = STD + post (รวมงาน post-flight)
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
   if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ
