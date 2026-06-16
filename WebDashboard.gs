@@ -117,7 +117,7 @@ function rbFlightsHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     return rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
+      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Controller</th><th>Gate<br>Agent</th><th>Crew<br>Sign</th><th>สถานะ</th></tr>',
       rbFltRows_(d.res, d.ll), rbCtrls_('view-flt', true));
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_((e && (e.message || e.stack || e.toString())) || 'unknown') + '</div>'; }
 }
@@ -564,8 +564,8 @@ function rbFltRows_(res, ll) {
              : (f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>');
       return '<tr class="'+(f.ok&&!f.noTime?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+rbEsc_(f.airline)+'</td><td>'+rbEsc_(f.teamList)+
         '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+(asg.total||0)+'</b>/'+(R.total||req.total||0)+'</td>'+
-        rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.GM)+rc(R.GA)+'<td>'+st+'</td></tr>';
-    } catch (eRow) { return '<tr class="rowbad"><td class="b">'+rbEsc_(f && f.flight)+'</td><td colspan="12" class="muted">แสดงไม่ได้: '+rbEsc_(eRow && eRow.message)+'</td></tr>'; }
+        rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.GM)+rc(R.GA)+rc(R.CS)+'<td>'+st+'</td></tr>';
+    } catch (eRow) { return '<tr class="rowbad"><td class="b">'+rbEsc_(f && f.flight)+'</td><td colspan="13" class="muted">แสดงไม่ได้: '+rbEsc_(eRow && eRow.message)+'</td></tr>'; }
   }).join('');
 }
 
@@ -617,7 +617,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     : '<div id="ttbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Timetable…</div></div>';
   var fltInner = staticMode
     ? rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
+        '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Controller</th><th>Gate<br>Agent</th><th>Crew<br>Sign</th><th>สถานะ</th></tr>',
         rbFltRows_(res, ll), rbCtrls_('view-flt', true))
     : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
   var otInner = otDashHtml_();                                         // OT Dashboard (baked-in, client-side) แทนแท็บ OT เดิม
