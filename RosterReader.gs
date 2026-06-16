@@ -824,15 +824,17 @@ function readRosterFromSpreadsheet(ss, date) {
   var rosIso = '', roster = null;
   if (date) { try { rosIso = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd'); roster = (typeof whLoadMonth_ === 'function') ? whLoadMonth_(rosIso) : null; } catch (eR) {} }
   function fillFromRoster(r) {
-    if (!roster || !r.blankRow) return;   // เติมเฉพาะแถวว่างเปล่าจริง (ชีตยังไม่กรอก) · เคารพ OFF/SL ที่เขียนไว้
-    var p = roster.byId[String(r.id || '').replace(/\.0+$/, '').replace(/\D/g, '')]; if (!p) return;
-    for (var i = 0; i < p.days.length; i++) {
-      if (p.days[i].iso === rosIso) {
-        var dd = p.days[i];
-        if (dd.work && dd.hours > 0) { r.shift = dd.code; r.shiftTime = dd.code; r.shiftHrs = dd.hours; r.bucket = 'working'; r.fromRoster = true; }
-        return;
+    try {
+      if (!roster || !roster.byId || !r.blankRow) return;   // เติมเฉพาะแถวว่างเปล่าจริง · กันทุก error ไม่ให้ล้มการโหลด
+      var p = roster.byId[String(r.id || '').replace(/\.0+$/, '').replace(/\D/g, '')]; if (!p || !p.days) return;
+      for (var i = 0; i < p.days.length; i++) {
+        if (p.days[i].iso === rosIso) {
+          var dd = p.days[i];
+          if (dd.work && dd.hours > 0) { r.shift = dd.code; r.shiftTime = dd.code; r.shiftHrs = dd.hours; r.bucket = 'working'; r.fromRoster = true; }
+          return;
+        }
       }
-    }
+    } catch (eFR) {}
   }
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);

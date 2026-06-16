@@ -832,15 +832,17 @@ function readRosterFromSpreadsheet(ss, date) {
   var rosIso = '', roster = null;
   if (date) { try { rosIso = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd'); roster = (typeof whLoadMonth_ === 'function') ? whLoadMonth_(rosIso) : null; } catch (eR) {} }
   function fillFromRoster(r) {
-    if (!roster || !r.blankRow) return;   // เติมเฉพาะแถวว่างเปล่าจริง (ชีตยังไม่กรอก) · เคารพ OFF/SL ที่เขียนไว้
-    var p = roster.byId[String(r.id || '').replace(/\.0+$/, '').replace(/\D/g, '')]; if (!p) return;
-    for (var i = 0; i < p.days.length; i++) {
-      if (p.days[i].iso === rosIso) {
-        var dd = p.days[i];
-        if (dd.work && dd.hours > 0) { r.shift = dd.code; r.shiftTime = dd.code; r.shiftHrs = dd.hours; r.bucket = 'working'; r.fromRoster = true; }
-        return;
+    try {
+      if (!roster || !roster.byId || !r.blankRow) return;   // เติมเฉพาะแถวว่างเปล่าจริง · กันทุก error ไม่ให้ล้มการโหลด
+      var p = roster.byId[String(r.id || '').replace(/\.0+$/, '').replace(/\D/g, '')]; if (!p || !p.days) return;
+      for (var i = 0; i < p.days.length; i++) {
+        if (p.days[i].iso === rosIso) {
+          var dd = p.days[i];
+          if (dd.work && dd.hours > 0) { r.shift = dd.code; r.shiftTime = dd.code; r.shiftHrs = dd.hours; r.bucket = 'working'; r.fromRoster = true; }
+          return;
+        }
       }
-    }
+    } catch (eFR) {}
   }
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
@@ -5158,7 +5160,7 @@ function rbFlightsHtml(iso) {
     return rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Monitor</th><th>Gate<br>Agent</th><th>สถานะ</th></tr>',
       rbFltRows_(d.res, d.ll), rbCtrls_('view-flt', true));
-  } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+  } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_((e && (e.message || e.stack || e.toString())) || 'unknown') + '</div>'; }
 }
 
 /** Lazy tab: ตรวจความเหมาะสมการ Assign (ครอบคลุมไฟลท์ / OT / ช่วงว่าง). */
@@ -5595,13 +5597,16 @@ function rbTtRows_(res, ll) {
 }
 function rbFltRows_(res, ll) {
   return slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); }).map(function (f) {   // ซ่อนเศษขา (ขาที่สองซ้ำของไฟลท์ที่มีอยู่แล้ว)
-    var R = slaRoles_(f.airline);
-    function rc(n){ return '<td class="tnum">'+(n||0)+'</td>'; }
-    var st = f.noTime ? '<span class="badd">⚠️ ขาด STA/STD — เติมเวลาในชีต</span>'
-           : (f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>');
-    return '<tr class="'+(f.ok&&!f.noTime?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+f.airline+'</td><td>'+rbEsc_(f.teamList)+
-      '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+f.assigned.total+'</b>/'+(R.total||f.req.total)+'</td>'+
-      rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.GM)+rc(R.GA)+'<td>'+st+'</td></tr>';
+    try {
+      var R = slaRoles_(f.airline) || {};
+      var asg = f.assigned || {}, req = f.req || {};
+      function rc(n){ return '<td class="tnum">'+(n||0)+'</td>'; }
+      var st = f.noTime ? '<span class="badd">⚠️ ขาด STA/STD — เติมเวลาในชีต</span>'
+             : (f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>');
+      return '<tr class="'+(f.ok&&!f.noTime?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+rbEsc_(f.airline)+'</td><td>'+rbEsc_(f.teamList)+
+        '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+(asg.total||0)+'</b>/'+(R.total||req.total||0)+'</td>'+
+        rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.GM)+rc(R.GA)+'<td>'+st+'</td></tr>';
+    } catch (eRow) { return '<tr class="rowbad"><td class="b">'+rbEsc_(f && f.flight)+'</td><td colspan="12" class="muted">แสดงไม่ได้: '+rbEsc_(eRow && eRow.message)+'</td></tr>'; }
   }).join('');
 }
 
