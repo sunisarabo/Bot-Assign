@@ -131,7 +131,10 @@ function rrParseJobText_(text) {
 }
 /** task ที่เป็นการอบรม/ประชุม (ไม่ใช่งานไฟลท์) → ไปเทรน ไม่ได้คุมไฟลท์ */
 function rrIsTrainingTask_(task) {
-  return /TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP/i.test(String(task || ''));
+  // กิจกรรมที่ "ไม่ใช่การทำไฟลท์" → แสดงเป็นกิจกรรม ไม่นับเป็นคนคุมไฟลท์
+  // TRAIN (ครอบ TRAINING + ตัวย่อ "TRAIN LC HB") · อบรม/สัมมนา/ประชุม (ไทย) · กิจกรรม (เข้าวัด ฯลฯ) · RESIGN/ลาออก
+  // ระวัง: ห้ามจับ MONITOR (= Gate Monitor เป็นงานไฟลท์จริง)
+  return /\bTRAIN|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|ลาออก/i.test(String(task || ''));
 }
 /** ดึงรหัสไฟลท์ทั้งหมดจากข้อความรกๆ (Admin Doc/Crewsign) — เก็บเฉพาะที่ผ่าน acIsFlight_, ตัดซ้ำด้วยเลขไฟลท์
  *  เช่น "EY414/415 CREWSIGN(0500), AK818-819 STA0805" → [{flight:'EY414/415'},{flight:'AK818-819'}] */
@@ -1439,9 +1442,9 @@ function slaPhasesOf_(task) {
   if (/TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR/.test(u)) return [];   // เทรน/ประชุม → ไม่คุมไฟลท์
   var p = {};
   if (/\bSUP\b|SPVR|\bSOD\b|\bSM\b|\bFC\b|FLT\s*CTRL|FLIGHT\s*CONTROL/.test(u)) p.SUP = 1;   // หัวหน้า/Flight Controller (FC)
-  if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR/.test(u)) p.ARR = 1;                    // arrival
-  if (/\bGA\b|\bGM\b|\bGC\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|^G[\b/CM-]|^D\b/.test(u)) p.GATE = 1;   // gate (GA/GM/GC)
-  if (/\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|WEB|KIOSK|PRIO|PSM|\bGK\b|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b/.test(u)) p.CI = 1;   // เช็คอิน/เคาน์เตอร์/crew sign
+  if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR|CIQ|IMMIG/.test(u)) p.ARR = 1;          // arrival · CIQ (ด่าน ตม./ศุลกากร ขาเข้า)
+  if (/\bG[ABCKM]?\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|(^|[\s\/])D\b|(^|[\s\/])I\b/.test(u)) p.GATE = 1;   // gate: G(Agent)/GA/GB(Boarding)/GC(Controller)/GK(Flight Release)/GM(Monitor) · D=Gate Dom, I=Gate Int (PG · ต้นโทเคนเท่านั้น กัน "A-D"/"INT")
+  if (/\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|WEB|KIOSK|PRIO|PSM|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b|COUNTER/.test(u)) p.CI = 1;   // เช็คอิน/เคาน์เตอร์/crew sign
   var keys = Object.keys(p);
   return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
