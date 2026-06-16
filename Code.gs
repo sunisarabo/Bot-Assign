@@ -4420,15 +4420,21 @@ function whLoadMonth_(iso) {
   return out;
 }
 
-/** สถานะรายสัปดาห์ของพนักงาน id (สัปดาห์ที่มีวัน iso) → {hours,days,over48,over6,level} หรือ null */
+/** สถานะรายสัปดาห์ของพนักงาน id (สัปดาห์ที่มีวัน iso) → {hours,days,nocode,incomplete,over48,over6,level} หรือ null */
 function whWeekStat_(iso, id) {
   var R = whLoadMonth_(iso); if (!R) return null;
   var p = R.byId[String(id == null ? '' : id).replace(/\D/g, '')]; if (!p) return null;
-  var wk = whIsoWeek_(iso), hours = 0, days = 0;
-  p.days.forEach(function (d) { if (d.work && whIsoWeek_(d.iso) === wk) { hours += d.hours; days++; } });
+  var wk = whIsoWeek_(iso), hours = 0, days = 0, nocode = 0;
+  p.days.forEach(function (d) {
+    if (d.work && whIsoWeek_(d.iso) === wk) {
+      days++;
+      if (d.hours > 0) hours += d.hours; else nocode++;   // วันทำงานที่ ROSTER ไม่ได้กรอกรหัสกะ → คิดชั่วโมงไม่ได้
+    }
+  });
   hours = Math.round(hours * 10) / 10;
-  var over48 = hours > WH_WEEK_MAXHR, over6 = days > WH_WEEK_MAXDAY;
-  return { hours: hours, days: days, over48: over48, over6: over6, level: (over48 || over6) ? 'over' : 'ok' };
+  var over48 = hours > WH_WEEK_MAXHR, over6 = days > WH_WEEK_MAXDAY, incomplete = nocode > 0;
+  return { hours: hours, days: days, nocode: nocode, incomplete: incomplete, over48: over48, over6: over6,
+           level: (over48 || over6) ? 'over' : (incomplete ? 'incomplete' : 'ok') };
 }
 
 /** Lazy tab: ⏱️ ชั่วโมง/สัปดาห์ — รายคน (สัปดาห์ของวันที่เลือก) + เตือนเกิน 48ช/6วัน */
@@ -4438,27 +4444,33 @@ function rbWeekHoursHtml(iso) {
     if (!R) return '<div class="panel">ยังเชื่อมไฟล์ ROSTER เดือนไม่ได้ — ตั้ง <code>PWMS_ROSTER_ID</code> (หรือ <code>PWMS_ROSTER_IDS</code>) ใน Script Properties</div>';
     var wk = whIsoWeek_(iso);
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    var rows = [], overN = 0, seen = {};
+    var rows = [], overN = 0, incompN = 0, seen = {};
     Object.keys(d.res.teams).forEach(function (t) {
       d.res.teams[t].records.forEach(function (r) {
         var idd = String(r.id || '').replace(/\D/g, ''); if (!idd || seen[idd]) return; seen[idd] = 1;
         var w = whWeekStat_(iso, idd); if (!w) return;
-        if (w.level === 'over') overN++;
+        if (w.level === 'over') overN++; else if (w.incomplete) incompN++;
         rows.push({ team: t, id: idd, name: r.name, pos: r.pos || '', w: w });
       });
     });
-    rows.sort(function (a, b) { return (b.w.over48 || b.w.over6 ? 1 : 0) - (a.w.over48 || a.w.over6 ? 1 : 0) || b.w.hours - a.w.hours; });
+    // เรียง: เกินเกณฑ์ → ไม่มีรหัสกะ (ให้เห็นง่าย) → ชั่วโมงมากก่อน
+    rows.sort(function (a, b) { return (b.w.over48 || b.w.over6 ? 1 : 0) - (a.w.over48 || a.w.over6 ? 1 : 0) || (b.w.incomplete ? 1 : 0) - (a.w.incomplete ? 1 : 0) || b.w.hours - a.w.hours; });
     var body = rows.map(function (x) {
       var w = x.w, warn = [];
       if (w.over48) warn.push('เกิน 48ช (' + w.hours + ')');
       if (w.over6) warn.push('เกิน 6 วัน (' + w.days + ')');
-      var st = warn.length ? '<span class="badd">⚠️ ' + rbEsc_(warn.join(' · ')) + '</span>' : '<span class="okk">✅ ' + w.hours + 'ช / ' + w.days + 'วัน</span>';
-      return '<tr class="' + (warn.length ? 'rowbad' : '') + '" data-team="' + rbEsc_(x.team) + '"><td class="b">' + rbEsc_(x.team) + '</td><td class="tnum">' + rbEsc_(x.id) +
-        '</td><td>' + rbEsc_(x.name) + '</td><td>' + rbEsc_(x.pos) + '</td><td class="tnum"><b>' + w.hours + '</b></td><td class="tnum">' + w.days + '</td><td>' + st + '</td></tr>';
+      var cls = warn.length ? 'rowbad' : '', st;
+      if (warn.length) st = '<span class="badd">⚠️ ' + rbEsc_(warn.join(' · ')) + '</span>';
+      else if (w.incomplete) st = '<span class="tag">📝 ไม่มีรหัสกะ ' + w.nocode + '/' + w.days + ' วัน — เติมใน ROSTER' + (w.hours ? ' (อ่านได้ ' + w.hours + 'ช)' : '') + '</span>';
+      else st = '<span class="okk">✅ ' + w.hours + 'ช / ' + w.days + 'วัน</span>';
+      var hdisp = w.incomplete ? (w.hours ? w.hours + '<span class="muted">+?</span>' : '<span class="muted">—</span>') : ('<b>' + w.hours + '</b>');
+      return '<tr class="' + cls + '" data-team="' + rbEsc_(x.team) + '"><td class="b">' + rbEsc_(x.team) + '</td><td class="tnum">' + rbEsc_(x.id) +
+        '</td><td>' + rbEsc_(x.name) + '</td><td>' + rbEsc_(x.pos) + '</td><td class="tnum">' + hdisp + '</td><td class="tnum">' + w.days + '</td><td>' + st + '</td></tr>';
     }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:18px">— ไม่มีข้อมูล —</td></tr>';
     var hd = '<div class="sectionlabel" style="background:#fff7e6;border-left:4px solid #fec909;padding:8px 12px;border-radius:8px">' +
       '⏱️ <b>ชั่วโมงทำงานรายสัปดาห์</b> (' + rbEsc_(wk) + ') ตามระเบียบ — เพดาน <b>48 ชม. / 6 วัน</b> ต่อสัปดาห์ · ' +
       (overN ? '<span class="badd">⚠️ เกินเกณฑ์ ' + overN + ' คน</span>' : '<span class="okk">✅ ทุกคนอยู่ในเกณฑ์</span>') +
+      (incompN ? ' · <span class="tag">📝 ไม่มีรหัสกะใน ROSTER ' + incompN + ' คน</span>' : '') +
       ' <span class="muted">· (นับกะที่เป็นวันทำงาน · ไม่รวม OT จริง)</span></div>';
     return hd + rbTblCard_('⏱️ ชั่วโมง/สัปดาห์ รายคน', '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>ชม./สัปดาห์</th><th>วัน</th><th>สถานะ</th></tr>', body, rbCtrls_('view-wh', true));
   } catch (e) { return '<div class="panel">โหลดชั่วโมง/สัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
