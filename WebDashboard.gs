@@ -282,7 +282,7 @@ function rbSupportHtml(iso) {
         for (var i = 0; i < r.shortN; i++) slots.push(sel(picked[i] || ''));
         who = '<div class="pickwrap">' + slots.join('') + '</div>';
       } else {
-        who = '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
+        who = '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
       }
       return '<tr class="' + (r.cands.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +

@@ -636,11 +636,12 @@ function slaSupportRows_(res, ll) {
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       if (!f.short[ph]) return;
-      var cands = slaCandidates_(f, ph, pool, SLA_MAX_CAND);
+      var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
+      var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
       rows.push({
         flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
-        needSys: slaNeedSys_(f.airline, ph),
+        needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
         cands: cands.map(function (c) {
           return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
                    shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
