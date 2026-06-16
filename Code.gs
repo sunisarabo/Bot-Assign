@@ -1837,7 +1837,7 @@ var AIRLINE_SUP = {
   'QR':{ok:false,ph:null},
   'SQ':{ok:true,ph:['ARR','GATE']},  // อนุญาตเฉพาะARR, GATE
   'EK':{ok:false,ph:null},
-  'EY':{ok:true,ph:null},  // ไม่อนุญาตในตำแหน่ง Bogo
+  'EY':{ok:true,ph:['ARR','GATE']},  // ไม่อนุญาต Bogo + รับเฉพาะ ARR/Gate (check-in ต้องเทรน EY)
   'KE':{ok:false,ph:null},
   'WY':{ok:false,ph:null},
   'SU':{ok:true,ph:null},  // SP CHECK-IN ONLY ECONOMY CT
