@@ -1565,10 +1565,10 @@ function slaTeamSystems_(res, ll) {
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
   return sys;
 }
-/** ทีมลอย/สแตนด์บายที่ Duty เรียกมาช่วยก่อน (PVTLP = PRIVATE/LP pool, STBY) */
+/** ทีมลอย/สแตนด์บายที่ Duty เรียกมาช่วยก่อน (PVTLP=PVT pool, CHARTER=ZF pool, STBY) */
 function slaIsFloatTeam_(team) {
   var t = String(team || '').toUpperCase();
-  return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY/.test(t);
+  return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY|CHARTER/.test(t);
 }
 /** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง)
  *  includeOff=true → รวมคนวันหยุด (OFF) ไว้เป็นตัวเลือก "re-sked" (ว่างทุกช่วง · จัดเวลาให้ใหม่ได้) */
