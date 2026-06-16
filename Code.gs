@@ -1471,6 +1471,14 @@ function slaCollectFlights_(res, ll) {
       (teamSups[t] = teamSups[t] || []).push([d.ds, d.de]);
     });
   });
+  // ทีมเจ้าของสายการบิน = ทีมที่ชื่อตรง/มีโค้ดสายนั้น (เช่น SU→ทีม SU แม้ SU ทำ common check-in ไม่ผูกไฟลท์)
+  var teamNames = Object.keys(res.teams);
+  function homeTeamOf(airline) {
+    var a = String(airline || '').toUpperCase(); if (!a) return '';
+    for (var i = 0; i < teamNames.length; i++) if (teamNames[i].toUpperCase() === a) return teamNames[i];
+    for (var j = 0; j < teamNames.length; j++) if ((teamNames[j].toUpperCase().split(/[^A-Z0-9]+/)).indexOf(a) >= 0) return teamNames[j];
+    return '';
+  }
   // compute requirement + shortages per flight
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
@@ -1499,7 +1507,9 @@ function slaCollectFlights_(res, ll) {
     });
     f.shortTotal = Math.max(0, f.req.total - f.assigned.total);
     f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
-    f.teamList = Object.keys(f.teams).join(',');
+    var home = homeTeamOf(f.airline);                          // ทีมเจ้าของสายการบิน (ถ้ามี) มาก่อนทีมที่มาช่วย
+    if (home) f.teams[home] = true;                            // ให้ candidate ถือว่าทีมนี้เป็นเจ้าของ (ไม่นับ support ซ้ำ)
+    f.teamList = home || Object.keys(f.teams).join(',');
     return f;
   });
   // เศษขา (fragment): ไฟลท์ noTime ที่ "เลขไฟลท์ทุกตัว" ไปซ้ำกับไฟลท์ที่มีเวลาอยู่แล้ว = ขาที่สองซ้ำ → ซ่อนได้
