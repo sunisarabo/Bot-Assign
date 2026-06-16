@@ -94,12 +94,8 @@ function apPersonView_(p) {
 // ─── Common check-in (SU/SQ): เคาน์เตอร์รวมหมุนเวียน + เกทต่อไฟลท์ ────────────
 var AP_SU_MAXSIT = 180;                                                 // นั่งเคาน์เตอร์รวมต่อเนื่องสูงสุด 3 ชม./คน
 var AP_COMMON_CI = [
-  { code: 'SU', team: 'SU',
-    counters: (typeof ADV_SU_COUNTERS !== 'undefined' ? ADV_SU_COUNTERS
-      : ['G2','G3','G4','G5','G6','G7','G8','G9','G10','G11','G12','H2','H3','H4','H5','H6']),
-    gate: true,  mainExclude: ['SUP', 'CI', 'GATE', 'ARR'] },             // SU: ถอดทั้งไฟลท์จากตารางหลัก (เคาน์เตอร์+เกทคุมเอง)
-  { code: 'SQ', team: 'SQ', nCounter: 7,
-    gate: false, mainExclude: ['CI'] },                                   // SQ: เฉพาะเช็คอินคอมมอน (เกท/อื่นๆ ยังอยู่ตารางหลัก)
+  // ปิด common check-in อัตโนมัติ — ปัจจุบันไม่มีสายไหนใช้เคาน์เตอร์รวมเป็นค่าเริ่มต้น (จัดรายไฟลท์ปกติ)
+  // common check-in ใช้เฉพาะกรณี AOG / ไฟลท์ทับซ้อน → เปิดเป็นรายกรณี (เพิ่ม entry {code,team,...})
 ];
 function apCfgOf_(code) {
   for (var i = 0; i < AP_COMMON_CI.length; i++) if (AP_COMMON_CI[i].code === code) return AP_COMMON_CI[i];

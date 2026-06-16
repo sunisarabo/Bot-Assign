@@ -2241,12 +2241,8 @@ function apPersonView_(p) {
 // ─── Common check-in (SU/SQ): เคาน์เตอร์รวมหมุนเวียน + เกทต่อไฟลท์ ────────────
 var AP_SU_MAXSIT = 180;                                                 // นั่งเคาน์เตอร์รวมต่อเนื่องสูงสุด 3 ชม./คน
 var AP_COMMON_CI = [
-  { code: 'SU', team: 'SU',
-    counters: (typeof ADV_SU_COUNTERS !== 'undefined' ? ADV_SU_COUNTERS
-      : ['G2','G3','G4','G5','G6','G7','G8','G9','G10','G11','G12','H2','H3','H4','H5','H6']),
-    gate: true,  mainExclude: ['SUP', 'CI', 'GATE', 'ARR'] },             // SU: ถอดทั้งไฟลท์จากตารางหลัก (เคาน์เตอร์+เกทคุมเอง)
-  { code: 'SQ', team: 'SQ', nCounter: 7,
-    gate: false, mainExclude: ['CI'] },                                   // SQ: เฉพาะเช็คอินคอมมอน (เกท/อื่นๆ ยังอยู่ตารางหลัก)
+  // ปิด common check-in อัตโนมัติ — ปัจจุบันไม่มีสายไหนใช้เคาน์เตอร์รวมเป็นค่าเริ่มต้น (จัดรายไฟลท์ปกติ)
+  // common check-in ใช้เฉพาะกรณี AOG / ไฟลท์ทับซ้อน → เปิดเป็นรายกรณี (เพิ่ม entry {code,team,...})
 ];
 function apCfgOf_(code) {
   for (var i = 0; i < AP_COMMON_CI.length; i++) if (AP_COMMON_CI[i].code === code) return AP_COMMON_CI[i];
@@ -3107,8 +3103,8 @@ function advSlotCandidates_(pool, f, role, win) {
  *  full=true: จัดเต็ม (ล็อกเวลา+ถอดจากตารางหลัก+มีการ์ดเกท) · full=false: เฉพาะเคาน์เตอร์ (ไม่แตะตารางหลัก) */
 var ADV_SU_MAXSIT = 180;                                              // นั่งต่อเนื่องสูงสุด 3 ชม./คน
 var ADV_COMMON_CI = [
-  { code: 'SU', team: 'SU', counters: ADV_SU_COUNTERS, gate: true,  full: true },   // SU: 16 เคาน์เตอร์ + เกท + ถอดจากตารางหลัก
-  { code: 'SQ', team: 'SQ', nCounter: 7,               gate: false, full: false }    // SQ: ~7 เคาน์เตอร์ เฉพาะเคาน์เตอร์ (เกทอยู่ตารางหลัก)
+  // ปิด common check-in อัตโนมัติ — ไม่มีสายไหนใช้เคาน์เตอร์รวมเป็นค่าเริ่มต้นแล้ว (จัดรายไฟลท์ปกติ)
+  // ใช้เฉพาะกรณี AOG / ไฟลท์ทับซ้อน → เปิดเป็นรายกรณี (เพิ่ม entry {code,team,counters/nCounter,gate,full})
 ];
 
 /** common check-in ของทีมหนึ่ง: (1) เคาน์เตอร์รวม หมุนเวียนรอบละ ≤3 ชม. (2) เกทต่อไฟลท์ (เฉพาะ cfg.gate)

@@ -453,8 +453,8 @@ function advSlotCandidates_(pool, f, role, win) {
  *  full=true: จัดเต็ม (ล็อกเวลา+ถอดจากตารางหลัก+มีการ์ดเกท) · full=false: เฉพาะเคาน์เตอร์ (ไม่แตะตารางหลัก) */
 var ADV_SU_MAXSIT = 180;                                              // นั่งต่อเนื่องสูงสุด 3 ชม./คน
 var ADV_COMMON_CI = [
-  { code: 'SU', team: 'SU', counters: ADV_SU_COUNTERS, gate: true,  full: true },   // SU: 16 เคาน์เตอร์ + เกท + ถอดจากตารางหลัก
-  { code: 'SQ', team: 'SQ', nCounter: 7,               gate: false, full: false }    // SQ: ~7 เคาน์เตอร์ เฉพาะเคาน์เตอร์ (เกทอยู่ตารางหลัก)
+  // ปิด common check-in อัตโนมัติ — ไม่มีสายไหนใช้เคาน์เตอร์รวมเป็นค่าเริ่มต้นแล้ว (จัดรายไฟลท์ปกติ)
+  // ใช้เฉพาะกรณี AOG / ไฟลท์ทับซ้อน → เปิดเป็นรายกรณี (เพิ่ม entry {code,team,counters/nCounter,gate,full})
 ];
 
 /** common check-in ของทีมหนึ่ง: (1) เคาน์เตอร์รวม หมุนเวียนรอบละ ≤3 ชม. (2) เกทต่อไฟลท์ (เฉพาะ cfg.gate)
