@@ -1376,8 +1376,12 @@ function slaRealMin_(x) { var v = acMin_(x); return v ? v : null; }
  *  (EY416/EY417 = EY416/417 = EY416 · CX773/778 ≠ CX778 เพราะเลขแรกต่างกัน) */
 function slaFlightKey_(raw) {
   var s = String(raw || '').trim().toUpperCase();
-  var m = s.match(/\d+/);                                   // เลขไฟลท์ชุดแรก
-  return m ? (slaAirlineOf_(s) + String(parseInt(m[0], 10))) : s.replace(/[\s.\/]+/g, '');
+  var air = slaAirlineOf_(s);
+  // ตัด code สายการบินด้านหน้าออกก่อนหาเลขไฟลท์ — กันสายที่ code ขึ้นต้นด้วยตัวเลข (6E/9C/3U/3K)
+  // ไม่งั้น \d+ จะไปจับเลขตัวแรกของ code (6E1077 → '6') ทำให้ทุกไฟลท์ของสายนั้นรวมเป็น key เดียว
+  var rest = (air && air !== 'DEFAULT') ? s.replace(new RegExp('^' + air + '\\s*'), '') : s;
+  var m = rest.match(/\d+/);                                // เลขไฟลท์ชุดแรก (หลังตัด code)
+  return m ? (air + String(parseInt(m[0], 10))) : s.replace(/[\s.\/]+/g, '');
 }
 /** required headcount per phase for an airline — ใช้ SLA_RQ (Manpower) ก่อน, ไม่งั้น roles */
 function slaReq_(airline) {
