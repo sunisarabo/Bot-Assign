@@ -478,6 +478,9 @@ function rrParseStandard_(rows, team, meta) {
       shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
       bucket: bkt, ot: oth, otType: otType, otSpans: otSpans,
       otTime: oth > 0 ? otSpans.map(function (s) { return rrFmtRange_([s.a, s.b]); }).filter(String).join(', ') : '',
+      // แถวว่างเปล่าจริง (ไม่มีกะ/เวลา/สถานะ/งานเลย) = ชีตยังไม่กรอก → เติมจาก ROSTER เดือนได้
+      // (ถ้ามี REMARK เช่น "Off"/"SL" = ตั้งใจให้หยุด → ไม่เติม เคารพชีตรายวัน)
+      blankRow: (!shift && !timev && !remark && srng[0] == null && assigns.length === 0),
       assignments: assigns,
     });
   }
@@ -821,7 +824,7 @@ function readRosterFromSpreadsheet(ss, date) {
   var rosIso = '', roster = null;
   if (date) { try { rosIso = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd'); roster = (typeof whLoadMonth_ === 'function') ? whLoadMonth_(rosIso) : null; } catch (eR) {} }
   function fillFromRoster(r) {
-    if (!roster || r.shift || r.shiftTime || r.shiftStart != null) return;   // มีกะอยู่แล้ว หรือไม่มี roster → ข้าม
+    if (!roster || !r.blankRow) return;   // เติมเฉพาะแถวว่างเปล่าจริง (ชีตยังไม่กรอก) · เคารพ OFF/SL ที่เขียนไว้
     var p = roster.byId[String(r.id || '').replace(/\.0+$/, '').replace(/\D/g, '')]; if (!p) return;
     for (var i = 0; i < p.days.length; i++) {
       if (p.days[i].iso === rosIso) {
