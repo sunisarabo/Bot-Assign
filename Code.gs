@@ -5189,9 +5189,11 @@ function rbSupportHtml(iso) {
           });
           return h + '</select>';
         }
-        // 1 ช่อง = 1 คน · ตั้งค่าเริ่มเป็นคนละคน (cands[i]) ช่องที่เกินจำนวนคนว่าง = ปล่อยว่าง (ไม่ซ้ำคนเดิม)
-        var slots = [];
-        for (var i = 0; i < r.shortN; i++) slots.push(sel(r.cands[i] ? r.cands[i].name : ''));
+        // 1 ช่อง = 1 คน · ค่าเริ่มต้นกระจายหลายทีม (แนะทีมอื่นด้วย ไม่ใช่ทีมลอยซ้ำ) แล้วค่อยเติมจากที่ดีสุด
+        var slots = [], usedT = {}, picked = [];
+        r.cands.forEach(function (c) { if (picked.length < r.shortN && !usedT[c.team]) { usedT[c.team] = 1; picked.push(c.name); } });
+        for (var ci = 0; picked.length < r.shortN && ci < r.cands.length; ci++) if (picked.indexOf(r.cands[ci].name) < 0) picked.push(r.cands[ci].name);
+        for (var i = 0; i < r.shortN; i++) slots.push(sel(picked[i] || ''));
         who = '<div class="pickwrap">' + slots.join('') + '</div>';
       } else {
         who = '<span class="badd">' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง') + '</span>';
