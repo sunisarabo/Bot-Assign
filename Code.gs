@@ -825,6 +825,20 @@ function readRosterFromSpreadsheet(ss, date) {
   var positions = {};                                        // exact per-position-group rollup
   var totals = rrNewAgg_();
   var holName = date ? rrPublicHoliday_(date) : null, isHol = !!holName;  // วันหยุดประเพณี → OT นักขัต X1
+  // เผื่อชีตรายวัน "ลืมกรอกกะ" บางคน → ดึงกะจาก ROSTER เดือนมาเติม (ถ้าตั้งค่า PWMS_ROSTER_ID + เข้าถึงได้)
+  var rosIso = '', roster = null;
+  if (date) { try { rosIso = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd'); roster = (typeof whLoadMonth_ === 'function') ? whLoadMonth_(rosIso) : null; } catch (eR) {} }
+  function fillFromRoster(r) {
+    if (!roster || r.shift || r.shiftTime || r.shiftStart != null) return;   // มีกะอยู่แล้ว หรือไม่มี roster → ข้าม
+    var p = roster.byId[String(r.id || '').replace(/\.0+$/, '').replace(/\D/g, '')]; if (!p) return;
+    for (var i = 0; i < p.days.length; i++) {
+      if (p.days[i].iso === rosIso) {
+        var dd = p.days[i];
+        if (dd.work && dd.hours > 0) { r.shift = dd.code; r.shiftTime = dd.code; r.shiftHrs = dd.hours; r.bucket = 'working'; r.fromRoster = true; }
+        return;
+      }
+    }
+  }
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
     if (!recs || !recs.length) return;
@@ -833,6 +847,7 @@ function readRosterFromSpreadsheet(ss, date) {
     recs.forEach(function (r) {
       r.posGroup = rrPosGroup_(r.pos, ws.getName());
       r.isHoliday = isHol;
+      fillFromRoster(r);                                     // เติมกะจาก ROSTER เดือนถ้าชีตรายวันว่าง
       rrAddBucket_(t, r, isHol);
       if (!positions[r.posGroup]) positions[r.posGroup] = rrNewAgg_();
       rrAddBucket_(positions[r.posGroup], r, isHol);
