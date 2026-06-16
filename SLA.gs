@@ -675,63 +675,6 @@ function slaSupportRows_(res, ll) {
   });
   return rows;
 }
-/** ใครถูกส่งไปซัพทีมไหน (อ่านจากตารางจริง) — คนทีม A ที่มีงานเป็นไฟลท์ของทีม B = ไปซัพทีม B
- *  · ทีมลอย (ZF/PVTLP/CHARTER) = งานไฟลท์ทุกอันคือซัพพอร์ต
- *  · porter/crewsign/admin = งานประจำ ไม่นับเป็นซัพ
- *  · ต้องมีการกรอกไฟลท์ลงช่องงานของคนนั้นในชีต ถึงจะอ่านได้ */
-function slaSupportDeployed_(res, ll) {
-  // ทีมเจ้าของสายการบิน = ทีม "ไม่ลอย/ไม่ skip" ที่มีคนทำไฟลท์สายนั้นมากสุด
-  var cnt = {};
-  function tally(team, r) {
-    if (slaSkipTeam_(team) || slaIsFloatTeam_(team)) return;
-    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
-    (r.assignments || []).forEach(function (a) {
-      if (!acIsFlight_(a.flight)) return;
-      var air = slaAirlineOf_(a.flight);
-      (cnt[air] = cnt[air] || {})[team] = (cnt[air][team] || 0) + 1;
-    });
-  }
-  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { tally(t, r); }); });
-  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tally('LL·' + s, r); }); });
-  // ทีมที่ชื่อตรงกับรหัสสาย = เจ้าของแน่นอน (เช่น ทีม SU เป็นเจ้าของ SU แม้ทำ common check-in ไม่ผูกไฟลท์)
-  var teamNames = Object.keys(res.teams).filter(function (t) { return !slaSkipTeam_(t) && !slaIsFloatTeam_(t); });
-  function nameHome(air) {
-    for (var i = 0; i < teamNames.length; i++) if (teamNames[i].toUpperCase() === air) return teamNames[i];
-    return '';
-  }
-  var home = {};
-  Object.keys(cnt).forEach(function (air) {
-    var nh = nameHome(air);
-    if (nh) { home[air] = nh; return; }
-    var best = '', bn = -1;
-    Object.keys(cnt[air]).forEach(function (t) { if (cnt[air][t] > bn) { bn = cnt[air][t]; best = t; } });
-    home[air] = best;
-  });
-  // เผื่อสายที่ไม่มีใครทำไฟลท์เลย แต่มีทีมชื่อตรง (จาก common check-in ล้วน) → ผูกชื่อทีมไว้ด้วย
-  teamNames.forEach(function (t) { var u = t.toUpperCase(); if (/^[A-Z0-9]{2}$/.test(u) && !home[u]) home[u] = t; });
-  var rows = [];
-  function scan(team, r) {
-    if (slaSkipTeam_(team)) return;
-    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
-    var isFloat = slaIsFloatTeam_(team);
-    (r.assignments || []).forEach(function (a) {
-      if (!acIsFlight_(a.flight)) return;
-      var air = slaAirlineOf_(a.flight), ht = home[air];
-      if (isFloat) {
-        if (!ht) return;                                    // ไม่มีทีมประจำเป็นเจ้าของ = ไฟลท์ชาร์เตอร์ของพูลเอง ไม่ใช่ซัพ
-      } else {
-        if (ht === team) return;                            // ทำไฟลท์ทีมตัวเอง = ไม่ใช่ซัพ
-        if (!ht) ht = air;                                  // ทีมประจำไปทำสายที่ไม่มีเจ้าของ → ซัพให้สายนั้น
-      }
-      rows.push({ name: r.name, id: r.id || '', team: team, pos: slaPosShort_(r.posGroup),
-        target: ht, airline: air, flight: a.flight, phase: slaPhasesOf_(a.task).join('/') || '-',
-        time: (a.STA || a.STD) ? ((a.STA || '–') + '/' + (a.STD || '–')) : '' });
-    });
-  }
-  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { scan(t, r); }); });
-  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { scan('LL·' + s, r); }); });
-  return rows;
-}
 /** ตรวจรายชื่อที่จะส่งไปซัพ (วางข้อความ Duty) — เช็ค OFF · กะไม่ครอบเวลางาน · เวลาซ้อน · ลงเทรน
  *  จับชื่อจาก roster เท่านั้น (กัน false positive จากคำว่า ARR/GATE) · ตามเลขไฟลท์ในบรรทัดเหนือชื่อ */
 function slaCheckDeploy_(res, ll, text) {
