@@ -3112,7 +3112,14 @@ var ADV_COMMON_CI = [
 function advCommonCIPlan_(pool, flights, cfg) {
   var teamIdx = advTeamIdxOf_(cfg.team);
   var ctList = cfg.counters || (function () { var a = []; for (var i = 1; i <= cfg.nCounter; i++) a.push('CT' + i); return a; })();
-  var teamFl = flights.filter(function (f) { return f.homeTeam && f.homeTeam[teamIdx] && acIsFlight_(f.flight); });
+  var teamFl = flights.filter(function (f) {
+    if (!(f.homeTeam && f.homeTeam[teamIdx] && acIsFlight_(f.flight))) return false;
+    if (cfg.flights && cfg.flights.length) {                          // Duty ระบุไฟลท์ที่รวม → เฉพาะไฟลท์เหล่านั้น (จับด้วยเลขไฟลท์)
+      var fn = String(f.flight).match(/\d{2,4}/g) || [];
+      return cfg.flights.some(function (c) { var cn = String(c).match(/\d{2,4}/g) || []; return cn.length && cn.some(function (n) { return fn.indexOf(n) >= 0; }); });
+    }
+    return true;
+  });
   if (!teamFl.length) return null;
   teamFl.forEach(function (f) { f.ciwin = slaPhaseWindow_(f, 'CI'); });
   var su = pool.filter(function (p) { return p.teamIdx === teamIdx; }), pr = { PSA: 0, SNR: 1, PSS: 2 };
@@ -3188,6 +3195,12 @@ function advCommonCIPlan_(pool, flights, cfg) {
 }
 
 /** จัด assignment ล่วงหน้า — แยกตามบทบาทเต็ม SLA (SUP/FC/Check-in/Arrival/Standby/Gate Monitor/Gate Agent) */
+/** Common check-in ที่ Duty เปิดเอง (เก็บใน cache ต่อวัน) — กรณี AOG/ไฟลท์ทับซ้อน */
+function advCommonKey_(iso) { return 'advcci_' + iso; }
+function advCommonGet_(iso) { try { var s = CacheService.getScriptCache().get(advCommonKey_(iso)); return s ? JSON.parse(s) : []; } catch (e) { return []; } }
+function advCommonSet_(iso, arr) { try { CacheService.getScriptCache().put(advCommonKey_(iso), JSON.stringify(arr || []), 21600); } catch (e) {} }
+function advIsoOf_(tgt) { return tgt.y + '-' + ('0' + tgt.m).slice(-2) + '-' + ('0' + tgt.d).slice(-2); }
+
 function advPlan_(tgt) {
   var built = advBuildPool_(tgt);
   var pool = built.pool, airlineTeams = built.airlineTeams;            // สายการบิน → ทีมที่ดูแล (รวมคนหยุด)
@@ -3203,7 +3216,9 @@ function advPlan_(tgt) {
   flights.sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
 
   var commons = [], removeIdx = {};                                    // ทีม common check-in
-  ADV_COMMON_CI.forEach(function (cfg) {
+  var commonCfgs = advCommonGet_(advIsoOf_(tgt));                       // Duty เปิดเอง (AOG/ทับซ้อน) · ว่าง = ไม่มี
+  if (!commonCfgs.length) commonCfgs = ADV_COMMON_CI;                   // (ADV_COMMON_CI ว่างแล้ว = ปิด default)
+  commonCfgs.forEach(function (cfg) {
     var r = advCommonCIPlan_(pool, flights, cfg);
     if (r) commons.push(r);
     if (cfg.full) removeIdx[advTeamIdxOf_(cfg.team)] = 1;              // ทีม full → ถอดออกจากตารางหลัก
@@ -3283,7 +3298,7 @@ function advBuildSelect_(chosen, cands, home) {
 }
 
 /** Lazy tab: 📅 จัดเวรล่วงหน้า — อ่าน ROSTER+FLIGHT+Total สด แล้วจัด assignment ตามไฟลท์ */
-function rbAdvanceHtml(iso) {
+function rbAdvanceHtml(iso, commonsJson) {
   try {
     var reqIso = iso, switched = false, allDates = [];
     try { allDates = advFlightDates_(); } catch (e0) {}
@@ -3291,9 +3306,22 @@ function rbAdvanceHtml(iso) {
       var near = advNearestFlightDate_(iso, allDates);
       if (near) { iso = near; switched = true; }
     }
+    if (typeof commonsJson === 'string' && commonsJson) {            // Duty กด "ใช้/ล้าง" common check-in → เก็บต่อวัน
+      try { advCommonSet_(iso, JSON.parse(commonsJson)); } catch (ecc) {}
+    }
     var date = (typeof rbDateFromIso_ === 'function') ? rbDateFromIso_(iso) : new Date(iso);
     var tgt = { y: date.getFullYear(), m: date.getMonth() + 1, d: date.getDate() };
     var dstr = tgt.d + '/' + tgt.m + '/' + tgt.y;
+    var cci0 = (advCommonGet_(iso) || [])[0] || {};                 // ค่า common check-in ปัจจุบัน (เติมในฟอร์ม)
+    var cciBar = '<div style="margin-top:8px;padding:8px 12px;background:#fff7e6;border-left:4px solid #fec909;border-radius:8px;font-size:13px">' +
+      '🔁 <b>Common Check-in</b> <span class="muted">(เปิดเฉพาะกรณี AOG / ไฟลท์ทับซ้อน · สายเดียวกัน)</span><br>' +
+      'สาย/ทีม <input id="cciCode" value="' + rbAttr_(cci0.code || '') + '" placeholder="SU" style="width:60px;padding:3px 6px;border-radius:6px;border:1px solid #d9c48a;text-transform:uppercase">' +
+      ' เคาน์เตอร์ <input id="cciN" type="number" min="1" value="' + (cci0.nCounter || '') + '" placeholder="8" style="width:60px;padding:3px 6px;border-radius:6px;border:1px solid #d9c48a">' +
+      ' ไฟลท์ที่รวม (คั่น ,) <input id="cciFlts" value="' + rbAttr_((cci0.flights || []).join(', ')) + '" placeholder="เว้นว่าง = ทุกไฟลท์ของสายนั้น" style="width:260px;padding:3px 6px;border-radius:6px;border:1px solid #d9c48a">' +
+      ' <button class="btn btn--accent" onclick="advCommonGo()">ใช้</button>' +
+      ' <button class="btn" onclick="advCommonClear()">ล้าง</button>' +
+      (cci0.code ? ' <span class="badd" style="margin-left:6px">● กำลังใช้: ' + rbEsc_(cci0.code) + ' (' + (cci0.nCounter || '?') + ' เคาน์เตอร์)</span>' : '') +
+      '</div>';
     var datebar = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">' +
       '📅 <b>จัดเวรล่วงหน้า</b> (ลิงก์ ROSTER · FLIGHT · รายชื่อจริง) — เลือกวันที่: ' +
       '<input type="date" value="' + iso + '" onchange="advGo(this.value)" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
@@ -3314,7 +3342,7 @@ function rbAdvanceHtml(iso) {
       } catch (e2) {}
       var benchHtml0 = plan.nPeople ? ('<div class="tablecard" style="margin-top:14px"><div class="tablecard__hd"><h3>👥 คนขึ้นเวรวันนี้ (' + dstr + ') — ' + plan.nPeople + ' คน</h3></div><div style="padding:10px 14px">' +
         plan.bench.map(function (b) { return '<span class="chip">' + rbEsc_(b.name) + ' <span class="muted">' + rbEsc_(b.pos) + ' · ' + rbEsc_(b.shift) + '</span></span>'; }).join('') + '</div></div>') : '';
-      return datebar + '<div class="panel" style="padding:20px;text-align:center">ยังไม่มี<b>ไฟลท์</b>สำหรับวันที่ ' + dstr +
+      return datebar + cciBar + '<div class="panel" style="padding:20px;text-align:center">ยังไม่มี<b>ไฟลท์</b>สำหรับวันที่ ' + dstr +
         ' — จึงยังจัด assignment ไม่ได้' +
         (avail ? '<div style="margin-top:10px">📅 วันที่ที่มีไฟลท์ในตาราง (คลิกเพื่อจัด): <div class="supbar" style="justify-content:center">' + avail + '</div></div>'
                : '<div class="muted" style="margin-top:6px">— ตรวจว่าไฟล์ FLIGHT มีข้อมูลของวันนี้</div>') + '</div>' + benchHtml0;
@@ -3396,7 +3424,7 @@ function rbAdvanceHtml(iso) {
         commonHtml += '</div>';
       }
     });
-    return datebar + hd + tbl + commonHtml + benchHtml;
+    return datebar + cciBar + hd + tbl + commonHtml + benchHtml;
   } catch (e) { return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>'; }
 }
 
@@ -5323,7 +5351,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
     'function rbRefresh(b){if(b){b.textContent="⏳ กำลังรีเฟรช…";}if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){location.reload();}).withFailureHandler(function(){location.reload();}).rbClearCache(ISO);}else{location.reload();}}' +
-    'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v);}' +
+    'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v,cci){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v,cci||"");}' +
+    'function advCurDate(){var di=document.querySelector("#view-adv input[type=date]");return di?di.value:ISO;}' +
+    'function advCommonGo(){var code=(document.getElementById("cciCode").value||"").trim().toUpperCase();var n=+(document.getElementById("cciN").value||0);var flts=(document.getElementById("cciFlts").value||"").split(",").map(function(s){return s.trim();}).filter(Boolean);if(!code||!n){alert("กรอก สาย/ทีม + จำนวนเคาน์เตอร์");return;}advGo(advCurDate(),JSON.stringify([{code:code,team:code,nCounter:n,flights:flts,gate:false,full:false}]));}' +
+    'function advCommonClear(){advGo(advCurDate(),"[]");}' +
     'function advSave(){var v=document.getElementById("view-adv");if(!v)return;var tb=v.querySelector("table.tbl");var di=v.querySelector("input[type=date]");var date=di?di.value:ISO;if(!tb){alert("เลือกวันที่ที่มีไฟลท์ก่อน");return;}var rows=[];[].forEach.call(tb.tBodies[0].rows,function(tr){if(tr.cells.length<13)return;var c=[];for(var i=0;i<7;i++){var ns=[];[].forEach.call(tr.cells[6+i].querySelectorAll(".namepick"),function(x){if(x.value.trim())ns.push(x.value.trim());});c.push(ns.join(", "));}function f(n){return tr.cells[n].innerText.trim().split("\\n")[0];}rows.push([f(0),f(1),f(3),f(4),f(5),c[0],c[1],c[2],c[3],c[4],c[5],c[6]]);});if(!rows.length){alert("ไม่มีไฟลท์ให้บันทึก");return;}if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อบันทึก");return;}var m=document.getElementById("advsavemsg");if(m)m.innerHTML="⏳ กำลังบันทึก…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="✅ บันทึกแล้ว: <a href=\\""+url+"\\" target=\\"_blank\\">เปิดชีต</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("บันทึกไม่ได้: "+e.message);}).advSaveProposal(date,JSON.stringify(rows));}' +
     'function advExport(){var di=document.querySelector("#view-adv input[type=date]");var date=di?di.value:ISO;if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=document.getElementById("advexportmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์แจ้งทีม…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).advExportAssignment(date);}' +
     'function hm2m(s){var m=String(s).match(/(\\d{1,2}):(\\d{2})/);return m?(+m[1]*60+ +m[2]):null;}' +
