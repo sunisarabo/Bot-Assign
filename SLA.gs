@@ -520,7 +520,7 @@ function slaSupportPool_(res, ll, teamSys, includeOff) {
       ? (rrFmtMin_(((ds % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((de % 1440) + 1440) % 1440)) : '';
     pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '', off: off,
       float: slaIsFloatTeam_(team),
-      ds: ds, de: de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
+      ds: ds, de: de, busy: busy, hold: [], sys: teamSys[team] || {}, nflt: flts.length,
       shiftDisp: off ? ('OFF · re-sked ' + (offWin || 'ทุกช่วง') + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
                      : (r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'))),
       otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
@@ -564,9 +564,13 @@ function slaCandidates_(f, ph, pool, max) {
     if (ph === 'SUP' && p.posGroup !== 'PSS') return false;  // Sup/Flight Controller ต้องเป็น Sup
     if (win) {
       if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
-      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นช่วงนั้น
+      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นของตัวเองช่วงนั้น
         var b = p.busy[i];
         if (win[0] < b[1] - 10 && win[1] > b[0] + 10) return false;
+      }
+      for (var j = 0; j < p.hold.length; j++) {              // ต้องไม่ถูกจอง (tentatively) ไปช่วยไฟลท์อื่นช่วงที่ทับกัน
+        var h = p.hold[j];
+        if (win[0] < h[1] - 10 && win[1] > h[0] + 10) return false;
       }
     }
     return true;
@@ -641,6 +645,10 @@ function slaSupportRows_(res, ll) {
       if (!f.short[ph]) return;
       var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
       var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
+      // จอง (tentatively) คนที่น่าจะถูกส่งจริง = top shortN ตามช่วงเวลาเฟสนี้
+      // → ไฟลท์อื่นที่เวลาทับกันจะไม่แนะคนเดิมซ้ำ (กระจายคน + กันส่งซ้อน) เรียงไฟลท์ตามเวลาอยู่แล้ว
+      var rwin = slaPhaseWindow_(f, ph);
+      if (rwin) cands.slice(0, f.short[ph]).forEach(function (c) { c.hold.push(rwin); });
       rows.push({
         flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
