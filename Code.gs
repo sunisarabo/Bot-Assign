@@ -1117,10 +1117,13 @@ var SLA_POST = 20;   // fallback post-flight (นาที) เมื่อส�
 // ── ระเบียบชั่วโมงทำงาน (AOTGA) — กะ 7-12 ชม./วัน · OT แยก · เพดานรวม/สัปดาห์ดูทั้งสัปดาห์ ──
 var WH_SHIFT_MIN = 7, WH_SHIFT_MAX = 12, WH_DAY_HIGH = 14;   // กะ 7-12 ชม. · รวม(กะ+OT) >14ช = เตือนพักไม่พอ
 /** สถานะชั่วโมงทำงานรายวันของพนักงาน 1 คน → {shift, ot, total, level, txt}
+ *  · ปกติ: total = กะ + OT (OT ก่อน/หลังกะ ไม่ทับกัน) · ot_off (วันหยุดมาทำ OT): total = OT เท่านั้น (กะไม่ได้ทำ)
  *  level: ok | short(กะ<7) | over(กะ>12) | high(รวม>14ช = เสี่ยงพักไม่พอ) */
-function slaHoursStat_(shiftHrs, ot) {
-  var sh = Math.round((+shiftHrs || 0) * 10) / 10, o = Math.round((+ot || 0) * 10) / 10;
-  var total = Math.round((sh + o) * 10) / 10, level = 'ok', txt = '';
+function slaHoursStat_(shiftHrs, ot, bucket) {
+  var sh = Math.round((+shiftHrs || 0) * 10) / 10, o = Math.round((+ot || 0) * 10) / 10, total;
+  if (bucket === 'ot_off') { sh = 0; total = o; }              // วันหยุดมาทำ OT → ทำงานจริง = OT (กะปกติไม่ได้ทำ ไม่นับซ้ำ)
+  else total = Math.round((sh + o) * 10) / 10;
+  var level = 'ok', txt = '';
   if (sh > 0 && sh < WH_SHIFT_MIN) { level = 'short'; txt = 'กะ ' + sh + 'ช <' + WH_SHIFT_MIN; }
   else if (sh > WH_SHIFT_MAX) { level = 'over'; txt = 'กะ ' + sh + 'ช >' + WH_SHIFT_MAX; }
   if (total > WH_DAY_HIGH) { level = 'high'; txt = 'รวม ' + total + 'ช (พักอาจไม่พอ)'; }   // OT มากจนเสี่ยง
@@ -1618,7 +1621,7 @@ function slaSupportPool_(res, ll, teamSys, includeOff) {
       shiftDisp: off ? ('OFF · re-sked ' + (offWin || 'ทุกช่วง') + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
                      : (r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'))),
       otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
-      hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, hstat: slaHoursStat_(r.shiftHrs, r.ot), flts: flts });
+      hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, hstat: slaHoursStat_(r.shiftHrs, r.ot, r.bucket), flts: flts });
   }
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { add(t, r); }); });
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
@@ -5570,7 +5573,7 @@ function rbTtRows_(res, ll) {
         '</td><td class="muted">—</td><td class="tnum">0</td><td class="muted">—</td></tr>';
     }
     var sh = rbEsc_(r.shift||'') + (r.shiftTime&&r.shiftTime!==r.shift ? ' <span class="muted">'+r.shiftTime+'</span>' : '');
-    var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช)
+    var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot, r.bucket) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช · ot_off นับแค่ OT)
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     if (hs) ot += ' <span class="muted">· รวม '+hs.total+'ช</span>' + (hs.level!=='ok' ? ' <span class="'+(hs.level==='short'?'tag':'badd')+'">⚠️ '+rbEsc_(hs.txt)+'</span>' : '');
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.id||'')+
