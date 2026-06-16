@@ -1517,6 +1517,7 @@ function slaCollectFlights_(res, ll) {
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
     f.req = slaReq_(f.airline);
+    var home = homeTeamOf(f.airline);                         // ทีมเจ้าของสายการบิน (ประกาศก่อนใช้เครดิต check-in รวม)
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
     var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
     f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้งคู่ = ข้อมูลเวลาหาย (ไม่ใช่ขาเดียว) → คงความต้องการเต็ม
