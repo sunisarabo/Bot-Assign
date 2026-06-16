@@ -268,7 +268,8 @@ function rbSupportHtml(iso) {
             h += '<optgroup label="' + rbEsc_(g.team) + ' (' + g.people.length + ')">';
             g.people.forEach(function (p) {
               h += '<option value="' + rbAttr_(p.name) + '"' + (p.name === defName ? ' selected' : '') + '>' +
-                rbEsc_(p.name + ' · ' + (p.pos || '') + ' · ' + (p.shift || '') + ' · ' + (p.n || 0) + ' ไฟลท์') + '</option>';
+                rbEsc_(p.name + ' · ' + (p.pos || '') + ' · ' + (p.shift || '') + ' · ' + (p.n || 0) + ' ไฟลท์'
+                  + (p.hlevel && p.hlevel !== 'ok' ? '  ⚠️ ' + (p.htxt || 'เกินชั่วโมง') : '')) + '</option>';
             });
             h += '</optgroup>';
           });
@@ -542,7 +543,9 @@ function rbTtRows_(res, ll) {
         '</td><td class="muted">—</td><td class="tnum">0</td><td class="muted">—</td></tr>';
     }
     var sh = rbEsc_(r.shift||'') + (r.shiftTime&&r.shiftTime!==r.shift ? ' <span class="muted">'+r.shiftTime+'</span>' : '');
+    var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช)
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
+    if (hs) ot += ' <span class="muted">· รวม '+hs.total+'ช</span>' + (hs.level!=='ok' ? ' <span class="'+(hs.level==='short'?'tag':'badd')+'">⚠️ '+rbEsc_(hs.txt)+'</span>' : '');
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.id||'')+
       '</td><td>'+rbEsc_(r.name)+'</td><td>'+rbEsc_(r.pos||'')+'</td><td>'+sh+'</td><td>'+ot+'</td><td class="tnum">'+rbFltCount_(r.assignments)+
       '</td><td>'+rbFlightChips_(r.assignments, r.team, owner)+'</td></tr>';
