@@ -1650,14 +1650,16 @@ function slaCandidates_(f, ph, pool, max) {
     }
     return true;
   });
+  function ovh(x) { return (x.hstat && (x.hstat.level === 'over' || x.hstat.level === 'high')) ? 1 : 0; }   // ชั่วโมงเกินเกณฑ์ → ดันท้าย
   if (ph === 'SUP') {
-    // ทำงานก่อน OFF · ทีมลอย(PVTLP/STBY)ก่อน · งานน้อยกว่าก่อน (Duty เรียกทีมลอยก่อน)
-    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+    // ทำงานก่อน OFF · ชั่วโมงไม่เกินก่อน · ทีมลอย(PVTLP/STBY)ก่อน · งานน้อยกว่าก่อน
+    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
   } else {
-    // CI / GATE / ARR: ทำงานก่อน OFF · ทีมลอยก่อน · Agent → Senior → Sup · งานน้อย/ว่างกว่าก่อน
+    // CI / GATE / ARR: ทำงานก่อน OFF · ชั่วโมงไม่เกินก่อน · ทีมลอยก่อน · Agent → Senior → Sup · งานน้อย/ว่างกว่าก่อน
     var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
       return (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
+        ovh(a) - ovh(b) ||
         (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
         (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
     });
