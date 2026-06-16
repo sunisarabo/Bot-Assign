@@ -122,6 +122,31 @@ function rbFlightsHtml(iso) {
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_((e && (e.message || e.stack || e.toString())) || 'unknown') + '</div>'; }
 }
 
+/** Lazy tab: 🔄 ใครไปซัพทีมไหน — อ่านการส่งซัพพอร์ตจริงจากตารางรายวัน */
+function rbDeployedHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    var rows = slaSupportDeployed_(d.res, d.ll);
+    var head = '<tr><th>ไปซัพทีม</th><th>ชื่อ</th><th>ทีมเดิม</th><th>ตำแหน่ง</th><th>ไฟลท์</th><th>เฟส</th><th>เวลา (STA/STD)</th></tr>';
+    if (!rows.length) {
+      return rbTblCard_('🔄 ใครไปซัพทีมไหน (อ่านจากตารางจริง)', head,
+        '<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">ยังไม่มีการส่งซัพในตารางวันนี้ — Duty ยังไม่ได้กรอกไฟลท์ที่ไปช่วยลงในช่องงานของคนพูล (เช่น ทีม ZF) · เมื่อกรอกแล้วจะแสดงที่นี่อัตโนมัติ</td></tr>',
+        rbCtrls_('view-deploy', true));
+    }
+    var by = {}, order = [];
+    rows.forEach(function (r) { if (!by[r.target]) { by[r.target] = []; order.push(r.target); } by[r.target].push(r); });
+    order.sort();
+    var body = order.map(function (t) {
+      return by[t].map(function (r) {
+        return '<tr data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(t) + '</td><td>' + rbEsc_(r.name) +
+          '</td><td>' + rbEsc_(r.team) + '</td><td>' + rbEsc_(r.pos) + '</td><td class="b">' + rbEsc_(r.flight) +
+          '</td><td>' + rbEsc_(r.phase) + '</td><td class="tnum muted">' + rbEsc_(r.time) + '</td></tr>';
+      }).join('');
+    }).join('');
+    return rbTblCard_('🔄 ใครไปซัพทีมไหน · ' + rows.length + ' งาน (อ่านจากตารางจริง)', head, body, rbCtrls_('view-deploy', true));
+  } catch (e) { return '<div class="panel">โหลดไม่ได้: ' + rbEsc_((e && (e.message || e.stack || e.toString())) || 'unknown') + '</div>'; }
+}
+
 /** Lazy tab: ตรวจความเหมาะสมการ Assign (ครอบคลุมไฟลท์ / OT / ช่วงว่าง). */
 function rbAssignHtml(iso) {
   try {
@@ -436,6 +461,7 @@ function rbTabs_(shortCount, acCount) {
     (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
     '<button class="tab" id="tab-sup" onclick="showView(\'sup\');loadSup()">🆘 Support' +
     (shortCount ? '<span class="badge tnum">' + shortCount + '</span>' : '') + '</button>' +
+    '<button class="tab" id="tab-deploy" onclick="showView(\'deploy\');loadDeploy()">🔄 ใครไปซัพ</button>' +
     '<button class="tab" id="tab-ac" onclick="showView(\'ac\');loadAC()">🧭 ตรวจ Assign' +
     (acCount ? '<span class="badge tnum">' + acCount + '</span>' : '') + '</button>' +
     '<button class="tab" id="tab-fill" onclick="showView(\'fill\');loadFill()">🤖 เติม Assign เดิม</button>' +
@@ -651,6 +677,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-tt" style="display:none">' + ttInner + '</div>' +
     '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
     '<div id="view-sup" style="display:none">' + supInner + '</div>' +
+    '<div id="view-deploy" style="display:none"><div id="deploybox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
     '<div id="view-ac" style="display:none">' + acInner + '</div>' +
     '<div id="view-fill" style="display:none">' + fillInner + '</div>' +
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
@@ -664,13 +691,13 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","fill","auto","adv","ot","wh"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
+    'function showView(v){["dash","tt","flt","sup","deploy","ac","fill","auto","adv","ot","wh"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
-    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
+    'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}function loadDeploy(){lazy("deploybox","rbDeployedHtml","deploy");}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +
     'function rbRefresh(b){if(b){b.textContent="⏳ กำลังรีเฟรช…";}if(window.google&&google.script&&google.script.run){google.script.run.withSuccessHandler(function(){location.reload();}).withFailureHandler(function(){location.reload();}).rbClearCache(ISO);}else{location.reload();}}' +
     'function loadAdv(){lazy("advbox","rbAdvanceHtml","adv");}function advGo(v,cci){var b=document.getElementById("advbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังจัดเวร "+v+"…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceHtml(v,cci||"");}' +
     'function advCurDate(){var di=document.querySelector("#view-adv input[type=date]");return di?di.value:ISO;}' +
