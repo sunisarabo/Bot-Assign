@@ -2943,19 +2943,61 @@ function advExportAssignment(dateStr) {
   var d = dateStr ? rbDateFromIso_(dateStr) : new Date();
   var tgt = { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };  // advPlan_ ต้องการ {y,m,d} ไม่ใช่ Date
   var R = advPlan_(tgt);
-  var teams = advPivotTeams_(R);
-  var names = Object.keys(teams).filter(function (t) { return teams[t].members.length; }).sort();
+  // จัดกลุ่มไฟลท์ตามทีมเจ้าของ → 1 แท็บ/ทีม รูปแบบเหมือนไฟล์ assignment เดิม (ไฟลท์เป็นคอลัมน์ × คนเป็นแถว)
+  var byTeam = {};
+  (R.plan || []).forEach(function (p) { if (p.team) (byTeam[p.team] = byTeam[p.team] || []).push(p); });
+  var names = Object.keys(byTeam).sort();
   if (!names.length) throw new Error('วันที่ ' + dateStr + ' ยังไม่มีการจัดคน');
-  var ss = SpreadsheetApp.create('แจ้ง Assignment ' + dateStr);
+  var ss = SpreadsheetApp.create('Assignment ' + dateStr);
   var first = true, used = {};
   names.forEach(function (tn) {
     var nm = tn.replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
     var n = nm; var k = 2; while (used[n]) n = (nm.slice(0, 22) + ' ' + (k++)); used[n] = 1;
     var sh = first ? ss.getSheets()[0] : ss.insertSheet(); first = false;
     sh.setName(n);
-    advWriteTeamSheet_(sh, tn, dateStr, teams[tn]);
+    advWriteTeamGrid_(sh, tn, dateStr, byTeam[tn]);
   });
   return ss.getUrl();
+}
+
+/** เขียนชีตแบบไฟล์ assignment เดิม: คอลัมน์ = ไฟลท์ (มี STA/STD) · แถว = พนักงาน · เซลล์ = บทบาท */
+function advWriteTeamGrid_(sh, tn, dateStr, planRows) {
+  planRows = planRows.slice().sort(function (a, b) { return String(a.std || a.sta || 'zz').localeCompare(String(b.std || b.sta || 'zz')); });
+  var flts = planRows.map(function (p) { return p.flight; });
+  var mem = {}, order = [];
+  planRows.forEach(function (p) {
+    ADV_ROLES.forEach(function (role) {
+      (p.assign && p.assign[role.k] || []).forEach(function (v) {
+        var m = mem[v.name]; if (!m) { m = mem[v.name] = { name: v.name, pos: v.pos || '', shift: v.shift || '', cells: {} }; order.push(v.name); }
+        m.cells[p.flight] = m.cells[p.flight] ? (m.cells[p.flight] + '/' + role.lb) : role.lb;
+      });
+    });
+  });
+  var rank = function (pos) { var p = String(pos).toUpperCase(); return /SUP/.test(p) ? 0 : (/SNR|SENIOR/.test(p) ? 1 : 2); };
+  order.sort(function (a, b) { return rank(mem[a].pos) - rank(mem[b].pos) || String(a).localeCompare(String(b)); });
+
+  var nCol = 3 + flts.length;
+  var pad = function (a) { while (a.length < nCol) a.push(''); return a; };
+  var rows = [];
+  rows.push(pad([tn + ' — Assignment ' + dateStr]));                         // 1 title
+  rows.push(['ชื่อ', 'ตำแหน่ง', 'กะ'].concat(flts));                          // 2 header (flight = column)
+  rows.push(['', '', 'STA/STD'].concat(planRows.map(function (p) {           // 3 STA/STD ใต้ชื่อไฟลท์
+    return (p.sta || '–') + ' / ' + (p.std || '–');
+  })));
+  order.forEach(function (nm) {
+    var m = mem[nm];
+    rows.push([m.name, m.pos, m.shift].concat(planRows.map(function (p) { return m.cells[p.flight] || ''; })));
+  });
+  if (!order.length) rows.push(pad(['— ยังไม่มีการจัดคน —']));
+
+  sh.getRange(1, 1, rows.length, nCol).setValues(rows).setVerticalAlignment('middle').setFontSize(10);
+  sh.getRange(1, 1, 1, nCol).merge().setFontWeight('bold').setFontSize(13).setBackground('#1f4e79').setFontColor('#fff');
+  sh.getRange(2, 1, 1, nCol).setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('center').setWrap(true);
+  sh.getRange(3, 1, 1, nCol).setFontWeight('bold').setBackground('#dce9f7').setFontColor('#1f4e79').setHorizontalAlignment('center');
+  if (order.length) sh.getRange(4, 4, order.length, flts.length).setHorizontalAlignment('center');
+  sh.setColumnWidth(1, 170); sh.setColumnWidth(2, 70); sh.setColumnWidth(3, 120);
+  for (var c = 0; c < flts.length; c++) sh.setColumnWidth(4 + c, 95);
+  sh.setFrozenRows(3); sh.setFrozenColumns(3);
 }
 
 /** รวมแผน → ต่อทีม: {teamName: {members:[{name,pos,shift,jobs[]}], support:[{name,pos,team,job}]}} */
