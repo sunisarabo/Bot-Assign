@@ -1471,6 +1471,17 @@ function slaCollectFlights_(res, ll) {
       (teamSups[t] = teamSups[t] || []).push([d.ds, d.de]);
     });
   });
+  // คนทำ common check-in (นั่งเคาน์เตอร์รวม เช่น SU "Counter G2") + ช่วงเวลา — เครดิตเช็คอินให้ไฟลท์ของทีมตามเวลา
+  var teamCounter = {};
+  Object.keys(res.teams).forEach(function (t) {
+    if (slaSkipTeam_(t)) return;
+    res.teams[t].records.forEach(function (r) {
+      if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+      if (!(r.assignments || []).some(function (a) { return /^\s*(COUNTER\b|CT\s?\d)/i.test(String(a.flight || '')); })) return;
+      var d = acDuty_(r); if (d.ds == null || d.de == null) return;
+      (teamCounter[t] = teamCounter[t] || []).push([d.ds, d.de]);
+    });
+  });
   // ทีมเจ้าของสายการบิน = ทีมที่ชื่อตรง/มีโค้ดสายนั้น (เช่น SU→ทีม SU แม้ SU ทำ common check-in ไม่ผูกไฟลท์)
   var teamNames = Object.keys(res.teams);
   function homeTeamOf(airline) {
@@ -1498,6 +1509,14 @@ function slaCollectFlights_(res, ll) {
       if (!sw && sm != null) sw = [sm - 30, sm + 30];
       if (sw && Object.keys(f.teams).some(function (t) { return (teamSups[t] || []).some(function (w) { return w[0] <= sw[1] && w[1] >= sw[0]; }); })) {
         f.assigned.SUP = f.req.SUP;
+      }
+    }
+    // เครดิต Check-in จาก common check-in (เคาน์เตอร์รวม): ทีมเจ้าของมีคนนั่งเคาน์เตอร์คาบช่วงเช็คอิน → เช็คอินให้ไฟลท์นี้แล้ว
+    if (f.req.CI > 0 && f.assigned.CI < f.req.CI && home && teamCounter[home]) {
+      var ciw = slaPhaseWindow_(f, 'CI');
+      if (ciw) {
+        var nC = teamCounter[home].filter(function (w) { return w[0] <= ciw[1] && w[1] >= ciw[0]; }).length;
+        if (nC > 0) f.assigned.CI = Math.min(f.req.CI, f.assigned.CI + nC);
       }
     }
     f.short = {};
