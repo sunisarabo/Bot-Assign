@@ -167,6 +167,7 @@ function rrOtHours_(v) {
 function rrReadOtGroup_(row, otc, totc) {
   if (otc < 0) return null;
   var rng = rrRangeCells_(row, otc), h;
+  if (rng[0] != null && rng[1] != null && rng[0] === rng[1]) rng = [null, null];   // IN==OUT (เช่น 00:00-00:00 placeholder) = ไม่มี OT จริง (กันคิดเป็น 24 ชม.)
   if (totc >= 0) {
     h = rrOtHours_(totc < row.length ? row[totc] : '');
     if (!(h > 0) && rng[0] != null && rng[1] != null) {
