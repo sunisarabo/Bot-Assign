@@ -847,6 +847,39 @@ function readRosterFromSpreadsheet(ss, date) {
       }
     } catch (eFR) {}
   }
+  // ShiftDB: รหัสกะ→เวลา (เผื่อชีตรายวันกรอกแค่รหัสกะ แต่ไม่กรอกช่วงเวลา → คิดชั่วโมงไม่ได้ เช่น "E10")
+  var shiftDB = {};
+  try {
+    var sdb = ss.getSheetByName('ShiftDB') || ss.getSheetByName('SHIFTDB') || ss.getSheetByName('Shift DB');
+    if (sdb) {
+      var sv = sdb.getDataRange().getValues();
+      var cm = function (v) {
+        if (v == null || v === '') return null;
+        if (Object.prototype.toString.call(v) === '[object Date]') return v.getHours() * 60 + v.getMinutes();
+        var mm = String(v).match(/(\d{1,2})[:.](\d{2})/); return mm ? (+mm[1] * 60 + +mm[2]) : null;
+      };
+      for (var si = 1; si < sv.length; si++) {
+        var code = String(sv[si][0] == null ? '' : sv[si][0]).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!code) continue;
+        var inM = cm(sv[si][1]), outM = cm(sv[si][2]);
+        if (inM == null) continue;
+        if (outM != null && outM <= inM) outM += 1440;
+        shiftDB[code] = { in: inM, out: outM, hrs: outM != null ? Math.round((outM - inM) / 60 * 10) / 10 : (+sv[si][3] || 0) };
+      }
+    }
+  } catch (eSDB) {}
+  function fillFromShiftDB(r) {
+    try {
+      if (r.shiftStart != null) return;                     // มีเวลากะอยู่แล้ว
+      if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+      var code = String(r.shift || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      var d = shiftDB[code]; if (!d) return;
+      r.shiftStart = d.in;
+      r.shiftTime = rrFmtMin_(d.in) + '-' + rrFmtMin_(((d.out == null ? d.in : d.out) % 1440));
+      r.shiftHrs = d.hrs;
+      r.fromShiftDB = true;
+    } catch (e) {}
+  }
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
     if (!recs || !recs.length) return;
@@ -856,6 +889,7 @@ function readRosterFromSpreadsheet(ss, date) {
       r.posGroup = rrPosGroup_(r.pos, ws.getName());
       r.isHoliday = isHol;
       fillFromRoster(r);                                     // เติมกะจาก ROSTER เดือนถ้าชีตรายวันว่าง
+      fillFromShiftDB(r);                                    // เติมเวลากะจาก ShiftDB ถ้ามีแค่รหัสกะ
       rrAddBucket_(t, r, isHol);
       if (!positions[r.posGroup]) positions[r.posGroup] = rrNewAgg_();
       rrAddBucket_(positions[r.posGroup], r, isHol);
