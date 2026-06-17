@@ -376,6 +376,7 @@ function slaCollectFlights_(res, ll) {
       f.teams[team] = true;
       if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD;
       if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL;
+      if (/\bTF\b|T\s*\/\s*S|TRANSFER/i.test(String(a.task || ''))) f.hasTransfer = true;   // มีคน tag transfer (T/S) → อาจต้อง +agent
       var phs = slaPhasesOf_(a.task);
       if (!phs.length) { f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: 'TRAIN' }); return; }   // ไปเทรน → แสดงได้ แต่ไม่นับเป็นคนคุมไฟลท์
       phs.forEach(function (ph) { f.assigned[ph]++; });          // นับทุกเฟสที่คนนี้ครอบคลุม
