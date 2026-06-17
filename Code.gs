@@ -2110,6 +2110,25 @@ function acFlightWin_(a) {
   return [lo, hi];
 }
 
+/** หน้าต่างเวลางานของ assignment → [{lo,hi,sub}] · งานผสมขาเข้า+เช็คอิน/เกท ของ turnaround ยาว
+ *  → 2 ช่วง: ช่วงหลัก (เช็คอิน/ขาออกรอบ STD) + ช่วงขาเข้า (รอบ STA · sub=true นับเป็น busy แต่ไม่นับ coverage)
+ *  กัน "ช่วงว่าง" ผิด สำหรับคนที่รับเครื่อง STA แล้วมาเช็คอินขาออกอีกที (เช่น EK378 รับ 12:05 เช็คอิน ~16:00) */
+function acFlightWins_(a) {
+  var base = acFlightWin_(a);
+  if (!base) return [];
+  var phs = (typeof slaPhasesOf_ === 'function') ? slaPhasesOf_(a.task) : null;
+  if (!phs || phs.length < 2 || phs.indexOf('ARR') < 0 || (phs.indexOf('CI') < 0 && phs.indexOf('GATE') < 0))
+    return [{ lo: base[0], hi: base[1], sub: false }];
+  var sta = acMin_(a.STA), std = acMin_(a.STD);
+  if (!sta || !std) return [{ lo: base[0], hi: base[1], sub: false }];
+  var gap = std - sta; if (gap < 0) gap += 1440;
+  if (gap <= 180) return [{ lo: base[0], hi: base[1], sub: false }];   // turnaround สั้น = ทำต่อเนื่อง ไม่ต้องแยก
+  var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
+  var post = (db && db.post != null) ? db.post : SLA_POST;
+  return [{ lo: base[0], hi: base[1], sub: false },           // ช่วงหลัก = เช็คอิน/ขาออก (นับ coverage)
+          { lo: sta - 30, hi: sta + post, sub: true }];       // ช่วงขาเข้ารอบ STA (busy เฉยๆ)
+}
+
 /** หน้าต่างเวลางาน (duty) ของหนึ่ง record. */
 function acDuty_(r) {
   var sr = rrRangeStr_(r.shiftTime || '');
@@ -2177,12 +2196,14 @@ function acAnalyzeRecord_(r) {
   (r.assignments || []).forEach(function (a) {
     if (!a || !a.flight) return;
     var isAct = acIsActivity_(a.task) || acIsActivity_(a.flight);   // เทรน/อบรม/ประชุม = งาน แต่ไม่นับเป็นไฟลท์ที่ต้องครอบคลุม (ไม่ flag นอกเวลา)
-    var w = acFlightWin_(a);
-    if (!w) { if (isAct) out.actN = (out.actN || 0) + 1; return; }   // กิจกรรมไม่มีเวลา → ยังนับเป็นงาน
-    var lo = w[0], hi = w[1];
-    if (d.ds != null && d.de != null) { var fa = rrAlignTo_(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }  // จัดไฟลท์ให้อยู่ timeline เดียวกับเวลางาน (ข้ามเที่ยงคืน)
-    else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
-    out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) && !isAct, activity: isAct });
+    var wins = acFlightWins_(a);                                    // ปกติ 1 ช่วง · งานผสมขาเข้า+เช็คอินของ turnaround ยาว → 2 ช่วง
+    if (!wins.length) { if (isAct) out.actN = (out.actN || 0) + 1; return; }   // กิจกรรมไม่มีเวลา → ยังนับเป็นงาน
+    wins.forEach(function (wn) {
+      var lo = wn.lo, hi = wn.hi;
+      if (d.ds != null && d.de != null) { var fa = rrAlignTo_(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }  // จัดไฟลท์ให้อยู่ timeline เดียวกับเวลางาน (ข้ามเที่ยงคืน)
+      else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
+      out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) && !isAct && !wn.sub, activity: isAct });
+    });
   });
 
   // OT OFF: เวลางาน = ครอบช่วง OT + ไฟลท์ที่ได้รับทั้งหมด (มาช่วยวันหยุด ทำเฉพาะที่ได้รับมอบหมาย)
