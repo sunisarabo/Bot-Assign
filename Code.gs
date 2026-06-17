@@ -2086,8 +2086,14 @@ function acFlightWin_(a) {
   // (กันเตือน "นอกเวลางาน" ผิด สำหรับคนที่ทำเฉพาะเกท/ขาเข้า ซึ่งไม่ได้อยู่ช่วงเช็คอินเปิด)
   var phs = (typeof slaPhasesOf_ === 'function') ? slaPhasesOf_(a.task) : null;
   if (phs && phs.length === 1 && (phs[0] === 'GATE' || phs[0] === 'ARR') && (sta != null || std != null)) {
-    var glo = (sta != null) ? sta - 30 : std - 90;
-    var ghi = (std != null) ? std + post : sta + post;
+    var glo, ghi;
+    if (phs[0] === 'ARR') {            // ขาเข้า = รับเครื่องรอบ STA (ไม่ลากไปถึง STD ของ turnaround ยาว เช่น EK378/RON 8 ชม.)
+      glo = (sta != null) ? sta - 30 : std - 90;
+      ghi = (sta != null) ? sta + post : std + post;
+    } else {                          // GATE = ขาออก = รอบ STD
+      glo = (std != null) ? std - 90 : sta - 30;
+      ghi = (std != null) ? std + post : sta + post;
+    }
     if (ghi <= glo) ghi += 1440;
     return [glo, ghi];
   }
