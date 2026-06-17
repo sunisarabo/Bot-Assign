@@ -36,7 +36,7 @@ function doGet(e) {
       '<p class="muted" style="margin-top:8px">' + rbEsc_(err.message) + '</p>' +
       '<p class="muted">ยังไม่มีไฟล์ assignment ของวันนี้ หรือบัญชีไม่มีสิทธิ์ — เลือกวันอื่นจากแถบด้านบน</p></div></div></body></html>';
   }
-  return HtmlService.createHtmlOutput(html).setTitle('PWMS · PSA-HKT Workforce Management System')
+  return HtmlService.createHtmlOutput(html).setTitle('PAS · PSA-HKT Assignment System')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
@@ -377,8 +377,8 @@ function rbAppbar_(date) {
   var be = date.getFullYear()+543;
   var logo = ''; try { logo = rbLogoDataUri_(); } catch (elg) {}
   return '<div class="appbar rise"><div class="appbar__row">' +
-    '<div class="brand">' + (logo ? '<img class="brand__logo" src="' + logo + '" alt="AOTGA">' : '<div class="brand__mark">✈</div>') + '<div><h1>P<span>WMS</span></h1>' +
-    '<p>PSA-HKT Workforce Management System</p></div></div>' +
+    '<div class="brand">' + (logo ? '<img class="brand__logo" src="' + logo + '" alt="AOTGA">' : '<div class="brand__mark">✈</div>') + '<div><h1>P<span>AS</span></h1>' +
+    '<p>PSA-HKT Assignment System</p></div></div>' +
     '<div class="appbar__meta"><div class="datepill"><div class="d tnum">' + date.getDate()+' '+MONW[date.getMonth()]+' '+be +
     '</div><div class="s">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
     '<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-end">' +
@@ -391,7 +391,7 @@ function rbAppbar_(date) {
 function rbHelpModal_() {
   return '<div id="helpov" class="helpov" style="display:none" onclick="if(event.target===this)pwmsHelp(0)">' +
     '<div class="helpbox">' +
-    '<div class="helpbox__hd"><h3>ℹ️ คู่มือการใช้งาน PWMS</h3><button class="helpx" onclick="pwmsHelp(0)">✕</button></div>' +
+    '<div class="helpbox__hd"><h3>ℹ️ คู่มือการใช้งาน PAS</h3><button class="helpx" onclick="pwmsHelp(0)">✕</button></div>' +
     '<div class="helpbox__bd">' +
     '<p class="muted">ระบบอ่านไฟล์ assignment รายวันจาก Drive แล้วสรุปกำลังพล · ตรวจ SLA · หาคนช่วยข้ามทีม — เลือกวันที่ได้จากแถบบน · กด 🔄 เมื่อแก้ไฟล์แล้วอยากให้ดึงใหม่</p>' +
 
@@ -1220,7 +1220,7 @@ canvas{max-width:100%}
 .okk{color:var(--good);font-weight:700}.badd{color:var(--red);font-weight:700}
 tr.rowbad td{background:#fdecec}
 .muted{color:var(--ink-3)}
-/* ============ UI REFRESH · modern + corporate (PWMS) ====================== */
+/* ============ UI REFRESH · modern + corporate (PAS) ====================== */
 :root{
   --bg:#f4f7fc; --bg-2:#eaf1f9; --line:#e6edf7; --line-2:#eef3fa;
   --shadow-sm:0 1px 2px rgba(18,38,76,.04),0 6px 16px rgba(18,38,76,.05);
