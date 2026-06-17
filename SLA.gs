@@ -428,6 +428,7 @@ function slaCollectFlights_(res, ll) {
     var home = homeTeamOf(f.airline);                         // ทีมเจ้าของสายการบิน (ประกาศก่อนใช้เครดิต check-in รวม)
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
     var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
+    if (hasArr && hasDep && slaRealMin_(f.STA) === slaRealMin_(f.STD)) hasArr = false;   // STA=STD เวลาเดียวกัน = ขาออกอย่างเดียว (RON) → ไม่ต้องการ Arrival
     f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้งคู่ = ข้อมูลเวลาหาย (ไม่ใช่ขาเดียว) → คงความต้องการเต็ม
     if (!f.noTime) {                                          // ตัด phase เฉพาะกรณี "มีขาเดียวจริง"
       var extra = Math.max(0, f.req.total - (f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR));  // เกท "จากเช็คอิน" (departure)
@@ -457,6 +458,12 @@ function slaCollectFlights_(res, ll) {
       if (d > 0) f.short[ph] = d;
     });
     f.shortTotal = Math.max(0, f.req.total - f.assigned.total);
+    // คนรวมพอ/เกิน (คนเกิน) → เฟสยืดหยุ่น Check-in/Gate/Arrival ที่ขาด จัดสรรจากคนที่มีได้ ไม่นับเป็นขาด · SUP ยังต้องมีจริง (จัดแทนไม่ได้)
+    if (f.shortTotal === 0) {
+      var redist = [];
+      ['CI', 'GATE', 'ARR'].forEach(function (ph) { if (f.short[ph]) { redist.push(ph); delete f.short[ph]; } });
+      if (redist.length) f.redist = redist;
+    }
     f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
     var home = homeTeamOf(f.airline);                          // ทีมเจ้าของสายการบิน (ถ้ามี) มาก่อนทีมที่มาช่วย
     if (home) f.teams[home] = true;                            // ให้ candidate ถือว่าทีมนี้เป็นเจ้าของ (ไม่นับ support ซ้ำ)

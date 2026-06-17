@@ -1533,6 +1533,7 @@ function slaCollectFlights_(res, ll) {
     var home = homeTeamOf(f.airline);                         // ทีมเจ้าของสายการบิน (ประกาศก่อนใช้เครดิต check-in รวม)
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
     var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
+    if (hasArr && hasDep && slaRealMin_(f.STA) === slaRealMin_(f.STD)) hasArr = false;   // STA=STD เวลาเดียวกัน = ขาออกอย่างเดียว (RON) → ไม่ต้องการ Arrival
     f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้งคู่ = ข้อมูลเวลาหาย (ไม่ใช่ขาเดียว) → คงความต้องการเต็ม
     if (!f.noTime) {                                          // ตัด phase เฉพาะกรณี "มีขาเดียวจริง"
       var extra = Math.max(0, f.req.total - (f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR));  // เกท "จากเช็คอิน" (departure)
@@ -1562,6 +1563,12 @@ function slaCollectFlights_(res, ll) {
       if (d > 0) f.short[ph] = d;
     });
     f.shortTotal = Math.max(0, f.req.total - f.assigned.total);
+    // คนรวมพอ/เกิน (คนเกิน) → เฟสยืดหยุ่น Check-in/Gate/Arrival ที่ขาด จัดสรรจากคนที่มีได้ ไม่นับเป็นขาด · SUP ยังต้องมีจริง (จัดแทนไม่ได้)
+    if (f.shortTotal === 0) {
+      var redist = [];
+      ['CI', 'GATE', 'ARR'].forEach(function (ph) { if (f.short[ph]) { redist.push(ph); delete f.short[ph]; } });
+      if (redist.length) f.redist = redist;
+    }
     f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
     var home = homeTeamOf(f.airline);                          // ทีมเจ้าของสายการบิน (ถ้ามี) มาก่อนทีมที่มาช่วย
     if (home) f.teams[home] = true;                            // ให้ candidate ถือว่าทีมนี้เป็นเจ้าของ (ไม่นับ support ซ้ำ)
@@ -5835,8 +5842,10 @@ function rbFltRows_(res, ll) {
       var R = slaRoles_(f.airline) || {};
       var asg = f.assigned || {}, req = f.req || {};
       function rc(n){ return '<td class="tnum">'+(n||0)+'</td>'; }
+      var RDLB={CI:'เช็คอิน',GATE:'เกท',ARR:'ขาเข้า'};
       var st = f.noTime ? '<span class="badd">⚠️ ขาด STA/STD — เติมเวลาในชีต</span>'
-             : (f.ok ? '<span class="okk">✅ ครบ</span>' : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>');
+             : (f.ok ? ('<span class="okk">✅ ครบ</span>'+(f.redist&&f.redist.length?' <span class="muted">· คนพอ จัด '+f.redist.map(function(p){return RDLB[p]||p;}).join('/')+' จากคนที่มี</span>':''))
+                     : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>');
       return '<tr class="'+(f.ok&&!f.noTime?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+rbEsc_(f.airline)+'</td><td>'+rbEsc_(f.teamList)+
         '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+(asg.total||0)+'</b>/'+(R.total||req.total||0)+'</td>'+
         rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.GM)+rc(R.GA)+rc(R.CS)+'<td>'+st+'</td></tr>';
@@ -5861,6 +5870,25 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
   var teamOrder = Object.keys(res.teams).sort(function(a,b){ return (res.teams[b].working+res.teams[b].ot_off)-(res.teams[a].working+res.teams[a].ot_off); });
   var shortCount = 0; try { shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok && !f.noTime;}).length; } catch (esc) {}
   var acCount = 0; try { acCount = acAnalyze_(res, ll).summary.bad; } catch (eac) {}
+  // สรุปไฟลท์วันนี้ (ทั้งหมด · ครบ · จัดสรรเอง · ขาด · ขาดเวลา · คนต้องการ/จัดได้)
+  var fS = { total:0, ok:0, redist:0, short:0, noTime:0, need:0, got:0 };
+  try { slaCollectFlights_(res, ll).filter(function(f){ return !(f.noTime && f.fragment); }).forEach(function(f){
+    fS.total++;
+    if (f.noTime) fS.noTime++;
+    else if (f.ok) { if (f.redist && f.redist.length) fS.redist++; else fS.ok++; }
+    else fS.short++;
+    fS.need += (f.req && f.req.total) || 0; fS.got += (f.assigned && f.assigned.total) || 0;
+  }); } catch (efs) {}
+  function fltKpi(lb, n, cls){ return '<div class="fltkpi '+(cls||'')+'"><div class="fltkpi__n tnum">'+n+'</div><div class="fltkpi__l">'+lb+'</div></div>'; }
+  var fltCard = '<div class="tablecard" style="margin-top:16px"><div class="tablecard__hd"><h3>✈️ สรุปไฟลท์วันนี้ ('+fS.total+' ไฟลท์)</h3></div>' +
+    '<div class="fltkpis">' +
+      fltKpi('ไฟลท์ทั้งหมด', fS.total, '') +
+      fltKpi('✅ คนครบ', fS.ok, 'k-ok') +
+      fltKpi('🔄 คนพอ·จัดเฟสเอง', fS.redist, 'k-rd') +
+      fltKpi('⚠️ ขาดคน', fS.short, 'k-bad') +
+      fltKpi('⏰ ขาดเวลา', fS.noTime, 'k-warn') +
+      fltKpi('👥 จัด/ต้องการ', fS.got+'/'+fS.need, '') +
+    '</div></div>';
 
   var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
     tt:teamOrder.map(function(t){return res.teams[t].staff;}), work:C.working, off:C.off, sick:C.sick, leave:C.leave,
@@ -5911,7 +5939,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<style>' + rbDesignCss_() + otDashCss_() + '</style></head><body><div class="wrap">' +
     rbAppbar_(date) + rbWeekNav_(date, iso, base, tz) + rbTabs_(shortCount, acCount) +
     '<div id="view-dash">' +
-    holBanner + rbKpiHero_(C, master) + masterLine +
+    holBanner + rbKpiHero_(C, master) + masterLine + fltCard +
     '<div class="grid grid--charts" style="margin-top:16px">' +
       '<div class="panel"><div class="panel__hd"><h3>📊 Working / Total ต่อทีม</h3></div><canvas id="c1" height="150"></canvas></div>' +
       '<div class="panel"><div class="panel__hd"><h3>🧭 ภาพรวมสถานะ</h3></div><canvas id="c2" height="150"></canvas></div></div>' +
@@ -6486,6 +6514,16 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 .tablecard:hover{ box-shadow:var(--shadow); }
 .tablecard__hd{ border-bottom:1px solid var(--line-2); padding-bottom:12px; }
 .tablecard__hd h3{ font-size:15px; letter-spacing:.1px; }
+/* flight summary KPIs */
+.fltkpis{ display:grid; grid-template-columns:repeat(6,1fr); gap:10px; padding:14px; }
+.fltkpi{ background:#f6f9ff; border:1px solid var(--line-2); border-radius:12px; padding:12px 8px; text-align:center; }
+.fltkpi__n{ font-size:24px; font-weight:800; line-height:1.1; color:#0d2137; }
+.fltkpi__l{ font-size:11.5px; color:#5b6b82; margin-top:4px; font-weight:600; }
+.fltkpi.k-ok{ background:#e8f5e9; border-color:#bfe3c4; } .fltkpi.k-ok .fltkpi__n{ color:#1b7a32; }
+.fltkpi.k-rd{ background:#fff7e6; border-color:#fce0a8; } .fltkpi.k-rd .fltkpi__n{ color:#a6711a; }
+.fltkpi.k-bad{ background:#fde8e8; border-color:#f5c2c2; } .fltkpi.k-bad .fltkpi__n{ color:#b3261e; }
+.fltkpi.k-warn{ background:#fff3cd; border-color:#f3e1a0; } .fltkpi.k-warn .fltkpi__n{ color:#8a6d00; }
+@media (max-width:760px){ .fltkpis{ grid-template-columns:repeat(3,1fr); } }
 /* tables */
 .tbl th{ font-size:11px; background:#eef3fb; }
 .tbl tbody tr{ transition:background .12s ease; }
