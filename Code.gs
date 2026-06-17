@@ -4420,21 +4420,23 @@ function whLoadMonth_(iso) {
   return out;
 }
 
-/** สถานะรายสัปดาห์ของพนักงาน id (สัปดาห์ที่มีวัน iso) → {hours,days,nocode,incomplete,over48,over6,level} หรือ null */
-function whWeekStat_(iso, id) {
+/** สถานะรายสัปดาห์ของพนักงาน id · estPerDay = ชม.กะวันที่เลือก (ใช้ประมาณวันที่ ROSTER ไม่มีรหัส) */
+function whWeekStat_(iso, id, estPerDay) {
   var R = whLoadMonth_(iso); if (!R) return null;
   var p = R.byId[String(id == null ? '' : id).replace(/\D/g, '')]; if (!p) return null;
-  var wk = whIsoWeek_(iso), hours = 0, days = 0, nocode = 0;
+  var wk = whIsoWeek_(iso), hours = 0, days = 0, nocode = 0, est = 0;
   p.days.forEach(function (d) {
     if (d.work && whIsoWeek_(d.iso) === wk) {
       days++;
-      if (d.hours > 0) hours += d.hours; else nocode++;   // วันทำงานที่ ROSTER ไม่ได้กรอกรหัสกะ → คิดชั่วโมงไม่ได้
+      if (d.hours > 0) hours += d.hours;
+      else { nocode++; if (estPerDay > 0) est += estPerDay; }   // วันทำงานที่ ROSTER ไม่มีรหัสกะ → ประมาณจากกะวันที่เลือก
     }
   });
-  hours = Math.round(hours * 10) / 10;
-  var over48 = hours > WH_WEEK_MAXHR, over6 = days > WH_WEEK_MAXDAY, incomplete = nocode > 0;
-  return { hours: hours, days: days, nocode: nocode, incomplete: incomplete, over48: over48, over6: over6,
-           level: (over48 || over6) ? 'over' : (incomplete ? 'incomplete' : 'ok') };
+  hours = Math.round(hours * 10) / 10; est = Math.round(est * 10) / 10;
+  var total = Math.round((hours + est) * 10) / 10, incomplete = nocode > 0;
+  var over48 = total > WH_WEEK_MAXHR, over6 = days > WH_WEEK_MAXDAY;
+  return { hours: hours, est: est, total: total, days: days, nocode: nocode, incomplete: incomplete,
+           over48: over48, over6: over6, level: (over48 || over6) ? 'over' : (incomplete ? 'incomplete' : 'ok') };
 }
 
 /** Lazy tab: ⏱️ ชั่วโมง/สัปดาห์ — รายคน (สัปดาห์ของวันที่เลือก) + เตือนเกิน 48ช/6วัน */
@@ -4448,7 +4450,7 @@ function rbWeekHoursHtml(iso) {
     Object.keys(d.res.teams).forEach(function (t) {
       d.res.teams[t].records.forEach(function (r) {
         var idd = String(r.id || '').replace(/\D/g, ''); if (!idd || seen[idd]) return; seen[idd] = 1;
-        var w = whWeekStat_(iso, idd); if (!w) return;
+        var w = whWeekStat_(iso, idd, r.shiftHrs || 0); if (!w) return;   // ใช้ชม.กะวันนี้ประมาณวันที่ ROSTER ไม่มีรหัส
         if (w.level === 'over') overN++; else if (w.incomplete) incompN++;
         rows.push({ team: t, id: idd, name: r.name, pos: r.pos || '', w: w });
       });
@@ -4457,13 +4459,14 @@ function rbWeekHoursHtml(iso) {
     rows.sort(function (a, b) { return (b.w.over48 || b.w.over6 ? 1 : 0) - (a.w.over48 || a.w.over6 ? 1 : 0) || (b.w.incomplete ? 1 : 0) - (a.w.incomplete ? 1 : 0) || b.w.hours - a.w.hours; });
     var body = rows.map(function (x) {
       var w = x.w, warn = [];
-      if (w.over48) warn.push('เกิน 48ช (' + w.hours + ')');
+      if (w.over48) warn.push((w.incomplete ? 'อาจเกิน' : 'เกิน') + ' 48ช (' + (w.incomplete ? '≈' : '') + w.total + ')');
       if (w.over6) warn.push('เกิน 6 วัน (' + w.days + ')');
       var cls = warn.length ? 'rowbad' : '', st;
-      if (warn.length) st = '<span class="badd">⚠️ ' + rbEsc_(warn.join(' · ')) + '</span>';
-      else if (w.incomplete) st = '<span class="tag">📝 ไม่มีรหัสกะ ' + w.nocode + '/' + w.days + ' วัน — เติมใน ROSTER' + (w.hours ? ' (อ่านได้ ' + w.hours + 'ช)' : '') + '</span>';
+      if (warn.length) st = '<span class="badd">⚠️ ' + rbEsc_(warn.join(' · ')) + '</span>' +
+        (w.incomplete ? ' <span class="tag">📝 ROSTER ไม่มีรหัส ' + w.nocode + ' วัน (ประมาณจากกะวันนี้)</span>' : '');
+      else if (w.incomplete) st = '<span class="tag">📝 ≈ ' + w.total + 'ช — ประมาณจากกะวันนี้ · ROSTER ไม่มีรหัส ' + w.nocode + '/' + w.days + ' วัน (เติมให้ครบ)</span>';
       else st = '<span class="okk">✅ ' + w.hours + 'ช / ' + w.days + 'วัน</span>';
-      var hdisp = w.incomplete ? (w.hours ? w.hours + '<span class="muted">+?</span>' : '<span class="muted">—</span>') : ('<b>' + w.hours + '</b>');
+      var hdisp = w.incomplete ? ('<span class="muted">≈</span>' + w.total) : ('<b>' + w.hours + '</b>');
       return '<tr class="' + cls + '" data-team="' + rbEsc_(x.team) + '"><td class="b">' + rbEsc_(x.team) + '</td><td class="tnum">' + rbEsc_(x.id) +
         '</td><td>' + rbEsc_(x.name) + '</td><td>' + rbEsc_(x.pos) + '</td><td class="tnum">' + hdisp + '</td><td class="tnum">' + w.days + '</td><td>' + st + '</td></tr>';
     }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:18px">— ไม่มีข้อมูล —</td></tr>';
