@@ -616,25 +616,11 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
   var teamOrder = Object.keys(res.teams).sort(function(a,b){ return (res.teams[b].working+res.teams[b].ot_off)-(res.teams[a].working+res.teams[a].ot_off); });
   var shortCount = 0; try { shortCount = slaCollectFlights_(res, ll).filter(function(f){return !f.ok && !f.noTime;}).length; } catch (esc) {}
   var acCount = 0; try { acCount = acAnalyze_(res, ll).summary.bad; } catch (eac) {}
-  // สรุปไฟลท์วันนี้ (ทั้งหมด · ครบ · จัดสรรเอง · ขาด · ขาดเวลา · คนต้องการ/จัดได้)
-  var fS = { total:0, ok:0, redist:0, short:0, noTime:0, need:0, got:0 };
-  try { slaCollectFlights_(res, ll).filter(function(f){ return !(f.noTime && f.fragment); }).forEach(function(f){
-    fS.total++;
-    if (f.noTime) fS.noTime++;
-    else if (f.ok) { if (f.redist && f.redist.length) fS.redist++; else fS.ok++; }
-    else fS.short++;
-    fS.need += (f.req && f.req.total) || 0; fS.got += (f.assigned && f.assigned.total) || 0;
-  }); } catch (efs) {}
-  function fltKpi(lb, n, cls){ return '<div class="fltkpi '+(cls||'')+'"><div class="fltkpi__n tnum">'+n+'</div><div class="fltkpi__l">'+lb+'</div></div>'; }
-  var fltCard = '<div class="tablecard" style="margin-top:16px"><div class="tablecard__hd"><h3>✈️ สรุปไฟลท์วันนี้ ('+fS.total+' ไฟลท์)</h3></div>' +
-    '<div class="fltkpis">' +
-      fltKpi('ไฟลท์ทั้งหมด', fS.total, '') +
-      fltKpi('✅ คนครบ', fS.ok, 'k-ok') +
-      fltKpi('🔄 คนพอ·จัดเฟสเอง', fS.redist, 'k-rd') +
-      fltKpi('⚠️ ขาดคน', fS.short, 'k-bad') +
-      fltKpi('⏰ ขาดเวลา', fS.noTime, 'k-warn') +
-      fltKpi('👥 จัด/ต้องการ', fS.got+'/'+fS.need, '') +
-    '</div></div>';
+  // สรุปจำนวนไฟลท์วันนี้
+  var fltTotal = 0;
+  try { fltTotal = slaCollectFlights_(res, ll).filter(function(f){ return !(f.noTime && f.fragment); }).length; } catch (efs) {}
+  var fltCard = '<div class="tablecard" style="margin-top:16px"><div class="fltkpis">' +
+    '<div class="fltkpi"><div class="fltkpi__n tnum">' + fltTotal + '</div><div class="fltkpi__l">✈️ ไฟลท์วันนี้</div></div></div></div>';
 
   var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
     tt:teamOrder.map(function(t){return res.teams[t].staff;}), work:C.working, off:C.off, sick:C.sick, leave:C.leave,
@@ -1260,16 +1246,11 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 .tablecard:hover{ box-shadow:var(--shadow); }
 .tablecard__hd{ border-bottom:1px solid var(--line-2); padding-bottom:12px; }
 .tablecard__hd h3{ font-size:15px; letter-spacing:.1px; }
-/* flight summary KPIs */
-.fltkpis{ display:grid; grid-template-columns:repeat(6,1fr); gap:10px; padding:14px; }
-.fltkpi{ background:#f6f9ff; border:1px solid var(--line-2); border-radius:12px; padding:12px 8px; text-align:center; }
-.fltkpi__n{ font-size:24px; font-weight:800; line-height:1.1; color:#0d2137; }
-.fltkpi__l{ font-size:11.5px; color:#5b6b82; margin-top:4px; font-weight:600; }
-.fltkpi.k-ok{ background:#e8f5e9; border-color:#bfe3c4; } .fltkpi.k-ok .fltkpi__n{ color:#1b7a32; }
-.fltkpi.k-rd{ background:#fff7e6; border-color:#fce0a8; } .fltkpi.k-rd .fltkpi__n{ color:#a6711a; }
-.fltkpi.k-bad{ background:#fde8e8; border-color:#f5c2c2; } .fltkpi.k-bad .fltkpi__n{ color:#b3261e; }
-.fltkpi.k-warn{ background:#fff3cd; border-color:#f3e1a0; } .fltkpi.k-warn .fltkpi__n{ color:#8a6d00; }
-@media (max-width:760px){ .fltkpis{ grid-template-columns:repeat(3,1fr); } }
+/* flight count summary */
+.fltkpis{ display:flex; gap:10px; padding:14px; }
+.fltkpi{ background:#eef3fb; border:1px solid var(--line-2); border-radius:12px; padding:14px 28px; text-align:center; min-width:160px; }
+.fltkpi__n{ font-size:34px; font-weight:800; line-height:1; color:#0d2137; }
+.fltkpi__l{ font-size:12.5px; color:#5b6b82; margin-top:6px; font-weight:600; }
 /* tables */
 .tbl th{ font-size:11px; background:#eef3fb; }
 .tbl tbody tr{ transition:background .12s ease; }
