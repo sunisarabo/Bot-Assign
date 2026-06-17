@@ -573,7 +573,7 @@ function slaCandidates_(f, ph, pool, max) {
   var cands = pool.filter(function (p) {
     if (f.teams[p.team]) return false;                       // คนทีมเดียวกับไฟลท์ ไม่นับเป็น support
     if (needNorm && !p.sys[needNorm]) return false;          // CI/SUP ต้องรู้ระบบสายการบินนั้น (ยกเว้น iPort)
-    if (ph === 'SUP' && p.posGroup !== 'PSS') return false;  // Sup/Flight Controller ต้องเป็น Sup
+    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') return false;  // SUP/Flight Controller = ตำแหน่ง Sup หรือ Snr
     if (win) {
       if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
       for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นของตัวเองช่วงนั้น
@@ -589,8 +589,8 @@ function slaCandidates_(f, ph, pool, max) {
   });
   function ovh(x) { return (x.hstat && (x.hstat.level === 'over' || x.hstat.level === 'high')) ? 1 : 0; }   // ชั่วโมงเกินเกณฑ์ → ดันท้าย
   if (ph === 'SUP') {
-    // ทำงานก่อน OFF · ชั่วโมงไม่เกินก่อน · ทีมลอย(PVTLP/STBY)ก่อน · งานน้อยกว่าก่อน
-    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+    // ทำงานก่อน OFF · ชั่วโมงไม่เกินก่อน · ทีมลอย(PVTLP/STBY)ก่อน · Sup ก่อน Snr · งานน้อยกว่าก่อน
+    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || (a.posGroup === 'PSS' ? 0 : 1) - (b.posGroup === 'PSS' ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
   } else {
     // CI / GATE / ARR: ทำงานก่อน OFF · ชั่วโมงไม่เกินก่อน · ทีมลอยก่อน · Agent → Senior → Sup · งานน้อย/ว่างกว่าก่อน
     var PRI = { PSA: 0, SNR: 1, PSS: 2 };
