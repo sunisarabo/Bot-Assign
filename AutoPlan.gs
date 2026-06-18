@@ -205,17 +205,24 @@ function apCommonExcl_(commons) {
 }
 
 /** โหมด A: เติมเฉพาะไฟลท์ที่คนไม่พอ — เลือกคนว่างข้ามทีมมาเสริมจริง (commit) */
-function apFillGaps_(res, ll, fcByCode) {
+function apFillGaps_(res, ll, fcByCode, extraReq) {
+  extraReq = extraReq || {};                                             // { "<flight>": { GATE:2, CI:1, ... } } คนพิเศษที่ขอเพิ่มจาก SLA
+  var exOf = function (fl, ph) { var e = extraReq[fl]; return (e && +e[ph]) || 0; };
   var flights = slaCollectFlights_(res, ll);
   var pool = apClonePool_(res, ll);
   var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคน)
   var excl = apCommonExcl_(commons);
   var rows = [];
-  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok; }).forEach(function (f) {   // แสดงไฟลท์ไม่มีเวลาด้วย (ไม่ให้หายจากตาราง) · window=null จัดตามทีมได้
+  flights.filter(function (f) {                                          // แสดงไฟลท์ไม่มีเวลาด้วย (ไม่ให้หายจากตาราง) · window=null จัดตามทีมได้
+    if (!acIsFlight_(f.flight)) return false;
+    return !f.ok || !!extraReq[f.flight];                                // ไฟลท์ครบ SLA แต่ขอคนพิเศษ → แสดงด้วย
+  }).forEach(function (f) {
     var ex = excl[f.flight] || {};
     AP_PHASES.forEach(function (ph) {
       if (ex[ph]) return;                                                 // common check-in จัดแล้ว → ข้าม
-      var need = f.short[ph]; if (!need) return;
+      var base = f.short[ph] || 0;                                        // ขาดตาม SLA
+      var add = exOf(f.flight, ph);                                       // คนพิเศษที่ขอเพิ่ม
+      var need = base + add; if (!need) return;
       var win = slaPhaseWindow_(f, ph);
       var picked = [];
       for (var k = 0; k < need; k++) {
@@ -225,13 +232,16 @@ function apFillGaps_(res, ll, fcByCode) {
       }
       rows.push({
         flight: f.flight, airline: f.airline, std: f.STD || f.STA || '',
-        phase: SLA_PH_LB[ph], need: need, win: slaWinTxt_(f, ph),
-        needSys: slaNeedSys_(f.airline, ph),
+        phase: SLA_PH_LB[ph], phaseCode: ph, need: need, base: base, extra: add,
+        win: slaWinTxt_(f, ph), needSys: slaNeedSys_(f.airline, ph),
         picked: picked, remain: need - picked.length,
       });
     });
   });
   rows.commons = commons;                                                 // แนบ commons (ไม่กระทบ caller เดิมที่ใช้ array)
+  rows.allFlights = flights.filter(function (f) { return acIsFlight_(f.flight); })
+    .map(function (f) { return f.flight; })
+    .filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();     // รายชื่อไฟลท์ทั้งหมด (ใช้ทำ dropdown เพิ่มคนพิเศษ)
   return rows;
 }
 
@@ -353,9 +363,10 @@ function apExportGrid_(title, byTeam, dateStr) {
   return ss.getUrl();
 }
 /** Export "เติม Assign เดิม" (FillPlan) → ชีตกริด (ไฟลท์×คน) แยกทีมเจ้าของไฟลท์ (team='' = ทุกทีม) */
-function apExportFill(dateStr, team) {
+function apExportFill(dateStr, team, exJson) {
+  var ex = {}; try { ex = exJson ? JSON.parse(exJson) : {}; } catch (e0) {}
   var d = rbLoadResLL_(rbDateFromIso_(dateStr));
-  var gaps = apFillGaps_(d.res, d.ll);
+  var gaps = apFillGaps_(d.res, d.ll, null, ex);
   var owner = acOwnerTeams_(d.res, d.ll);
   var byTeam = {};                                                        // team → { flight → flightRow }
   gaps.forEach(function (g) {

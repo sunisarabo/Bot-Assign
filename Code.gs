@@ -2673,17 +2673,24 @@ function apCommonExcl_(commons) {
 }
 
 /** โหมด A: เติมเฉพาะไฟลท์ที่คนไม่พอ — เลือกคนว่างข้ามทีมมาเสริมจริง (commit) */
-function apFillGaps_(res, ll, fcByCode) {
+function apFillGaps_(res, ll, fcByCode, extraReq) {
+  extraReq = extraReq || {};                                             // { "<flight>": { GATE:2, CI:1, ... } } คนพิเศษที่ขอเพิ่มจาก SLA
+  var exOf = function (fl, ph) { var e = extraReq[fl]; return (e && +e[ph]) || 0; };
   var flights = slaCollectFlights_(res, ll);
   var pool = apClonePool_(res, ll);
   var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคน)
   var excl = apCommonExcl_(commons);
   var rows = [];
-  flights.filter(function (f) { return acIsFlight_(f.flight) && !f.ok; }).forEach(function (f) {   // แสดงไฟลท์ไม่มีเวลาด้วย (ไม่ให้หายจากตาราง) · window=null จัดตามทีมได้
+  flights.filter(function (f) {                                          // แสดงไฟลท์ไม่มีเวลาด้วย (ไม่ให้หายจากตาราง) · window=null จัดตามทีมได้
+    if (!acIsFlight_(f.flight)) return false;
+    return !f.ok || !!extraReq[f.flight];                                // ไฟลท์ครบ SLA แต่ขอคนพิเศษ → แสดงด้วย
+  }).forEach(function (f) {
     var ex = excl[f.flight] || {};
     AP_PHASES.forEach(function (ph) {
       if (ex[ph]) return;                                                 // common check-in จัดแล้ว → ข้าม
-      var need = f.short[ph]; if (!need) return;
+      var base = f.short[ph] || 0;                                        // ขาดตาม SLA
+      var add = exOf(f.flight, ph);                                       // คนพิเศษที่ขอเพิ่ม
+      var need = base + add; if (!need) return;
       var win = slaPhaseWindow_(f, ph);
       var picked = [];
       for (var k = 0; k < need; k++) {
@@ -2693,13 +2700,16 @@ function apFillGaps_(res, ll, fcByCode) {
       }
       rows.push({
         flight: f.flight, airline: f.airline, std: f.STD || f.STA || '',
-        phase: SLA_PH_LB[ph], need: need, win: slaWinTxt_(f, ph),
-        needSys: slaNeedSys_(f.airline, ph),
+        phase: SLA_PH_LB[ph], phaseCode: ph, need: need, base: base, extra: add,
+        win: slaWinTxt_(f, ph), needSys: slaNeedSys_(f.airline, ph),
         picked: picked, remain: need - picked.length,
       });
     });
   });
   rows.commons = commons;                                                 // แนบ commons (ไม่กระทบ caller เดิมที่ใช้ array)
+  rows.allFlights = flights.filter(function (f) { return acIsFlight_(f.flight); })
+    .map(function (f) { return f.flight; })
+    .filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();     // รายชื่อไฟลท์ทั้งหมด (ใช้ทำ dropdown เพิ่มคนพิเศษ)
   return rows;
 }
 
@@ -2821,9 +2831,10 @@ function apExportGrid_(title, byTeam, dateStr) {
   return ss.getUrl();
 }
 /** Export "เติม Assign เดิม" (FillPlan) → ชีตกริด (ไฟลท์×คน) แยกทีมเจ้าของไฟลท์ (team='' = ทุกทีม) */
-function apExportFill(dateStr, team) {
+function apExportFill(dateStr, team, exJson) {
+  var ex = {}; try { ex = exJson ? JSON.parse(exJson) : {}; } catch (e0) {}
   var d = rbLoadResLL_(rbDateFromIso_(dateStr));
-  var gaps = apFillGaps_(d.res, d.ll);
+  var gaps = apFillGaps_(d.res, d.ll, null, ex);
   var owner = acOwnerTeams_(d.res, d.ll);
   var byTeam = {};                                                        // team → { flight → flightRow }
   gaps.forEach(function (g) {
@@ -5497,25 +5508,56 @@ function rbPlanNames_(arr) {
   }).join('');
 }
 
+/** แผง "เพิ่มคนพิเศษ" — เลือกไฟลท์/ตำแหน่ง/จำนวน เพื่อขอคนเสริมเกินจาก SLA (เช่น เกทบอร์ดดิ้งคนเยอะ) */
+function rbFillExtraPanel_(allFlights, exReq) {
+  var flOpts = (allFlights || []).map(function (fl) { return '<option value="' + rbEsc_(fl) + '">' + rbEsc_(fl) + '</option>'; }).join('');
+  var phOpts = AP_PHASES.map(function (ph) { return '<option value="' + ph + '">' + rbEsc_(SLA_PH_LB[ph]) + '</option>'; }).join('');
+  var chips = '';
+  Object.keys(exReq || {}).forEach(function (fl) {
+    AP_PHASES.forEach(function (ph) {
+      var n = +(exReq[fl] || {})[ph] || 0;
+      if (n) chips += '<span class="tag">➕ ' + rbEsc_(fl) + ' · ' + rbEsc_(SLA_PH_LB[ph]) + ' +' + n + ' <a href="#" onclick="fillDropExtra(\'' + rbEsc_(fl) + '\',\'' + ph + '\');return false" style="text-decoration:none;color:#b00">✕</a></span> ';
+    });
+  });
+  return '<div class="panel" style="margin:8px 0;padding:10px 12px;background:#f3f8ff;border:1px solid #cfe0f5;border-radius:10px">' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+    '<b>➕ เพิ่มคนพิเศษ</b>' +
+    ' <span class="muted">เลือกไฟลท์ที่ต้องใช้คนเยอะ (เช่น เกทบอร์ดดิ้ง) แล้วระบบหาคนว่างข้ามทีมมาเสริม<u>เพิ่มจาก SLA</u></span></div>' +
+    '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">' +
+    'ไฟลท์ <select id="exflt" class="namepick">' + flOpts + '</select>' +
+    ' ตำแหน่ง <select id="exph" class="namepick">' + phOpts + '</select>' +
+    ' จำนวน <input id="exn" type="number" min="1" value="1" class="namepick" style="width:64px">' +
+    ' <button class="btn btn--accent" onclick="fillAddExtra()">➕ เพิ่มคน</button>' +
+    (chips ? ' <button class="btn" onclick="fillClearExtra()">ล้างทั้งหมด</button>' : '') +
+    '</div>' +
+    (chips ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' + chips + '</div>' : '') +
+    '</div>';
+}
+
 /** Lazy tab 1: 🤖 เติมจาก Assign เดิม (โหมด A — gap-fill) */
-function rbFillPlanHtml(iso, fcJson) {
+function rbFillPlanHtml(iso, fcJson, exJson) {
   try {
     var fcBy = {}; try { fcBy = fcJson ? JSON.parse(fcJson) : {}; } catch (e0) {}
+    var exReq = {}; try { exReq = exJson ? JSON.parse(exJson) : {}; } catch (e1) {}
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    var gaps = apFillGaps_(d.res, d.ll, fcBy);
-    var filledN = 0, remainN = 0;
-    gaps.forEach(function (g) { filledN += g.picked.length; remainN += g.remain; });
+    var gaps = apFillGaps_(d.res, d.ll, fcBy, exReq);
+    var filledN = 0, remainN = 0, extraN = 0;
+    gaps.forEach(function (g) { filledN += g.picked.length; remainN += g.remain; extraN += (g.extra || 0); });
     var hd = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">📋 <b>เติมจาก Assign เดิม</b> — จัดคนว่างข้ามทีมมาเสริมไฟลท์ที่ขาด · เสริม <b class="okk">' + filledN + ' คน</b>' +
+      (extraN ? ' · <b class="okk">รวมคนพิเศษ ' + extraN + ' คน</b>' : '') +
       (remainN ? ' · <b class="badd">ยังขาด ' + remainN + ' คน</b>' : ' · ครบ ✅') + ' <span class="muted">(คลิกชื่อเพื่อแก้ไข · คลิก ⓘ ดูงาน/OT/ไฟลท์)</span></div>';
+    var exPanel = rbFillExtraPanel_(gaps.allFlights || [], exReq);
     var bodyA = gaps.map(function (g) {
       var who = g.picked.length ? rbPlanNames_(g.picked) : '<span class="badd">' + (g.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(g.needSys) : 'ไม่มีคนว่าง') + '</span>';
       var st = g.remain === 0 ? '<span class="okk">✅ เติมครบ</span>' : (g.picked.length ? '<span class="badd">⚠️ ยังขาด ' + g.remain + '</span>' : '<span class="badd">🔴 ขาด ' + g.remain + '</span>');
-      return '<tr class="' + (g.remain ? 'rowbad' : '') + '" data-team="' + rbEsc_(g.airline) + '"><td class="b">' + rbEsc_(g.flight) +
-        '</td><td>' + rbEsc_(g.airline) + '</td><td class="tnum">' + rbEsc_(g.std) + '</td><td class="badd">' + rbEsc_(g.phase) + ' ขาด ' + g.need +
+      var phCell = g.base ? '<span class="badd">' + rbEsc_(g.phase) + ' ขาด ' + g.base + '</span>' : '<span class="muted">' + rbEsc_(g.phase) + '</span>';
+      if (g.extra) phCell += ' <span class="tag">➕ พิเศษ ' + g.extra + '</span>';
+      return '<tr class="' + (g.remain ? 'rowbad' : (g.extra ? 'rowextra' : '')) + '" data-team="' + rbEsc_(g.airline) + '"><td class="b">' + rbEsc_(g.flight) +
+        '</td><td>' + rbEsc_(g.airline) + '</td><td class="tnum">' + rbEsc_(g.std) + '</td><td>' + phCell +
         '</td><td class="tnum">' + rbEsc_(g.win) + '</td><td>' + rbEsc_(g.needSys || 'iPort/ใดก็ได้') + '</td><td>' + who + '</td><td>' + st + '</td></tr>';
     }).join('');
-    if (!bodyA) bodyA = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA แล้ว — ไม่ต้องเสริม</td></tr>';
-    return hd + rbExpBar_('fill') + rbCommonsHtml_(gaps.commons, 'fill') + rbTblCard_('🤖 เติมคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
+    if (!bodyA) bodyA = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA แล้ว — ไม่ต้องเสริม (เพิ่มคนพิเศษได้ที่แผงด้านบน)</td></tr>';
+    return hd + exPanel + rbExpBar_('fill') + rbCommonsHtml_(gaps.commons, 'fill') + rbTblCard_('🤖 เติมคนเสริมไฟลท์ที่ขาด (ข้ามทีม)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>STD/STA</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>ระบบที่ต้องใช้</th><th>คนที่จัดให้</th><th>สถานะ</th></tr>',
       bodyA, rbCtrls_('view-fill', true));
   } catch (e) { return '<div class="panel">โหลด "เติม Assign เดิม" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
@@ -6044,8 +6086,12 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function clearGap(viewId){var v=document.getElementById(viewId);if(!v)return;var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");if(gf)gf.value="";if(gt)gt.value="";applyFilter(viewId);}' +
     'function buildExpTeams(){[].forEach.call(document.querySelectorAll("select.expteam"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll(".supchip[data-pteam]"),function(c){var t=c.getAttribute("data-pteam");if(t)set[t]=1;});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function fillExport(){expRun("fill","apExportFill");}function autoExport(){expRun("auto","apExportAuto");}' +
-    'function expRun(view,fn){var v=document.getElementById("view-"+view);if(!v)return;var sel=v.querySelector(".expteam"),team=sel?sel.value:"";var m=v.querySelector(".expmsg");if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ชีต…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment"+(team?" ("+team+")":"")+"</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);})[fn](ISO,team);}' +
-    'function fcPick(view){var v=document.getElementById("view-"+view);if(!v||!(window.google&&google.script&&google.script.run))return;var fcBy={};[].forEach.call(v.querySelectorAll(".fcpick"),function(s){fcBy[s.getAttribute("data-code")]=s.value;});var box=view+"box",fn=view==="auto"?"rbAutoAssignHtml":"rbFillPlanHtml";document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ จัดใหม่ตาม Flight Controller…</div>";google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){document.getElementById(box).innerHTML="<div class=\\"panel\\">"+e.message+"</div>";})[fn](ISO,JSON.stringify(fcBy));}' +
+    'function expRun(view,fn){var v=document.getElementById("view-"+view);if(!v)return;var sel=v.querySelector(".expteam"),team=sel?sel.value:"";var m=v.querySelector(".expmsg");if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ชีต…";var ex=view==="fill"?JSON.stringify(window.__fillEx||{}):"";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment"+(team?" ("+team+")":"")+"</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);})[fn](ISO,team,ex);}' +
+    'function fillAddExtra(){var f=document.getElementById("exflt"),p=document.getElementById("exph"),n=document.getElementById("exn");if(!f||!f.value){alert("เลือกไฟลท์ก่อน");return;}var num=Math.max(1,parseInt(n&&n.value||"1",10)||1);window.__fillEx=window.__fillEx||{};var e=window.__fillEx[f.value]=window.__fillEx[f.value]||{};e[p.value]=(parseInt(e[p.value]||0,10)||0)+num;fillRerun();}' +
+    'function fillDropExtra(fl,ph){if(!window.__fillEx||!window.__fillEx[fl])return;delete window.__fillEx[fl][ph];var any=false;for(var k in window.__fillEx[fl])if(window.__fillEx[fl][k])any=true;if(!any)delete window.__fillEx[fl];fillRerun();}' +
+    'function fillClearExtra(){window.__fillEx={};fillRerun();}' +
+    'function fillRerun(){if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var v=document.getElementById("view-fill"),fcBy={};if(v)[].forEach.call(v.querySelectorAll(".fcpick"),function(s){fcBy[s.getAttribute("data-code")]=s.value;});document.getElementById("fillbox").innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ กำลังจัดคนเพิ่ม…</div>";google.script.run.withSuccessHandler(function(h){document.getElementById("fillbox").innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){document.getElementById("fillbox").innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbFillPlanHtml(ISO,JSON.stringify(fcBy),JSON.stringify(window.__fillEx||{}));}' +
+    'function fcPick(view){var v=document.getElementById("view-"+view);if(!v||!(window.google&&google.script&&google.script.run))return;var fcBy={};[].forEach.call(v.querySelectorAll(".fcpick"),function(s){fcBy[s.getAttribute("data-code")]=s.value;});var box=view+"box",fn=view==="auto"?"rbAutoAssignHtml":"rbFillPlanHtml";var ex=view==="fill"?JSON.stringify(window.__fillEx||{}):"";document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ จัดใหม่ตาม Flight Controller…</div>";google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){document.getElementById(box).innerHTML="<div class=\\"panel\\">"+e.message+"</div>";})[fn](ISO,JSON.stringify(fcBy),ex);}' +
     'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function supGrpVis(w){[].forEach.call(w.querySelectorAll(".supgrp"),function(g){var any=[].some.call(g.querySelectorAll(".supchip"),function(c){return c.style.display!=="none";});g.style.display=any?"":"none";});}' +
     'function applySupFilter(){var on={},anyOff=false;[].forEach.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(b){if(b.classList.contains("on"))on[b.getAttribute("data-t")]=1;else anyOff=true;});' +
@@ -6554,6 +6600,7 @@ canvas{max-width:100%}
 .tbl td .barmini b{position:absolute;right:6px;top:0;line-height:16px;font-size:10px;color:var(--royal);font-weight:700}
 .okk{color:var(--good);font-weight:700}.badd{color:var(--red);font-weight:700}
 tr.rowbad td{background:#fdecec}
+tr.rowextra td{background:#eef7ff}
 .muted{color:var(--ink-3)}
 /* ============ UI REFRESH · modern + corporate (PAS) ====================== */
 :root{
