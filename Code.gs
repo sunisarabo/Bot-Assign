@@ -3331,7 +3331,9 @@ function rbAssignGrid_(sh, tn, dateStr, flightRows) {
   });
   if (!order.length) rows.push(pad(['— ยังไม่มีการจัดคน —']));
   sh.getRange(1, 1, rows.length, nCol).setValues(rows).setVerticalAlignment('middle').setFontSize(10);
-  sh.getRange(1, 1, 1, nCol).merge().setFontWeight('bold').setFontSize(13).setBackground('#1f4e79').setFontColor('#fff');
+  // หัวเรื่องแถว 1: แยกการผสานที่เส้นตรึงคอลัมน์ (คอลัมน์ 3) เพื่อไม่ให้เซลล์ผสานคร่อมขอบที่ตรึง
+  sh.getRange(1, 1, 1, 3).merge().setFontWeight('bold').setFontSize(13).setBackground('#1f4e79').setFontColor('#fff');
+  if (nCol > 3) sh.getRange(1, 4, 1, nCol - 3).merge().setBackground('#1f4e79').setFontColor('#fff');
   sh.getRange(2, 1, 1, nCol).setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('center').setWrap(true);
   sh.getRange(3, 1, 1, nCol).setFontWeight('bold').setBackground('#dce9f7').setFontColor('#1f4e79').setHorizontalAlignment('center');
   if (order.length) sh.getRange(4, 4, order.length, flts.length).setHorizontalAlignment('center');
