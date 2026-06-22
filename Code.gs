@@ -2519,7 +2519,9 @@ function apFree_(p, win) {
 
 /** คน p ทำ phase ph ของไฟลท์ f ได้ไหม (ระบบ + ตำแหน่ง + เวลาว่าง) */
 function apEligible_(p, f, ph, win, sameTeamOk) {
-  if (!sameTeamOk && f.teams && f.teams[p.team]) return false;            // โหมดเสริม = ข้ามทีมเท่านั้น
+  var ownTeam = f.teams && f.teams[p.team];
+  if (!sameTeamOk && ownTeam) return false;                                // โหมดเสริม = ข้ามทีมเท่านั้น
+  if (!ownTeam && typeof slaCanSupport_ === 'function' && !slaCanSupport_(f.airline, ph).ok) return false;   // สาย/เฟสนี้ไม่รับคนข้ามทีม (เช่น QR/EK) → ต้องใช้คนทีมตัวเอง
   var needSys = slaNeedSys_(f.airline, ph);
   if (needSys && !p.sys[slaSysNorm_(needSys)]) return false;              // CI/SUP ต้องรู้ระบบ (ยกเว้น iPort)
   if (ph === 'SUP' && p.posGroup !== 'PSS') return false;                 // SUP/Flight Controller ต้องเป็น Sup
@@ -2693,18 +2695,21 @@ function apFillGaps_(res, ll, fcByCode, extraReq) {
       var base = f.short[ph] || 0;                                        // ขาดตาม SLA
       var add = exOf(f.flight, ph);                                       // คนพิเศษที่ขอเพิ่ม
       var need = base + add; if (!need) return;
+      var sup = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
       var win = slaPhaseWindow_(f, ph);
       var picked = [];
-      for (var k = 0; k < need; k++) {
-        var p = apPick_(pool, f, ph, win, false, null);                   // ข้ามทีม
-        if (!p) break;
-        picked.push(apPersonView_(p));
+      if (sup.ok) {                                                       // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่ดึงคนข้ามทีม (ตรงกับแท็บ "ไฟลท์คนไม่ครบ")
+        for (var k = 0; k < need; k++) {
+          var p = apPick_(pool, f, ph, win, false, null);                 // ข้ามทีม
+          if (!p) break;
+          picked.push(apPersonView_(p));
+        }
       }
       rows.push({
         flight: f.flight, airline: f.airline, std: f.STD || f.STA || '',
         phase: SLA_PH_LB[ph], phaseCode: ph, need: need, base: base, extra: add,
         win: slaWinTxt_(f, ph), needSys: slaNeedSys_(f.airline, ph),
-        picked: picked, remain: need - picked.length,
+        picked: picked, remain: need - picked.length, noSupport: sup.ok ? '' : sup.reason,
       });
     });
   });
@@ -2735,11 +2740,11 @@ function apReplan_(res, ll, fcByCode) {
     var assign = { SUP: [], CI: [], ARR: [], GATE: [] };
     var shortx = {};
     var phaseReq = { SUP: f.req.SUP, CI: f.req.CI, ARR: f.req.ARR, GATE: f.req.GATE };
-    // TTL เกินผลรวม phase = พนักงานเสริม (เกท "จากเช็คอิน") → ปกติลงเป็น Check-in agent
-    // แต่สายการบินที่ "ไม่มีเช็คอิน" (เช่น PG: CI=0 ตาม SLA) ให้ลงเป็น Gate agent แทน
+    // TTL เกินผลรวม phase: สายที่ "ไม่มีเช็คอิน" (PG: CI=0) → extra = Gate agent จริง ลงเป็น Gate
+    // สายที่มีเช็คอิน: extra = FC/Post-departure (Gate agent มาจากเช็คอินอยู่แล้ว) → ไม่เพิ่มลง CI กัน "ใช้คนเกิน"
     var sumPh = f.req.SUP + f.req.CI + f.req.ARR + f.req.GATE;
     var extra = Math.max(0, (f.req.total || 0) - sumPh);
-    if (f.req.CI > 0) phaseReq.CI += extra; else phaseReq.GATE += extra;
+    if (f.req.CI === 0) phaseReq.GATE += extra;
     if (!AP_PHASES.some(function (ph) { return phaseReq[ph] && !ex[ph]; })) return;   // common check-in คุมทั้งไฟลท์ → ไม่ลงตารางหลัก
     AP_PHASES.forEach(function (ph) {
       if (!phaseReq[ph]) return;                                         // ไม่ต้องการ phase นี้ (เช่น PG ไม่มีเช็คอิน)
@@ -5550,8 +5555,10 @@ function rbFillPlanHtml(iso, fcJson, exJson) {
       (remainN ? ' · <b class="badd">ยังขาด ' + remainN + ' คน</b>' : ' · ครบ ✅') + ' <span class="muted">(คลิกชื่อเพื่อแก้ไข · คลิก ⓘ ดูงาน/OT/ไฟลท์)</span></div>';
     var exPanel = rbFillExtraPanel_(gaps.allFlights || [], exReq);
     var bodyA = gaps.map(function (g) {
-      var who = g.picked.length ? rbPlanNames_(g.picked) : '<span class="badd">' + (g.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(g.needSys) : 'ไม่มีคนว่าง') + '</span>';
-      var st = g.remain === 0 ? '<span class="okk">✅ เติมครบ</span>' : (g.picked.length ? '<span class="badd">⚠️ ยังขาด ' + g.remain + '</span>' : '<span class="badd">🔴 ขาด ' + g.remain + '</span>');
+      var who = g.noSupport ? '<span class="badd">🚫 ' + rbEsc_(g.noSupport) + '</span>'
+              : (g.picked.length ? rbPlanNames_(g.picked) : '<span class="badd">' + (g.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(g.needSys) : 'ไม่มีคนว่าง') + '</span>');
+      var st = g.noSupport ? '<span class="badd">🚫 ใช้คนทีมตัวเอง</span>'
+             : (g.remain === 0 ? '<span class="okk">✅ เติมครบ</span>' : (g.picked.length ? '<span class="badd">⚠️ ยังขาด ' + g.remain + '</span>' : '<span class="badd">🔴 ขาด ' + g.remain + '</span>'));
       var phCell = g.base ? '<span class="badd">' + rbEsc_(g.phase) + ' ขาด ' + g.base + '</span>' : '<span class="muted">' + rbEsc_(g.phase) + '</span>';
       if (g.extra) phCell += ' <span class="tag">➕ พิเศษ ' + g.extra + '</span>';
       return '<tr class="' + (g.remain ? 'rowbad' : (g.extra ? 'rowextra' : '')) + '" data-team="' + rbEsc_(g.airline) + '"><td class="b">' + rbEsc_(g.flight) +
