@@ -18,6 +18,7 @@
 // post-flight ใช้ค่า post รายสาย (full-service 30 / LCC 20) · SLA_POST = ค่า fallback กรณีสายไม่มี post
 var SLA_POST = 20;   // fallback post-flight (นาที) เมื่อสายการบินไม่มีฟิลด์ post
 var SLA_TRANSIT_MIN = 30;   // เวลาเดินทาง/เปลี่ยนงานต่อไฟลท์ขั้นต่ำ (นาที) — กันเสนอคนไปช่วยไฟลท์อื่นชิดเกินไป (ต้องมีช่องว่าง ≥ ค่านี้ ระหว่างไฟลท์)
+var SLA_REST_MIN = 60;      // ถ้าทำ 2 ไฟลท์ติดกันมาแล้ว → ต้องพักก่อนไฟลท์ถัดไป ≥ ค่านี้ (นาที, ปรับเป็น 90 ได้ถ้าต้องการ 1.5 ชม.)
 // ── ระเบียบชั่วโมงทำงาน (AOTGA) — กะ 7-12 ชม./วัน · OT แยก · เพดานรวม/สัปดาห์ดูทั้งสัปดาห์ ──
 var WH_SHIFT_MIN = 7, WH_SHIFT_MAX = 12, WH_DAY_HIGH = 14;   // กะ 7-12 ชม. · รวม(กะ+OT) >14ช = เตือนพักไม่พอ
 /** สถานะชั่วโมงทำงานรายวันของพนักงาน 1 คน → {shift, ot, total, level, txt}
@@ -575,6 +576,17 @@ function slaPhaseWindow_(f, ph) {
   if (ph === 'SUP') return std != null ? [std + db.ci, std + post] : (sta != null ? [sta - 20, sta + post] : null);
   return null;
 }
+/** ช่องว่างที่ต้องมีก่อนรับไฟลท์ใหม่ (นาที) — ปกติ 30 นาที แต่ถ้าทำ "2 ไฟลท์ติด" มาแล้ว → ต้องพัก ≥ 60 นาที
+ *  ติด = ไฟลท์ก่อนหน้าที่ห่างกัน ≤ SLA_REST_MIN (ไม่ได้พักจริงระหว่างกัน) เรียงต่อเนื่องมาถึงก่อน winStart */
+function slaTransitBuf_(busy, winStart) {
+  var prior = (busy || []).filter(function (b) { return b[1] <= winStart + 10; })
+    .sort(function (a, b) { return b[1] - a[1]; });               // ใหม่ → เก่า
+  var n = 0, ref = winStart;
+  for (var i = 0; i < prior.length; i++) {
+    if (ref - prior[i][1] <= SLA_REST_MIN) { n++; ref = prior[i][0]; } else break;   // ต่อเนื่อง (พักไม่ถึง 60 นาที)
+  }
+  return n >= 2 ? SLA_REST_MIN : SLA_TRANSIT_MIN;                 // ทำ 2 ไฟลท์ติดแล้ว → พัก ≥ 60 นาที ก่อนไฟลท์ที่ 3
+}
 /** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้
  *  · CI  = รู้ระบบเช็คอินของสายการบินนั้น + ว่าง (ตำแหน่งใดก็ได้)
  *  · SUP = ต้องเป็นตำแหน่ง Sup + รู้ระบบนั้น + ว่าง (สำหรับ Sup/Flight Controller)
@@ -589,13 +601,14 @@ function slaCandidates_(f, ph, pool, max) {
     if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') return false;  // SUP/Flight Controller = ตำแหน่ง Sup หรือ Snr
     if (win) {
       if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
-      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นของตัวเองช่วงนั้น + เผื่อเวลาเดินทาง/เปลี่ยนงาน ≥ SLA_TRANSIT_MIN
+      var buf = slaTransitBuf_(p.busy, win[0]);              // 30 นาที ปกติ · 60 นาที ถ้าทำ 2 ไฟลท์ติดมาแล้ว
+      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นของตัวเองช่วงนั้น + เผื่อเวลาเดินทาง/พัก
         var b = p.busy[i];
-        if (win[0] < b[1] + SLA_TRANSIT_MIN && win[1] > b[0] - SLA_TRANSIT_MIN) return false;
+        if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false;
       }
-      for (var j = 0; j < p.hold.length; j++) {              // ต้องไม่ถูกจอง (tentatively) ไปช่วยไฟลท์อื่นช่วงที่ทับกัน (+ เวลาเดินทาง)
+      for (var j = 0; j < p.hold.length; j++) {              // ต้องไม่ถูกจอง (tentatively) ไปช่วยไฟลท์อื่นช่วงที่ทับกัน (+ เวลาเดินทาง/พัก)
         var h = p.hold[j];
-        if (win[0] < h[1] + SLA_TRANSIT_MIN && win[1] > h[0] - SLA_TRANSIT_MIN) return false;
+        if (win[0] < h[1] + buf && win[1] > h[0] - buf) return false;
       }
     }
     return true;

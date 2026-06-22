@@ -40,10 +40,10 @@ function apClonePool_(res, ll) {
 function apFree_(p, win) {
   if (!win) return true;                                                  // ไม่มีเวลา → ไม่จำกัด
   if (!(p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL)) return false;
-  var buf = (typeof SLA_TRANSIT_MIN !== 'undefined') ? SLA_TRANSIT_MIN : 30;   // เผื่อเวลาเดินทาง/เปลี่ยนงานต่อไฟลท์
+  var buf = (typeof slaTransitBuf_ === 'function') ? slaTransitBuf_(p.busy, win[0]) : 30;   // 30 นาที ปกติ · 60 นาที ถ้าทำ 2 ไฟลท์ติดมาแล้ว
   for (var i = 0; i < p.busy.length; i++) {
     var b = p.busy[i];
-    if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false;         // ซ้อนทับ หรือ ชิดกันเกินไป (< เวลาเดินทาง)
+    if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false;         // ซ้อนทับ หรือ ชิด/พักไม่พอ
   }
   return true;
 }
