@@ -17,6 +17,7 @@
 // total = จำนวนพนักงานทั้งหมด · เวลาเปิดเคาน์เตอร์ใช้ OP ในชีตก่อน ถ้าไม่มีจึงใช้ STD+ci
 // post-flight ใช้ค่า post รายสาย (full-service 30 / LCC 20) · SLA_POST = ค่า fallback กรณีสายไม่มี post
 var SLA_POST = 20;   // fallback post-flight (นาที) เมื่อสายการบินไม่มีฟิลด์ post
+var SLA_TRANSIT_MIN = 30;   // เวลาเดินทาง/เปลี่ยนงานต่อไฟลท์ขั้นต่ำ (นาที) — กันเสนอคนไปช่วยไฟลท์อื่นชิดเกินไป (ต้องมีช่องว่าง ≥ ค่านี้ ระหว่างไฟลท์)
 // ── ระเบียบชั่วโมงทำงาน (AOTGA) — กะ 7-12 ชม./วัน · OT แยก · เพดานรวม/สัปดาห์ดูทั้งสัปดาห์ ──
 var WH_SHIFT_MIN = 7, WH_SHIFT_MAX = 12, WH_DAY_HIGH = 14;   // กะ 7-12 ชม. · รวม(กะ+OT) >14ช = เตือนพักไม่พอ
 /** สถานะชั่วโมงทำงานรายวันของพนักงาน 1 คน → {shift, ot, total, level, txt}
@@ -533,8 +534,10 @@ function slaSupportPool_(res, ll, teamSys, includeOff) {
     if (!off) (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
     var flts = off ? [] : (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
       .map(function (a) {
-        var tm = (a.STA || a.STD) ? (' ' + (a.STA || '–') + '-' + (a.STD || '–'))
-               : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
+        var w = acFlightWin_(a);                                            // ช่วงที่ "ติดงานจริง" ตาม role (เช่น ขาเข้า = รอบ STA) ไม่ใช่ STA-STD เต็มไฟลท์ → ตรงกับเกณฑ์เช็คเวลาว่าง
+        var tm = w ? (' ' + rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440))
+               : ((a.STA || a.STD) ? (' ' + (a.STA || '–') + '-' + (a.STD || '–'))
+                  : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : ''));
         return a.flight + tm;
       });
     // ช่วงเวลา re-sked (แบบ Duty: "re-sked 11-20") — จากกะรายสัปดาห์ที่เคารพไว้ · ไม่มีกะ → "ทุกช่วง"
@@ -586,13 +589,13 @@ function slaCandidates_(f, ph, pool, max) {
     if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') return false;  // SUP/Flight Controller = ตำแหน่ง Sup หรือ Snr
     if (win) {
       if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
-      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นของตัวเองช่วงนั้น
+      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นของตัวเองช่วงนั้น + เผื่อเวลาเดินทาง/เปลี่ยนงาน ≥ SLA_TRANSIT_MIN
         var b = p.busy[i];
-        if (win[0] < b[1] - 10 && win[1] > b[0] + 10) return false;
+        if (win[0] < b[1] + SLA_TRANSIT_MIN && win[1] > b[0] - SLA_TRANSIT_MIN) return false;
       }
-      for (var j = 0; j < p.hold.length; j++) {              // ต้องไม่ถูกจอง (tentatively) ไปช่วยไฟลท์อื่นช่วงที่ทับกัน
+      for (var j = 0; j < p.hold.length; j++) {              // ต้องไม่ถูกจอง (tentatively) ไปช่วยไฟลท์อื่นช่วงที่ทับกัน (+ เวลาเดินทาง)
         var h = p.hold[j];
-        if (win[0] < h[1] - 10 && win[1] > h[0] + 10) return false;
+        if (win[0] < h[1] + SLA_TRANSIT_MIN && win[1] > h[0] - SLA_TRANSIT_MIN) return false;
       }
     }
     return true;
