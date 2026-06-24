@@ -467,6 +467,9 @@ function rrParseStandard_(rows, team, meta) {
     if (otG2) { oth += otG2.hours; if (otG2.range[0] != null) otSpans.push({ a: otG2.range[0], b: otG2.range[1], type: 'POST' }); }
     oth = Math.round(oth * 10) / 10;
     var bkt = rrClassify_(shift || timev, remark);
+    // บางชีต (เช่น AK) ใส่ "รหัสกะวันหยุด" (เช่น P5) ในคอลัมน์ SHIFT แล้วเขียน "OFF" ในคอลัมน์ TIME/IN
+    // (สถานะ Onduty/Off อาจอยู่ผิดคอลัมน์ → remark ว่าง) → ถ้า TIME = OFF/X ให้ถือว่าหยุด แม้รหัสกะไม่ใช่ OFF
+    if (bkt === 'working' && /^\s*(OFF|X{1,2})\b/i.test(timev)) bkt = 'off';
     if (bkt === 'off' && oth > 0) bkt = 'ot_off';            // SHIFT=X แต่มี OT (เช่น 14-20) = ทำ OT วันหยุด
     if (bkt === 'ot_off' && !(oth > 0)) bkt = 'off';         // REMARK="OT OFF" แต่ไม่มีชั่วโมง OT จริง = ยังไม่ได้มาทำ → หยุด (ไม่นับเป็น on-duty)
     // เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงเวลาจากคอลัมน์ SHIFT เอง (เช่น "09-17")
