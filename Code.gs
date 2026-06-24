@@ -2136,17 +2136,23 @@ function acFlightWin_(a) {
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
   var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย
-  // task เป็น Gate/Arrival ล้วน → ใช้ช่วงตามตำแหน่ง (STA−30 → STD+post) ไม่ใช่ช่วงเช็คอินเต็ม
-  // (กันเตือน "นอกเวลางาน" ผิด สำหรับคนที่ทำเฉพาะเกท/ขาเข้า ซึ่งไม่ได้อยู่ช่วงเช็คอินเปิด)
+  // task เป็น Gate/Arrival ล้วน (ไม่มีเช็คอิน/SUP) → ใช้ช่วงตามตำแหน่ง (รอบ STA/STD) ไม่ใช่ช่วงเช็คอินเปิด
+  // (กันเตือน "นอกเวลางาน" ผิด สำหรับคนที่ทำเฉพาะเกท/ขาเข้า ซึ่งไม่ได้นั่งเคาน์เตอร์ตั้งแต่เปิด)
   var phs = (typeof slaPhasesOf_ === 'function') ? slaPhasesOf_(a.task) : null;
-  if (phs && phs.length === 1 && (phs[0] === 'GATE' || phs[0] === 'ARR') && (sta != null || std != null)) {
+  var onlyAG = phs && phs.length && phs.every(function (x) { return x === 'GATE' || x === 'ARR'; });
+  if (onlyAG && (sta != null || std != null)) {
+    var hasArr = phs.indexOf('ARR') >= 0, hasGate = phs.indexOf('GATE') >= 0;
     var glo, ghi;
-    if (phs[0] === 'ARR') {            // ขาเข้า = รับเครื่องรอบ STA (ไม่ลากไปถึง STD ของ turnaround ยาว เช่น EK378/RON 8 ชม.)
+    if (hasArr && !hasGate) {                 // ขาเข้าล้วน = รับเครื่องรอบ STA (ไม่ลากไป STD ของ turnaround ยาว เช่น EK378/RON)
       glo = (sta != null) ? sta - 30 : std - 90;
       ghi = (sta != null) ? sta + post : std + post;
-    } else {                          // GATE = ขาออก = รอบ STD
+    } else if (hasGate && !hasArr) {          // เกทล้วน = ขาออกรอบ STD
       glo = (std != null) ? std - 90 : sta - 30;
       ghi = (std != null) ? std + post : sta + post;
+    } else {                                  // ขาเข้า+เกท (ไม่มีเช็คอิน)
+      var tgap = (sta != null && std != null) ? ((std - sta + 1440) % 1440) : 0;
+      if (sta != null && std != null && tgap <= 180) { glo = sta - 30; ghi = std + post; }   // turnaround สั้น → รับเครื่องถึงเครื่องออกต่อเนื่อง
+      else { glo = (std != null) ? std - 90 : sta - 30; ghi = (std != null) ? std + post : sta + post; }   // ยาว → ช่วงหลัก=เกท (ขาเข้าแยกใน acFlightWins_)
     }
     if (ghi <= glo) ghi += 1440;
     return [glo, ghi];
