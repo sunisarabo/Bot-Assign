@@ -277,7 +277,7 @@ function advNearestFlightDate_(iso, dates) {
 /** บันทึกข้อเสนอ (รวมชื่อที่แก้ในหน้าจอ) ลง "ชีตใหม่" — ไม่เขียนทับไฟล์ต้นฉบับ. คืน URL */
 function advSaveProposal(dateStr, rowsJson) {
   var rows = JSON.parse(rowsJson || '[]');
-  var ss = SpreadsheetApp.create('Advance Plan ' + dateStr);
+  var ss = rbCreateSheet_('Advance Plan ' + dateStr);
   var sh = ss.getSheets()[0];
   sh.setName(('Plan ' + dateStr).slice(0, 30));
   var head = ['Flight', 'สายการบิน', 'STA', 'STD', 'เปิด-ปิดเคาน์เตอร์', 'SUP', 'FC', 'Check-in', 'Arrival', 'Standby', 'Gate Monitor', 'Gate Agent'];
@@ -298,7 +298,7 @@ function advExportAssignment(dateStr) {
   (R.plan || []).forEach(function (p) { if (p.team) (byTeam[p.team] = byTeam[p.team] || []).push(p); });
   var names = Object.keys(byTeam).sort();
   if (!names.length) throw new Error('วันที่ ' + dateStr + ' ยังไม่มีการจัดคน');
-  var ss = SpreadsheetApp.create('Assignment ' + dateStr);
+  var ss = rbCreateSheet_('Assignment ' + dateStr);
   var first = true, used = {};
   names.forEach(function (tn) {
     var nm = tn.replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';

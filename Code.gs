@@ -100,6 +100,21 @@ function rrClassify_(shift, remark) {
   return 'working';
 }
 
+// ─── สร้างไฟล์ชีต + แชร์ให้ Duty / Asst Mgr อัตโนมัติ ───────────────────────
+// ทุกไฟล์ชีตที่ระบบสร้าง (export ต่าง ๆ) จะถูกแชร์ให้อีเมลเหล่านี้เป็น editor โดยอัตโนมัติ
+var RB_SHARE_EMAILS = ['dutyhkt@aotga.com', 'asst-mgr@aotga.com'];
+/** สร้าง Spreadsheet ใหม่ แล้วแชร์ให้อีเมลที่กำหนด (ไม่ให้ error เรื่องแชร์มาทำให้ export ล้ม) */
+function rbCreateSheet_(title) {
+  var ss = SpreadsheetApp.create(title);
+  try {
+    var file = DriveApp.getFileById(ss.getId());
+    RB_SHARE_EMAILS.forEach(function (em) {
+      try { file.addEditor(em); } catch (e1) {}                 // อีเมลไม่ถูกต้อง/แชร์ไม่ได้ → ข้าม ไม่ให้กระทบไฟล์
+    });
+  } catch (e0) {}
+  return ss;
+}
+
 // ─── time / OT helpers ──────────────────────────────────────────────────────
 function rrTimePair_(s) {
   var m = rrClean_(s).match(/(\d{1,2})[:.]?(\d{2})/);
@@ -2839,7 +2854,7 @@ function apWriteTeamSheet_(sh, tn, dateStr, members) {
 function apExportToSheet_(title, teams, dateStr) {
   var names = Object.keys(teams).filter(function (t) { return teams[t].length; }).sort();
   if (!names.length) throw new Error('ไม่มีข้อมูลการจัดคนให้ส่งออก');
-  var ss = SpreadsheetApp.create(title);
+  var ss = rbCreateSheet_(title);
   var first = true, used = {};
   names.forEach(function (tn) {
     var nm = String(tn).replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
@@ -2853,7 +2868,7 @@ function apExportToSheet_(title, teams, dateStr) {
 function apExportGrid_(title, byTeam, dateStr) {
   var names = Object.keys(byTeam).filter(function (t) { return byTeam[t] && byTeam[t].length; }).sort();
   if (!names.length) throw new Error('ไม่มีข้อมูลการจัดคนให้ส่งออก');
-  var ss = SpreadsheetApp.create(title);
+  var ss = rbCreateSheet_(title);
   var first = true, used = {};
   names.forEach(function (tn) {
     var nm = String(tn).replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
@@ -3304,7 +3319,7 @@ function advNearestFlightDate_(iso, dates) {
 /** บันทึกข้อเสนอ (รวมชื่อที่แก้ในหน้าจอ) ลง "ชีตใหม่" — ไม่เขียนทับไฟล์ต้นฉบับ. คืน URL */
 function advSaveProposal(dateStr, rowsJson) {
   var rows = JSON.parse(rowsJson || '[]');
-  var ss = SpreadsheetApp.create('Advance Plan ' + dateStr);
+  var ss = rbCreateSheet_('Advance Plan ' + dateStr);
   var sh = ss.getSheets()[0];
   sh.setName(('Plan ' + dateStr).slice(0, 30));
   var head = ['Flight', 'สายการบิน', 'STA', 'STD', 'เปิด-ปิดเคาน์เตอร์', 'SUP', 'FC', 'Check-in', 'Arrival', 'Standby', 'Gate Monitor', 'Gate Agent'];
@@ -3325,7 +3340,7 @@ function advExportAssignment(dateStr) {
   (R.plan || []).forEach(function (p) { if (p.team) (byTeam[p.team] = byTeam[p.team] || []).push(p); });
   var names = Object.keys(byTeam).sort();
   if (!names.length) throw new Error('วันที่ ' + dateStr + ' ยังไม่มีการจัดคน');
-  var ss = SpreadsheetApp.create('Assignment ' + dateStr);
+  var ss = rbCreateSheet_('Assignment ' + dateStr);
   var first = true, used = {};
   names.forEach(function (tn) {
     var nm = tn.replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
@@ -4698,7 +4713,7 @@ function dutyExportSheet(iso, text) {
   var entries = dutyParse_(text);
   if (!entries.length) throw new Error('ไม่พบรายการซัพในข้อความ');
   try { var d = rbLoadResLL_(rbDateFromIso_(iso)); dutyValidate_(d.res, d.ll, entries); } catch (eV) {}
-  var ss = SpreadsheetApp.create('Support Duty ' + iso);
+  var ss = rbCreateSheet_('Support Duty ' + iso);
   var sh = ss.getSheets()[0]; sh.setName('Support');
   var head = ['Flight', 'ตำแหน่ง', 'ชื่อ', 'ทีม', 'กะ', 'เวลาไฟลท์', 'สถานะ'];
   var rows = entries.map(function (e) { return [e.flight, e.role, e.name, e.team || e.recTeam || '', e.shift || '', e.time || '', e.status || '']; });
@@ -4824,7 +4839,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
   }
   var master = null;
   try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) { Logger.log('⚠️ Master: ' + e.message); }
-  var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
+  var out = rbCreateSheet_('Roster Report — ' + roster.getName());
   rbWriteDashboard_(out, res, roster.getName(), ll, master);
   rbWriteTimetable_(out, res, roster.getName(), ll);
   rbWriteFlightSLA_(out, res, roster.getName(), ll);
@@ -5349,7 +5364,7 @@ function rbGetMonthlyOutput_(mon, be) {
   }
   var it = folder ? folder.getFilesByName(name) : DriveApp.getFilesByName(name);
   if (it.hasNext()) return SpreadsheetApp.openById(it.next().getId());
-  var ss = SpreadsheetApp.create(name);
+  var ss = rbCreateSheet_(name);
   if (folder) {
     try {
       var file = DriveApp.getFileById(ss.getId());

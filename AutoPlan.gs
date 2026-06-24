@@ -344,7 +344,7 @@ function apWriteTeamSheet_(sh, tn, dateStr, members) {
 function apExportToSheet_(title, teams, dateStr) {
   var names = Object.keys(teams).filter(function (t) { return teams[t].length; }).sort();
   if (!names.length) throw new Error('ไม่มีข้อมูลการจัดคนให้ส่งออก');
-  var ss = SpreadsheetApp.create(title);
+  var ss = rbCreateSheet_(title);
   var first = true, used = {};
   names.forEach(function (tn) {
     var nm = String(tn).replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';
@@ -358,7 +358,7 @@ function apExportToSheet_(title, teams, dateStr) {
 function apExportGrid_(title, byTeam, dateStr) {
   var names = Object.keys(byTeam).filter(function (t) { return byTeam[t] && byTeam[t].length; }).sort();
   if (!names.length) throw new Error('ไม่มีข้อมูลการจัดคนให้ส่งออก');
-  var ss = SpreadsheetApp.create(title);
+  var ss = rbCreateSheet_(title);
   var first = true, used = {};
   names.forEach(function (tn) {
     var nm = String(tn).replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26) || 'TEAM';

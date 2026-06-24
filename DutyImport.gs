@@ -96,7 +96,7 @@ function dutyExportSheet(iso, text) {
   var entries = dutyParse_(text);
   if (!entries.length) throw new Error('ไม่พบรายการซัพในข้อความ');
   try { var d = rbLoadResLL_(rbDateFromIso_(iso)); dutyValidate_(d.res, d.ll, entries); } catch (eV) {}
-  var ss = SpreadsheetApp.create('Support Duty ' + iso);
+  var ss = rbCreateSheet_('Support Duty ' + iso);
   var sh = ss.getSheets()[0]; sh.setName('Support');
   var head = ['Flight', 'ตำแหน่ง', 'ชื่อ', 'ทีม', 'กะ', 'เวลาไฟลท์', 'สถานะ'];
   var rows = entries.map(function (e) { return [e.flight, e.role, e.name, e.team || e.recTeam || '', e.shift || '', e.time || '', e.status || '']; });

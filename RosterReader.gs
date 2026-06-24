@@ -92,6 +92,21 @@ function rrClassify_(shift, remark) {
   return 'working';
 }
 
+// ─── สร้างไฟล์ชีต + แชร์ให้ Duty / Asst Mgr อัตโนมัติ ───────────────────────
+// ทุกไฟล์ชีตที่ระบบสร้าง (export ต่าง ๆ) จะถูกแชร์ให้อีเมลเหล่านี้เป็น editor โดยอัตโนมัติ
+var RB_SHARE_EMAILS = ['dutyhkt@aotga.com', 'asst-mgr@aotga.com'];
+/** สร้าง Spreadsheet ใหม่ แล้วแชร์ให้อีเมลที่กำหนด (ไม่ให้ error เรื่องแชร์มาทำให้ export ล้ม) */
+function rbCreateSheet_(title) {
+  var ss = SpreadsheetApp.create(title);
+  try {
+    var file = DriveApp.getFileById(ss.getId());
+    RB_SHARE_EMAILS.forEach(function (em) {
+      try { file.addEditor(em); } catch (e1) {}                 // อีเมลไม่ถูกต้อง/แชร์ไม่ได้ → ข้าม ไม่ให้กระทบไฟล์
+    });
+  } catch (e0) {}
+  return ss;
+}
+
 // ─── time / OT helpers ──────────────────────────────────────────────────────
 function rrTimePair_(s) {
   var m = rrClean_(s).match(/(\d{1,2})[:.]?(\d{2})/);

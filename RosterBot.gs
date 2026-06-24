@@ -110,7 +110,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
   }
   var master = null;
   try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) { Logger.log('⚠️ Master: ' + e.message); }
-  var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
+  var out = rbCreateSheet_('Roster Report — ' + roster.getName());
   rbWriteDashboard_(out, res, roster.getName(), ll, master);
   rbWriteTimetable_(out, res, roster.getName(), ll);
   rbWriteFlightSLA_(out, res, roster.getName(), ll);
@@ -635,7 +635,7 @@ function rbGetMonthlyOutput_(mon, be) {
   }
   var it = folder ? folder.getFilesByName(name) : DriveApp.getFilesByName(name);
   if (it.hasNext()) return SpreadsheetApp.openById(it.next().getId());
-  var ss = SpreadsheetApp.create(name);
+  var ss = rbCreateSheet_(name);
   if (folder) {
     try {
       var file = DriveApp.getFileById(ss.getId());
