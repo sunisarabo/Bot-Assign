@@ -2154,6 +2154,16 @@ function acFlightWin_(a) {
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
   var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย
+  // Crew Sign / CRW ที่ไม่ได้นั่งเคาน์เตอร์ → ช่วงแคบ: 25 นาทีก่อน STA จนถึง STD (เซ็นรับ-ส่งลูกเรือ ไม่ใช่เปิดเคาน์เตอร์เต็มช่วง)
+  var tsk = String(a.task || '');
+  var isCrew = /CREW\s*SIGN|\bCRW\b/i.test(tsk);
+  var hasCounter = /\bCT\d|\bCT\b|\bY\d|\bJ\d|\bW\d|\bB\d|\bF\d|\bC\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|\bPRIO\b|COUNTER/i.test(tsk);
+  if (isCrew && !hasCounter && (sta != null || std != null)) {
+    var clo = (sta != null ? sta : std) - 25;
+    var chi = (std != null) ? std : (sta + post);
+    if (chi <= clo) chi += 1440;
+    return [clo, chi];
+  }
   // task เป็น Gate/Arrival ล้วน (ไม่มีเช็คอิน/SUP) → ใช้ช่วงตามตำแหน่ง (รอบ STA/STD) ไม่ใช่ช่วงเช็คอินเปิด
   // (กันเตือน "นอกเวลางาน" ผิด สำหรับคนที่ทำเฉพาะเกท/ขาเข้า ซึ่งไม่ได้นั่งเคาน์เตอร์ตั้งแต่เปิด)
   var phs = (typeof slaPhasesOf_ === 'function') ? slaPhasesOf_(a.task) : null;
