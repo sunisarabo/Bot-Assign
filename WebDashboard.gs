@@ -486,7 +486,10 @@ function rbWeekNav_(date, iso, base, tz) {
   function u(d){ return (base||'') + '?date=' + Utilities.formatDate(d, tz||'Asia/Bangkok','yyyy-MM-dd'); }
   return '<div class="weeknav"><div class="weeknav__date">' +
     '<a class="iconbtn" href="' + u(prev) + '" target="_top">‹</a>' +
-    '<a class="iconbtn" href="' + u(next) + '" target="_top">›</a></div>' +
+    '<a class="iconbtn" href="' + u(next) + '" target="_top">›</a>' +
+    '<input type="date" class="navdate" value="' + iso + '" title="เลือกวันที่ — ข้ามไปวันไหน/เดือนไหนก็ได้" ' +
+    'onchange="if(this.value)window.top.location.href=\'' + (base || '') + '?date=\'+this.value">' +
+    '</div>' +
     '<div class="weeknav__strip">' + chips.join('') + '</div></div>';
 }
 function rbTabs_(shortCount, acCount) {
