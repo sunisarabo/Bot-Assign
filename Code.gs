@@ -1507,7 +1507,7 @@ function slaPhasesOf_(task) {
   if (/\bSUP\b|SPVR|\bSOD\b|\bSM\b|\bFC\b|\bCF\b|FLT\s*CTRL|FLIGHT\s*CONTROL/.test(u)) p.SUP = 1;   // หัวหน้า/Flight Controller (FC/CF)
   if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR|CIQ|IMMIG/.test(u)) p.ARR = 1;          // arrival · CIQ (ด่าน ตม./ศุลกากร ขาเข้า)
   if (/\bG[ABCKM]?\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|(^|[\s\/])D\b|(^|[\s\/])I\b/.test(u)) p.GATE = 1;   // gate: G(Agent)/GA/GB(Boarding)/GC(Controller)/GK(Flight Release)/GM(Monitor) · D=Gate Dom, I=Gate Int (PG · ต้นโทเคนเท่านั้น กัน "A-D"/"INT")
-  if (/\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|WEB|KIOSK|PRIO|PSM|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b|COUNTER/.test(u)) p.CI = 1;   // เช็คอิน · CT/CT1/CT2/CT3 = เคาน์เตอร์เช็คอิน · crew sign
+  if (/\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|PSM|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b|COUNTER/.test(u)) p.CI = 1;   // เช็คอิน · CT/CT1/CT2/CT3 = เคาน์เตอร์ · KSK = kiosk · Bag Drop · crew sign
   var keys = Object.keys(p);
   return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
