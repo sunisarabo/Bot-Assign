@@ -2298,7 +2298,8 @@ function acAnalyzeRecord_(r) {
       var lo = wn.lo, hi = wn.hi;
       if (d.ds != null && d.de != null) { var fa = rrAlignTo_(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }  // จัดไฟลท์ให้อยู่ timeline เดียวกับเวลางาน (ข้ามเที่ยงคืน)
       else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
-      out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) && !isAct && !wn.sub, activity: isAct });
+      out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) && !isAct && !wn.sub, activity: isAct,
+                      sov: /\bSOD\b|SPVR|SUPERVIS|\bSOV\b/i.test(String(a.task || '')) });   // งานคุมหัวหน้า (SOD/Supervisor Onduty)
     });
   });
 
@@ -2312,12 +2313,17 @@ function acAnalyzeRecord_(r) {
     if (out.hasWindow) { out.dutyStr = rrFmtMin_(d.ds) + '–' + rrFmtMin_(d.de); out.dutyMins = d.de - d.ds; }
   }
 
+  // หัวหน้า (SOD) ที่คุมหลายไฟลท์ → คุมภาพรวม ไม่ได้นั่งครบทุกช่วงเช็คอิน · ไม่ flag ไฟลท์ SOD รายตัวว่านอกเวลา
+  var sovN = 0; out.wins.forEach(function (w) { if (w.coverable && w.sov) sovN++; });
+  var sovMulti = sovN >= 2;
+
   // ครอบคลุมไฟลท์
   out.wins.forEach(function (w) {
     if (!w.coverable) return;
     out.flightN++;
     if (d.ds != null && d.de != null) {
       if (w.lo >= d.ds - AC_COVER_TOL && w.hi <= d.de + AC_COVER_TOL) out.coveredN++;
+      else if (w.sov && sovMulti) out.coveredN++;          // SOD คุมหลายไฟลท์ → ถือว่าคุมได้ (ไม่ขึ้นแดงรายไฟลท์)
       else out.uncovered.push(w.flight + ' (' + rrFmtMin_(w.lo) + '–' + rrFmtMin_(w.hi) + ')');
     }
   });
