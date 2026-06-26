@@ -1,83 +1,89 @@
 /**
  * AirlineSupport.gs — กฎการรับพนักงานซัพพอร์ตรายสายการบิน (จากไฟล์ Data Airlines Check)
  * ok = สายนี้รับซัพพอร์ตไหม (false = ไม่รับเลย ต้องใช้คนทีมตัวเอง)
- * ph = เฟสที่อนุญาตให้ซัพพอร์ต (null = ทุกเฟส) — บางสายรับเฉพาะ ARR/GATE (ไม่ต้องเทรนโปรดักส์)
- * เฟส: SUP · CI(เช็คอิน/crew sign) · GATE(gate agent/bogo) · ARR(ขาเข้า)
+ * ph = เฟสที่อนุญาตให้ซัพพอร์ต (null = ทุกเฟส) — อ้างอิงไฟล์ Name_List_and_Support_allowance
+ * เฟส: SUP · CI(เช็คอิน) · ARR(ขาเข้า) · GATE(gate agent/controller/BOCO) — ทุกสาย Supervisor/FC = No → ไม่รับซัพ SUP ข้ามทีม
  */
 var AIRLINE_SUP = {
-  'QR':{ok:false,ph:null},
-  'SQ':{ok:true,ph:['ARR','GATE']},  // อนุญาตเฉพาะARR, GATE
-  'EK':{ok:false,ph:null},
-  'EY':{ok:true,ph:['ARR','GATE']},  // ไม่อนุญาต Bogo + รับเฉพาะ ARR/Gate (check-in ต้องเทรน EY)
-  'KE':{ok:false,ph:null},
-  'WY':{ok:false,ph:null},
-  'SU':{ok:true,ph:null},  // SP CHECK-IN ONLY ECONOMY CT
-  'TR':{ok:true,ph:null},
-  'TK':{ok:false,ph:null},
-  'JQ':{ok:true,ph:['ARR','GATE','CI']},  // อนุญาตเฉพาะ ARR,Gate agent,Crew Sign
-  'AK':{ok:true,ph:['ARR','GATE']},  // อนุญาตเฉพาะARR,Gate agent
-  'PG':{ok:true,ph:null},  // ไม่อนุญาตในตำแหน่ง Bogo
-  'WK':{ok:false,ph:null},
-  'ZF':{ok:false,ph:null},
-  'CX':{ok:true,ph:['ARR','GATE']},  // อนุญาตเฉพาะARR,GATE
-  'LY':{ok:true,ph:null},
-  'MH':{ok:true,ph:null},
-  'OM':{ok:true,ph:null},
-  'DE':{ok:true,ph:null},
-  'DV':{ok:true,ph:null},
-  'W5':{ok:true,ph:null},
-  'AY':{ok:true,ph:null},
-  'KC':{ok:true,ph:['SUP','GATE','ARR']},  // ไม่อนุญาติในตำแหน่งCheckin
-  'LJ':{ok:true,ph:['ARR','CI']},  // อนุญาติเฉพาะตำแหน่งขาเข้า,Crew sign
-  'OV':{ok:false,ph:null},
-  '8M':{ok:true,ph:['ARR','GATE']},  // อนุญาตเฉพาะARR,Gate agent
-  '6E':{ok:true,ph:null},
-  'IT':{ok:true,ph:['ARR','GATE','CI']},  // อนุญาตเฉพาะ ARR,Gate agent,Crew Sign
-  'HO':{ok:false,ph:null},
-  'AI':{ok:true,ph:['ARR','GATE','CI']},  // อนุญาตเฉพาะ ARR,Gate agent,Crew Sign
-  'G9':{ok:true,ph:null},
-  '9C':{ok:true,ph:null},
-  'DK':{ok:true,ph:null},
-  'VJ':{ok:true,ph:null},
-  'OD':{ok:true,ph:null},
-  'HH':{ok:true,ph:null},
-  'EO':{ok:true,ph:null},
-  'N4':{ok:true,ph:null},
-  'WZ':{ok:true,ph:null},
-  'LO':{ok:true,ph:null},
-  'HX':{ok:true,ph:null},
-  'G2':{ok:true,ph:null},
-  'S7':{ok:true,ph:null},
-  'UO':{ok:false,ph:null},
-  '6B':{ok:true,ph:null},
-  'BY':{ok:true,ph:null},
-  'FY':{ok:false,ph:null},
-  'HY':{ok:false,ph:null},
-  'NO':{ok:true,ph:null},
-  'SG':{ok:false,ph:null},
-  'U6':{ok:false,ph:null},
-  'G8':{ok:false,ph:null},
-  'OZ':{ok:false,ph:null},
-  'AF':{ok:true,ph:['GATE']},  // อนุญาติเฉพาะตำแหน่งgate agent
-  'N0':{ok:false,ph:null},
-  'CA':{ok:true,ph:null},  // 1 ไฟลท์อนุญาติ 1 คน นั่งเคาเตอร์ ต้องมีคนประกบ
-  'MU':{ok:true,ph:['GATE']},  // อนุญาติเฉพาะตำแหน่ง Gate agent no bogo
-  'CZ':{ok:true,ph:null},  // อนุญาติ Check in counter จาก ทีม ZF คนที่เคยทำไฟลท์ CZ มาก่อน
-  'HU':{ok:true,ph:['GATE']},  // อนุญาติเฉพาะตำแหน่ง Gate agent no bogo
-  'FM':{ok:true,ph:['GATE']},  // อนุญาติเฉพาะตำแหน่ง Gate agent no bogo
-  '3U':{ok:true,ph:['GATE']},  // อนุญาติเฉพาะตำแหน่ง Gate agent no bogo
-  'OQ':{ok:true,ph:null},
+  'AK':{ok:true,ph:['ARR','GATE']},  // AirAsia Berhad (Malaysia — ARR/GATE
+  'QZ':{ok:true,ph:['ARR','GATE']},  // Indonesia AirAsia — ARR/GATE
+  '8M':{ok:true,ph:['ARR','GATE']},  // Myanmar Airways Internat — ARR/GATE
+  'ZF':{ok:true,ph:['CI','ARR','GATE']},  // Azur Air — CI/ARR/GATE
+  'LO':{ok:true,ph:['CI','ARR','GATE']},  // LOT Polish Airlines — CI/ARR/GATE
+  'N4':{ok:true,ph:['ARR','GATE']},  // Nordwind Airlines — ARR/GATE
+  'HH':{ok:true,ph:['CI','ARR','GATE']},  // Qanot Sharq Airlines — CI/ARR/GATE
+  'EO':{ok:true,ph:['ARR','GATE']},  // IKAR Airlines (Pegas Fly — ARR/GATE
+  'S7':{ok:true,ph:['ARR','GATE']},  // S7 Airlines — ARR/GATE
+  'CZ':{ok:true,ph:['ARR','GATE']},  // China Southern Airlines — ARR/GATE
+  'MU':{ok:true,ph:['ARR','GATE']},  // China Eastern Airlines — ARR/GATE
+  'FM':{ok:true,ph:['ARR','GATE']},  // Shanghai Airlines — ARR/GATE
+  '3U':{ok:true,ph:['ARR','GATE']},  // Sichuan Airlines — ARR/GATE
+  'CA':{ok:true,ph:['ARR','GATE']},  // Air China — ARR/GATE
+  'HO':{ok:true,ph:['ARR','GATE']},  // Juneyao Airlines — ARR/GATE
+  'HX':{ok:true,ph:['ARR','GATE']},  // Hong Kong Airlines — ARR/GATE
+  'HU':{ok:true,ph:['ARR','GATE']},  // Hainan Airlines — ARR/GATE
+  '6B':{ok:true,ph:['ARR','GATE']},  // TUI fly Nordic — ARR/GATE
+  'BY':{ok:true,ph:['ARR','GATE']},  // TUI Airways — ARR/GATE
+  'UO':{ok:true,ph:['ARR','GATE']},  // HK Express — ARR/GATE
+  'EK':{ok:false,ph:null},  // Emirates — ไม่รับซัพ
+  'FY':{ok:false,ph:null},  // Firefly — ไม่รับซัพ
+  'EY':{ok:true,ph:['ARR','GATE']},  // Etihad Airways — ARR/GATE
+  'AY':{ok:true,ph:['ARR','GATE']},  // Finnair — ARR/GATE
+  'DV':{ok:true,ph:['CI','ARR','GATE']},  // SCAT Airlines — CI/ARR/GATE
+  'AI':{ok:true,ph:['ARR','GATE']},  // Air India — ARR/GATE
+  'IX':{ok:true,ph:['ARR','GATE']},  // Air India Express — ARR/GATE
+  'JQ':{ok:true,ph:['ARR','GATE']},  // Jetstar Airways — ARR/GATE
+  'IT':{ok:true,ph:['CI','ARR','GATE']},  // Tigerair Taiwan — CI/ARR/GATE
+  'KC':{ok:true,ph:['ARR','GATE']},  // Air Astana — ARR/GATE
+  'OZ':{ok:false,ph:null},  // Asiana Airlines — ไม่รับซัพ
+  'KE':{ok:false,ph:null},  // Korean Air — ไม่รับซัพ
+  'LJ':{ok:false,ph:null},  // Jin Air — ไม่รับซัพ
+  'NO':{ok:true,ph:['ARR','GATE']},  // Neos — ARR/GATE
+  'OV':{ok:true,ph:['ARR','GATE']},  // SalamAir — ARR/GATE
+  'PG':{ok:true,ph:['GATE']},  // Bangkok Airways — GATE
+  'PRIVATE':{ok:true,ph:['ARR']},  // Private Flight / General — ARR
+  'QR':{ok:false,ph:null},  // Qatar Airways — ไม่รับซัพ
+  'DE':{ok:true,ph:['ARR','GATE']},  // Condor — ARR/GATE
+  'MH':{ok:false,ph:null},  // Malaysia Airlines — ไม่รับซัพ
+  'OM':{ok:true,ph:['ARR','GATE']},  // Miat Mongolian Airlines — ARR/GATE
+  'SQ':{ok:true,ph:['ARR','GATE']},  // Singapore Airlines — ARR/GATE
+  'CX':{ok:true,ph:['ARR','GATE']},  // Cathay Pacific — ARR/GATE
+  'LY':{ok:true,ph:['CI','ARR','GATE']},  // El Al Israel Airlines — CI/ARR/GATE
+  'SU':{ok:true,ph:['ARR','GATE']},  // Aeroflot Russian Airline — ARR/GATE
+  'W5':{ok:true,ph:['ARR','GATE']},  // Mahan Air — ARR/GATE
+  'B2':{ok:false,ph:null},  // Belavia Belarusian Airli — ไม่รับซัพ
+  'TK':{ok:false,ph:null},  // Turkish Airlines — ไม่รับซัพ
+  'HY':{ok:true,ph:['ARR','GATE']},  // Uzbekistan Airways — ARR/GATE
+  'OD':{ok:true,ph:['ARR','GATE']},  // Batik Air Malaysia — ARR/GATE
+  'VJ':{ok:true,ph:['ARR','GATE']},  // VietJet Air — ARR/GATE
+  'SG':{ok:true,ph:['ARR','GATE']},  // SpiceJet — ARR/GATE
+  'TR':{ok:true,ph:['ARR','GATE']},  // Scoot — ARR/GATE
+  '6E':{ok:true,ph:['ARR','GATE']},  // IndiGo — ARR/GATE
+  'QP':{ok:true,ph:['ARR','GATE']},  // Akasa Air — ARR/GATE
+  'WK':{ok:true,ph:['ARR','GATE']},  // Edelweiss Air — ARR/GATE
+  'SV':{ok:true,ph:['ARR','GATE']},  // Saudia — ARR/GATE
+  'G9':{ok:true,ph:['ARR','GATE']},  // Air Arabia — ARR/GATE
+  'WY':{ok:true,ph:['ARR','GATE']},  // Oman Air — ARR/GATE
+  '9C':{ok:true,ph:['ARR','GATE']},  // Spring Airlines — ARR/GATE
+  'DK':{ok:true,ph:['CI','ARR','GATE']},  // Sunclass Airlines — CI/ARR/GATE
+  // ── สายที่ไม่อยู่ในไฟล์ Support Allowance (คงค่าเดิมไว้) ──
   '3K':{ok:false,ph:null},
-  'ZH':{ok:true,ph:null},
-  'KY':{ok:true,ph:null},
-  'AQ':{ok:true,ph:null},
-  'PN':{ok:true,ph:null},
   '8L':{ok:true,ph:null},
   '9H':{ok:true,ph:null},
+  'AF':{ok:true,ph:['GATE']},
+  'AQ':{ok:true,ph:null},
   'C6':{ok:false,ph:null},
+  'G2':{ok:true,ph:null},
+  'G8':{ok:false,ph:null},
   'HB':{ok:false,ph:null},
+  'KY':{ok:true,ph:null},
+  'N0':{ok:false,ph:null},
+  'OQ':{ok:true,ph:null},
+  'PN':{ok:true,ph:null},
+  'U6':{ok:false,ph:null},
   'VN':{ok:false,ph:null},
-  'QZ':{ok:true,ph:['ARR','GATE']},  // อนุญาตเฉพาะARR,Gate agent
+  'WZ':{ok:true,ph:null},
+  'ZH':{ok:true,ph:null},
 };
 /** สายการบินนี้รับซัพพอร์ตในเฟสนี้ไหม → {ok:bool, reason:''} */
 function slaCanSupport_(airline, phase) {
