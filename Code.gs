@@ -347,6 +347,24 @@ function rrParseStandard_(rows, team, meta) {
   if (!cm) return null;
   var hi = cm.hdr;
 
+  // ตรวจคอลัมน์ "งานซัพพอร์ตข้ามทีม" แบบไม่มีหัวคอลัมน์ SUPPORT (เช่น PVT คอลัมน์ O หลัง REMARK)
+  // ข้อความรูปแบบ "ARR AK818/819 0805/0840" / "GATE SU660/661 STA/STD : 0925/1055" → อ่านเป็น assignment ไฟลท์
+  if (cm.jobtext < 0 && cm.remark >= 0) {
+    var supRole = /\b(ARR|GATE|GA|CREW|CRW|TRANSFER|TF|CI|CHECK|SUPP?ORT|STBY|SD)\b/i;
+    var supFlt = /(?:[A-Z]{1,3}|\d[A-Z])\s?\d{2,4}\s?\/\s?\d{2,4}|(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}/;
+    var loC = cm.remark + 1, hiC = (cm.flt > 0 ? cm.flt - 1 : (rows[hi] ? rows[hi].length : 0));
+    var bestC = -1, bestN = 0;
+    for (var sc = loC; sc < hiC; sc++) {
+      var nMatch = 0;
+      for (var rr = hi + 1; rr < rows.length; rr++) {
+        var sv = rows[rr] ? String(rows[rr][sc] || '') : '';
+        if (sv && supRole.test(sv) && supFlt.test(sv)) nMatch++;
+      }
+      if (nMatch > bestN) { bestN = nMatch; bestC = sc; }
+    }
+    if (bestN >= 2) cm.jobtext = bestC;     // ใช้ช่องนี้เป็น "งานซัพพอร์ต" → parse ด้วย rrParseJobText_ (โค้ดเดิม)
+  }
+
   var flights = {}, fltcols = [];
   if (cm.flt >= 0) {
     var hdr = rows[hi];
