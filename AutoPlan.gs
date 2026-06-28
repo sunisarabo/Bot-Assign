@@ -52,6 +52,7 @@ function apFree_(p, win) {
 function apEligible_(p, f, ph, win, sameTeamOk) {
   var ownTeam = f.teams && f.teams[p.team];
   if (!sameTeamOk && ownTeam) return false;                                // โหมดเสริม = ข้ามทีมเท่านั้น
+  if (!sameTeamOk && !win) return false;                                   // ไฟลท์ไม่มีเวลา (อ่าน STA/STD ไม่ได้) → เช็คความว่างไม่ได้ → ไม่เสนอคนข้ามทีม (กันแนะคนกะไม่ตรงเวลาจริง เช่น SU เช้า แต่ได้คนเข้า 16:00)
   if (!ownTeam && typeof slaCanSupport_ === 'function' && !slaCanSupport_(f.airline, ph).ok) return false;   // สาย/เฟสนี้ไม่รับคนข้ามทีม (เช่น QR/EK) → ต้องใช้คนทีมตัวเอง
   var needSys = slaNeedSys_(f.airline, ph);
   if (needSys && !p.sys[slaSysNorm_(needSys)]) return false;              // CI/SUP ต้องรู้ระบบ (ยกเว้น iPort)

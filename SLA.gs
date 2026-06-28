@@ -593,6 +593,7 @@ function slaTransitBuf_(busy, winStart) {
  *  · GATE/ARR = ไม่ต้องใช้ระบบ · เรียงลำดับ Agent → Senior → Sup */
 function slaCandidates_(f, ph, pool, max) {
   var win = slaPhaseWindow_(f, ph);
+  if (!win) return [];                                       // ไฟลท์ไม่มีเวลา → เช็คคนว่างไม่ได้ → ไม่แนะคนข้ามทีม (กันแนะคนกะไม่ตรงเวลาจริง)
   var needSys = slaNeedSys_(f.airline, ph);                   // '' = iPort/ไม่จำกัด → ทุกคนช่วยได้
   var needNorm = needSys ? slaSysNorm_(needSys) : '';
   var cands = pool.filter(function (p) {
