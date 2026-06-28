@@ -136,6 +136,15 @@ function rrParseJobText_(text) {
   });
   return out;
 }
+/** แถวซัพพอร์ต (ทีมรับใส่คนช่วยจากทีมอื่น): ชื่อ = "NAME TEAMCODE" เช่น "TANADON PVT" → {name:'TANADON', team:'PVT'} */
+function rrSupportTeam_(name) {
+  var toks = String(name || '').trim().split(/\s+/);
+  if (toks.length >= 2) {
+    var last = toks[toks.length - 1];
+    if (/^[A-Z0-9]{2,5}$/.test(last) && /[A-Z]/.test(last)) return { team: last.toUpperCase(), name: toks.slice(0, -1).join(' ') };
+  }
+  return { team: '', name: String(name || '').trim() };
+}
 /** task ที่เป็นการอบรม/ประชุม (ไม่ใช่งานไฟลท์) → ไปเทรน ไม่ได้คุมไฟลท์ */
 function rrIsTrainingTask_(task) {
   // กิจกรรมที่ "ไม่ใช่การทำไฟลท์" → แสดงเป็นกิจกรรม ไม่นับเป็นคนคุมไฟลท์
@@ -397,16 +406,25 @@ function rrParseStandard_(rows, team, meta) {
   var recs = [], seen = {};
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
-    var idd = (cm.id < row.length ? rrClean_(row[cm.id]) : '').replace(/\D/g, '');
+    var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
+    var idd = idRaw.replace(/\D/g, '');
     if (idd.length < 6 && cm.id + 1 < row.length) {          // WY leading seq column
       var rawNext = rrClean_(row[cm.id + 1]).replace(/\.0+$/, '');
       if (/^\d{6,8}$/.test(rawNext)) idd = rawNext;           // only a PURE numeric id (not a flight code like PG251/252)
     }
     var name = cm.name < row.length ? rrClean_(row[cm.name]) : '';
-    if (!name || idd.length < 6 || idd.length > 8) continue;
+    // แถวซัพพอร์ต: ทีมที่รับใส่ "ชื่อ + รหัสทีมต้นสังกัด" (ID หรือ Position = SUPPORT) เช่น "TANADON PVT"
+    var posRaw0 = (cm.pos >= 0 && cm.pos < row.length) ? rrClean_(row[cm.pos]) : '';
+    var isSup = /^SUPPORT$/i.test(idRaw) || /^SUPPORT$/i.test(posRaw0);
+    var supTeam = '';
+    if (isSup && name && !/^(NAME|REMARK|SUPPORT)$/i.test(name)) {
+      var sp = rrSupportTeam_(name); name = sp.name; supTeam = sp.team;
+      idd = ('SUP' + supTeam + name).replace(/[^A-Za-z0-9ก-๙]/g, '').slice(0, 18);   // รหัสจำลอง (ไม่ใช่รหัสจริง)
+    } else { isSup = false; }
+    if (!name || (!isSup && (idd.length < 6 || idd.length > 8))) continue;
     var nU = name.toUpperCase();
     if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE' || seen[idd]) continue;
-    if (rrUp_(row[cm.id]).indexOf('EX') === 0) continue;     // template "Ex. 212121" sample row
+    if (!isSup && rrUp_(row[cm.id]).indexOf('EX') === 0) continue;     // template "Ex. 212121" sample row
     seen[idd] = true;
 
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
@@ -498,6 +516,7 @@ function rrParseStandard_(rows, team, meta) {
     if (bkt === 'working' && /^\s*(OFF|X{1,2})\b/i.test(timev)) bkt = 'off';
     if (bkt === 'off' && oth > 0) bkt = 'ot_off';            // SHIFT=X แต่มี OT (เช่น 14-20) = ทำ OT วันหยุด
     if (bkt === 'ot_off' && !(oth > 0)) bkt = 'off';         // REMARK="OT OFF" แต่ไม่มีชั่วโมง OT จริง = ยังไม่ได้มาทำ → หยุด (ไม่นับเป็น on-duty)
+    if (isSup) { bkt = assigns.length ? 'working' : 'off'; oth = 0; }   // แถวซัพพอร์ต = มาช่วยไฟลท์ (นับครอบคลุม) · ไม่นับ OT/ชั่วโมงซ้ำ (อยู่ทีมต้นสังกัด)
     // เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงเวลาจากคอลัมน์ SHIFT เอง (เช่น "09-17")
     var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : rrRangeStr_(shift);
     // Re-Sked overrides the shift time when filled (เปลี่ยนเวลาเข้างาน)
@@ -511,6 +530,7 @@ function rrParseStandard_(rows, team, meta) {
     var otType = oth > 0 ? (twoSided ? (otG2 ? 'POST' : 'PRE') : rrOtType_(srng, primarySpan, bkt === 'ot_off')) : null;
     recs.push({
       team: team, id: idd, name: name,
+      support: isSup, supportTeam: supTeam,                  // มาช่วยจากทีมไหน (แถวซัพพอร์ต)
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
       re: reTime || ((cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : ''),
       shift: shift || timev,
@@ -829,6 +849,7 @@ function rrPosGroup_(pos, team) {
 }
 
 function rrAddBucket_(agg, r, isHol) {
+  if (r.support) return;                                       // แถวซัพพอร์ต (มาช่วยจากทีมอื่น) — ไม่นับ headcount/OT/ชั่วโมงของทีมรับ (นับที่ทีมต้นสังกัด)
   if (r.bucket === 'working') agg.working++;
   else if (r.bucket === 'ot_off') agg.ot_off++;
   else if (r.bucket === 'off') agg.off++;
