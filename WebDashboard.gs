@@ -507,7 +507,58 @@ function rbTabs_(shortCount, acCount) {
     '<button class="tab" id="tab-adv" onclick="showView(\'adv\');loadAdv()">📅 จัดล่วงหน้า</button>' +
     '<button class="tab" id="tab-ot" onclick="showView(\'ot\')">⏱️ OT Dashboard</button>' +
     '<button class="tab" id="tab-wh" onclick="showView(\'wh\');loadWh()">⏱️ ชม./สัปดาห์</button>' +
+    '<button class="tab" id="tab-dc" onclick="showView(\'dc\');loadDc()">🩺 ตรวจข้อมูล</button>' +
     '<button class="tab" onclick="rbRefresh(this)" title="ล้างแคช ดึงข้อมูลล่าสุดจากชีต" style="margin-left:auto">🔄 รีเฟรช</button></div>';
+}
+
+/** Lazy tab: 🩺 ตรวจข้อมูล — ฟ้องจุดผิดในชีตรายวัน (ให้แก้ที่ต้นทาง ไม่ต้องไล่แก้สรุปทีหลัง) */
+function rbDataCheckHtml(iso) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    var res = d.res, ll = d.ll;
+    var cats = { noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    var idMap = {};
+    function scan(t, recs) {
+      var nameSeen = {};
+      (recs || []).forEach(function (r) {
+        if (!r.support && r.id && /^\d{6,8}$/.test(String(r.id))) (idMap[r.id] = idMap[r.id] || []).push({ team: t, name: r.name });
+        var nk = String(r.name || '').trim().toUpperCase();
+        if (nk.length > 1) { if (nameSeen[nk]) cats.dupname.push({ team: t, who: r.name, detail: 'ชื่อซ้ำในทีม (อาจกรอกซ้ำ 2 แถว)' }); nameSeen[nk] = 1; }
+        if ((r.bucket === 'working' || r.bucket === 'ot_off') && r.shiftStart == null && !r.support && r.assignments && r.assignments.length)
+          cats.noshift.push({ team: t, who: r.name, detail: 'มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้' + (r.shift ? ' (รหัส ' + r.shift + ')' : ' (ไม่มีรหัสกะ)') });
+        if (r.support && !r.supportTeam)
+          cats.supnoteam.push({ team: t, who: r.name, detail: 'แถวซัพพอร์ตแต่ไม่มีรหัสทีมต้นสังกัด — ใส่ "ชื่อ + รหัสทีม" เช่น "สมชาย PVT"' });
+      });
+    }
+    Object.keys(res.teams).forEach(function (t) { scan(t, res.teams[t].records); });
+    if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { scan('LL·' + s, ll.sections[s].records); });
+    Object.keys(idMap).forEach(function (id) {
+      var arr = idMap[id], ts = {}; arr.forEach(function (x) { ts[x.team] = 1; });
+      if (Object.keys(ts).length > 1) cats.dupteam.push({ team: Object.keys(ts).join(' + '), who: arr[0].name + ' (' + id + ')', detail: 'รหัสเดียวกันโผล่หลายทีม — นับซ้ำ · ถ้าไปช่วยให้ทำเป็นแถว SUPPORT แทน' });
+    });
+    (slaCollectFlights_(res, ll) || []).forEach(function (f) {
+      if (acIsFlight_(f.flight) && f.noTime && !(f.fragment)) cats.flttime.push({ team: f.teamList || '', who: f.flight, detail: 'ไฟลท์ไม่มี STA/STD — เติมเวลาในชีต' });
+    });
+    var defs = [
+      { k: 'noshift', t: '⏰ มาทำงานแต่อ่านเวลากะไม่ได้', hint: 'รหัสกะไม่อยู่ใน ShiftDB/ลืมกรอกเวลา → ชั่วโมง+ครอบคลุมไฟลท์เพี้ยน' },
+      { k: 'flttime', t: '✈️ ไฟลท์ขาด STA/STD', hint: 'เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้' },
+      { k: 'dupteam', t: '👯 รหัสซ้ำหลายทีม', hint: 'คนเดียวอยู่ 2 ทีม = นับซ้ำ · คนไปช่วยให้ใช้แถว SUPPORT' },
+      { k: 'dupname', t: '📋 ชื่อซ้ำในทีม', hint: 'ตรวจว่ากรอกชื่อซ้ำหรือเป็นคนละคน' },
+      { k: 'supnoteam', t: '🤝 ซัพพอร์ตไม่ระบุทีม', hint: 'ใส่รหัสทีมต้นสังกัดท้ายชื่อ' },
+    ];
+    var total = defs.reduce(function (a, def) { return a + cats[def.k].length; }, 0);
+    var hd = '<div class="sectionlabel" style="' + (total ? 'background:#fff4e6;border-left:4px solid #f59e0b' : 'background:#e8f5e9;border-left:4px solid #16a34a') + ';padding:8px 12px;border-radius:8px">🩺 <b>ตรวจข้อมูล</b> · ' +
+      (total ? 'พบ <b class="badd">' + total + '</b> จุดที่ควรแก้ในชีต' : '<b class="okk">ไม่พบปัญหา — ข้อมูลครบถูกต้อง ✅</b>') + ' <span class="muted">(แก้ที่ชีตต้นทาง แล้วกด 🔄 รีเฟรช)</span></div>';
+    var body = '';
+    defs.forEach(function (def) {
+      var rows = cats[def.k]; if (!rows.length) return;
+      var trs = rows.map(function (x) { return '<tr><td>' + rbEsc_(x.team) + '</td><td class="b">' + rbEsc_(x.who) + '</td><td>' + rbEsc_(x.detail) + '</td></tr>'; }).join('');
+      body += rbTblCard_(def.t + ' <span class="badge tnum">' + rows.length + '</span>',
+        '<tr><th>ทีม</th><th>ใคร / ไฟลท์</th><th>รายละเอียด</th></tr>', trs, '<span class="muted" style="font-size:12px">' + def.hint + '</span>');
+    });
+    if (!body) body = '<div class="tablecard"><div class="panel okk" style="text-align:center;padding:24px">✅ ทุกทีมข้อมูลครบ ไม่พบจุดที่ต้องแก้</div></div>';
+    return hd + body;
+  } catch (e) { return '<div class="panel">ตรวจข้อมูลไม่ได้: ' + rbEsc_(e && e.message) + '</div>'; }
 }
 
 /** Called from the client (google.script.run) when the OT-week tab is opened.
@@ -730,6 +781,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
+    '<div id="view-dc" style="display:none"><div id="dcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจข้อมูล…</div></div></div>' +
     '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
     '</div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
@@ -739,6 +791,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
     'function showView(v){["dash","tt","flt","sup","ac","fill","auto","adv","ot","wh"].forEach(function(x){document.getElementById("view-"+x).style.display=v===x?"":"none";document.getElementById("tab-"+x).className="tab"+(v===x?" active":"");});}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
+    'function loadDc(){lazy("dcbox","rbDataCheckHtml","dc");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
