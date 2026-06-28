@@ -40,7 +40,7 @@ var AIRLINE_SUP = {
   'LJ':{ok:false,ph:null},  // Jin Air — ไม่รับซัพ
   'NO':{ok:true,ph:['ARR','GATE']},  // Neos — ARR/GATE
   'OV':{ok:true,ph:['ARR','GATE']},  // SalamAir — ARR/GATE
-  'PG':{ok:true,ph:['GATE']},  // Bangkok Airways — GATE
+  'PG':{ok:true,ph:['ARR','GATE']},  // Bangkok Airways — ARR/GATE (รับขาเข้าด้วย)
   'PRIVATE':{ok:true,ph:['ARR']},  // Private Flight / General — ARR
   'QR':{ok:false,ph:null},  // Qatar Airways — ไม่รับซัพ
   'DE':{ok:true,ph:['ARR','GATE']},  // Condor — ARR/GATE
