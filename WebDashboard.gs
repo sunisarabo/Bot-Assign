@@ -693,7 +693,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
         '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Controller</th><th>Gate<br>Agent</th><th>Post<br>Dep.</th><th>สถานะ</th></tr>',
         rbFltRows_(res, ll), rbCtrls_('view-flt', true))
     : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
-  var otInner = otEmbedHtml_();                                        // ฝังแอป OT Dashboard ตัวเต็ม (PSA/LL) เข้าแท็บ OT
+  var otInner = otDashHtml_();                                         // แท็บ OT: ตารางเดิม (รายเดือน/สัปดาห์) + sub-tab กราฟสรุปเต็ม (embed)
   var acInner = staticMode ? rbAssignHtml(iso)
     : '<div id="acbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจการ Assign…</div></div>';
   var supInner = staticMode ? rbSupportHtml(iso)
@@ -796,7 +796,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'if(CD.otHolH>0){OTL.push("นักขัต ×1");OTC.push("#f97316");}' +
     'new Chart(c3,{type:"bar",data:{labels:OTL,datasets:[{data:CD.otHolH>0?[CD.otPreN,CD.otPostN,CD.otOffN,CD.otHolN]:[CD.otPreN,CD.otPostN,CD.otOffN],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+" คน";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});' +
     'new Chart(c4,{type:"bar",data:{labels:OTL,datasets:[{data:CD.otHolH>0?[CD.otPreH,CD.otPostH,CD.otOffH,CD.otHolH]:[CD.otPreH,CD.otPostH,CD.otOffH],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+"h";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});});' +
-    '</script></body></html>';   // ไม่ต้องโหลดสคริปต์ OT เดิม — แท็บ OT ฝังแอปตัวเต็มผ่าน iframe แล้ว
+    '</script>' + otDashScript_() + '</body></html>';   // สคริปต์ OT (วาดตารางรายเดือน/สัปดาห์) — แท็บกราฟสรุปฝัง iframe lazy
 }
 
 function rbDesignCss_() { return rbDESIGN_CSS_; }

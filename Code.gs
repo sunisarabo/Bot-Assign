@@ -4429,26 +4429,28 @@ function otClearCache() {
 
 function otDashData_() { return {"months":["(สะสม)"],"teams":[{"team":"CHINA","total":3876.0,"months":{"(สะสม)":{"weeks":[],"total":3876.0}}},{"team":"QR/MH/OM/DE","total":3873.5,"months":{"(สะสม)":{"weeks":[],"total":3873.5}}},{"team":"SQ/CX/LY","total":1914.5,"months":{"(สะสม)":{"weeks":[],"total":1914.5}}},{"team":"JQ/IT/IX/AI/N0","total":1434.5,"months":{"(สะสม)":{"weeks":[],"total":1434.5}}},{"team":"EY/AY/DV","total":1367.5,"months":{"(สะสม)":{"weeks":[],"total":1367.5}}},{"team":"WY/G9/9C/DK","total":964.0,"months":{"(สะสม)":{"weeks":[],"total":964.0}}},{"team":"TK/VJ/SG/HY/OD","total":641.0,"months":{"(สะสม)":{"weeks":[],"total":641.0}}},{"team":"SV/WK/KA","total":462.5,"months":{"(สะสม)":{"weeks":[],"total":462.5}}},{"team":"PORTER","total":146.5,"months":{"(สะสม)":{"weeks":[],"total":146.5}}}]}; }
 function otDashCss_() { return OT_DASH_CSS_; }
-function otDashHtml_() { return OT_DASH_HTML_; }
+function otDashHtml_() { return OT_DASH_HTML_ + otEmbedPanel_(); }
 
 // ── ฝังแอป OT Dashboard ตัวเต็ม (PSA/LL · exec แยก) เข้ามาในแท็บ OT ของ PAS ───
 // เปลี่ยน URL ได้ด้วย Script Property 'OT_DASH_URL'
 var OT_DASH_EXEC_URL = 'https://script.google.com/a/macros/aotga.com/s/AKfycbzHCJ5hbkxePjfbGrBF59ykdrTK3nFPfsteHNpqDFNQ4HHYfZtvdBdZ5q_meB6Vt4oSvQ/exec';
 function otDashUrl_() { try { return PropertiesService.getScriptProperties().getProperty('OT_DASH_URL') || OT_DASH_EXEC_URL; } catch (e) { return OT_DASH_EXEC_URL; } }
-function otEmbedHtml_() {
+// แผงกราฟสรุปเต็ม (sub-tab "กราฟสรุป") — ฝังแอป OT Dashboard ตัวเต็มแบบ lazy (โหลดเมื่อกดแท็บ)
+function otEmbedPanel_() {
   var url = otDashUrl_();
-  return '<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · PSA / LL</div>' +
-    '<div class="ot-sub">รายงาน OT รายเดือน/สัปดาห์ ทั้งแผนก (Exec) — ฝังจากระบบ OT Dashboard</div></div>' +
+  return '<div id="ot-tab-embed" class="tab-panel">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin:2px 0 10px;flex-wrap:wrap;gap:8px">' +
+    '<div class="ot-sub">รายงาน OT เต็ม (PSA/LL · exec) — กราฟสรุป/รายเดือน/A1–A8/headcount</div>' +
     '<a class="btn btn--accent" href="' + url + '" target="_blank" rel="noopener" style="text-decoration:none">↗ เปิดเต็มจอ</a></div>' +
-    '<div style="margin-top:10px"><iframe src="' + url + '" referrerpolicy="no-referrer" ' +
+    '<iframe id="ot-embed-frame" data-src="' + url + '" referrerpolicy="no-referrer" ' +
     'sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads allow-modals" ' +
-    'style="width:100%;height:calc(100vh - 250px);min-height:680px;border:1px solid #dbe3ee;border-radius:14px;background:#fff"></iframe>' +
-    '<div class="muted" style="margin-top:8px;font-size:12px">ถ้าหน้าด้านล่างว่าง/ไม่โหลด ให้กด <b>↗ เปิดเต็มจอ</b> ด้านบน (บางครั้งต้อง login บัญชี aotga.com ก่อน)</div></div>';
+    'style="width:100%;height:calc(100vh - 280px);min-height:640px;border:1px solid #dbe3ee;border-radius:14px;background:#fff"></iframe>' +
+    '<div class="muted" style="margin-top:8px;font-size:12px">ถ้าว่าง/ไม่โหลด กด <b>↗ เปิดเต็มจอ</b> (อาจต้อง login บัญชี aotga.com ก่อน) · กราฟนี้ export PDF จาก PAS ไม่ได้ ให้ใช้ปุ่ม Print ในแอปเต็ม</div></div>';
 }
 function otDashScript_() {
   return '<scr' + 'ipt>(function(){var BAKED=' + JSON.stringify(otDashData_()) + ';' + OT_DASH_JS_ + '})();</scr' + 'ipt>';
 }
-var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · ม.ค.-พ.ค. จาก OT Yearly · มิ.ย.+ จาก Assignment</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
+var OT_DASH_HTML_ = `<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · รายทีม</div><div class="ot-sub">แผนก การโดยสาร · ม.ค.-พ.ค. จาก OT Yearly · มิ.ย.+ จาก Assignment</div></div><div class="ot-badge">ระบบติดตาม OT</div></div><div class="ot-subtabs"><div class="ot-subtab tab active" data-t="monthly" onclick="otSwitchTab('monthly')">📆 รายเดือน</div><div class="ot-subtab tab" data-t="weekly" onclick="otSwitchTab('weekly')">📅 รายสัปดาห์</div><div class="ot-subtab tab" data-t="embed" onclick="otSwitchTab('embed')">📊 กราฟสรุป (เต็ม)</div></div><div id="ot-tab-monthly" class="tab-panel active"></div><div id="ot-tab-weekly" class="tab-panel"></div>`;
 var OT_DASH_CSS_ = `#view-ot{--surface:#fff;--surface2:#eef3f9;--border:#dbe3ee;--accent:#f97316;--accent2:#3b82f6;--accent3:#0891b2;--danger:#ef4444;--warn:#d97706;--ok:#16a34a;--text:#1f2d3d;--muted:#73839a;color:var(--text)}
 #view-ot .ot-head{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#eef3fb,#f6f0ff);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin-bottom:14px}
 #view-ot .ot-title{font-size:20px;font-weight:800;letter-spacing:-.3px}
@@ -4553,7 +4555,7 @@ function buildWeekly(){
 }
 function render(){buildMonthly();buildWeekly();}
 window.otSelMonth=function(m){selMonth=m;buildWeekly();};
-window.otSwitchTab=function(tab){var root=document.getElementById('view-ot');if(!root)return;[].forEach.call(root.querySelectorAll('.ot-subtab'),function(t){t.classList.toggle('active',t.getAttribute('data-t')===tab);});[].forEach.call(root.querySelectorAll('.tab-panel'),function(p){p.classList.remove('active');});var el=document.getElementById('ot-tab-'+tab);if(el)el.classList.add('active');if(tab==='weekly')buildWeekly();else buildMonthly();};
+window.otSwitchTab=function(tab){var root=document.getElementById('view-ot');if(!root)return;[].forEach.call(root.querySelectorAll('.ot-subtab'),function(t){t.classList.toggle('active',t.getAttribute('data-t')===tab);});[].forEach.call(root.querySelectorAll('.tab-panel'),function(p){p.classList.remove('active');});var el=document.getElementById('ot-tab-'+tab);if(el)el.classList.add('active');if(tab==='embed'){var f=document.getElementById('ot-embed-frame');if(f&&!f.src&&f.getAttribute('data-src'))f.src=f.getAttribute('data-src');}else if(tab==='weekly')buildWeekly();else buildMonthly();};
 function otFetch(){if(!(window.google&&google.script&&google.script.run))return;google.script.run.withSuccessHandler(function(d){if(d&&d.ok){if(d.teams&&d.teams.length)DATA=d;LIVE=true;window.__otPending=d.pending||0;render();if(d.pending>0&&(window.__otTries=(window.__otTries||0)+1)<80)setTimeout(otFetch,400);}}).withFailureHandler(function(){}).otLiveData();}
 function otInit(){if(!document.getElementById('ot-tab-weekly')||window.__otBuilt)return;window.__otBuilt=1;render();otFetch();}
 if(document.readyState!=='loading')otInit();else window.addEventListener('load',otInit);
@@ -6155,7 +6157,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
         '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Controller</th><th>Gate<br>Agent</th><th>Post<br>Dep.</th><th>สถานะ</th></tr>',
         rbFltRows_(res, ll), rbCtrls_('view-flt', true))
     : '<div id="fltbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด Flights &amp; SLA…</div></div>';
-  var otInner = otEmbedHtml_();                                        // ฝังแอป OT Dashboard ตัวเต็ม (PSA/LL) เข้าแท็บ OT
+  var otInner = otDashHtml_();                                         // แท็บ OT: ตารางเดิม (รายเดือน/สัปดาห์) + sub-tab กราฟสรุปเต็ม (embed)
   var acInner = staticMode ? rbAssignHtml(iso)
     : '<div id="acbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจการ Assign…</div></div>';
   var supInner = staticMode ? rbSupportHtml(iso)
@@ -6258,7 +6260,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'if(CD.otHolH>0){OTL.push("นักขัต ×1");OTC.push("#f97316");}' +
     'new Chart(c3,{type:"bar",data:{labels:OTL,datasets:[{data:CD.otHolH>0?[CD.otPreN,CD.otPostN,CD.otOffN,CD.otHolN]:[CD.otPreN,CD.otPostN,CD.otOffN],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+" คน";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});' +
     'new Chart(c4,{type:"bar",data:{labels:OTL,datasets:[{data:CD.otHolH>0?[CD.otPreH,CD.otPostH,CD.otOffH,CD.otHolH]:[CD.otPreH,CD.otPostH,CD.otOffH],backgroundColor:OTC,borderRadius:6}]},options:{plugins:{legend:{display:false},datalabels:{anchor:"end",align:"end",color:"#15233f",font:{weight:"700"},formatter:function(v){return v+"h";}}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"}}}}});});' +
-    '</script></body></html>';   // ไม่ต้องโหลดสคริปต์ OT เดิม — แท็บ OT ฝังแอปตัวเต็มผ่าน iframe แล้ว
+    '</script>' + otDashScript_() + '</body></html>';   // สคริปต์ OT (วาดตารางรายเดือน/สัปดาห์) — แท็บกราฟสรุปฝัง iframe lazy
 }
 
 function rbDesignCss_() { return rbDESIGN_CSS_; }
