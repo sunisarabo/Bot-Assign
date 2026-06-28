@@ -477,6 +477,21 @@ function otClearCache() {
 function otDashData_() { return {"months":["(สะสม)"],"teams":[{"team":"CHINA","total":3876.0,"months":{"(สะสม)":{"weeks":[],"total":3876.0}}},{"team":"QR/MH/OM/DE","total":3873.5,"months":{"(สะสม)":{"weeks":[],"total":3873.5}}},{"team":"SQ/CX/LY","total":1914.5,"months":{"(สะสม)":{"weeks":[],"total":1914.5}}},{"team":"JQ/IT/IX/AI/N0","total":1434.5,"months":{"(สะสม)":{"weeks":[],"total":1434.5}}},{"team":"EY/AY/DV","total":1367.5,"months":{"(สะสม)":{"weeks":[],"total":1367.5}}},{"team":"WY/G9/9C/DK","total":964.0,"months":{"(สะสม)":{"weeks":[],"total":964.0}}},{"team":"TK/VJ/SG/HY/OD","total":641.0,"months":{"(สะสม)":{"weeks":[],"total":641.0}}},{"team":"SV/WK/KA","total":462.5,"months":{"(สะสม)":{"weeks":[],"total":462.5}}},{"team":"PORTER","total":146.5,"months":{"(สะสม)":{"weeks":[],"total":146.5}}}]}; }
 function otDashCss_() { return OT_DASH_CSS_; }
 function otDashHtml_() { return OT_DASH_HTML_; }
+
+// ── ฝังแอป OT Dashboard ตัวเต็ม (PSA/LL · exec แยก) เข้ามาในแท็บ OT ของ PAS ───
+// เปลี่ยน URL ได้ด้วย Script Property 'OT_DASH_URL'
+var OT_DASH_EXEC_URL = 'https://script.google.com/a/macros/aotga.com/s/AKfycbzHCJ5hbkxePjfbGrBF59ykdrTK3nFPfsteHNpqDFNQ4HHYfZtvdBdZ5q_meB6Vt4oSvQ/exec';
+function otDashUrl_() { try { return PropertiesService.getScriptProperties().getProperty('OT_DASH_URL') || OT_DASH_EXEC_URL; } catch (e) { return OT_DASH_EXEC_URL; } }
+function otEmbedHtml_() {
+  var url = otDashUrl_();
+  return '<div class="ot-head"><div><div class="ot-title">OT <span>Dashboard</span> · PSA / LL</div>' +
+    '<div class="ot-sub">รายงาน OT รายเดือน/สัปดาห์ ทั้งแผนก (Exec) — ฝังจากระบบ OT Dashboard</div></div>' +
+    '<a class="btn btn--accent" href="' + url + '" target="_blank" rel="noopener" style="text-decoration:none">↗ เปิดเต็มจอ</a></div>' +
+    '<div style="margin-top:10px"><iframe src="' + url + '" referrerpolicy="no-referrer" ' +
+    'sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-downloads allow-modals" ' +
+    'style="width:100%;height:calc(100vh - 250px);min-height:680px;border:1px solid #dbe3ee;border-radius:14px;background:#fff"></iframe>' +
+    '<div class="muted" style="margin-top:8px;font-size:12px">ถ้าหน้าด้านล่างว่าง/ไม่โหลด ให้กด <b>↗ เปิดเต็มจอ</b> ด้านบน (บางครั้งต้อง login บัญชี aotga.com ก่อน)</div></div>';
+}
 function otDashScript_() {
   return '<scr' + 'ipt>(function(){var BAKED=' + JSON.stringify(otDashData_()) + ';' + OT_DASH_JS_ + '})();</scr' + 'ipt>';
 }
