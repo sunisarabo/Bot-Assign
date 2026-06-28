@@ -435,7 +435,8 @@ function rrParseStandard_(rows, team, meta) {
         if (times.length && !op && !cl) { op = times[0]; cl = times[times.length - 1]; }   // ใช้เวลาในเซลล์เป็น OP/CL
         // คนไปเทรน/ประชุม (เช่น "TRAINING BASIC LOAD CONTROL 08-17") = ไม่ได้ทำไฟลท์นั้น
         // → แสดงเป็นกิจกรรมอบรม ไม่นับเป็นไฟลท์ (ทุกทีม)
-        if (rrIsTrainingTask_(tasks.join(' '))) { assigns.push({ flight: tasks.join(' '), task: '', STA: '', STD: '', OP: '', CL: '' }); return; }
+        // เก็บเวลากิจกรรมจากคอลัมน์ด้วย (เช่น "Training CM" ที่ใส่เวลา 10:00-18:00 ในแถว STA/STD) — ถ้าไม่มีเวลาในข้อความ
+        if (rrIsTrainingTask_(tasks.join(' '))) { assigns.push({ flight: tasks.join(' '), task: '', STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl }); return; }
         // หัวคอลัมน์เป็น "ป้ายไฟลท์ทั่วไป" (เช่น "หมายเลขไฟลท์ 1", "Job 1", "FLIGHT") — รหัสไฟลท์จริง
         // ฝังในข้อความ (Admin Doc/Crewsign: "EY414/415 CREWSIGN…, AK818-819…") → ดึงออกมา
         // (ไม่แตะคอลัมน์ Counter ของ SU — คงงานเคาน์เตอร์ไว้)
