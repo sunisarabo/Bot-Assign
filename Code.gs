@@ -2156,6 +2156,9 @@ function acFlightWin_(a) {
   if (acIsActivity_(atxt)) {
     var rg = atxt.match(/(\d{1,2})(?:[:.](\d{2}))?\s*[-–]\s*(\d{1,2})(?:[:.](\d{2}))?/);
     if (rg) { var alo = (+rg[1]) * 60 + (+(rg[2] || 0)), ahi = (+rg[3]) * 60 + (+(rg[4] || 0)); if (ahi <= alo) ahi += 1440; return [alo, ahi]; }
+    // เทรน/กิจกรรม (เช่น "Training CM") ที่เวลาอยู่ในช่อง STA/STD/OP/CL → ใช้ช่วงนั้นเต็ม (ไม่ใช่ช่วงเช็คอิน) กันถือว่าว่างกลางเทรน
+    var ts0 = acMin_(a.STA) || acMin_(a.OP), te0 = acMin_(a.STD) || acMin_(a.CL);
+    if (ts0 && te0) { if (te0 <= ts0) te0 += 1440; return [ts0, te0]; }
   }
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
