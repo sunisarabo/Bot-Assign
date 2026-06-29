@@ -5994,7 +5994,9 @@ function rbDataCheckHtml(iso) {
         if (!r.support && r.id && /^\d{6,8}$/.test(String(r.id))) (idMap[r.id] = idMap[r.id] || []).push({ team: t, name: r.name });
         var nk = String(r.name || '').trim().toUpperCase();
         if (nk.length > 1) { if (nameSeen[nk]) cats.dupname.push({ team: t, who: r.name, detail: 'ชื่อซ้ำในทีม (อาจกรอกซ้ำ 2 แถว)' }); nameSeen[nk] = 1; }
-        if ((r.bucket === 'working' || r.bucket === 'ot_off') && r.shiftStart == null && !r.support && r.assignments && r.assignments.length)
+        // อ่านเวลางานไม่ได้จริง = ไม่มีทั้งเวลากะ และไม่มีช่วง OT ที่อ่านได้ (คน "OT OFF" รหัส XX มีช่วง OT → ครอบคลุมไฟลท์ได้ ไม่ต้องเตือน)
+        var hasWin = r.shiftStart != null || (r.otSpans && r.otSpans.some(function (s) { return s && s.a != null; }));
+        if ((r.bucket === 'working' || r.bucket === 'ot_off') && !hasWin && !r.support && r.assignments && r.assignments.length)
           cats.noshift.push({ team: t, who: r.name, detail: 'มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้' + (r.shift ? ' (รหัส ' + r.shift + ')' : ' (ไม่มีรหัสกะ)') });
         if (r.support && !r.supportTeam)
           cats.supnoteam.push({ team: t, who: r.name, detail: 'แถวซัพพอร์ตแต่ไม่มีรหัสทีมต้นสังกัด — ใส่ "ชื่อ + รหัสทีม" เช่น "สมชาย PVT"' });
