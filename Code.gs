@@ -438,6 +438,9 @@ function rrParseStandard_(rows, team, meta) {
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
     var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
     var remark = (cm.remark >= 0 && cm.remark < row.length) ? rrClean_(row[cm.remark]) : '';
+    // คอลัมน์ "สถานะงาน" ก่อนบล็อกไฟลท์ (เช่น KE/OZ: ":: FLIGHT ::") — เขียน "OFF"/"OFF/Training" สำหรับคนหยุด
+    // (คนยังมีรหัสกะหมุนเวียน เช่น J8 → ถ้าไม่ดูคอลัมน์นี้จะอ่านเป็นมาทำงานทั้งทีม)
+    var leadLbl = (cm.flt - 1 >= 0 && cm.flt - 1 < row.length) ? rrClean_(row[cm.flt - 1]) : '';
 
     var assigns = [];
     fltcols.forEach(function (fc) {
@@ -522,6 +525,9 @@ function rrParseStandard_(rows, team, meta) {
     // บางชีต (เช่น AK) ใส่ "รหัสกะวันหยุด" (เช่น P5) ในคอลัมน์ SHIFT แล้วเขียน "OFF" ในคอลัมน์ TIME/IN
     // (สถานะ Onduty/Off อาจอยู่ผิดคอลัมน์ → remark ว่าง) → ถ้า TIME = OFF/X ให้ถือว่าหยุด แม้รหัสกะไม่ใช่ OFF
     if (bkt === 'working' && /^\s*(OFF|X{1,2})\b/i.test(timev)) bkt = 'off';
+    // คอลัมน์งานระบุ OFF (เช่น KE: "OFF"/"OFF/Training") + ไม่มีไฟลท์จริง → หยุด แม้มีรหัสกะหมุนเวียน
+    if (bkt === 'working' && /^OFF\b/i.test(leadLbl) &&
+        !assigns.some(function (a) { return acIsFlight_(a.flight); })) bkt = 'off';
     if (bkt === 'off' && oth > 0) bkt = 'ot_off';            // SHIFT=X แต่มี OT (เช่น 14-20) = ทำ OT วันหยุด
     if (bkt === 'ot_off' && !(oth > 0)) bkt = 'off';         // REMARK="OT OFF" แต่ไม่มีชั่วโมง OT จริง = ยังไม่ได้มาทำ → หยุด (ไม่นับเป็น on-duty)
     if (isSup) { bkt = assigns.length ? 'working' : 'off'; oth = 0; }   // แถวซัพพอร์ต = มาช่วยไฟลท์ (นับครอบคลุม) · ไม่นับ OT/ชั่วโมงซ้ำ (อยู่ทีมต้นสังกัด)
