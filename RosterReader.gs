@@ -413,14 +413,20 @@ function rrParseStandard_(rows, team, meta) {
       if (/^\d{6,8}$/.test(rawNext)) idd = rawNext;           // only a PURE numeric id (not a flight code like PG251/252)
     }
     var name = cm.name < row.length ? rrClean_(row[cm.name]) : '';
-    // แถวซัพพอร์ต: ทีมที่รับใส่ "ชื่อ + รหัสทีมต้นสังกัด" (ID หรือ Position = SUPPORT) เช่น "TANADON PVT"
+    // แถวซัพพอร์ต: ทีมที่รับใส่ "ชื่อ + รหัสทีมต้นสังกัด" (เช่น "TANADON PVT")
+    //  รองรับ 2 แบบ: (1) ID หรือ Position = SUPPORT/SUPP  (2) มีคำว่า "Support" นำหน้าชื่อ เช่น "Support Pattaramon PG"
+    //  (กัน "Sup" = ตำแหน่ง Supervisor ไม่ให้เข้าเงื่อนไข — ต้องมี PP สองตัว)
     var posRaw0 = (cm.pos >= 0 && cm.pos < row.length) ? rrClean_(row[cm.pos]) : '';
-    var isSup = /^SUPPORT$/i.test(idRaw) || /^SUPPORT$/i.test(posRaw0);
+    var SUP_PREFIX = /^\s*SUPP(?:ORT)?\b[\s:.\-]*/i;
+    var isSup = SUP_PREFIX.test(idRaw) || SUP_PREFIX.test(posRaw0) || SUP_PREFIX.test(name);
     var supTeam = '';
-    if (isSup && name && !/^(NAME|REMARK|SUPPORT)$/i.test(name)) {
-      var sp = rrSupportTeam_(name); name = sp.name; supTeam = sp.team;
-      idd = ('SUP' + supTeam + name).replace(/[^A-Za-z0-9ก-๙]/g, '').slice(0, 18);   // รหัสจำลอง (ไม่ใช่รหัสจริง)
-    } else { isSup = false; }
+    if (isSup) {
+      var rawName = SUP_PREFIX.test(name) ? name.replace(SUP_PREFIX, '').trim() : name;   // ตัดคำ "Support" นำหน้าชื่อออก
+      if (rawName && !/^(NAME|REMARK|SUPPORT|SUPP)$/i.test(rawName)) {
+        var sp = rrSupportTeam_(rawName); name = sp.name; supTeam = sp.team;
+        idd = ('SUP' + supTeam + name).replace(/[^A-Za-z0-9ก-๙]/g, '').slice(0, 18);   // รหัสจำลอง (ไม่ใช่รหัสจริง) → ไม่ชนรหัสเดิม/ไม่นับหัวซ้ำ
+      } else { isSup = false; }
+    }
     if (!name || (!isSup && (idd.length < 6 || idd.length > 8))) continue;
     var nU = name.toUpperCase();
     if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE' || seen[idd]) continue;
