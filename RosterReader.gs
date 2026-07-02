@@ -765,6 +765,22 @@ function rrParseSU_(rows, team) {
   return recs;
 }
 
+// อ่านวันที่ที่พิมพ์บนหัวแท็บ (เช่น "วันที่ 29/JUN/2026") → คืนรูปแบบ "29/JUN" · '' ถ้าไม่พบ
+// ใช้ตรวจแท็บที่ลืมอัปเดต (ทีมหนึ่งเป็นวันเก่า อีกทีมเป็นวันปัจจุบัน → ข้อมูลไม่ตรงวัน)
+function rrSheetDate_(ws) {
+  var last = Math.min(ws.getLastRow(), 4);
+  if (last < 1) return '';
+  var vals = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 20)).getValues();
+  for (var r = 0; r < vals.length; r++) {
+    for (var c = 0; c < vals[r].length; c++) {
+      var s = String(vals[r][c] == null ? '' : vals[r][c]);
+      var m = s.match(/(\d{1,2})\s*\/\s*([A-Za-z]{3,4})/);      // 29/JUN , 24 / JUN
+      if (m) return m[1].replace(/^0/, '') + '/' + m[2].toUpperCase();
+    }
+  }
+  return '';
+}
+
 function rrParseSheet_(ws) {
   var name = ws.getName();
   var n = name.trim().toUpperCase();
@@ -953,6 +969,7 @@ function readRosterFromSpreadsheet(ss, date) {
       rrAddBucket_(totals, r, isHol);
     });
     rrRoundAgg_(t);
+    try { t.sheetDate = rrSheetDate_(ws); } catch (eSD) { t.sheetDate = ''; }   // วันที่ที่พิมพ์บนแท็บ (ไว้ตรวจแท็บค้างวันเก่า)
     teams[ws.getName().trim()] = t;
   });
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });

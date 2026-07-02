@@ -773,6 +773,22 @@ function rrParseSU_(rows, team) {
   return recs;
 }
 
+// อ่านวันที่ที่พิมพ์บนหัวแท็บ (เช่น "วันที่ 29/JUN/2026") → คืนรูปแบบ "29/JUN" · '' ถ้าไม่พบ
+// ใช้ตรวจแท็บที่ลืมอัปเดต (ทีมหนึ่งเป็นวันเก่า อีกทีมเป็นวันปัจจุบัน → ข้อมูลไม่ตรงวัน)
+function rrSheetDate_(ws) {
+  var last = Math.min(ws.getLastRow(), 4);
+  if (last < 1) return '';
+  var vals = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 20)).getValues();
+  for (var r = 0; r < vals.length; r++) {
+    for (var c = 0; c < vals[r].length; c++) {
+      var s = String(vals[r][c] == null ? '' : vals[r][c]);
+      var m = s.match(/(\d{1,2})\s*\/\s*([A-Za-z]{3,4})/);      // 29/JUN , 24 / JUN
+      if (m) return m[1].replace(/^0/, '') + '/' + m[2].toUpperCase();
+    }
+  }
+  return '';
+}
+
 function rrParseSheet_(ws) {
   var name = ws.getName();
   var n = name.trim().toUpperCase();
@@ -961,6 +977,7 @@ function readRosterFromSpreadsheet(ss, date) {
       rrAddBucket_(totals, r, isHol);
     });
     rrRoundAgg_(t);
+    try { t.sheetDate = rrSheetDate_(ws); } catch (eSD) { t.sheetDate = ''; }   // วันที่ที่พิมพ์บนแท็บ (ไว้ตรวจแท็บค้างวันเก่า)
     teams[ws.getName().trim()] = t;
   });
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
@@ -5986,7 +6003,7 @@ function rbDataCheckHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var res = d.res, ll = d.ll;
-    var cats = { noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    var cats = { staledate: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
     var idMap = {};
     function scan(t, recs) {
       var nameSeen = {};
@@ -6011,7 +6028,19 @@ function rbDataCheckHtml(iso) {
     (slaCollectFlights_(res, ll) || []).forEach(function (f) {
       if (acIsFlight_(f.flight) && f.noTime && !(f.fragment)) cats.flttime.push({ team: f.teamList || '', who: f.flight, detail: 'ไฟลท์ไม่มี STA/STD — เติมเวลาในชีต' });
     });
+    // แท็บทีมที่ลืมอัปเดตวันที่ (เช่น TR ยังเป็น 24/JUN ทั้งที่ทีมอื่น 29/JUN → ข้อมูลทั้งทีมเป็นของวันเก่า)
+    var dcount = {};
+    Object.keys(res.teams).forEach(function (t) { var sd = res.teams[t].sheetDate; if (sd) dcount[sd] = (dcount[sd] || 0) + 1; });
+    var majDate = '', majN = 0;
+    Object.keys(dcount).forEach(function (dd) { if (dcount[dd] > majN) { majN = dcount[dd]; majDate = dd; } });
+    if (majDate && Object.keys(dcount).length > 1) {
+      Object.keys(res.teams).forEach(function (t) {
+        var sd = res.teams[t].sheetDate;
+        if (sd && sd !== majDate) cats.staledate.push({ team: t, who: 'วันที่บนแท็บ = ' + sd, detail: 'แท็บนี้เป็นวันที่ ' + sd + ' แต่ทีมส่วนใหญ่เป็น ' + majDate + ' — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)' });
+      });
+    }
     var defs = [
+      { k: 'staledate', t: '📅 แท็บวันที่ไม่ตรงกัน', hint: 'ทีมนี้พิมพ์วันที่ต่างจากทีมอื่น — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)' },
       { k: 'noshift', t: '⏰ มาทำงานแต่อ่านเวลากะไม่ได้', hint: 'รหัสกะไม่อยู่ใน ShiftDB/ลืมกรอกเวลา → ชั่วโมง+ครอบคลุมไฟลท์เพี้ยน' },
       { k: 'flttime', t: '✈️ ไฟลท์ขาด STA/STD', hint: 'เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้' },
       { k: 'dupteam', t: '👯 รหัสซ้ำหลายทีม', hint: 'คนเดียวอยู่ 2 ทีม = นับซ้ำ · คนไปช่วยให้ใช้แถว SUPPORT' },
