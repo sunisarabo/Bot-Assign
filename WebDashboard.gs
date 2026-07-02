@@ -516,7 +516,7 @@ function rbDataCheckHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var res = d.res, ll = d.ll;
-    var cats = { droptab: [], staledate: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    var cats = { droptab: [], staledate: [], offflt: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
     (res.droppedTabs || []).forEach(function (nm) {
       cats.droptab.push({ team: nm, who: 'อ่านไม่ได้ทั้งแท็บ', detail: 'แท็บนี้มีข้อมูลแต่ระบบอ่านไม่ออก (เช่น ไม่มีคอลัมน์ ID/หัวตารางไม่ตรงแบบมาตรฐาน) — ทั้งทีมหายจากยอด/ไฟลท์' });
     });
@@ -533,6 +533,9 @@ function rbDataCheckHtml(iso) {
           cats.noshift.push({ team: t, who: r.name, detail: 'มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้' + (r.shift ? ' (รหัส ' + r.shift + ')' : ' (ไม่มีรหัสกะ)') });
         if (r.support && !r.supportTeam)
           cats.supnoteam.push({ team: t, who: r.name, detail: 'แถวซัพพอร์ตแต่ไม่มีรหัสทีมต้นสังกัด — ใส่ "ชื่อ + รหัสทีม" เช่น "สมชาย PVT"' });
+        // เขียน OFF/XX (นับเป็นหยุด) แต่มีไฟลท์จริง → ระบบนับเป็นไม่มาทำงาน ทั้งที่นั่งไฟลท์อยู่ (ยอด/ครอบคลุมเพี้ยน)
+        if (r.bucket === 'off' && !r.support && r.assignments && r.assignments.some(function (a) { return acIsFlight_(a.flight); }))
+          cats.offflt.push({ team: t, who: r.name, detail: 'ชีตเขียนหยุด (OFF/XX) แต่ถูกจัดลงไฟลท์ — ถ้ามาทำงานให้แก้เป็น Onduty · ถ้ามาช่วย OT ให้กรอกชั่วโมง OT' });
       });
     }
     Object.keys(res.teams).forEach(function (t) { scan(t, res.teams[t].records); });
@@ -558,6 +561,7 @@ function rbDataCheckHtml(iso) {
     var defs = [
       { k: 'droptab', t: '🛑 แท็บอ่านไม่ได้ (หายทั้งทีม)', hint: 'แท็บมีข้อมูลแต่ parser อ่านไม่ออก (ไม่มีคอลัมน์ ID/เลย์เอาต์ไม่มาตรฐาน) — ทั้งทีมหายจากยอดและ SLA' },
       { k: 'staledate', t: '📅 แท็บวันที่ไม่ตรงกัน', hint: 'ทีมนี้พิมพ์วันที่ต่างจากทีมอื่น — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)' },
+      { k: 'offflt', t: '🚫 เขียน OFF แต่มีไฟลท์', hint: 'คนที่ชีตเขียนหยุด (OFF/XX) แต่ถูกจัดลงไฟลท์ — นับเป็นไม่มาทำงานทั้งที่นั่งไฟลท์อยู่' },
       { k: 'noshift', t: '⏰ มาทำงานแต่อ่านเวลากะไม่ได้', hint: 'รหัสกะไม่อยู่ใน ShiftDB/ลืมกรอกเวลา → ชั่วโมง+ครอบคลุมไฟลท์เพี้ยน' },
       { k: 'flttime', t: '✈️ ไฟลท์ขาด STA/STD', hint: 'เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้' },
       { k: 'dupteam', t: '👯 รหัสซ้ำหลายทีม', hint: 'คนเดียวอยู่ 2 ทีม = นับซ้ำ · คนไปช่วยให้ใช้แถว SUPPORT' },
