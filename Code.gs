@@ -961,9 +961,19 @@ function readRosterFromSpreadsheet(ss, date) {
       r.fromShiftDB = true;
     } catch (e) {}
   }
+  var droppedTabs = [];
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
-    if (!recs || !recs.length) return;
+    if (!recs || !recs.length) {
+      // แท็บทีมที่มีข้อมูลจริง แต่ parser อ่านไม่ได้เลย (เช่น ZF ไม่มีคอลัมน์ ID) → หายไปเงียบ ๆ ต้องเตือน
+      try {
+        var nmU = ws.getName().trim().toUpperCase();
+        var isSkip = false;
+        for (var ki = 0; ki < SKIP_SHEETS_RR.length; ki++) if (nmU.indexOf(SKIP_SHEETS_RR[ki]) >= 0) isSkip = true;
+        if (!isSkip && ws.getLastRow() >= 8 && ws.getLastColumn() >= 4) droppedTabs.push(ws.getName().trim());
+      } catch (eDT) {}
+      return;
+    }
     var t = rrNewAgg_();
     t.records = recs;
     recs.forEach(function (r) {
@@ -983,7 +993,7 @@ function readRosterFromSpreadsheet(ss, date) {
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
   rrRoundAgg_(totals);
   delete totals.records;
-  return { teams: teams, positions: positions, totals: totals, holiday: holName };
+  return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs };
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────
@@ -6003,7 +6013,10 @@ function rbDataCheckHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var res = d.res, ll = d.ll;
-    var cats = { staledate: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    var cats = { droptab: [], staledate: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    (res.droppedTabs || []).forEach(function (nm) {
+      cats.droptab.push({ team: nm, who: 'อ่านไม่ได้ทั้งแท็บ', detail: 'แท็บนี้มีข้อมูลแต่ระบบอ่านไม่ออก (เช่น ไม่มีคอลัมน์ ID/หัวตารางไม่ตรงแบบมาตรฐาน) — ทั้งทีมหายจากยอด/ไฟลท์' });
+    });
     var idMap = {};
     function scan(t, recs) {
       var nameSeen = {};
@@ -6040,6 +6053,7 @@ function rbDataCheckHtml(iso) {
       });
     }
     var defs = [
+      { k: 'droptab', t: '🛑 แท็บอ่านไม่ได้ (หายทั้งทีม)', hint: 'แท็บมีข้อมูลแต่ parser อ่านไม่ออก (ไม่มีคอลัมน์ ID/เลย์เอาต์ไม่มาตรฐาน) — ทั้งทีมหายจากยอดและ SLA' },
       { k: 'staledate', t: '📅 แท็บวันที่ไม่ตรงกัน', hint: 'ทีมนี้พิมพ์วันที่ต่างจากทีมอื่น — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)' },
       { k: 'noshift', t: '⏰ มาทำงานแต่อ่านเวลากะไม่ได้', hint: 'รหัสกะไม่อยู่ใน ShiftDB/ลืมกรอกเวลา → ชั่วโมง+ครอบคลุมไฟลท์เพี้ยน' },
       { k: 'flttime', t: '✈️ ไฟลท์ขาด STA/STD', hint: 'เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้' },

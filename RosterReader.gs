@@ -953,9 +953,19 @@ function readRosterFromSpreadsheet(ss, date) {
       r.fromShiftDB = true;
     } catch (e) {}
   }
+  var droppedTabs = [];
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
-    if (!recs || !recs.length) return;
+    if (!recs || !recs.length) {
+      // แท็บทีมที่มีข้อมูลจริง แต่ parser อ่านไม่ได้เลย (เช่น ZF ไม่มีคอลัมน์ ID) → หายไปเงียบ ๆ ต้องเตือน
+      try {
+        var nmU = ws.getName().trim().toUpperCase();
+        var isSkip = false;
+        for (var ki = 0; ki < SKIP_SHEETS_RR.length; ki++) if (nmU.indexOf(SKIP_SHEETS_RR[ki]) >= 0) isSkip = true;
+        if (!isSkip && ws.getLastRow() >= 8 && ws.getLastColumn() >= 4) droppedTabs.push(ws.getName().trim());
+      } catch (eDT) {}
+      return;
+    }
     var t = rrNewAgg_();
     t.records = recs;
     recs.forEach(function (r) {
@@ -975,7 +985,7 @@ function readRosterFromSpreadsheet(ss, date) {
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
   rrRoundAgg_(totals);
   delete totals.records;
-  return { teams: teams, positions: positions, totals: totals, holiday: holName };
+  return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs };
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────

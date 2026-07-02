@@ -516,7 +516,10 @@ function rbDataCheckHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var res = d.res, ll = d.ll;
-    var cats = { staledate: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    var cats = { droptab: [], staledate: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    (res.droppedTabs || []).forEach(function (nm) {
+      cats.droptab.push({ team: nm, who: 'อ่านไม่ได้ทั้งแท็บ', detail: 'แท็บนี้มีข้อมูลแต่ระบบอ่านไม่ออก (เช่น ไม่มีคอลัมน์ ID/หัวตารางไม่ตรงแบบมาตรฐาน) — ทั้งทีมหายจากยอด/ไฟลท์' });
+    });
     var idMap = {};
     function scan(t, recs) {
       var nameSeen = {};
@@ -553,6 +556,7 @@ function rbDataCheckHtml(iso) {
       });
     }
     var defs = [
+      { k: 'droptab', t: '🛑 แท็บอ่านไม่ได้ (หายทั้งทีม)', hint: 'แท็บมีข้อมูลแต่ parser อ่านไม่ออก (ไม่มีคอลัมน์ ID/เลย์เอาต์ไม่มาตรฐาน) — ทั้งทีมหายจากยอดและ SLA' },
       { k: 'staledate', t: '📅 แท็บวันที่ไม่ตรงกัน', hint: 'ทีมนี้พิมพ์วันที่ต่างจากทีมอื่น — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)' },
       { k: 'noshift', t: '⏰ มาทำงานแต่อ่านเวลากะไม่ได้', hint: 'รหัสกะไม่อยู่ใน ShiftDB/ลืมกรอกเวลา → ชั่วโมง+ครอบคลุมไฟลท์เพี้ยน' },
       { k: 'flttime', t: '✈️ ไฟลท์ขาด STA/STD', hint: 'เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้' },
