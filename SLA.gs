@@ -227,8 +227,8 @@ var SLA_DB = {
   'DEFAULT': {ci:-180,cc:-45,go:-45,lc:-30,brief:60,post:20,total:8,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',2,'GATE','GATE']]}
 };
-var SLA_ALIAS = { '8M':'QZ','VN':'HY','3K':'JQ','HB':'HX','WZ':'ZF','N4':'EO','C6':'LO','G2':'LO','H4':'LO',
-  'ZH':'CA','PN':'CA','OQ':'CA','GX':'CA','KX':'CA','8H':'CA','9H':'CA','BK':'CA','PVT':'PRIVATE' };
+// alias = สายที่ไม่มี SLA ของตัวเอง → ยืมของสายที่ใกล้เคียง (ตัดสายที่เพิ่ม SLA เต็มของตัวเองแล้วออก เช่น VN, ZH, PN…)
+var SLA_ALIAS = { '3K':'JQ','GX':'CA','KX':'CA','8H':'CA','BK':'CA','PVT':'PRIVATE' };
 
 // ── จำนวนคนที่ต้องการต่อสายการบิน [SUP, CI, ARR, GATE(controller), TTL] ──────
 // ตรงตามไฟล์ SLA_Systems_Airlines (Manpower per Job · สเปคทางการ) · หลายลำ → ใช้แถวลำใหญ่สุด (TTL มากสุด)

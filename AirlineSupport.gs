@@ -81,7 +81,7 @@ var AIRLINE_SUP = {
   'OQ':{ok:true,ph:null},
   'PN':{ok:true,ph:null},
   'U6':{ok:false,ph:null},
-  'VN':{ok:false,ph:null},
+  'VN':{ok:true,ph:['ARR','GATE']},  // Vietnam Airlines — รับซัพ ARR/GATE (เหมือนสายต่างชาติทั่วไป)
   'WZ':{ok:true,ph:null},
   'ZH':{ok:true,ph:null},
 };
