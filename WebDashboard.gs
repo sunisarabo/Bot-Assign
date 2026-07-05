@@ -47,9 +47,44 @@ function rbLoadResLL_(date) {
   var iso = Utilities.formatDate(date, tz, 'yyyy-MM-dd');
   var hit = rbCacheGetBig_('resll_' + iso);
   if (hit) { try { return JSON.parse(hit); } catch (e) {} }
+  // Cache เย็น: ล็อกให้ "อ่านชีตทีละคน" — กันหลายคนเปิดพร้อมกันแล้วอ่าน 20 ชีตซ้อนกัน (ช้า/quota/พัง)
+  //  คนแรกอ่าน+เขียน cache · คนที่รอ พอได้ล็อกจะเจอ cache ที่คนแรกเพิ่งเติม → คืนเลย ไม่อ่านซ้ำ
+  var lock = LockService.getScriptLock(), got = false;
+  try { got = lock.tryLock(20000); } catch (eL) { got = false; }
+  if (got) {
+    var hit2 = rbCacheGetBig_('resll_' + iso);
+    if (hit2) { try { lock.releaseLock(); return JSON.parse(hit2); } catch (e) {} }
+  }
   var out = rbLoadResLLraw_(date);
-  try { rbCachePutBig_('resll_' + iso, JSON.stringify(out), 180); } catch (e2) {}
+  try { rbCachePutBig_('resll_' + iso, JSON.stringify(out), RB_RESLL_TTL); } catch (e2) {}
+  if (got) { try { lock.releaseLock(); } catch (e3) {} }
   return out;
+}
+var RB_RESLL_TTL = 900;   // อายุ cache ข้อมูลรายวัน (วินาที) — 15 นาที · trigger อุ่น cache ทุก 5 นาทีจะคอยเติมให้สด
+
+/** อุ่น cache ของ "วันนี้" ไว้ล่วงหน้า — ผู้ใช้เปิดหน้าเว็บจะได้ข้อมูลทันที ไม่ต้องรออ่าน 20 ชีต
+ *  (เทียบเท่า "background process" ในระบบใหญ่ · GAS ใช้ time-driven trigger แทน worker) */
+function rbWarmCache() {
+  try {
+    var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+    var now = new Date();
+    var iso = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
+    var out = rbLoadResLLraw_(now);                       // อ่านสด (ข้าม cache) แล้วเขียนทับให้สด
+    rbCachePutBig_('resll_' + iso, JSON.stringify(out), RB_RESLL_TTL);
+    return 'warmed ' + iso;
+  } catch (e) { return 'warm error: ' + e; }
+}
+/** ตั้ง trigger อุ่น cache ทุก 5 นาที (เรียกครั้งเดียวจาก editor) — ทำให้เว็บเร็ว+เสถียรตอนมีคนเปิดหลายคน */
+function rbInstallWarmCache() {
+  var has = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'rbWarmCache'; });
+  if (!has) ScriptApp.newTrigger('rbWarmCache').timeBased().everyMinutes(5).create();
+  rbWarmCache();
+  return 'ตั้ง trigger อุ่น cache ทุก 5 นาที + อุ่นรอบแรกแล้ว';
+}
+/** หยุด trigger อุ่น cache */
+function rbStopWarmCache() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'rbWarmCache') ScriptApp.deleteTrigger(t); });
+  return 'หยุด trigger อุ่น cache แล้ว';
 }
 function rbLoadResLLraw_(date) {
   var roster = rbOpenTodayRoster_(date);
