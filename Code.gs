@@ -506,7 +506,7 @@ function rrParseStandard_(rows, team, meta) {
           code = code.trim();
           var cn = code.match(/\d{2,4}/g) || [];
           var allDup = cn.length && cn.every(function (n) { return nums[n]; });
-          if (cn.length && !allDup && acIsFlight_(code)) {
+          if (cn.length && !allDup && acIsFlight_(code) && slaKnownAir_(code)) {   // กันรหัสปลอมจากโน้ต เช่น "BRUSH UP 19"
             assigns.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
             cn.forEach(function (n) { nums[n] = 1; });
           }
@@ -1591,6 +1591,13 @@ function slaAirlineOf_(flight) {
   if (m) return m[1];
   var m2 = s.match(/([A-Z]{1,3})\s*\d/);
   return m2 ? m2[1] : 'DEFAULT';
+}
+/** สายการบินนี้เป็นสายที่บินที่ HKT (อยู่ในตาราง SLA) ไหม — ใช้กรองรหัสไฟลท์ปลอมจากข้อความโน้ต
+ *  เช่น "LY BRUSH UP 19-21" → "UP 19" (UP=Bahamasair ไม่บินภูเก็ต) ต้องไม่ถูกนับเป็นไฟลท์ */
+function slaKnownAir_(code) {
+  var a = slaAirlineOf_(code);
+  if (!a || a === 'DEFAULT') return false;
+  return !!(SLA_RQ[a] || SLA_ROLES[a] || SLA_DB[a] || (typeof SLA_ALIAS !== 'undefined' && SLA_ALIAS[a]));
 }
 /** เวลาเป็นนาที — '' หรือ 00:00 (placeholder) → null (ถือว่าไม่มีขานั้น) */
 function slaRealMin_(x) { var v = acMin_(x); return v ? v : null; }

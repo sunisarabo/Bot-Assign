@@ -498,7 +498,7 @@ function rrParseStandard_(rows, team, meta) {
           code = code.trim();
           var cn = code.match(/\d{2,4}/g) || [];
           var allDup = cn.length && cn.every(function (n) { return nums[n]; });
-          if (cn.length && !allDup && acIsFlight_(code)) {
+          if (cn.length && !allDup && acIsFlight_(code) && slaKnownAir_(code)) {   // กันรหัสปลอมจากโน้ต เช่น "BRUSH UP 19"
             assigns.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
             cn.forEach(function (n) { nums[n] = 1; });
           }
