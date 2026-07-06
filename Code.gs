@@ -1599,6 +1599,71 @@ function slaKnownAir_(code) {
   if (!a || a === 'DEFAULT') return false;
   return !!(SLA_RQ[a] || SLA_ROLES[a] || SLA_DB[a] || (typeof SLA_ALIAS !== 'undefined' && SLA_ALIAS[a]));
 }
+// ชื่อสายการบิน (ย่อ) จากไฟล์ Support Allowance — ใช้แสดงในการ์ดไฟลท์
+var AIRLINE_NAME = {
+  'AK':'AirAsia Berhad',
+  'QZ':'Indonesia AirAsia',
+  '8M':'Myanmar Airways Intl',
+  'ZF':'Azur Air',
+  'LO':'LOT Polish Airlines',
+  'N4':'Nordwind Airlines',
+  'HH':'Qanot Sharq Airlines',
+  'EO':'IKAR Airlines',
+  'S7':'S7 Airlines',
+  'CZ':'China Southern Airlines',
+  'MU':'China Eastern Airlines',
+  'FM':'Shanghai Airlines',
+  '3U':'Sichuan Airlines',
+  'CA':'Air China',
+  'HO':'Juneyao Airlines',
+  'HX':'Hong Kong Airlines',
+  'HU':'Hainan Airlines',
+  '6B':'TUI fly Nordic',
+  'BY':'TUI Airways',
+  'UO':'HK Express',
+  'EK':'Emirates',
+  'FY':'Firefly',
+  'EY':'Etihad Airways',
+  'AY':'Finnair',
+  'DV':'SCAT Airlines',
+  'AI':'Air India',
+  'IX':'Air India Express',
+  'JQ':'Jetstar Airways',
+  'IT':'Tigerair Taiwan',
+  'KC':'Air Astana',
+  'OZ':'Asiana Airlines',
+  'KE':'Korean Air',
+  'LJ':'Jin Air',
+  'NO':'Neos',
+  'OV':'SalamAir',
+  'PG':'Bangkok Airways',
+  'QR':'Qatar Airways',
+  'DE':'Condor',
+  'MH':'Malaysia Airlines',
+  'OM':'Miat Mongolian Airlines',
+  'SQ':'Singapore Airlines',
+  'CX':'Cathay Pacific',
+  'LY':'El Al Israel Airlines',
+  'SU':'Aeroflot Russian Airline',
+  'W5':'Mahan Air',
+  'B2':'Belavia Belarusian Airli',
+  'TK':'Turkish Airlines',
+  'HY':'Uzbekistan Airways',
+  'OD':'Batik Air Malaysia',
+  'VJ':'VietJet Air',
+  'SG':'SpiceJet',
+  'TR':'Scoot',
+  '6E':'IndiGo',
+  'QP':'Akasa Air',
+  'WK':'Edelweiss Air',
+  'SV':'Saudia',
+  'G9':'Air Arabia',
+  'WY':'Oman Air',
+  '9C':'Spring Airlines',
+  'DK':'Sunclass Airlines',
+  'VN':'Vietnam Airlines'
+};
+function slaAirName_(code){ var c=String(code||"").toUpperCase(); return AIRLINE_NAME[c] || (typeof SLA_ALIAS!=="undefined"&&SLA_ALIAS[c]?AIRLINE_NAME[SLA_ALIAS[c]]:"") || c; }
 /** เวลาเป็นนาที — '' หรือ 00:00 (placeholder) → null (ถือว่าไม่มีขานั้น) */
 function slaRealMin_(x) { var v = acMin_(x); return v ? v : null; }
 /** key รวมไฟลท์ = สายการบิน + เลขไฟลท์ "ตัวแรก" → TK172/173, TK172, TK172/TK173 = key เดียว
@@ -5752,9 +5817,10 @@ function rbTimetableHtml(iso) {
 function rbFlightsHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    return rbTblCard_('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน',
-      '<tr><th>Flight</th><th>สายการบิน</th><th>ทีม</th><th>STA</th><th>STD</th><th>จัด/รวม</th><th>SUP</th><th>FC</th><th>Check-in</th><th>Arrival</th><th>Gate<br>Controller</th><th>Gate<br>Agent</th><th>Post<br>Dep.</th><th>สถานะ</th></tr>',
-      rbFltRows_(d.res, d.ll), rbCtrls_('view-flt', true));
+    var flts = slaCollectFlights_(d.res, d.ll).filter(function(f){ return !(f.noTime && f.fragment); });
+    var ok = flts.filter(function(f){ return f.ok && !f.noTime; }).length;
+    return '<div class="tablecard"><div class="tablecard__hd"><h3>✈️ ไฟลท์บินประจำวัน + เช็ค SLA <span class="tt-cnt">'+flts.length+' ไฟลท์ · '+ok+' ครบ</span></h3></div>' +
+      '<div style="padding:0 18px 16px">' + rbCtrls_('view-flt', true) + rbFltCards_(d.res, d.ll) + '</div></div>';
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_((e && (e.message || e.stack || e.toString())) || 'unknown') + '</div>'; }
 }
 
@@ -6361,6 +6427,37 @@ function rbFltRows_(res, ll) {
   }).join('');
 }
 
+/** Flights & SLA — การ์ดต่อไฟลท์ (ดีไซน์ AOTGA Manpower): แถบสายการบิน + เฟส SUP/CI/ARR/GATE จัด/ต้องการ */
+function rbFltCards_(res, ll) {
+  var flts = slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); });
+  var _m = function(t){ var x=String(t||'').match(/(\d{1,2})[:.](\d{2})/); return x?(+x[1]*60+ +x[2]):99999; };
+  flts.sort(function(a,b){ return _m(a.STD||a.STA)-_m(b.STD||b.STA); });
+  var cards = flts.map(function (f) {
+    try {
+      var a = f.assigned || {}, req = f.req || {};
+      var air = String(f.airline||'').toUpperCase();
+      var short = f.short || {};
+      function tile(lb, av, rv, ph){
+        var bad = short[ph] > 0;
+        return '<div class="fc-tile'+(bad?' fc-tile--bad':'')+'"><div class="fc-tile__l">'+lb+'</div>' +
+          '<div class="fc-tile__v tnum">'+(av||0)+'<span class="fc-tile__r">/'+(rv||0)+'</span></div></div>';
+      }
+      var stat = f.noTime ? '<span class="fc-pill fc-pill--warn">ขาด STA/STD</span>'
+               : (f.ok ? '<span class="fc-pill fc-pill--ok">✔ ครบ</span>'
+                       : '<span class="fc-pill fc-pill--bad">'+rbEsc_(typeof slaShortText_==='function'?slaShortText_(f):'ขาดคน')+'</span>');
+      var ac = f.AC ? '<span class="fc-ac">✈ '+rbEsc_(slaAcModel_(f.AC))+'</span>' : '';
+      var txt = (f.flight+' '+air+' '+(f.teamList||'')+' '+slaAirName_(air)).toLowerCase();
+      return '<div class="fltcard'+(f.ok&&!f.noTime?'':' fltcard--bad')+'" data-team="'+rbEsc_(f.teamList||'')+'" data-txt="'+rbEsc_(txt)+'">' +
+          '<div class="fltcard__air"><div class="fltcard__code">'+rbEsc_(air)+'</div><div class="fltcard__name">'+rbEsc_(slaAirName_(air))+'</div></div>' +
+          '<div class="fltcard__body"><div class="fltcard__top"><div><div class="fltcard__flt">'+rbEsc_(f.flight)+'</div>' +
+            '<div class="fltcard__time">STA '+rbEsc_(f.STA||'–')+' · STD '+rbEsc_(f.STD||'–')+' '+ac+'</div></div>'+stat+'</div>' +
+            '<div class="fltcard__tiles">'+tile('SUP',a.SUP,req.SUP,'SUP')+tile('Check-in',a.CI,req.CI,'CI')+tile('Arrival',a.ARR,req.ARR,'ARR')+tile('Gate',a.GATE,req.GATE,'GATE')+'</div>' +
+          '</div></div>';
+    } catch (ec) { return '<div class="fltcard fltcard--bad"><div class="fltcard__body">'+rbEsc_(f&&f.flight)+' — แสดงไม่ได้</div></div>'; }
+  }).join('');
+  return '<div class="fltgrid">' + cards + '</div>';
+}
+
 function rbTblCard_(title, headHtml, bodyHtml, extraHd) {
   return '<div class="tablecard"><div class="tablecard__hd"><h3>'+title+'</h3>'+(extraHd||'')+'</div>' +
     '<div style="overflow-x:auto"><table class="tbl"><thead>'+headHtml+'</thead><tbody>'+bodyHtml+'</tbody></table></div></div>';
@@ -6488,7 +6585,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function advExport(){var di=document.querySelector("#view-adv input[type=date]");var date=di?di.value:ISO;if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=document.getElementById("advexportmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์แจ้งทีม…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).advExportAssignment(date);}' +
     'function hm2m(s){var m=String(s).match(/(\\d{1,2}):(\\d{2})/);return m?(+m[1]*60+ +m[2]):null;}' +
     'function gapOverlap(raw,f,t){if(!raw)return false;return raw.split(",").some(function(seg){var p=seg.split("~");if(p.length<2)return false;var a=+p[0],b=+p[1];if(isNaN(a)||isNaN(b))return false;function ov(x,y){return x<t&&y>f;}a=((a%1440)+1440)%1440;b=((b%1440)+1440)%1440;if(b===0)b=1440;return a<=b?ov(a,b):(ov(a,1440)||ov(0,b));});}' +
-    'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");var gfrom=gf&&gf.value?hm2m(gf.value):null,gto=gt&&gt.value?hm2m(gt.value):null;var gOn=(gfrom!=null||gto!=null),gLo=gfrom!=null?gfrom:0,gHi=gto!=null?gto:1440,visN=0;[].forEach.call(v.querySelectorAll("tbody tr"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;var okG=!gOn||gapOverlap(r.getAttribute("data-gaps")||"",gLo,gHi);var show=okT&&okQ&&okG;if(show&&r.getAttribute("data-gaps")!=null&&r.cells.length>1)visN++;r.style.display=show?"":"none";});var gc=v.querySelector(".gapcount");if(gc)gc.textContent=gOn?("· พบ "+visN+" คนว่างช่วงนี้"):"";}' +
+    'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");var gfrom=gf&&gf.value?hm2m(gf.value):null,gto=gt&&gt.value?hm2m(gt.value):null;var gOn=(gfrom!=null||gto!=null),gLo=gfrom!=null?gfrom:0,gHi=gto!=null?gto:1440,visN=0;[].forEach.call(v.querySelectorAll("tbody tr, .fltcard"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;var okG=!gOn||gapOverlap(r.getAttribute("data-gaps")||"",gLo,gHi);var show=okT&&okQ&&okG;if(show&&r.getAttribute("data-gaps")!=null&&r.cells.length>1)visN++;r.style.display=show?"":"none";});var gc=v.querySelector(".gapcount");if(gc)gc.textContent=gOn?("· พบ "+visN+" คนว่างช่วงนี้"):"";}' +
     'function clearGap(viewId){var v=document.getElementById(viewId);if(!v)return;var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");if(gf)gf.value="";if(gt)gt.value="";applyFilter(viewId);}' +
     'function buildExpTeams(){[].forEach.call(document.querySelectorAll("select.expteam"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll(".supchip[data-pteam]"),function(c){var t=c.getAttribute("data-pteam");if(t)set[t]=1;});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function fillExport(){expRun("fill","apExportFill");}function autoExport(){expRun("auto","apExportAuto");}' +
@@ -6498,7 +6595,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function fillClearExtra(){window.__fillEx={};fillRerun();}' +
     'function fillRerun(){if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var v=document.getElementById("view-fill"),fcBy={};if(v)[].forEach.call(v.querySelectorAll(".fcpick"),function(s){fcBy[s.getAttribute("data-code")]=s.value;});document.getElementById("fillbox").innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ กำลังจัดคนเพิ่ม…</div>";google.script.run.withSuccessHandler(function(h){document.getElementById("fillbox").innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){document.getElementById("fillbox").innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbFillPlanHtml(ISO,JSON.stringify(fcBy),JSON.stringify(window.__fillEx||{}));}' +
     'function fcPick(view){var v=document.getElementById("view-"+view);if(!v||!(window.google&&google.script&&google.script.run))return;var fcBy={};[].forEach.call(v.querySelectorAll(".fcpick"),function(s){fcBy[s.getAttribute("data-code")]=s.value;});var box=view+"box",fn=view==="auto"?"rbAutoAssignHtml":"rbFillPlanHtml";var ex=view==="fill"?JSON.stringify(window.__fillEx||{}):"";document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ จัดใหม่ตาม Flight Controller…</div>";google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){document.getElementById(box).innerHTML="<div class=\\"panel\\">"+e.message+"</div>";})[fn](ISO,JSON.stringify(fcBy),ex);}' +
-    'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
+    'function buildTeamSels(){[].forEach.call(document.querySelectorAll("select.teamsel"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll("tbody tr[data-team], .fltcard[data-team]"),function(r){(r.getAttribute("data-team")||"").split(",").forEach(function(t){t=t.trim();if(t)set[t]=1;});});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function supGrpVis(w){[].forEach.call(w.querySelectorAll(".supgrp"),function(g){var any=[].some.call(g.querySelectorAll(".supchip"),function(c){return c.style.display!=="none";});g.style.display=any?"":"none";});}' +
     'function applySupFilter(){var on={},anyOff=false;[].forEach.call(document.querySelectorAll("#view-sup .supteam:not(.supall)"),function(b){if(b.classList.contains("on"))on[b.getAttribute("data-t")]=1;else anyOff=true;});' +
     '[].forEach.call(document.querySelectorAll("#view-sup .supwrap"),function(w){var chips=[].slice.call(w.querySelectorAll(".supchip"));' +
@@ -6948,6 +7045,35 @@ body {
 #view-tt .tbl td:nth-child(6) .tag { background: #236192; color: #fff; border: 0; font-weight: 700; padding: 2px 9px; border-radius: 8px; letter-spacing: .2px; }
 #view-tt .chip { border-radius: 8px; padding: 4px 9px; }
 #view-tt .chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
+
+/* ── AOTGA Manpower — Flights & SLA card grid (Phase 3), scoped to #view-flt ── */
+.fltgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
+.fltcard { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 15px; overflow: hidden;
+  box-shadow: 0 1px 2px rgba(20,40,80,.05); transition: box-shadow .14s, transform .14s; }
+.fltcard:hover { box-shadow: 0 8px 20px rgba(21,35,63,.12); transform: translateY(-2px); }
+.fltcard--bad { border-color: #f0cec9; }
+.fltcard__air { width: 84px; flex: 0 0 auto; background: linear-gradient(118deg,#16315f,#1D428A 55%,#236192);
+  color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 4px; text-align: center; }
+.fltcard__code { font-size: 21px; font-weight: 800; letter-spacing: 1px; }
+.fltcard__name { font-size: 8px; color: rgba(255,255,255,.78); margin-top: 3px; font-weight: 500; line-height: 1.25; }
+.fltcard__body { flex: 1; padding: 12px 15px 13px; min-width: 0; }
+.fltcard__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
+.fltcard__flt { font-size: 18px; font-weight: 800; color: #15233f; letter-spacing: .5px; }
+.fltcard__time { font-size: 11px; color: #93a1b8; margin-top: 2px; }
+.fc-ac { color: var(--royal); font-weight: 600; }
+.fc-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+.fc-pill--ok { background: #e4f4ec; color: #1a8f63; }
+.fc-pill--bad { background: #fbe6e3; color: #c0392b; }
+.fc-pill--warn { background: #fbf0dc; color: #b07d17; }
+.fltcard__tiles { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; }
+.fc-tile { text-align: center; background: #e9f0f9; border-radius: 9px; padding: 7px 3px; }
+.fc-tile--bad { background: #fbe6e3; }
+.fc-tile__l { font-size: 9px; font-weight: 700; color: #93a1b8; text-transform: uppercase; letter-spacing: .3px; }
+.fc-tile--bad .fc-tile__l { color: #c96a5e; }
+.fc-tile__v { font-size: 15px; font-weight: 800; color: #15233f; margin-top: 2px; }
+.fc-tile--bad .fc-tile__v { color: #c0392b; }
+.fc-tile__r { font-size: 11px; font-weight: 600; color: #93a1b8; }
+@media (max-width: 560px){ .fltgrid { grid-template-columns: 1fr; } }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
 .ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }
