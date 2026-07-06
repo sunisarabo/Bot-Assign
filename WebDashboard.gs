@@ -143,7 +143,7 @@ function rbTimetableHtml(iso) {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var P = d.res.totals, L = d.ll && d.ll.totals.staff>0 ? d.ll.totals : null;
     var onDuty = (P.working+P.ot_off) + (L?(L.working+L.ot_off):0);
-    return rbTblCard_('🕓 ตารางงานรายคน <span class="tt-cnt">' + onDuty + ' คนปฏิบัติงาน</span>',
+    return '<style>' + rbVIEW_CSS_ + '</style>' + rbTblCard_('🕓 ตารางงานรายคน <span class="tt-cnt">' + onDuty + ' คนปฏิบัติงาน</span>',
       '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
       rbTtRows_(d.res, d.ll),
       rbCtrls_('view-tt', true));
@@ -155,7 +155,8 @@ function rbFlightsHtml(iso) {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var flts = slaCollectFlights_(d.res, d.ll).filter(function(f){ return !(f.noTime && f.fragment); });
     var ok = flts.filter(function(f){ return f.ok && !f.noTime; }).length;
-    return '<div class="tablecard"><div class="tablecard__hd"><h3>✈️ ไฟลท์บินประจำวัน + เช็ค SLA <span class="tt-cnt">'+flts.length+' ไฟลท์ · '+ok+' ครบ</span></h3></div>' +
+    return '<style>' + rbVIEW_CSS_ + '</style>' +
+      '<div class="tablecard"><div class="tablecard__hd"><h3>✈️ ไฟลท์บินประจำวัน + เช็ค SLA <span class="tt-cnt">'+flts.length+' ไฟลท์ · '+ok+' ครบ</span></h3></div>' +
       '<div style="padding:0 18px 16px">' + rbCtrls_('view-flt', true) + rbFltCards_(d.res, d.ll) + '</div></div>';
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_((e && (e.message || e.stack || e.toString())) || 'unknown') + '</div>'; }
 }
@@ -964,7 +965,55 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '</script>' + otDashScript_() + '</body></html>';   // สคริปต์ OT (วาดตารางรายเดือน/สัปดาห์) — แท็บกราฟสรุปฝัง iframe lazy
 }
 
-function rbDesignCss_() { return rbDESIGN_CSS_; }
+var rbVIEW_CSS_ = `
+/* ── AOTGA Manpower — Timetable (Phase 2) restyle, scoped to #view-tt ── */
+.tt-cnt { font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-radius: 20px; padding: 3px 11px; }
+#view-tt .tbl { font-size: 13px; }
+#view-tt .tbl th, #view-tt .tbl td { text-align: left; }                         /* ตารางรายคน = ชิดซ้ายอ่านง่าย */
+#view-tt .tbl th:nth-child(7), #view-tt .tbl td:nth-child(7) { text-align: right; } /* # count */
+#view-tt .tbl thead th { color: #93a1b8; background: #f7f9fd; }
+#view-tt .tbl td { padding: 10px 12px; border-bottom: 1px solid #eef2f8; color: #5a6b86; }
+#view-tt .tbl td:nth-child(1) { font-weight: 700; color: var(--royal); }          /* ทีม */
+#view-tt .tbl td:nth-child(3) { font-weight: 600; color: #15233f; }               /* ชื่อ */
+#view-tt .tbl tbody tr:hover td { background: #f5f8fd; }
+#view-tt .tbl tbody tr.row-off:hover td,
+#view-tt .tbl tbody tr.row-sl:hover td,
+#view-tt .tbl tbody tr.row-vac:hover td { filter: brightness(.98); }
+/* OT type badge → solid AOT pill (ก่อน/หลัง/OFF) */
+#view-tt .tbl td:nth-child(6) .tag { background: #236192; color: #fff; border: 0; font-weight: 700; padding: 2px 9px; border-radius: 8px; letter-spacing: .2px; }
+#view-tt .chip { border-radius: 8px; padding: 4px 9px; }
+#view-tt .chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
+
+/* ── AOTGA Manpower — Flights & SLA card grid (Phase 3), scoped to #view-flt ── */
+.fltgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
+.fltcard { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 15px; overflow: hidden;
+  box-shadow: 0 1px 2px rgba(20,40,80,.05); transition: box-shadow .14s, transform .14s; }
+.fltcard:hover { box-shadow: 0 8px 20px rgba(21,35,63,.12); transform: translateY(-2px); }
+.fltcard--bad { border-color: #f0cec9; }
+.fltcard__air { width: 84px; flex: 0 0 auto; background: linear-gradient(118deg,#16315f,#1D428A 55%,#236192);
+  color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 4px; text-align: center; }
+.fltcard__code { font-size: 21px; font-weight: 800; letter-spacing: 1px; }
+.fltcard__name { font-size: 8px; color: rgba(255,255,255,.78); margin-top: 3px; font-weight: 500; line-height: 1.25; }
+.fltcard__body { flex: 1; padding: 12px 15px 13px; min-width: 0; }
+.fltcard__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
+.fltcard__flt { font-size: 18px; font-weight: 800; color: #15233f; letter-spacing: .5px; }
+.fltcard__time { font-size: 11px; color: #93a1b8; margin-top: 2px; }
+.fc-ac { color: var(--royal); font-weight: 600; }
+.fc-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
+.fc-pill--ok { background: #e4f4ec; color: #1a8f63; }
+.fc-pill--bad { background: #fbe6e3; color: #c0392b; }
+.fc-pill--warn { background: #fbf0dc; color: #b07d17; }
+.fltcard__tiles { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; }
+.fc-tile { text-align: center; background: #e9f0f9; border-radius: 9px; padding: 7px 3px; }
+.fc-tile--bad { background: #fbe6e3; }
+.fc-tile__l { font-size: 9px; font-weight: 700; color: #93a1b8; text-transform: uppercase; letter-spacing: .3px; }
+.fc-tile--bad .fc-tile__l { color: #c96a5e; }
+.fc-tile__v { font-size: 15px; font-weight: 800; color: #15233f; margin-top: 2px; }
+.fc-tile--bad .fc-tile__v { color: #c0392b; }
+.fc-tile__r { font-size: 11px; font-weight: 600; color: #93a1b8; }
+@media (max-width: 560px){ .fltgrid { grid-template-columns: 1fr; } }
+`;
+function rbDesignCss_() { return rbDESIGN_CSS_ + rbVIEW_CSS_; }
 var rbDESIGN_CSS_ = `/* ============================================================================
  * AOTGA Daily Manpower Dashboard — design system
  * Aviation operations aesthetic on the AOTGA corporate identity.
@@ -1364,52 +1413,7 @@ body {
 .tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
 .tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
 
-/* ── AOTGA Manpower — Timetable (Phase 2) restyle, scoped to #view-tt ── */
-.tt-cnt { font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-radius: 20px; padding: 3px 11px; }
-#view-tt .tbl { font-size: 13px; }
-#view-tt .tbl th, #view-tt .tbl td { text-align: left; }                         /* ตารางรายคน = ชิดซ้ายอ่านง่าย */
-#view-tt .tbl th:nth-child(7), #view-tt .tbl td:nth-child(7) { text-align: right; } /* # count */
-#view-tt .tbl thead th { color: #93a1b8; background: #f7f9fd; }
-#view-tt .tbl td { padding: 10px 12px; border-bottom: 1px solid #eef2f8; color: #5a6b86; }
-#view-tt .tbl td:nth-child(1) { font-weight: 700; color: var(--royal); }          /* ทีม */
-#view-tt .tbl td:nth-child(3) { font-weight: 600; color: #15233f; }               /* ชื่อ */
-#view-tt .tbl tbody tr:hover td { background: #f5f8fd; }
-#view-tt .tbl tbody tr.row-off:hover td,
-#view-tt .tbl tbody tr.row-sl:hover td,
-#view-tt .tbl tbody tr.row-vac:hover td { filter: brightness(.98); }
-/* OT type badge → solid AOT pill (ก่อน/หลัง/OFF) */
-#view-tt .tbl td:nth-child(6) .tag { background: #236192; color: #fff; border: 0; font-weight: 700; padding: 2px 9px; border-radius: 8px; letter-spacing: .2px; }
-#view-tt .chip { border-radius: 8px; padding: 4px 9px; }
-#view-tt .chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
-
-/* ── AOTGA Manpower — Flights & SLA card grid (Phase 3), scoped to #view-flt ── */
-.fltgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; margin-top: 12px; }
-.fltcard { display: flex; background: var(--card); border: 1px solid var(--line); border-radius: 15px; overflow: hidden;
-  box-shadow: 0 1px 2px rgba(20,40,80,.05); transition: box-shadow .14s, transform .14s; }
-.fltcard:hover { box-shadow: 0 8px 20px rgba(21,35,63,.12); transform: translateY(-2px); }
-.fltcard--bad { border-color: #f0cec9; }
-.fltcard__air { width: 84px; flex: 0 0 auto; background: linear-gradient(118deg,#16315f,#1D428A 55%,#236192);
-  color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 10px 4px; text-align: center; }
-.fltcard__code { font-size: 21px; font-weight: 800; letter-spacing: 1px; }
-.fltcard__name { font-size: 8px; color: rgba(255,255,255,.78); margin-top: 3px; font-weight: 500; line-height: 1.25; }
-.fltcard__body { flex: 1; padding: 12px 15px 13px; min-width: 0; }
-.fltcard__top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 11px; }
-.fltcard__flt { font-size: 18px; font-weight: 800; color: #15233f; letter-spacing: .5px; }
-.fltcard__time { font-size: 11px; color: #93a1b8; margin-top: 2px; }
-.fc-ac { color: var(--royal); font-weight: 600; }
-.fc-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
-.fc-pill--ok { background: #e4f4ec; color: #1a8f63; }
-.fc-pill--bad { background: #fbe6e3; color: #c0392b; }
-.fc-pill--warn { background: #fbf0dc; color: #b07d17; }
-.fltcard__tiles { display: grid; grid-template-columns: repeat(4,1fr); gap: 7px; }
-.fc-tile { text-align: center; background: #e9f0f9; border-radius: 9px; padding: 7px 3px; }
-.fc-tile--bad { background: #fbe6e3; }
-.fc-tile__l { font-size: 9px; font-weight: 700; color: #93a1b8; text-transform: uppercase; letter-spacing: .3px; }
-.fc-tile--bad .fc-tile__l { color: #c96a5e; }
-.fc-tile__v { font-size: 15px; font-weight: 800; color: #15233f; margin-top: 2px; }
-.fc-tile--bad .fc-tile__v { color: #c0392b; }
-.fc-tile__r { font-size: 11px; font-weight: 600; color: #93a1b8; }
-@media (max-width: 560px){ .fltgrid { grid-template-columns: 1fr; } }
+/* AOTGA Manpower Phase 2/3 component CSS moved to rbVIEW_CSS_ (also embedded in lazy views) */
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
 .ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }
