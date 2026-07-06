@@ -250,6 +250,50 @@ var SLA_RQ = {
   'W5':[1,7,2,1,12], 'WK':[1,6,2,1,11], 'WY':[1,7,1,1,11], 'WZ':[1,6,1,1,10], 'ZF':[1,6,1,1,10], 'ZH':[1,4,1,1,8],
 };
 
+// ── SLA ตามชนิดเครื่อง (บางสายต่างกันตามลำ เช่น TR A320=8, B787=10) — จากไฟล์ SLA_Systems_Airlines_2 ──
+// [acString, CI, ARR, GATE(GM), Total] · จับคู่กับ "A/C TYPE" ที่กรอกในชีต · ไม่ตรง → ใช้ SLA_RQ (ลำใหญ่สุด) เหมือนเดิม
+var SLA_AC = {
+  'QR':[['B777',11,3,1,17],['B787',9,2,1,14]],
+  'EY':[['B787-9',6,1,1,11],['B787-10',7,1,1,12],['A321Neo',5,1,1,11]],
+  'KE':[['A333/B772/B787',7,1,1,10],['B773',8,1,1,11]],
+  'SU':[['B777',8,1,1,12],['A333',7,1,1,11],['B737/A320/A321Neo',4,1,1,8]],
+  'TR':[['A320',3,1,1,8],['A321',4,1,1,9],['B787',5,1,1,10]],
+  'JQ':[['B787',7,1,1,10],['A321Neo',5,1,1,8]],
+  'AK':[['A320',3,1,1,7],['A321',4,1,1,8]],
+  'QZ':[['A320',3,1,1,7],['A321',4,1,1,8]],
+  'PG':[['A319/320',0,1,2,8],['ATR',0,1,1,6]],
+  'CX':[['A330',6,2,1,11],['A321NEO',5,2,1,10]],
+  'KC':[['A320',4,1,1,8],['B737',5,1,1,9]],
+  '6E':[['A321',5,1,1,9],['A320',4,1,1,8]],
+  'CA':[['A320/B737',4,1,1,8],['A330',6,1,1,10]],
+  'CZ':[['A321',4,1,1,8],['A330',6,1,1,10]],
+  'HU':[['B737',4,1,1,8],['A330',6,1,1,10]],
+  'SV':[['B789',6,2,1,11],['B78X',7,2,1,12]],
+  'VN':[['A320/A321',5,1,1,8],['B787/A350',7,1,1,10]],
+};
+/** ดึงรุ่นเครื่องหลักจากข้อความ (ตัด config หลัง " - " และวงเล็บ เช่น "B789(P) - 24C/254Y" → "B789") */
+function slaAcModel_(s){ return String(s||'').toUpperCase().replace(/\([^)]*\)/g,'').split(/\s+-\s+/)[0].replace(/\s+/g,''); }
+/** แตกรุ่นเครื่องเป็น token (คั่น /) เติมตัวอักษรนำให้เลขลอย เช่น "A319/320" → [A319,A320]
+ *  · fam=true เพิ่ม alias ตระกูล 787 (B788/B789/B78X → B787) — ใช้เป็น pass สำรองเท่านั้น */
+function slaAcToks_(s, fam){
+  var raw=slaAcModel_(s).split('/'), out=[], last='';
+  raw.forEach(function(x){ x=x.replace(/NEO$/,''); var m=x.match(/^([AB])?(\d.*)$/);
+    if(m){ var L=m[1]||last; if(m[1]) last=m[1]; var tok=L+m[2]; out.push(tok);
+      if(fam && /^B78[0-9X]$/.test(tok)) out.push('B787'); }
+    else if(x) out.push(x); });
+  return out;
+}
+/** เลือกแถว SLA ที่ตรงชนิดเครื่อง — pass 1 ตรง/prefix ก่อน, pass 2 ค่อยรวมตระกูล 787 (กันชนกับ B789/B78X ที่แยกกันจริง) */
+function slaAcPick_(rows, acType){ return slaAcPick1_(rows, acType, false) || slaAcPick1_(rows, acType, true); }
+function slaAcPick1_(rows, acType, fam){
+  var q=slaAcToks_(acType, fam); if(!q.length) return null;
+  for(var i=0;i<rows.length;i++){ var f=slaAcToks_(rows[i][0], fam);
+    for(var a=0;a<q.length;a++) for(var b=0;b<f.length;b++){ var Q=q[a],F=f[b];
+      if(Q&&F&&(Q===F||Q.indexOf(F)===0||F.indexOf(Q)===0)) return rows[i]; } }
+  return null;
+}
+
+
 // ── Airline → check-in SYSTEM (ตารางทางการ) ─────────────────────────────────
 var AIRLINE_SYS = {
   '3K':'Gonow', '3U':'Angel Lite', '6B':'iPort', '6E':'Gonow', '8H':'TravelSky', '8L':'TravelSky', '8M':'iPort',
@@ -317,8 +361,13 @@ function slaFlightKey_(raw) {
   return m ? (air + String(parseInt(m[0], 10))) : s.replace(/[\s.\/]+/g, '');
 }
 /** required headcount per phase for an airline — ใช้ SLA_RQ (Manpower) ก่อน, ไม่งั้น roles */
-function slaReq_(airline) {
+function slaReq_(airline, acType) {
   var c = String(airline || '').toUpperCase();
+  // ถ้ากรอกชนิดเครื่องในชีต + สายนี้ SLA ต่างตามลำ → เลือกแถวที่ตรงเครื่อง (เช่น TR A320=8, B787=10)
+  if (acType && SLA_AC[c]) {
+    var pk = slaAcPick_(SLA_AC[c], acType);
+    if (pk) return { SUP: 1, CI: pk[1], ARR: pk[2], GATE: pk[3], total: pk[4], ac: pk[0] };
+  }
   var rq = SLA_RQ[c] || (SLA_ALIAS[c] && SLA_RQ[SLA_ALIAS[c]]);
   if (rq) return { SUP: 1, CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   var db = slaGet_(airline);
@@ -404,13 +453,14 @@ function slaCollectFlights_(res, ll) {
       if (!acIsFlight_(raw)) return;                         // เคาน์เตอร์/พูล (Counter Gx ของ SU, LP MORNING/AFTERNOON, งานอื่นๆ) ไม่ใช่ไฟลท์ → ไม่วัด SLA
       if (!flights[key]) {
         flights[key] = { flight: raw, airline: slaAirlineOf_(key), teams: {},
-          STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '',
+          STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '', AC: a.AC || '',
           assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
       }
       var f = flights[key];
       f.teams[team] = true;
       if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD;
       if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL;
+      if (!f.AC && a.AC) f.AC = a.AC;
       if (/\bTF\b|T\s*\/\s*S|TRANSFER/i.test(String(a.task || ''))) f.hasTransfer = true;   // มีคน tag transfer (T/S) → อาจต้อง +agent
       var phs = slaPhasesOf_(a.task);
       if (!phs.length) { f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: 'TRAIN' }); return; }   // ไปเทรน → แสดงได้ แต่ไม่นับเป็นคนคุมไฟลท์
@@ -460,7 +510,7 @@ function slaCollectFlights_(res, ll) {
   // compute requirement + shortages per flight
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
-    f.req = slaReq_(f.airline);
+    f.req = slaReq_(f.airline, f.AC);
     var home = homeTeamOf(f.airline);                         // ทีมเจ้าของสายการบิน (ประกาศก่อนใช้เครดิต check-in รวม)
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
     var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;

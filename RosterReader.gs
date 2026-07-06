@@ -379,6 +379,12 @@ function rrParseStandard_(rows, team, meta) {
       }
     }
     var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
+    // หาแถว "A/C TYPE - CFG" (บางทีมเพิ่มมาระบุชนิดเครื่อง → เลือก SLA ตามเครื่องจริง เช่น TR A320=8, B787=10)
+    var acRow = null;
+    for (var ar = hi + 1; ar <= hi + 5 && ar < rows.length; ar++) {
+      var albl = (cm.flt - 1 >= 0 && cm.flt - 1 < (rows[ar] || []).length) ? rrClean_(rows[ar][cm.flt - 1]) : '';
+      if (/A\/?C\s*TYPE|AIRCRAFT/i.test(albl)) { acRow = rows[ar]; break; }
+    }
     for (var fi = 0; fi < fltcols.length; fi++) {
       var c0 = fltcols[fi].col;
       var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
@@ -398,7 +404,9 @@ function rrParseStandard_(rows, team, meta) {
       if (!stdV && posS.length) stdV = posS.shift();
       if (!opV && posO.length) opV = posO.shift();
       if (!clV && posO.length) clV = posO.shift();
-      flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV };
+      var acV = '';
+      if (acRow) { for (var ac = c0; ac < c1; ac++) { var av = rrClean_(acRow[ac]); if (av) { acV = av; break; } } }
+      flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV, AC: acV };
     }
     fltcols = fltcols.filter(function (f) { return !f.cancelled; });   // ตัดไฟลท์ที่ยกเลิกออก (ไม่บันทึก assignment)
   }
@@ -464,7 +472,7 @@ function rrParseStandard_(rows, team, meta) {
           codes.forEach(function (a) { assigns.push(a); });
         } else {
           assigns.push({ flight: fc.name, task: tasks.join('/'),
-                         STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl });
+                         STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl, AC: info.AC || '' });
           // common check-in (SU): โค้ดเคาน์เตอร์ที่ระบุเลขไฟลท์ เช่น "FC661" = FC ของ SU661
           // → เพิ่ม assignment ไฟลท์ของทีม (เฉพาะทีมที่ชื่อเป็นรหัสสายการบิน 2 ตัว)
           if (/^[A-Z]{2}$/.test(String(team).toUpperCase()) && !acIsFlight_(fc.name)) {

@@ -733,14 +733,17 @@ function rbFltRows_(res, ll) {
       var R = slaRoles_(f.airline) || {};
       var asg = f.assigned || {}, req = f.req || {};
       function rc(n){ return '<td class="tnum">'+(n||0)+'</td>'; }
+      // ตัวเลขที่ต่างตามชนิดเครื่อง (CI/ARR/Gate/รวม) ใช้ตาม req ที่จับเครื่องแล้ว · FC/GA/post คงจาก roles
+      var sCI=(req.CI!=null?req.CI:R.CI), sARR=(req.ARR!=null?req.ARR:R.ARR), sGM=(req.GATE!=null?req.GATE:R.GM), sTot=(req.total||R.total||0);
+      var acTag = f.AC ? ('<br><span class="muted" style="font-size:11px">✈ '+rbEsc_(slaAcModel_(f.AC))+(req.ac?'':' ·SLA ลำใหญ่')+'</span>') : '';
       var RDLB={CI:'เช็คอิน',GATE:'เกท',ARR:'ขาเข้า'};
       var st = f.noTime ? '<span class="badd">⚠️ ขาด STA/STD — เติมเวลาในชีต</span>'
              : (f.ok ? ('<span class="okk">✅ ครบ</span>'+(f.redist&&f.redist.length?' <span class="muted">· คนพอ จัด '+f.redist.map(function(p){return RDLB[p]||p;}).join('/')+' จากคนที่มี</span>':''))
                      : '<span class="badd">⚠️ '+rbEsc_(slaShortText_(f))+'</span>');
       if (f.hasTransfer) st += ' <span class="tag">🔄 มี T/S — อาจ +1/+2 agent</span>';
-      return '<tr class="'+(f.ok&&!f.noTime?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+'</td><td>'+rbEsc_(f.airline)+'</td><td>'+rbEsc_(f.teamList)+
-        '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+(asg.total||0)+'</b>/'+(R.total||req.total||0)+'</td>'+
-        rc(R.SUP)+rc(R.FC)+rc(R.CI)+rc(R.ARR)+rc(R.GM)+rc(R.GA)+rc(R.post)+'<td>'+st+'</td></tr>';
+      return '<tr class="'+(f.ok&&!f.noTime?'':'rowbad')+'" data-team="'+rbEsc_(f.teamList)+'"><td class="b">'+rbEsc_(f.flight)+acTag+'</td><td>'+rbEsc_(f.airline)+'</td><td>'+rbEsc_(f.teamList)+
+        '</td><td class="tnum">'+(f.STA||'')+'</td><td class="tnum">'+(f.STD||'')+'</td><td class="tnum"><b>'+(asg.total||0)+'</b>/'+sTot+'</td>'+
+        rc(req.SUP||R.SUP)+rc(R.FC)+rc(sCI)+rc(sARR)+rc(sGM)+rc(R.GA)+rc(R.post)+'<td>'+st+'</td></tr>';
     } catch (eRow) { return '<tr class="rowbad"><td class="b">'+rbEsc_(f && f.flight)+'</td><td colspan="13" class="muted">แสดงไม่ได้: '+rbEsc_(eRow && eRow.message)+'</td></tr>'; }
   }).join('');
 }
