@@ -646,24 +646,36 @@ function rbWeeklyOTHtml(iso) {
 }
 
 // ── KPI hero ────────────────────────────────────────────────────────────────
-function rbKpiHero_(C, master) {
+function rbKpiHero_(C, master, shortCount, fltTotal, urgent) {
   var attPct = C.staff>0 ? Math.round((C.working)/C.staff*100) : 0;
   var avg = C.otPeople>0 ? Math.round(C.otHours/C.otPeople*10)/10 : 0;
-  var defs = [
-    ['👥', CI.royal, C.staff, '', 'Total Staff', 'พนักงานทั้งหมด', master ? ('+'+(master.PSA.total+master.LL.total)+' active') : ''],
-    ['✅', CI.good, C.working, '', 'Working', 'มาปฏิบัติงาน', attPct+'% attendance'],
-    ['⬛', CI.grey, C.off, '', 'OFF', 'วันหยุด', ''],
-    ['🟡', CI.yellow, C.ot_off, '', 'OT OFF (XX)', 'ทำ OT วันหยุด', C.otOffHrs+'h'],
-    ['⏰', CI.red, C.otPeople, '', 'OT · People', 'พนักงานทำ OT', 'รวมทั้งกะ'],
-    ['⏱️', CI.bosch, C.otHours, 'h', 'OT · Hours', 'ชั่วโมง OT รวม', avg+'h เฉลี่ย/คน'],
-  ];
-  return '<div class="kpis rise">' + defs.map(function (d) {
-    return '<div class="kpi" style="--c:' + d[1] + '"><div class="kpi__top">' +
-      '<div class="kpi__ico" style="--c:' + d[1] + '">' + d[0] + '</div>' +
-      (d[6] ? '<div class="kpi__trend">' + rbEsc_(d[6]) + '</div>' : '') + '</div>' +
-      '<div class="kpi__val tnum">' + d[2] + (d[3]||'') + '</div>' +
-      '<div class="kpi__lbl">' + d[4] + '</div><div class="kpi__sub">' + d[5] + '</div></div>';
-  }).join('') + '</div>';
+  var okFlt = Math.max(0, (fltTotal||0) - (shortCount||0));
+  function chip(cl, lb, n){ return '<span class="hchip"><i style="background:'+cl+'"></i>'+lb+' <b class="tnum">'+n+'</b></span>'; }
+  // ── Hero: attendance donut + working/total + OFF/OT-OFF/Sick chips (AOT gradient) ──
+  var hero = '<div class="hero rise">' +
+      '<div class="hero__ring" style="background:conic-gradient('+CI.sky+' 0 '+attPct+'%,rgba(255,255,255,.16) '+attPct+'% 100%)">' +
+        '<div class="hero__ring-in"><div class="hero__pct tnum">'+attPct+'%</div><div class="hero__pctl">Attendance</div></div></div>' +
+      '<div class="hero__main">' +
+        '<div class="hero__lbl">มาปฏิบัติงานวันนี้'+(master?(' · Active '+(master.PSA.total+master.LL.total)):'')+'</div>' +
+        '<div class="hero__big"><span class="tnum">'+C.working+'</span><span class="hero__tot"> / '+C.staff+'</span></div>' +
+        '<div class="hero__chips">'+chip('#8fa6c4','OFF',C.off)+chip(CI.yellow,'OT OFF',C.ot_off)+chip(CI.red,'Sick',C.sick)+(C.leave?chip('#5ea9e6','Vac',C.leave):'')+'</div>' +
+      '</div>' +
+      '<div class="hero__kpis">' +
+        '<div class="hkpi"><div class="hkpi__n tnum">'+C.otPeople+'</div><div class="hkpi__l">OT · People</div><div class="hkpi__s">คนทำ OT วันนี้</div></div>' +
+        '<div class="hkpi"><div class="hkpi__n tnum">'+C.otHours+'<span class="hkpi__u">h</span></div><div class="hkpi__l">OT · Hours</div><div class="hkpi__s">เฉลี่ย '+avg+'h / คน</div></div>' +
+        '<div class="hkpi"><div class="hkpi__n tnum" style="color:'+(shortCount>0?'#ffd0cb':'#bff0da')+'">'+(shortCount||0)+'</div><div class="hkpi__l">ไฟลท์ขาดคน</div><div class="hkpi__s">ต่ำกว่า SLA</div></div>' +
+        '<div class="hkpi"><div class="hkpi__n tnum">'+(fltTotal||0)+'</div><div class="hkpi__l">ไฟลท์วันนี้</div><div class="hkpi__s">'+okFlt+' ครบ SLA</div></div>' +
+      '</div></div>';
+  // ── Urgent flights strip (top short flights) ──
+  var urg = '';
+  if (urgent && urgent.length) {
+    urg = '<div class="urgent rise"><div class="urgent__hd"><h3>🚨 ไฟลท์ต้องเสริมด่วน</h3><button class="urgent__all" onclick="showView(\'flt\');loadFlt()">ดูทั้งหมด '+shortCount+' ไฟลท์ →</button></div>' +
+      '<div class="urgent__list">' + urgent.slice(0,4).map(function(u){
+        return '<div class="ufl"><div class="ufl__l"><div class="ufl__flt">'+rbEsc_(u.flt)+'</div><div class="ufl__std">STD '+rbEsc_(u.std||'—')+' · '+rbEsc_(u.team||'')+'</div></div>' +
+          '<div class="ufl__x">'+rbEsc_(u.txt||'ขาดคน')+'</div></div>';
+      }).join('') + '</div></div>';
+  }
+  return hero + urg;
 }
 
 // ── table rows ──────────────────────────────────────────────────────────────
@@ -768,8 +780,14 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
   // สรุปจำนวนไฟลท์วันนี้
   var fltTotal = 0;
   try { fltTotal = slaCollectFlights_(res, ll).filter(function(f){ return !(f.noTime && f.fragment); }).length; } catch (efs) {}
-  var fltCard = '<div class="tablecard" style="margin-top:16px"><div class="fltkpis">' +
-    '<div class="fltkpi"><div class="fltkpi__n tnum">' + fltTotal + '</div><div class="fltkpi__l">✈️ ไฟลท์วันนี้</div></div></div></div>';
+  // ไฟลท์ที่ขาดคน (top ตามเวลา) → แถบ "ต้องเสริมด่วน" ในหน้า Dashboard
+  var urgent = [];
+  try {
+    var _m = function(t){ var x=String(t||'').match(/(\d{1,2})[:.](\d{2})/); return x?(+x[1]*60+ +x[2]):99999; };
+    urgent = slaCollectFlights_(res, ll).filter(function(f){ return !f.ok && !f.noTime; })
+      .sort(function(a,b){ return _m(a.STD||a.STA)-_m(b.STD||b.STA); })
+      .map(function(f){ return { flt:f.flight, std:f.STD||f.STA||'', team:(f.teamList||'').replace(/,$/,''), txt:(typeof slaShortText_==='function'?slaShortText_(f):'ขาดคน') }; });
+  } catch (eu) {}
 
   var cd = { tn:teamOrder, tw:teamOrder.map(function(t){return res.teams[t].working+res.teams[t].ot_off;}),
     tt:teamOrder.map(function(t){return res.teams[t].staff;}), work:C.working, off:C.off, sick:C.sick, leave:C.leave,
@@ -820,7 +838,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<style>' + rbDesignCss_() + otDashCss_() + '</style></head><body><div class="wrap">' +
     rbAppbar_(date) + rbWeekNav_(date, iso, base, tz) + rbTabs_(shortCount, acCount) +
     '<div id="view-dash">' +
-    holBanner + rbKpiHero_(C, master) + masterLine + fltCard +
+    holBanner + rbKpiHero_(C, master, shortCount, fltTotal, urgent) + masterLine +
     '<div class="grid grid--charts" style="margin-top:16px">' +
       '<div class="panel"><div class="panel__hd"><h3>📊 Working / Total ต่อทีม</h3></div><canvas id="c1" height="150"></canvas></div>' +
       '<div class="panel"><div class="panel__hd"><h3>🧭 ภาพรวมสถานะ</h3></div><canvas id="c2" height="150"></canvas></div></div>' +
@@ -1123,6 +1141,45 @@ body {
 .kpi__val small { font-size: 15px; font-weight: 600; color: var(--ink-3); margin-left: 2px; }
 .kpi__lbl { font-size: 12.5px; color: var(--ink-2); font-weight: 500; margin-top: 5px; }
 .kpi__sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+
+/* ── AOTGA Manpower — Dashboard hero (attendance donut + KPI tiles) ── */
+.hero { display: flex; align-items: center; gap: 26px; flex-wrap: wrap;
+  background: linear-gradient(118deg,#16315f,#1D428A 55%,#236192); border-radius: 16px;
+  padding: 20px 24px; color: #fff; margin-bottom: 16px; box-shadow: 0 10px 26px rgba(21,35,63,.22); }
+.hero__ring { width: 128px; height: 128px; border-radius: 50%; display: grid; place-items: center; flex: 0 0 auto; }
+.hero__ring-in { width: 92px; height: 92px; border-radius: 50%; background: #1a3a6e; display: flex;
+  flex-direction: column; align-items: center; justify-content: center; }
+.hero__pct { font-size: 30px; font-weight: 800; line-height: 1; }
+.hero__pctl { font-size: 10px; color: #cfe1f5; margin-top: 2px; }
+.hero__main { min-width: 160px; }
+.hero__lbl { font-size: 12px; color: #cfe1f5; font-weight: 300; margin-bottom: 6px; }
+.hero__big { font-size: 38px; font-weight: 800; line-height: 1; }
+.hero__tot { font-size: 17px; font-weight: 500; color: #cfe1f5; }
+.hero__chips { display: flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+.hchip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: #e6f0fb; font-weight: 500; }
+.hchip i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+.hchip b { font-weight: 800; }
+.hero__kpis { display: grid; grid-template-columns: repeat(4, minmax(96px,1fr)); gap: 12px; margin-left: auto; }
+.hkpi { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 12px 14px; }
+.hkpi__n { font-size: 26px; font-weight: 800; line-height: 1; }
+.hkpi__u { font-size: 14px; font-weight: 600; color: #cfe1f5; margin-left: 1px; }
+.hkpi__l { font-size: 12px; color: #eaf2fc; font-weight: 600; margin-top: 5px; }
+.hkpi__s { font-size: 10.5px; color: #b9cde6; margin-top: 1px; }
+
+/* urgent flights strip */
+.urgent { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
+.urgent__hd { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.urgent__hd h3 { font-size: 15px; font-weight: 700; color: var(--ink); margin: 0; }
+.urgent__all { border: 1px solid var(--line); background: var(--surface); color: var(--royal, #1D428A);
+  border-radius: 10px; padding: 6px 12px; font-size: 12.5px; font-weight: 700; cursor: pointer; font-family: inherit; }
+.urgent__all:hover { background: #eef3fa; }
+.urgent__list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px,1fr)); gap: 10px; }
+.ufl { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  border: 1px solid #f2d3cf; background: #fdf4f2; border-radius: 11px; padding: 10px 13px; }
+.ufl__flt { font-weight: 800; color: var(--ink); font-size: 14px; }
+.ufl__std { font-size: 11px; color: var(--ink-3); margin-top: 1px; }
+.ufl__x { font-size: 11.5px; font-weight: 700; color: #c0392b; text-align: right; }
+@media (max-width: 900px){ .hero__kpis { grid-template-columns: repeat(2,1fr); margin-left: 0; width: 100%; } }
 
 /* primary attendance band */
 .attband {
