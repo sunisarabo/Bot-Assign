@@ -5740,7 +5740,9 @@ function rbLogoDataUri_() {
 function rbTimetableHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    return rbTblCard_('🕓 Timetable · ตารางงานรายคน (เวลาเข้า-ออกกะ · OT · STA/STD)',
+    var P = d.res.totals, L = d.ll && d.ll.totals.staff>0 ? d.ll.totals : null;
+    var onDuty = (P.working+P.ot_off) + (L?(L.working+L.ot_off):0);
+    return rbTblCard_('🕓 ตารางงานรายคน <span class="tt-cnt">' + onDuty + ' คนปฏิบัติงาน</span>',
       '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
       rbTtRows_(d.res, d.ll),
       rbCtrls_('view-tt', true));
@@ -6928,6 +6930,24 @@ body {
 .tbl tbody tr.row-off td { background: #eceff1 !important; color: #7c878f; }
 .tbl tbody tr.row-sl  td { background: #f8d7da !important; color: #b3261e; font-weight: 600; }
 .tbl tbody tr.row-vac td { background: #fff3cd !important; color: #7a5b00; }
+
+/* ── AOTGA Manpower — Timetable (Phase 2) restyle, scoped to #view-tt ── */
+.tt-cnt { font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--bg-2); border-radius: 20px; padding: 3px 11px; }
+#view-tt .tbl { font-size: 13px; }
+#view-tt .tbl th, #view-tt .tbl td { text-align: left; }                         /* ตารางรายคน = ชิดซ้ายอ่านง่าย */
+#view-tt .tbl th:nth-child(7), #view-tt .tbl td:nth-child(7) { text-align: right; } /* # count */
+#view-tt .tbl thead th { color: #93a1b8; background: #f7f9fd; }
+#view-tt .tbl td { padding: 10px 12px; border-bottom: 1px solid #eef2f8; color: #5a6b86; }
+#view-tt .tbl td:nth-child(1) { font-weight: 700; color: var(--royal); }          /* ทีม */
+#view-tt .tbl td:nth-child(3) { font-weight: 600; color: #15233f; }               /* ชื่อ */
+#view-tt .tbl tbody tr:hover td { background: #f5f8fd; }
+#view-tt .tbl tbody tr.row-off:hover td,
+#view-tt .tbl tbody tr.row-sl:hover td,
+#view-tt .tbl tbody tr.row-vac:hover td { filter: brightness(.98); }
+/* OT type badge → solid AOT pill (ก่อน/หลัง/OFF) */
+#view-tt .tbl td:nth-child(6) .tag { background: #236192; color: #fff; border: 0; font-weight: 700; padding: 2px 9px; border-radius: 8px; letter-spacing: .2px; }
+#view-tt .chip { border-radius: 8px; padding: 4px 9px; }
+#view-tt .chip--sup { background: #fff3e0; color: #b45309; border-color: #f0a64a; }
 .chip.on { background: var(--brand); color: #fff; border-color: var(--brand); }
 
 .ttgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 13px; }
