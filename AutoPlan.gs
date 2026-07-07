@@ -219,6 +219,7 @@ function apFillGaps_(res, ll, fcByCode, extraReq) {
   var rows = [];
   flights.filter(function (f) {                                          // แสดงไฟลท์ไม่มีเวลาด้วย (ไม่ให้หายจากตาราง) · window=null จัดตามทีมได้
     if (!acIsFlight_(f.flight)) return false;
+    if (f.noTime && f.fragment) return false;                           // ตัดเศษขา (ขาที่สองซ้ำ เช่น CX770/SQ727) — ไม่เอามารกในตารางเติมคน
     return !f.ok || !!extraReq[f.flight];                                // ไฟลท์ครบ SLA แต่ขอคนพิเศษ → แสดงด้วย
   }).forEach(function (f) {
     var ex = excl[f.flight] || {};
@@ -261,7 +262,7 @@ function apReplan_(res, ll, fcByCode) {
   var commons = apRunCommons_(pool, flights, true, fcByCode);             // SU/SQ เคาน์เตอร์รวม + เกท (ล็อกเวลาคนก่อน)
   var excl = apCommonExcl_(commons);
 
-  var fl = flights.filter(function (f) { return acIsFlight_(f.flight); }).sort(function (a, b) {   // รวมไฟลท์ไม่มีเวลา (จัดเวรครบทุกไฟลท์)
+  var fl = flights.filter(function (f) { return acIsFlight_(f.flight) && !(f.noTime && f.fragment); }).sort(function (a, b) {   // รวมไฟลท์ไม่มีเวลา · ตัดเศษขาซ้ำ
     return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz'));
   });
 

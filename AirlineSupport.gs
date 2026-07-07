@@ -15,16 +15,16 @@ var AIRLINE_SUP = {
   'EO':{ok:true,ph:['ARR','GATE']},  // IKAR Airlines (Pegas Fly — ARR/GATE
   'S7':{ok:true,ph:['ARR','GATE']},  // S7 Airlines — ARR/GATE
   'CZ':{ok:true,ph:['ARR','GATE']},  // China Southern Airlines — ARR/GATE
-  'MU':{ok:true,ph:['ARR','GATE']},  // China Eastern Airlines — ARR/GATE
-  'FM':{ok:true,ph:['ARR','GATE']},  // Shanghai Airlines — ARR/GATE
-  '3U':{ok:true,ph:['ARR','GATE']},  // Sichuan Airlines — ARR/GATE
+  'MU':{ok:true,ph:['GATE']},  // China Eastern — เฉพาะ Gate agent (no bogo) ตามไฟล์
+  'FM':{ok:true,ph:['GATE']},  // Shanghai — เฉพาะ Gate agent (no bogo) ตามไฟล์
+  '3U':{ok:true,ph:['GATE']},  // Sichuan — เฉพาะ Gate agent (no bogo) ตามไฟล์
   'CA':{ok:true,ph:['ARR','GATE']},  // Air China — ARR/GATE
   'HO':{ok:true,ph:['ARR','GATE']},  // Juneyao Airlines — ARR/GATE
   'HX':{ok:true,ph:['ARR','GATE']},  // Hong Kong Airlines — ARR/GATE
-  'HU':{ok:true,ph:['ARR','GATE']},  // Hainan Airlines — ARR/GATE
+  'HU':{ok:true,ph:['GATE']},  // Hainan — เฉพาะ Gate agent (no bogo) ตามไฟล์
   '6B':{ok:true,ph:['ARR','GATE']},  // TUI fly Nordic — ARR/GATE
   'BY':{ok:true,ph:['ARR','GATE']},  // TUI Airways — ARR/GATE
-  'UO':{ok:true,ph:['ARR','GATE']},  // HK Express — ARR/GATE
+  'UO':{ok:false,ph:null},  // HK Express — ไม่รับซัพ (ไฟล์ Data Airlines Check)
   'EK':{ok:false,ph:null},  // Emirates — ไม่รับซัพ
   'FY':{ok:false,ph:null},  // Firefly — ไม่รับซัพ
   'EY':{ok:true,ph:['ARR','GATE']},  // Etihad Airways — ARR/GATE
@@ -37,14 +37,14 @@ var AIRLINE_SUP = {
   'KC':{ok:true,ph:['ARR','GATE']},  // Air Astana — ARR/GATE
   'OZ':{ok:false,ph:null},  // Asiana Airlines — ไม่รับซัพ
   'KE':{ok:false,ph:null},  // Korean Air — ไม่รับซัพ
-  'LJ':{ok:false,ph:null},  // Jin Air — ไม่รับซัพ
+  'LJ':{ok:true,ph:['ARR']},  // Jin Air — รับซัพเฉพาะขาเข้า (+Crew sign) ตามไฟล์
   'NO':{ok:true,ph:['ARR','GATE']},  // Neos — ARR/GATE
   'OV':{ok:true,ph:['ARR','GATE']},  // SalamAir — ARR/GATE
   'PG':{ok:true,ph:['ARR','GATE']},  // Bangkok Airways — ARR/GATE (รับขาเข้าด้วย)
   'PRIVATE':{ok:true,ph:['ARR']},  // Private Flight / General — ARR
   'QR':{ok:false,ph:null},  // Qatar Airways — ไม่รับซัพ
   'DE':{ok:true,ph:['ARR','GATE']},  // Condor — ARR/GATE
-  'MH':{ok:false,ph:null},  // Malaysia Airlines — ไม่รับซัพ
+  'MH':{ok:true,ph:['ARR','GATE']},  // Malaysia Airlines — รับซัพ ARR/GATE (ไฟล์ Data Airlines Check)
   'OM':{ok:true,ph:['ARR','GATE']},  // Miat Mongolian Airlines — ARR/GATE
   'SQ':{ok:true,ph:['ARR','GATE']},  // Singapore Airlines — ARR/GATE
   'CX':{ok:true,ph:['ARR','GATE']},  // Cathay Pacific — ARR/GATE
