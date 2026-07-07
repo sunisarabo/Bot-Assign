@@ -1049,6 +1049,25 @@ var rbVIEW_CSS_ = `
 .fc-tile--bad .fc-tile__v { color: #c0392b; }
 .fc-tile__r { font-size: 11px; font-weight: 600; color: #93a1b8; }
 @media (max-width: 560px){ .fltgrid { grid-template-columns: 1fr; } }
+
+/* ── AOTGA Manpower — shared polish for all views (Phase 5) ── */
+.tablecard, .panel { border-radius: 14px; }
+.tablecard__hd h3, .panel__hd h3 { color: #1D428A; letter-spacing: .1px; }
+.tbl tbody tr:hover td { background: rgba(78,195,224,.09); }
+.tbl tbody tr.row-off:hover td, .tbl tbody tr.row-sl:hover td, .tbl tbody tr.row-vac:hover td { filter: brightness(.98); }
+.tbl thead th { background: #f4f7fc; color: #93a1b8; }
+.sectionlabel { color: #6b7c98; }
+.sectionlabel::after { background: #dbe4f0; }
+/* count/summary pill in any card header */
+.tt-cnt { font-size: 11px; font-weight: 700; color: #1D428A; background: #e7effa; border-radius: 20px; padding: 3px 11px; }
+/* filter controls → clean AOT pills */
+.search input, .teamsel, .gapfrom, .gapto, select.expteam, select.fcpick, select.namepick, .selectpill {
+  border: 1px solid #e4ebf4 !important; border-radius: 10px !important; background: #fff !important; font-family: inherit; }
+.search input:focus, .teamsel:focus, select:focus { outline: 2px solid rgba(29,66,138,.35); outline-offset: 1px; }
+.ttbar { background: #f7f9fd; border: 1px solid #eef2f8; border-radius: 12px; padding: 9px 11px; }
+/* support / assign team chips accent when selected */
+.supteam.on, .chip.on { background: #1D428A !important; color: #fff !important; border-color: #1D428A !important; }
+.btn { border-radius: 11px; }
 `;
 function rbDesignCss_() { return rbDESIGN_CSS_ + rbVIEW_CSS_; }
 var rbDESIGN_CSS_ = `/* ============================================================================
