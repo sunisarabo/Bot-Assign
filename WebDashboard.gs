@@ -463,6 +463,41 @@ function rbAppbar_(date) {
     '<button class="btn" onclick="pwmsHelp(1)" title="คู่มือการใช้งาน">ℹ️ ช่วยเหลือ</button>' +
     '<button class="btn btn--accent" onclick="window.print()">⬇ Export PDF</button></div></div></div></div></div>';
 }
+
+/** AOTGA Manpower — แถบเมนูซ้าย (Phase 4): brand + เมนู + Live */
+var RB_NAV_ = [
+  ['dash','▦','Dashboard',''], ['tt','☰','Timetable','loadTT()'],
+  ['flt','✈','Flights & SLA','loadFlt()','s'], ['sup','🆘','Support','loadSup()','s'],
+  ['ac','🧭','ตรวจ Assign','loadAC()','a'], ['fill','🧩','เติม Assign เดิม','loadFill()'],
+  ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
+  ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
+];
+function rbRail_(shortCount, acCount) {
+  var logo = ''; try { logo = rbLogoDataUri_(); } catch (e) {}
+  var nav = RB_NAV_.map(function (it) {
+    var click = "showView('" + it[0] + "')" + (it[3] ? ';' + it[3] : '');
+    var bn = it[4] === 's' ? shortCount : (it[4] === 'a' ? acCount : 0);
+    var badge = bn ? '<span class="rail-badge tnum">' + bn + '</span>' : '';
+    return '<button class="rail-item' + (it[0] === 'dash' ? ' active' : '') + '" id="tab-' + it[0] + '" data-title="' + rbEsc_(it[2]) + '" onclick="' + click + '">' +
+      '<span class="rail-ic">' + it[1] + '</span><span class="rail-txt">' + it[2] + '</span>' + badge + '</button>';
+  }).join('');
+  return '<aside class="app-rail">' +
+    '<div class="rail-brand">' + (logo ? '<img class="rail-logo" src="' + logo + '" alt="AOTGA">' : '<div class="rail-mark">✈</div>') +
+      '<div class="rail-brandtxt"><b>P<span>AS</span></b><small>Passenger Services</small></div></div>' +
+    '<nav class="rail-nav">' + nav + '</nav>' +
+    '<div class="rail-foot"><button class="rail-refresh" onclick="rbRefresh(this)" title="ล้างแคช ดึงข้อมูลล่าสุด">🔄 รีเฟรช</button>' +
+      '<div class="rail-live"><i class="pl-dot"></i>Live · sync</div></div>' +
+    '</aside>';
+}
+/** แถบหัวในพื้นที่หลัก: ชื่อหน้า + วันที่ + ปุ่ม */
+function rbTopbar_(date) {
+  var be = date.getFullYear() + 543;
+  return '<div class="topbar rise"><div class="topbar-h"><h2 id="pageTitle">Dashboard</h2>' +
+    '<div class="topbar-sub">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
+    '<div class="topbar-actions"><div class="datepill"><div class="d tnum">' + date.getDate() + ' ' + MONW[date.getMonth()] + ' ' + be + '</div></div>' +
+    '<button class="btn" onclick="pwmsHelp(1)" title="คู่มือการใช้งาน">ℹ️ ช่วยเหลือ</button>' +
+    '<button class="btn btn--accent" onclick="window.print()">⬇ Export PDF</button></div></div>';
+}
 /** หน้าต่างคู่มือการใช้งาน (เปิดด้วยปุ่ม ℹ️ ช่วยเหลือ) */
 function rbHelpModal_() {
   return '<div id="helpov" class="helpov" style="display:none" onclick="if(event.target===this)pwmsHelp(0)">' +
@@ -870,8 +905,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
 
   return '<!doctype html><html lang="th" data-theme="corporate"><head><meta charset="utf-8">' +
     '<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">' +
-    '<style>' + rbDesignCss_() + otDashCss_() + '</style></head><body><div class="wrap">' +
-    rbAppbar_(date) + rbWeekNav_(date, iso, base, tz) + rbTabs_(shortCount, acCount) +
+    '<style>' + rbDesignCss_() + otDashCss_() + '</style></head><body><div class="app-shell" id="appShell">' +
+    rbRail_(shortCount, acCount) +
+    '<main class="app-main"><div class="app-pad">' +
+    rbTopbar_(date) + rbWeekNav_(date, iso, base, tz) +
     '<div id="view-dash">' +
     holBanner + rbKpiHero_(C, master, shortCount, fltTotal, urgent) + masterLine +
     '<div class="grid grid--charts" style="margin-top:16px">' +
@@ -896,13 +933,13 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
     '<div id="view-dc" style="display:none"><div id="dcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจข้อมูล…</div></div></div>' +
     '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
-    '</div>' +
+    '</div></main></div>' +
     '<div id="psnpop" class="psnpop" style="display:none" onclick="event.stopPropagation()"></div>' +
     rbHelpModal_() +
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","fill","auto","adv","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb)tb.className="tab"+(v===x?" active":"");});}' +
+    'function showView(v){["dash","tt","flt","sup","ac","fill","auto","adv","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadDc(){lazy("dcbox","rbDataCheckHtml","dc");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
@@ -1098,6 +1135,46 @@ body {
 }
 
 .wrap { max-width: var(--maxw); margin: 0 auto; padding: 20px 24px 56px; }
+
+/* ── AOTGA Manpower — App shell + left nav rail (Phase 4) ── */
+.app-shell { display: flex; height: 100vh; overflow: hidden; }
+.app-rail { width: 214px; flex: 0 0 auto; background: linear-gradient(180deg,#16315f,#1D428A); color: #fff;
+  display: flex; flex-direction: column; padding: 16px 12px; gap: 4px; }
+.rail-brand { display: flex; align-items: center; gap: 10px; padding: 4px 6px 14px; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.14); }
+.rail-logo { width: 38px; height: 38px; border-radius: 10px; background: #fff; padding: 3px; object-fit: contain; }
+.rail-mark { width: 38px; height: 38px; border-radius: 10px; background: rgba(255,255,255,.12); display: grid; place-items: center; font-size: 18px; }
+.rail-brandtxt b { font-size: 17px; font-weight: 800; letter-spacing: .5px; display: block; }
+.rail-brandtxt b span { color: #4EC3E0; }
+.rail-brandtxt small { font-size: 10px; color: #cfe1f5; font-weight: 300; }
+.rail-nav { display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; margin: 4px 0; }
+.rail-nav::-webkit-scrollbar { width: 5px; } .rail-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
+.rail-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; cursor: pointer;
+  background: transparent; color: #d8e8f8; font-family: inherit; font-size: 13px; font-weight: 600; padding: 9px 11px; border-radius: 10px; transition: background .13s, color .13s; }
+.rail-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+.rail-item.active { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 3px 0 0 #4EC3E0; }
+.rail-ic { width: 20px; text-align: center; flex: 0 0 auto; font-size: 14px; }
+.rail-txt { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-badge { font-size: 10.5px; font-weight: 800; background: #D92526; color: #fff; border-radius: 20px; padding: 1px 7px; flex: 0 0 auto; }
+.rail-foot { border-top: 1px solid rgba(255,255,255,.14); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.rail-refresh { border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.06); color: #eaf2fc; border-radius: 9px;
+  padding: 7px 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.rail-refresh:hover { background: rgba(255,255,255,.14); }
+.rail-live { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: #d8e8f8; padding: 0 4px; }
+.pl-dot { width: 8px; height: 8px; border-radius: 50%; background: #58e6a0; animation: pl 2s infinite; flex: 0 0 auto; }
+@keyframes pl { 0%{box-shadow:0 0 0 0 rgba(88,230,160,.5)} 70%{box-shadow:0 0 0 7px rgba(88,230,160,0)} 100%{box-shadow:0 0 0 0 rgba(88,230,160,0)} }
+.app-main { flex: 1; min-width: 0; height: 100vh; overflow: auto; background:
+  radial-gradient(1000px 480px at 88% -12%, rgba(78,195,224,.16), transparent 60%),
+  radial-gradient(820px 420px at -6% 0%, rgba(29,66,138,.09), transparent 55%), #eef3fa; }
+.app-pad { padding: 20px 24px 44px; max-width: 1400px; margin: 0 auto; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.topbar-h h2 { font-size: 20px; font-weight: 800; color: #15233f; letter-spacing: .2px; margin: 0; }
+.topbar-sub { font-size: 12.5px; color: #5a6b86; margin-top: 2px; }
+.topbar-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.topbar-actions .datepill { background: #fff; border: 1px solid #e4ebf4; border-radius: 11px; padding: 7px 13px; }
+.topbar-actions .datepill .d { font-size: 14px; font-weight: 800; color: #1D428A; }
+@media (max-width: 900px) { .app-rail { width: 60px; padding: 16px 8px; } .rail-txt, .rail-brandtxt, .rail-live, .rail-refresh { display: none !important; } .rail-badge { position: absolute; margin-left: 22px; margin-top: -14px; } .rail-item { justify-content: center; position: relative; } }
+@media (max-width: 560px) { .app-pad { padding: 14px 12px 36px; } .topbar { flex-direction: column; align-items: flex-start; } }
+@media print { .app-shell { display: block; height: auto; overflow: visible; } .app-rail { display: none; } .app-main { height: auto; overflow: visible; background: #fff; } }
 
 /* tabular numerals everywhere numbers matter */
 .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
