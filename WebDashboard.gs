@@ -89,10 +89,14 @@ function rbStopWarmCache() {
 function rbLoadResLLraw_(date) {
   var roster = rbOpenTodayRoster_(date);
   var res = readRosterFromSpreadsheet(roster.ss, date);
+  // แท็บ "COUNTER" ในไฟล์ตารางเวรเอง (อ่านก่อนลบไฟล์ชั่วคราว) — วิธีที่ไม่ต้องแชร์ไฟล์ท่า
+  res.counters = null;
+  try { res.counters = counterReadFromRoster_(roster.ss); } catch (e4) {}
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
-  if (CONFIG_RB.COUNTER_FILE_ID) { try { res.counters = counterReadForDate(CONFIG_RB.COUNTER_FILE_ID, date); } catch (e3) { res.counters = null; } }
+  // ถ้าไม่มีแท็บ COUNTER ในไฟล์เวร → ลองไฟล์ COUNTER CHECK ของท่า (ต้องแชร์ให้บัญชีที่รัน)
+  if (!res.counters && CONFIG_RB.COUNTER_FILE_ID) { try { res.counters = counterReadForDate(CONFIG_RB.COUNTER_FILE_ID, date); } catch (e3) {} }
   return { res: res, ll: ll };
 }
 /** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */

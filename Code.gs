@@ -1245,21 +1245,16 @@ function debugDumpLL(llFileId, y, m, d) {
 // ใช้ตัดเพดาน "เช็คอิน" ของ SLA: ถ้าท่าให้เคาน์เตอร์น้อยกว่าที่ SLA ต้องการ → ส่งคนได้เท่าเคาน์เตอร์
 /** หา tab ของวันที่ในไฟล์ counter (ชื่อแบบ "16 MAY26" / "6JUL26") — ใช้แพตเทิร์นเดียวกับ LL */
 function findCounterTab_(ss, date) { return findLLTab_(ss, date); }
-/** map จำนวนเคาน์เตอร์: { "EY411":10, "KC564":5, ... } (คีย์ = สาย+เลขไฟลท์ และ เลขไฟลท์เดี่ยว) */
-function counterReadForDate(fileId, date) {
-  if (!fileId) return null;
-  var ss = SpreadsheetApp.openById(fileId);
-  var tab = findCounterTab_(ss, date);
-  if (!tab) return null;
-  var sh = ss.getSheetByName(tab);
+/** parse ชีต counter หนึ่งแท็บ → { "EY411":10, "KC564":5, ... } · คืน null ถ้าไม่ใช่รูปแบบ counter */
+function counterParseSheet_(sh) {
+  if (!sh) return null;
   var last = sh.getLastRow(); if (last < 3) return null;
-  var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 8)).getValues();
-  // หาคอลัมน์จากหัวตาราง (row ที่มี AIRLINE/FLIGHT/NO. OF COUNTER)
-  var hi = -1, cAir = 0, cFlt = 1, cCtr = 4;
+  var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 10)).getValues();
+  var hi = -1, cAir = 0, cFlt = 1, cCtr = -1;
   for (var r = 0; r < Math.min(rows.length, 6); r++) {
     var line = rows[r].map(function (v) { return String(v || '').toUpperCase(); });
-    if (line.some(function (v) { return v.indexOf('FLIGHT') >= 0; }) && line.some(function (v) { return v.indexOf('COUNTER') >= 0; })) {
-      hi = r;
+    if (line.some(function (v) { return v.indexOf('FLIGHT') >= 0; }) && line.some(function (v) { return /NO\.?\s*OF/.test(v); })) {
+      hi = r; cAir = 0; cFlt = 1; cCtr = -1;
       line.forEach(function (v, i) {
         if (v.indexOf('AIRLINE') >= 0) cAir = i;
         else if (v.indexOf('FLIGHT') >= 0) cFlt = i;
@@ -1268,8 +1263,8 @@ function counterReadForDate(fileId, date) {
       break;
     }
   }
-  if (hi < 0) return null;
-  var map = {}, curAir = '';
+  if (hi < 0 || cCtr < 0) return null;                             // ไม่พบคอลัมน์จำนวนเคาน์เตอร์ → ไม่ใช่ชีต counter
+  var map = {}, curAir = '', nEntry = 0;
   for (var i = hi + 1; i < rows.length; i++) {
     var air = String(rows[i][cAir] || '').trim().toUpperCase();
     if (air) curAir = air;
@@ -1277,11 +1272,29 @@ function counterReadForDate(fileId, date) {
     if (!flt) continue;
     var n = parseInt(String(rows[i][cCtr] || '').replace(/[^0-9.]/g, ''), 10);
     if (!(n > 0)) continue;
-    map[flt] = n;                                                   // "EY411"
+    map[flt] = n; nEntry++;                                         // "EY411"
     var mm = flt.match(/^([0-9A-Z]{2})?(\d{2,4})/);                 // เลขไฟลท์
     if (mm) { var a = mm[1] || curAir; if (a) map[a + mm[2]] = n; map['#' + mm[2]] = n; }
   }
-  return map;
+  return nEntry ? map : null;
+}
+/** อ่านจากไฟล์ COUNTER CHECK ของท่า (แท็บตามวันที่) — ต้องแชร์ไฟล์ให้บัญชีที่รัน PAS */
+function counterReadForDate(fileId, date) {
+  if (!fileId) return null;
+  var ss = SpreadsheetApp.openById(fileId);
+  var tab = findCounterTab_(ss, date);
+  return tab ? counterParseSheet_(ss.getSheetByName(tab)) : null;
+}
+/** วิธีที่ไม่ต้องแชร์ไฟล์ท่า: อ่านแท็บ "COUNTER" ที่ก๊อปวางในไฟล์ตารางเวรของวันนั้นเอง */
+function counterReadFromRoster_(ss) {
+  if (!ss) return null;
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName().toUpperCase().indexOf('COUNTER') >= 0) {
+      var m = counterParseSheet_(sheets[i]); if (m) return m;
+    }
+  }
+  return null;
 }
 /** จำนวนเคาน์เตอร์ที่ท่าจัดให้ไฟลท์นี้ (roster flight อาจเป็นคู่ "EY410/EY411") → null ถ้าไม่มี */
 function counterForFlight_(map, flight) {
@@ -5839,10 +5852,14 @@ function rbStopWarmCache() {
 function rbLoadResLLraw_(date) {
   var roster = rbOpenTodayRoster_(date);
   var res = readRosterFromSpreadsheet(roster.ss, date);
+  // แท็บ "COUNTER" ในไฟล์ตารางเวรเอง (อ่านก่อนลบไฟล์ชั่วคราว) — วิธีที่ไม่ต้องแชร์ไฟล์ท่า
+  res.counters = null;
+  try { res.counters = counterReadFromRoster_(roster.ss); } catch (e4) {}
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
-  if (CONFIG_RB.COUNTER_FILE_ID) { try { res.counters = counterReadForDate(CONFIG_RB.COUNTER_FILE_ID, date); } catch (e3) { res.counters = null; } }
+  // ถ้าไม่มีแท็บ COUNTER ในไฟล์เวร → ลองไฟล์ COUNTER CHECK ของท่า (ต้องแชร์ให้บัญชีที่รัน)
+  if (!res.counters && CONFIG_RB.COUNTER_FILE_ID) { try { res.counters = counterReadForDate(CONFIG_RB.COUNTER_FILE_ID, date); } catch (e3) {} }
   return { res: res, ll: ll };
 }
 /** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */
