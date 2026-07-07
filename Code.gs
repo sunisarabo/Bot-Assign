@@ -1240,6 +1240,63 @@ function debugDumpLL(llFileId, y, m, d) {
   return res;
 }
 
+// ─── COUNTER CHECK (ท่าอากาศยานจัดเคาน์เตอร์เช็คอิน) ─────────────────────────
+// อ่านไฟล์ "COUNTER CHECK" ของท่า → จำนวนเคาน์เตอร์ต่อไฟลท์ (คอลัมน์ NO. OF COUNTER)
+// ใช้ตัดเพดาน "เช็คอิน" ของ SLA: ถ้าท่าให้เคาน์เตอร์น้อยกว่าที่ SLA ต้องการ → ส่งคนได้เท่าเคาน์เตอร์
+/** หา tab ของวันที่ในไฟล์ counter (ชื่อแบบ "16 MAY26" / "6JUL26") — ใช้แพตเทิร์นเดียวกับ LL */
+function findCounterTab_(ss, date) { return findLLTab_(ss, date); }
+/** map จำนวนเคาน์เตอร์: { "EY411":10, "KC564":5, ... } (คีย์ = สาย+เลขไฟลท์ และ เลขไฟลท์เดี่ยว) */
+function counterReadForDate(fileId, date) {
+  if (!fileId) return null;
+  var ss = SpreadsheetApp.openById(fileId);
+  var tab = findCounterTab_(ss, date);
+  if (!tab) return null;
+  var sh = ss.getSheetByName(tab);
+  var last = sh.getLastRow(); if (last < 3) return null;
+  var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 8)).getValues();
+  // หาคอลัมน์จากหัวตาราง (row ที่มี AIRLINE/FLIGHT/NO. OF COUNTER)
+  var hi = -1, cAir = 0, cFlt = 1, cCtr = 4;
+  for (var r = 0; r < Math.min(rows.length, 6); r++) {
+    var line = rows[r].map(function (v) { return String(v || '').toUpperCase(); });
+    if (line.some(function (v) { return v.indexOf('FLIGHT') >= 0; }) && line.some(function (v) { return v.indexOf('COUNTER') >= 0; })) {
+      hi = r;
+      line.forEach(function (v, i) {
+        if (v.indexOf('AIRLINE') >= 0) cAir = i;
+        else if (v.indexOf('FLIGHT') >= 0) cFlt = i;
+        else if (/NO\.?\s*OF/.test(v)) cCtr = i;                    // "NO. OF COUNTER" (จำนวน) — ไม่ใช่ "COUNTER NO." (ป้ายเลขเคาน์เตอร์)
+      });
+      break;
+    }
+  }
+  if (hi < 0) return null;
+  var map = {}, curAir = '';
+  for (var i = hi + 1; i < rows.length; i++) {
+    var air = String(rows[i][cAir] || '').trim().toUpperCase();
+    if (air) curAir = air;
+    var flt = String(rows[i][cFlt] || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (!flt) continue;
+    var n = parseInt(String(rows[i][cCtr] || '').replace(/[^0-9.]/g, ''), 10);
+    if (!(n > 0)) continue;
+    map[flt] = n;                                                   // "EY411"
+    var mm = flt.match(/^([0-9A-Z]{2})?(\d{2,4})/);                 // เลขไฟลท์
+    if (mm) { var a = mm[1] || curAir; if (a) map[a + mm[2]] = n; map['#' + mm[2]] = n; }
+  }
+  return map;
+}
+/** จำนวนเคาน์เตอร์ที่ท่าจัดให้ไฟลท์นี้ (roster flight อาจเป็นคู่ "EY410/EY411") → null ถ้าไม่มี */
+function counterForFlight_(map, flight) {
+  if (!map) return null;
+  var s = String(flight || '').toUpperCase().replace(/\s+/g, '');
+  if (map[s] != null) return map[s];
+  var air = (typeof slaAirlineOf_ === 'function') ? slaAirlineOf_(flight) : '';
+  var nums = s.match(/\d{2,4}/g) || [];
+  for (var i = 0; i < nums.length; i++) {
+    if (air && map[air + nums[i]] != null) return map[air + nums[i]];
+    if (map['#' + nums[i]] != null) return map['#' + nums[i]];
+  }
+  return null;
+}
+
 
 // ===== SLA.gs =====
 
@@ -1846,6 +1903,15 @@ function slaCollectFlights_(res, ll) {
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
     f.req = slaReq_(f.airline, f.AC);
+    // ท่าจัดเคาน์เตอร์เช็คอินให้เท่าไหร่ → เพดานเช็คอิน = min(SLA, เคาน์เตอร์ที่ท่าให้)
+    // (ส่งคนได้เท่าเคาน์เตอร์ที่มีจริง → ไม่แจ้งว่า SLA ไม่ครบทั้งที่ท่าตัดเคาน์เตอร์เอง)
+    if (res && res.counters && f.req.CI > 0) {
+      var nCtr = counterForFlight_(res.counters, f.flight);
+      if (nCtr != null) {
+        f.ctr = nCtr;
+        if (nCtr < f.req.CI) { f.ctrCap = f.req.CI; f.req.total -= (f.req.CI - nCtr); f.req.CI = nCtr; }
+      }
+    }
     var home = homeTeamOf(f.airline);                         // ทีมเจ้าของสายการบิน (ประกาศก่อนใช้เครดิต check-in รวม)
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
     var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
@@ -5054,6 +5120,7 @@ var CONFIG_RB = {
   ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
   OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
   LL_FILE_ID:       '', // ไฟล์ LL — ใส่ ID ถ้าบัญชีที่รันมีสิทธิ์เข้า (ของเดิม '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg'); เว้นว่าง = ข้าม LL
+  COUNTER_FILE_ID:  '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk', // ไฟล์ COUNTER CHECK จากท่า (จำนวนเคาน์เตอร์เช็คอิน/ไฟลท์) — เว้นว่าง = ไม่ตัดตามเคาน์เตอร์
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
@@ -5775,6 +5842,7 @@ function rbLoadResLLraw_(date) {
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  if (CONFIG_RB.COUNTER_FILE_ID) { try { res.counters = counterReadForDate(CONFIG_RB.COUNTER_FILE_ID, date); } catch (e3) { res.counters = null; } }
   return { res: res, ll: ll };
 }
 /** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */
@@ -6501,11 +6569,12 @@ function rbFltCards_(res, ll) {
                : (f.ok ? '<span class="fc-pill fc-pill--ok">✔ ครบ</span>'
                        : '<span class="fc-pill fc-pill--bad">'+rbEsc_(typeof slaShortText_==='function'?slaShortText_(f):'ขาดคน')+'</span>');
       var ac = f.AC ? '<span class="fc-ac">✈ '+rbEsc_(slaAcModel_(f.AC))+'</span>' : '';
+      var ctr = (f.ctr!=null) ? '<span class="fc-ctr'+(f.ctrCap?' fc-ctr--cap':'')+'" title="เคาน์เตอร์ที่ท่าจัดให้'+(f.ctrCap?(' (SLA '+f.ctrCap+' · ท่าตัดเหลือ '+f.ctr+')'):'')+'">🎫 '+f.ctr+' ctr'+(f.ctrCap?' ⤵':'')+'</span>' : '';
       var txt = (f.flight+' '+air+' '+(f.teamList||'')+' '+slaAirName_(air)).toLowerCase();
       return '<div class="fltcard'+(f.ok&&!f.noTime?'':' fltcard--bad')+'" data-team="'+rbEsc_(f.teamList||'')+'" data-txt="'+rbEsc_(txt)+'">' +
           '<div class="fltcard__air"><div class="fltcard__code">'+rbEsc_(air)+'</div><div class="fltcard__name">'+rbEsc_(slaAirName_(air))+'</div></div>' +
           '<div class="fltcard__body"><div class="fltcard__top"><div><div class="fltcard__flt">'+rbEsc_(f.flight)+'</div>' +
-            '<div class="fltcard__time">STA '+rbEsc_(f.STA||'–')+' · STD '+rbEsc_(f.STD||'–')+' '+ac+'</div></div>'+stat+'</div>' +
+            '<div class="fltcard__time">STA '+rbEsc_(f.STA||'–')+' · STD '+rbEsc_(f.STD||'–')+' '+ac+' '+ctr+'</div></div>'+stat+'</div>' +
             '<div class="fltcard__tiles">'+tile('SUP',a.SUP,req.SUP,'SUP')+tile('Check-in',a.CI,req.CI,'CI')+tile('Arrival',a.ARR,req.ARR,'ARR')+tile('Gate',a.GATE,req.GATE,'GATE')+'</div>' +
           '</div></div>';
     } catch (ec) { return '<div class="fltcard fltcard--bad"><div class="fltcard__body">'+rbEsc_(f&&f.flight)+' — แสดงไม่ได้</div></div>'; }
@@ -6719,6 +6788,8 @@ var rbVIEW_CSS_ = `
 .fltcard__flt { font-size: 18px; font-weight: 800; color: #15233f; letter-spacing: .5px; }
 .fltcard__time { font-size: 11px; color: #93a1b8; margin-top: 2px; }
 .fc-ac { color: var(--royal); font-weight: 600; }
+.fc-ctr { color: #6b7c98; font-weight: 600; }
+.fc-ctr--cap { color: #c07d17; font-weight: 700; }
 .fc-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
 .fc-pill--ok { background: #e4f4ec; color: #1a8f63; }
 .fc-pill--bad { background: #fbe6e3; color: #c0392b; }

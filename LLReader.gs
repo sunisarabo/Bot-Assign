@@ -127,3 +127,60 @@ function debugDumpLL(llFileId, y, m, d) {
   Logger.log(lines.join('\n'));
   return res;
 }
+
+// ─── COUNTER CHECK (ท่าอากาศยานจัดเคาน์เตอร์เช็คอิน) ─────────────────────────
+// อ่านไฟล์ "COUNTER CHECK" ของท่า → จำนวนเคาน์เตอร์ต่อไฟลท์ (คอลัมน์ NO. OF COUNTER)
+// ใช้ตัดเพดาน "เช็คอิน" ของ SLA: ถ้าท่าให้เคาน์เตอร์น้อยกว่าที่ SLA ต้องการ → ส่งคนได้เท่าเคาน์เตอร์
+/** หา tab ของวันที่ในไฟล์ counter (ชื่อแบบ "16 MAY26" / "6JUL26") — ใช้แพตเทิร์นเดียวกับ LL */
+function findCounterTab_(ss, date) { return findLLTab_(ss, date); }
+/** map จำนวนเคาน์เตอร์: { "EY411":10, "KC564":5, ... } (คีย์ = สาย+เลขไฟลท์ และ เลขไฟลท์เดี่ยว) */
+function counterReadForDate(fileId, date) {
+  if (!fileId) return null;
+  var ss = SpreadsheetApp.openById(fileId);
+  var tab = findCounterTab_(ss, date);
+  if (!tab) return null;
+  var sh = ss.getSheetByName(tab);
+  var last = sh.getLastRow(); if (last < 3) return null;
+  var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 8)).getValues();
+  // หาคอลัมน์จากหัวตาราง (row ที่มี AIRLINE/FLIGHT/NO. OF COUNTER)
+  var hi = -1, cAir = 0, cFlt = 1, cCtr = 4;
+  for (var r = 0; r < Math.min(rows.length, 6); r++) {
+    var line = rows[r].map(function (v) { return String(v || '').toUpperCase(); });
+    if (line.some(function (v) { return v.indexOf('FLIGHT') >= 0; }) && line.some(function (v) { return v.indexOf('COUNTER') >= 0; })) {
+      hi = r;
+      line.forEach(function (v, i) {
+        if (v.indexOf('AIRLINE') >= 0) cAir = i;
+        else if (v.indexOf('FLIGHT') >= 0) cFlt = i;
+        else if (/NO\.?\s*OF/.test(v)) cCtr = i;                    // "NO. OF COUNTER" (จำนวน) — ไม่ใช่ "COUNTER NO." (ป้ายเลขเคาน์เตอร์)
+      });
+      break;
+    }
+  }
+  if (hi < 0) return null;
+  var map = {}, curAir = '';
+  for (var i = hi + 1; i < rows.length; i++) {
+    var air = String(rows[i][cAir] || '').trim().toUpperCase();
+    if (air) curAir = air;
+    var flt = String(rows[i][cFlt] || '').trim().toUpperCase().replace(/\s+/g, '');
+    if (!flt) continue;
+    var n = parseInt(String(rows[i][cCtr] || '').replace(/[^0-9.]/g, ''), 10);
+    if (!(n > 0)) continue;
+    map[flt] = n;                                                   // "EY411"
+    var mm = flt.match(/^([0-9A-Z]{2})?(\d{2,4})/);                 // เลขไฟลท์
+    if (mm) { var a = mm[1] || curAir; if (a) map[a + mm[2]] = n; map['#' + mm[2]] = n; }
+  }
+  return map;
+}
+/** จำนวนเคาน์เตอร์ที่ท่าจัดให้ไฟลท์นี้ (roster flight อาจเป็นคู่ "EY410/EY411") → null ถ้าไม่มี */
+function counterForFlight_(map, flight) {
+  if (!map) return null;
+  var s = String(flight || '').toUpperCase().replace(/\s+/g, '');
+  if (map[s] != null) return map[s];
+  var air = (typeof slaAirlineOf_ === 'function') ? slaAirlineOf_(flight) : '';
+  var nums = s.match(/\d{2,4}/g) || [];
+  for (var i = 0; i < nums.length; i++) {
+    if (air && map[air + nums[i]] != null) return map[air + nums[i]];
+    if (map['#' + nums[i]] != null) return map['#' + nums[i]];
+  }
+  return null;
+}

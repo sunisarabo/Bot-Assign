@@ -92,6 +92,7 @@ function rbLoadResLLraw_(date) {
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  if (CONFIG_RB.COUNTER_FILE_ID) { try { res.counters = counterReadForDate(CONFIG_RB.COUNTER_FILE_ID, date); } catch (e3) { res.counters = null; } }
   return { res: res, ll: ll };
 }
 /** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */
@@ -818,11 +819,12 @@ function rbFltCards_(res, ll) {
                : (f.ok ? '<span class="fc-pill fc-pill--ok">✔ ครบ</span>'
                        : '<span class="fc-pill fc-pill--bad">'+rbEsc_(typeof slaShortText_==='function'?slaShortText_(f):'ขาดคน')+'</span>');
       var ac = f.AC ? '<span class="fc-ac">✈ '+rbEsc_(slaAcModel_(f.AC))+'</span>' : '';
+      var ctr = (f.ctr!=null) ? '<span class="fc-ctr'+(f.ctrCap?' fc-ctr--cap':'')+'" title="เคาน์เตอร์ที่ท่าจัดให้'+(f.ctrCap?(' (SLA '+f.ctrCap+' · ท่าตัดเหลือ '+f.ctr+')'):'')+'">🎫 '+f.ctr+' ctr'+(f.ctrCap?' ⤵':'')+'</span>' : '';
       var txt = (f.flight+' '+air+' '+(f.teamList||'')+' '+slaAirName_(air)).toLowerCase();
       return '<div class="fltcard'+(f.ok&&!f.noTime?'':' fltcard--bad')+'" data-team="'+rbEsc_(f.teamList||'')+'" data-txt="'+rbEsc_(txt)+'">' +
           '<div class="fltcard__air"><div class="fltcard__code">'+rbEsc_(air)+'</div><div class="fltcard__name">'+rbEsc_(slaAirName_(air))+'</div></div>' +
           '<div class="fltcard__body"><div class="fltcard__top"><div><div class="fltcard__flt">'+rbEsc_(f.flight)+'</div>' +
-            '<div class="fltcard__time">STA '+rbEsc_(f.STA||'–')+' · STD '+rbEsc_(f.STD||'–')+' '+ac+'</div></div>'+stat+'</div>' +
+            '<div class="fltcard__time">STA '+rbEsc_(f.STA||'–')+' · STD '+rbEsc_(f.STD||'–')+' '+ac+' '+ctr+'</div></div>'+stat+'</div>' +
             '<div class="fltcard__tiles">'+tile('SUP',a.SUP,req.SUP,'SUP')+tile('Check-in',a.CI,req.CI,'CI')+tile('Arrival',a.ARR,req.ARR,'ARR')+tile('Gate',a.GATE,req.GATE,'GATE')+'</div>' +
           '</div></div>';
     } catch (ec) { return '<div class="fltcard fltcard--bad"><div class="fltcard__body">'+rbEsc_(f&&f.flight)+' — แสดงไม่ได้</div></div>'; }
@@ -1036,6 +1038,8 @@ var rbVIEW_CSS_ = `
 .fltcard__flt { font-size: 18px; font-weight: 800; color: #15233f; letter-spacing: .5px; }
 .fltcard__time { font-size: 11px; color: #93a1b8; margin-top: 2px; }
 .fc-ac { color: var(--royal); font-weight: 600; }
+.fc-ctr { color: #6b7c98; font-weight: 600; }
+.fc-ctr--cap { color: #c07d17; font-weight: 700; }
 .fc-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
 .fc-pill--ok { background: #e4f4ec; color: #1a8f63; }
 .fc-pill--bad { background: #fbe6e3; color: #c0392b; }

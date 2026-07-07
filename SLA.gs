@@ -601,6 +601,15 @@ function slaCollectFlights_(res, ll) {
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
     f.req = slaReq_(f.airline, f.AC);
+    // ท่าจัดเคาน์เตอร์เช็คอินให้เท่าไหร่ → เพดานเช็คอิน = min(SLA, เคาน์เตอร์ที่ท่าให้)
+    // (ส่งคนได้เท่าเคาน์เตอร์ที่มีจริง → ไม่แจ้งว่า SLA ไม่ครบทั้งที่ท่าตัดเคาน์เตอร์เอง)
+    if (res && res.counters && f.req.CI > 0) {
+      var nCtr = counterForFlight_(res.counters, f.flight);
+      if (nCtr != null) {
+        f.ctr = nCtr;
+        if (nCtr < f.req.CI) { f.ctrCap = f.req.CI; f.req.total -= (f.req.CI - nCtr); f.req.CI = nCtr; }
+      }
+    }
     var home = homeTeamOf(f.airline);                         // ทีมเจ้าของสายการบิน (ประกาศก่อนใช้เครดิต check-in รวม)
     // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
     var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
