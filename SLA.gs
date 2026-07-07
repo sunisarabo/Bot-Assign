@@ -571,12 +571,30 @@ function slaCollectFlights_(res, ll) {
       (teamCounter[t] = teamCounter[t] || []).push([d.ds, d.de]);
     });
   });
-  // ทีมเจ้าของสายการบิน = ทีมที่ชื่อตรง/มีโค้ดสายนั้น (เช่น SU→ทีม SU แม้ SU ทำ common check-in ไม่ผูกไฟลท์)
+  // จำนวน assignment ต่อ (สายการบิน→ทีม) — ใช้หาเจ้าของเมื่อชื่อทีมไม่ตรงโค้ดสาย (เช่น AI จัดโดยทีม "JQ")
+  var airCnt = {};
+  function tallyAir(team, r) {
+    if (slaSkipTeam_(team)) return;                              // Porter/Crewsign/Admin ไม่นับเป็นเจ้าของ
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    (r.assignments || []).forEach(function (a) {
+      if (!acIsFlight_(a.flight)) return;
+      var al = slaAirlineOf_(a.flight); if (!al || al === 'DEFAULT') return;
+      (airCnt[al] = airCnt[al] || {})[team] = (airCnt[al][team] || 0) + 1;
+    });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { tallyAir(t, r); }); });
+  if (ll && ll.totals && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tallyAir('LL·' + s, r); }); });
+  // ทีมเจ้าของสายการบิน = ทีมที่ชื่อตรง/มีโค้ดสายนั้น (เช่น SU→ทีม SU) · ถ้าชื่อไม่ตรง → ทีมที่มีคนทำสายนั้นมากสุด
   var teamNames = Object.keys(res.teams);
   function homeTeamOf(airline) {
     var a = String(airline || '').toUpperCase(); if (!a) return '';
     for (var i = 0; i < teamNames.length; i++) if (teamNames[i].toUpperCase() === a) return teamNames[i];
     for (var j = 0; j < teamNames.length; j++) if ((teamNames[j].toUpperCase().split(/[^A-Z0-9]+/)).indexOf(a) >= 0) return teamNames[j];
+    if (airCnt[a]) {   // ไม่มีทีมชื่อตรงโค้ดสาย → เจ้าของ = ทีมที่มี assignment สายนี้มากสุด (กันทีมที่มาช่วยกลายเป็นเจ้าของ)
+      var best = '', bn = -1;
+      Object.keys(airCnt[a]).forEach(function (t) { if (airCnt[a][t] > bn) { bn = airCnt[a][t]; best = t; } });
+      if (best) return best;
+    }
     return '';
   }
   // compute requirement + shortages per flight
