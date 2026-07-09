@@ -5136,7 +5136,8 @@ var CONFIG_RB = {
   ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
   OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
   LL_FILE_ID:       '', // ไฟล์ LL — ใส่ ID ถ้าบัญชีที่รันมีสิทธิ์เข้า (ของเดิม '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg'); เว้นว่าง = ข้าม LL
-  COUNTER_FILE_ID:  '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk', // ไฟล์ COUNTER CHECK จากท่า (จำนวนเคาน์เตอร์เช็คอิน/ไฟลท์) — เว้นว่าง = ไม่ตัดตามเคาน์เตอร์
+  COUNTER_FILE_ID:  '1sUxh2xu4U3Jx2uqxOp0tyjr2mPGi7xS23RUNWmTzQPE', // ไฟล์ "PAS Counter Bridge" (IMPORTRANGE เคาน์เตอร์ของท่าเข้ามาเอง) — เว้นว่าง = ไม่ตัดตามเคาน์เตอร์
+  // ไฟล์ COUNTER CHECK ของท่าโดยตรง (ถ้าวันหลังแชร์ให้บัญชีที่รันได้): '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk'
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
