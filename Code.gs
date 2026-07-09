@@ -1255,28 +1255,34 @@ function counterRowDate_(v) {
   return { d: +m[1], m: +m[2], y: y };
 }
 /** parse ชีต counter หนึ่งแท็บ → { "EY411":10, "KC564":5, ... } · คืน null ถ้าไม่ใช่รูปแบบ counter
- *  wantDate (Date) = ถ้าชีตมี "คอลัมน์วันที่" (ไฟล์รวมหลายวัน เช่น Bridge ดึง ±7 วัน) → กรองเอาเฉพาะวันนั้น
- *  ถ้าไม่มีคอลัมน์วันที่ (ชีตวันเดียว) → อ่านทั้งแท็บเหมือนเดิม */
+ *  รองรับ 2 เลย์เอาต์:
+ *   (A) มีคอลัมน์ "NO. OF COUNTER" (ตัวเลขรวม) → ใช้ค่านั้น
+ *   (B) 1 แถว = 1 เคาน์เตอร์ (คอลัมน์ "COUNTER NO." เป็นป้าย HB02/HB03…) → นับจำนวนแถวต่อไฟลท์
+ *  wantDate (Date) = ถ้าชีตมี "คอลัมน์วันที่" (ไฟล์รวมหลายวัน เช่น Bridge ดึง ±7 วัน) → กรองเอาเฉพาะวันนั้น */
 function counterParseSheet_(sh, wantDate) {
   if (!sh) return null;
   var last = sh.getLastRow(); if (last < 3) return null;
   var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 20)).getValues();
-  var hi = -1, cAir = 0, cFlt = 1, cCtr = -1, cOpen = -1, cDate = -1;
+  var hi = -1, cAir = 0, cFlt = 1, cCtr = -1, cOpen = -1, cDate = -1, cLabel = -1;
   for (var r = 0; r < Math.min(rows.length, 6); r++) {
     var line = rows[r].map(function (v) { return String(v || '').toUpperCase(); });
-    if (line.some(function (v) { return v.indexOf('FLIGHT') >= 0; }) && line.some(function (v) { return /NO\.?\s*OF/.test(v); })) {
-      hi = r; cAir = 0; cFlt = 1; cCtr = -1; cOpen = -1; cDate = -1;
+    var hasFlt = line.some(function (v) { return v.indexOf('FLIGHT') >= 0; });
+    var hasCnt = line.some(function (v) { return /NO\.?\s*OF/.test(v); });          // "NO. OF COUNTER" (ตัวเลขรวม)
+    var hasCtr = line.some(function (v) { return v.indexOf('COUNTER') >= 0; });      // "COUNTER NO." (ป้ายรายเคาน์เตอร์)
+    if (hasFlt && (hasCnt || hasCtr)) {
+      hi = r; cAir = 0; cFlt = 1; cCtr = -1; cOpen = -1; cDate = -1; cLabel = -1;
       line.forEach(function (v, i) {
         if (v.indexOf('AIRLINE') >= 0) cAir = i;
         else if (v.indexOf('FLIGHT') >= 0) cFlt = i;
-        else if (/NO\.?\s*OF/.test(v)) cCtr = i;                    // "NO. OF COUNTER" (จำนวน) — ไม่ใช่ "COUNTER NO." (ป้ายเลขเคาน์เตอร์)
-        else if (v.indexOf('OPEN') >= 0) cOpen = i;                 // "OPEN-CLOSE TIME" (เวลาเปิด-ปิดเคาน์เตอร์จริง)
-        else if (v.indexOf('DATE') >= 0) cDate = i;                 // "DATE" / "FLIGHT DATE" — ไฟล์รวมหลายวัน
+        else if (/NO\.?\s*OF/.test(v)) cCtr = i;                    // ตัวเลขจำนวนเคาน์เตอร์ (เลย์เอาต์ A)
+        else if (v.indexOf('COUNTER') >= 0) cLabel = i;             // ป้ายเลขเคาน์เตอร์ HB02… (เลย์เอาต์ B → นับแถว)
+        else if (v.indexOf('OPEN') >= 0) cOpen = i;                 // "OPEN-CLOSE TIME"
+        else if (v.indexOf('DATE') >= 0) cDate = i;                 // "DATE" — ไฟล์รวมหลายวัน
       });
       break;
     }
   }
-  if (hi < 0 || cCtr < 0) return null;                             // ไม่พบคอลัมน์จำนวนเคาน์เตอร์ → ไม่ใช่ชีต counter
+  if (hi < 0 || (cCtr < 0 && cLabel < 0)) return null;             // ไม่มีทั้งจำนวนและป้ายเคาน์เตอร์ → ไม่ใช่ชีต counter
   // ไม่มีหัว "DATE" แต่ข้อมูลมีวันที่ฝังในคอลัมน์ (เช่น 09.07.2026) → หาคอลัมน์วันที่อัตโนมัติ
   if (cDate < 0) {
     for (var c = 0; c < (rows[hi + 1] || []).length; c++) {
@@ -1286,27 +1292,38 @@ function counterParseSheet_(sh, wantDate) {
     }
   }
   var wd = wantDate ? { d: wantDate.getDate(), m: wantDate.getMonth() + 1, y: wantDate.getFullYear() } : null;
-  var map = {}, curAir = '', nEntry = 0;
+  // รวมต่อไฟลท์ (รองรับทั้ง 2 เลย์เอาต์ผ่านตัวสะสมเดียว)
+  var agg = {}, order = [], curAir = '';
   for (var i = hi + 1; i < rows.length; i++) {
-    // กรองตามวันที่ (เฉพาะเมื่อชีตมีคอลัมน์วันที่ + ระบุ wantDate)
-    if (wd && cDate >= 0) {
+    if (wd && cDate >= 0) {                                        // กรองตามวันที่ (ไฟล์รวมหลายวัน)
       var rd = counterRowDate_(rows[i][cDate]);
-      if (rd && !(rd.d === wd.d && rd.m === wd.m && rd.y === wd.y)) continue;   // คนละวัน → ข้าม (แถวไม่มีวันที่ = ปล่อยผ่าน)
+      if (rd && !(rd.d === wd.d && rd.m === wd.m && rd.y === wd.y)) continue;
     }
     var air = String(rows[i][cAir] || '').trim().toUpperCase();
     if (air) curAir = air;
     var flt = String(rows[i][cFlt] || '').trim().toUpperCase().replace(/\s+/g, '');
-    if (!flt) continue;
-    var n = parseInt(String(rows[i][cCtr] || '').replace(/[^0-9.]/g, ''), 10);
-    if (!(n > 0)) continue;
-    // เวลาเปิด-ปิดเคาน์เตอร์จริง (เช่น "09:15-11:35" → เปิด 09:15, ปิด 11:35)
-    var op = '', cl = '';
-    if (cOpen >= 0) { var oc = String(rows[i][cOpen] || '').match(/(\d{1,2})[:.]?(\d{2})/g); if (oc && oc.length) { op = rrTimePair_(oc[0]); if (oc.length > 1) cl = rrTimePair_(oc[oc.length - 1]); } }
-    map[flt] = n; nEntry++;                                         // "EY411"
-    if (op) { map['@' + flt] = op; if (cl) map['~' + flt] = cl; }
-    var mm = flt.match(/^([0-9A-Z]{2})?(\d{2,4})/);                 // เลขไฟลท์
-    if (mm) { var a = mm[1] || curAir; if (a) { map[a + mm[2]] = n; if (op) { map['@' + a + mm[2]] = op; if (cl) map['~' + a + mm[2]] = cl; } } map['#' + mm[2]] = n; if (op) { map['@#' + mm[2]] = op; if (cl) map['~#' + mm[2]] = cl; } }
+    if (!flt || flt.indexOf('FLIGHT') >= 0) continue;
+    var a = agg[flt]; if (!a) { a = agg[flt] = { air: curAir, cnt: 0, labels: {}, op: '', cl: '' }; order.push(flt); }
+    if (!a.air) a.air = curAir;
+    if (cCtr >= 0) { var nn = parseInt(String(rows[i][cCtr] || '').replace(/[^0-9.]/g, ''), 10); if (nn > 0) a.cnt = Math.max(a.cnt, nn); }
+    if (cLabel >= 0) { var lb = String(rows[i][cLabel] || '').trim().toUpperCase().replace(/\s+/g, ''); if (lb && /\d/.test(lb)) a.labels[lb] = 1; }   // นับป้ายเคาน์เตอร์ที่ไม่ซ้ำ
+    if (cOpen >= 0) {                                              // เปิดเร็วสุด · ปิดช้าสุด ของไฟลท์นั้น
+      var oc = String(rows[i][cOpen] || '').match(/(\d{1,2})[:.]?(\d{2})/g);
+      if (oc && oc.length) { var o = rrTimePair_(oc[0]), c2 = oc.length > 1 ? rrTimePair_(oc[oc.length - 1]) : '';
+        if (o && (a.op === '' || o < a.op)) a.op = o; if (c2 && (a.cl === '' || c2 > a.cl)) a.cl = c2; }
+    }
   }
+  var map = {}, nEntry = 0;
+  order.forEach(function (flt) {
+    var a = agg[flt];
+    var n = (cCtr >= 0 && a.cnt > 0) ? a.cnt : Object.keys(a.labels).length;   // A: ค่าตัวเลข · B: นับป้าย
+    if (!(n > 0)) return;
+    var op = a.op, cl = a.cl;
+    map[flt] = n; nEntry++;
+    if (op) { map['@' + flt] = op; if (cl) map['~' + flt] = cl; }
+    var mm = flt.match(/^([0-9A-Z]{2})?(\d{2,4})/);
+    if (mm) { var ai = mm[1] || a.air; if (ai) { map[ai + mm[2]] = n; if (op) { map['@' + ai + mm[2]] = op; if (cl) map['~' + ai + mm[2]] = cl; } } map['#' + mm[2]] = n; if (op) { map['@#' + mm[2]] = op; if (cl) map['~#' + mm[2]] = cl; } }
+  });
   return nEntry ? map : null;
 }
 /** เวลาเปิด/ปิดเคาน์เตอร์ที่ท่าจัด สำหรับไฟลท์ (roster pair → ขาออกในไฟล์ท่า) → {op,cl} หรือ null */
