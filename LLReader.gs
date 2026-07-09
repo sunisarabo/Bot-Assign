@@ -166,12 +166,15 @@ function counterParseSheet_(sh) {
   }
   return nEntry ? map : null;
 }
-/** อ่านจากไฟล์ COUNTER CHECK ของท่า (แท็บตามวันที่) — ต้องแชร์ไฟล์ให้บัญชีที่รัน PAS */
+/** อ่านจากไฟล์เคาน์เตอร์แยก (COUNTER_FILE_ID):
+ *  1) แท็บตามวันที่ (ไฟล์ของท่าที่มีแท็บรายวัน) — ต้องแชร์ไฟล์ให้บัญชีที่รัน
+ *  2) ถ้าไม่มีแท็บวันที่ → แท็บ "COUNTER" แท็บเดียว (ไฟล์ bridge ที่ IMPORTRANGE ของวันนี้เข้ามา) */
 function counterReadForDate(fileId, date) {
   if (!fileId) return null;
   var ss = SpreadsheetApp.openById(fileId);
   var tab = findCounterTab_(ss, date);
-  return tab ? counterParseSheet_(ss.getSheetByName(tab)) : null;
+  if (tab) { var m = counterParseSheet_(ss.getSheetByName(tab)); if (m) return m; }
+  return counterReadFromRoster_(ss);                               // ไฟล์ bridge แท็บเดียว "COUNTER"
 }
 /** วิธีที่ไม่ต้องแชร์ไฟล์ท่า: อ่านแท็บ "COUNTER" ที่ก๊อปวางในไฟล์ตารางเวรของวันนั้นเอง */
 function counterReadFromRoster_(ss) {
