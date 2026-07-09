@@ -134,12 +134,13 @@ function rrParseJobText_(text) {
     for (var i = 0; i < toks.length; i++) {
       var t = toks[i];
       if (!flight && /^(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}(?:\/\d{2,4})?$/i.test(t)) { flight = t; continue; }
-      if (flight && !times && /^\d{3,4}\/\d{3,4}$/.test(t)) { times = t; continue; }
+      var tm = t.replace(/^[-–]+/, '');   // ตัดขีดคั่นนำหน้า เช่น "- 1405/1445" หรือ "-1405/1445"
+      if (flight && !times && /^\d{3,4}[\/-]\d{3,4}$/.test(tm)) { times = tm; continue; }
       if (!flight && /^[A-Za-z][A-Za-z/().-]*$/.test(t)) role.push(t.toUpperCase());   // คำบทบาทก่อนรหัสไฟลท์ (ARR/GATE…)
     }
     if (!flight || !acIsFlight_(flight)) return;     // ไม่มีรหัสไฟลท์ = ไม่ใช่จ็อบไฟลท์ (training/standby) → ข้าม
     var sta = '', std = '';
-    if (times) { var p = times.split('/'); sta = rrHHMM_(p[0]); std = rrHHMM_(p[1]); }
+    if (times) { var p = times.split(/[\/-]/); sta = rrHHMM_(p[0]); std = rrHHMM_(p[1]); }
     out.push({ flight: flight, task: role.join(' '), STA: sta, STD: std, OP: '', CL: '' });
   });
   return out;
@@ -2634,8 +2635,16 @@ function acDuty_(r) {
   return { ss: ss, se: se, ds: ds, de: de };
 }
 
+/** ทีมเอกสาร/ธุรการ (ADMIN DOC) — งานเอกสาร ไม่ผูกเวลาไฟลท์ จึงไม่ flag "ไฟลท์นอกเวลางาน"
+ *  (ต่างจาก PORTER/CREWSIGN ที่งานยังผูกเวลาไฟลท์จริง) */
+function acIsDocTeam_(team) {
+  var t = String(team || '').toUpperCase();
+  return t.indexOf('ADMIN') >= 0 && t.indexOf('DOC') >= 0;
+}
+
 /** วิเคราะห์ความเหมาะสมของหนึ่ง record (ที่มาทำงาน). */
-function acAnalyzeRecord_(r) {
+function acAnalyzeRecord_(r, team) {
+  var isDoc = acIsDocTeam_(team);
   var d = acDuty_(r);
   // เชื่อถือได้เมื่อมีเวลากะจริง (ss) หรือเป็น OT OFF (ทำเฉพาะ OT วันหยุด).
   // ถ้าเป็นคนทำงานแต่กะเป็นรหัสไม่มีเวลา (เช่น NN0 กะดึก) → อย่าเอาช่วง OT มาตัดสิน coverage
@@ -2662,7 +2671,7 @@ function acAnalyzeRecord_(r) {
       var lo = wn.lo, hi = wn.hi;
       if (d.ds != null && d.de != null) { var fa = rrAlignTo_(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }  // จัดไฟลท์ให้อยู่ timeline เดียวกับเวลางาน (ข้ามเที่ยงคืน)
       else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
-      out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) && !isAct && !wn.sub, activity: isAct,
+      out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: acIsFlight_(a.flight) && !isAct && !wn.sub && !isDoc, activity: isAct,
                       sov: /\bSOD\b|SPVR|SUPERVIS|\bSOV\b/i.test(String(a.task || '')) });   // งานคุมหัวหน้า (SOD/Supervisor Onduty)
     });
   });
@@ -2782,7 +2791,7 @@ function acAnalyze_(res, ll) {
   function consider(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
     sum.working++;
-    var a = acAnalyzeRecord_(r);
+    var a = acAnalyzeRecord_(r, team);
     if (!a.hasWindow) { sum.noWin++; return; }              // ไม่มีเวลากะระบุ → ตรวจครอบคลุมไม่ได้
     sum.checked++;
     // ไฟลท์ที่ทำ + ตั้ง flag ไฟลท์ "ซัพพอร์ตข้ามทีม" (สายการบินที่ทีมอื่นเป็นเจ้าของ)

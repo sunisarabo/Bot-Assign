@@ -126,12 +126,13 @@ function rrParseJobText_(text) {
     for (var i = 0; i < toks.length; i++) {
       var t = toks[i];
       if (!flight && /^(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}(?:\/\d{2,4})?$/i.test(t)) { flight = t; continue; }
-      if (flight && !times && /^\d{3,4}\/\d{3,4}$/.test(t)) { times = t; continue; }
+      var tm = t.replace(/^[-–]+/, '');   // ตัดขีดคั่นนำหน้า เช่น "- 1405/1445" หรือ "-1405/1445"
+      if (flight && !times && /^\d{3,4}[\/-]\d{3,4}$/.test(tm)) { times = tm; continue; }
       if (!flight && /^[A-Za-z][A-Za-z/().-]*$/.test(t)) role.push(t.toUpperCase());   // คำบทบาทก่อนรหัสไฟลท์ (ARR/GATE…)
     }
     if (!flight || !acIsFlight_(flight)) return;     // ไม่มีรหัสไฟลท์ = ไม่ใช่จ็อบไฟลท์ (training/standby) → ข้าม
     var sta = '', std = '';
-    if (times) { var p = times.split('/'); sta = rrHHMM_(p[0]); std = rrHHMM_(p[1]); }
+    if (times) { var p = times.split(/[\/-]/); sta = rrHHMM_(p[0]); std = rrHHMM_(p[1]); }
     out.push({ flight: flight, task: role.join(' '), STA: sta, STD: std, OP: '', CL: '' });
   });
   return out;
