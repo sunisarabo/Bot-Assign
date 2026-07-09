@@ -1288,15 +1288,15 @@ function counterReadForDate(fileId, date) {
   if (tab) { var m = counterParseSheet_(ss.getSheetByName(tab)); if (m) return m; }
   return counterReadFromRoster_(ss);                               // ไฟล์ bridge แท็บเดียว "COUNTER"
 }
-/** วิธีที่ไม่ต้องแชร์ไฟล์ท่า: อ่านแท็บ "COUNTER" ที่ก๊อปวางในไฟล์ตารางเวรของวันนั้นเอง */
+/** อ่านแท็บเคาน์เตอร์จากไฟล์ (ตารางเวร/bridge): เอาแท็บชื่อ "COUNTER" ก่อน
+ *  ไม่มี → สแกนทุกแท็บหาอันที่เป็นรูปแบบ counter (มีหัว FLIGHT + NO. OF COUNTER) — bridge ตั้งชื่อแท็บอะไรก็ได้ */
 function counterReadFromRoster_(ss) {
   if (!ss) return null;
-  var sheets = ss.getSheets();
-  for (var i = 0; i < sheets.length; i++) {
-    if (sheets[i].getName().toUpperCase().indexOf('COUNTER') >= 0) {
-      var m = counterParseSheet_(sheets[i]); if (m) return m;
-    }
+  var sheets = ss.getSheets(), i, m;
+  for (i = 0; i < sheets.length; i++) {
+    if (sheets[i].getName().toUpperCase().indexOf('COUNTER') >= 0) { m = counterParseSheet_(sheets[i]); if (m) return m; }
   }
+  for (i = 0; i < sheets.length; i++) { m = counterParseSheet_(sheets[i]); if (m) return m; }   // fallback: แท็บไหนก็ได้ที่รูปแบบตรง
   return null;
 }
 /** จำนวนเคาน์เตอร์ที่ท่าจัดให้ไฟลท์นี้ (roster flight อาจเป็นคู่ "EY410/EY411") → null ถ้าไม่มี */
