@@ -1315,6 +1315,64 @@ function counterReadFromRoster_(ss) {
   for (i = 0; i < sheets.length; i++) { m = counterParseSheet_(sheets[i]); if (m) return m; }   // fallback: แท็บไหนก็ได้ที่รูปแบบตรง
   return null;
 }
+// ─── COUNTER BRIDGE ±N วัน (IMPORTRANGE อัตโนมัติ) ──────────────────────────
+// สร้างแท็บใน "PAS Counter Bridge" ครอบ ±N วันจากวันนี้ · แต่ละแท็บ = วันที่ (เช่น 06JUL26)
+// ดึง (IMPORTRANGE) เคาน์เตอร์ของท่าวันนั้นเข้ามา → dashboard เปิดดูวันไหนใน ±7 วันก็มีข้อมูล
+// findCounterTab_ จับแท็บตามชื่อวันที่อยู่แล้ว จึงไม่ต้องแก้ฝั่งอ่าน
+/** ชื่อแท็บของวันที่ ตามรูปแบบที่ท่าตั้ง (ให้ตรงกับ findCounterTab_) */
+function rbCounterTabName_(dt, fmt) {
+  var d = dt.getDate(), dPad = ('0' + d).slice(-2);
+  var mon = MON_RB[dt.getMonth()], yr2 = String(dt.getFullYear()).slice(2);
+  switch (String(fmt || 'DDMONYY').toUpperCase()) {
+    case 'DMONYY': return d + mon + yr2;      // 6JUL26
+    case 'DDMON':  return dPad + mon;         // 06JUL
+    case 'DMON':   return d + mon;            // 6JUL
+    default:       return dPad + mon + yr2;   // 06JUL26
+  }
+}
+/** ชื่อแท็บนี้ "หน้าตาเป็นวันที่" หรือไม่ (ใช้ล้างแท็บเก่านอกช่วง) */
+function rbIsDateTabName_(nm) {
+  return new RegExp('^\\d{1,2}\\s*(' + MON_RB.join('|') + ')', 'i').test(String(nm || '').trim());
+}
+/** สร้าง/รีเฟรชแท็บ Bridge ให้ครอบ ±COUNTER_BRIDGE_DAYS วันจากวันนี้ (รันเองครั้งแรก + ตั้ง trigger รายวัน)
+ *  หมายเหตุ: IMPORTRANGE ครั้งแรกจากไฟล์ต้นทางใหม่ ต้องเปิด Bridge กด "อนุญาตการเข้าถึง" 1 ครั้ง แล้วที่เหลือใช้ได้เอง */
+function rbCounterBridgeRefresh() {
+  var C = CONFIG_RB;
+  if (!C.COUNTER_FILE_ID) throw new Error('ยังไม่ได้ตั้ง COUNTER_FILE_ID (ไฟล์ Bridge)');
+  if (!C.COUNTER_SRC_ID)  throw new Error('ยังไม่ได้ตั้ง COUNTER_SRC_ID (ไฟล์ COUNTER CHECK ของท่า)');
+  var days = C.COUNTER_BRIDGE_DAYS || 7;
+  var range = C.COUNTER_SRC_RANGE || 'A1:J400';
+  var fmt = C.COUNTER_SRC_TABFMT || 'DDMONYY';
+  var srcUrl = 'https://docs.google.com/spreadsheets/d/' + C.COUNTER_SRC_ID;
+  var bridge = SpreadsheetApp.openById(C.COUNTER_FILE_ID);
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var want = {};
+  for (var off = -days; off <= days; off++) {
+    var dt = new Date(today.getTime() + off * 86400000);
+    var name = rbCounterTabName_(dt, fmt);                 // ชื่อแท็บ Bridge = ชื่อแท็บของท่า (วันนั้น)
+    want[name] = 1;
+    var sh = bridge.getSheetByName(name) || bridge.insertSheet(name);
+    // IFERROR กันวันที่ท่ายังไม่ลงข้อมูล (แท็บไม่มี) → เว้นว่าง ไม่พังทั้งชีต
+    sh.getRange(1, 1).setFormula('=IFERROR(IMPORTRANGE("' + srcUrl + '","' + name + '!' + range + '"),"")');
+  }
+  // ล้างแท็บ "วันที่" เก่านอกช่วง (คงแท็บอื่น เช่น README/COUNTER ไว้)
+  bridge.getSheets().forEach(function (sh) {
+    var nm = sh.getName();
+    if (rbIsDateTabName_(nm) && !want[nm] && bridge.getSheets().length > 1) {
+      try { bridge.deleteSheet(sh); } catch (e) {}
+    }
+  });
+  SpreadsheetApp.flush();
+  return 'รีเฟรช Bridge: ' + Object.keys(want).length + ' แท็บ (วันนี้ ±' + days + ' วัน)';
+}
+/** ติดตั้ง trigger รายวัน (เลื่อนหน้าต่าง ±7 วันอัตโนมัติ) + รีเฟรชทันที 1 ครั้ง */
+function rbInstallCounterBridgeTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'rbCounterBridgeRefresh') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('rbCounterBridgeRefresh').timeBased().everyDays(1).atHour(1).create();
+  return rbCounterBridgeRefresh() + ' · ตั้ง trigger รายวัน 01:00 แล้ว';
+}
 /** จำนวนเคาน์เตอร์ที่ท่าจัดให้ไฟลท์นี้ (roster flight อาจเป็นคู่ "EY410/EY411") → null ถ้าไม่มี */
 function counterForFlight_(map, flight) {
   if (!map) return null;
@@ -3322,6 +3380,37 @@ function apExportFill(dateStr, team, exJson) {
   var out = {}; Object.keys(byTeam).forEach(function (t) { out[t] = Object.keys(byTeam[t]).map(function (f) { return byTeam[t][f]; }); });
   return apExportGrid_('Assignment (เติม) ' + dateStr, out, dateStr);
 }
+/** Export จากแท็บ Support: ใช้คนที่ "เลือกไว้ในเมนู" จริง (ไม่ใช่ auto) → ชีตกริด แยกทีมเจ้าของไฟลท์
+ *  picksJson = [{flight, airline, std, phase, names:[...]}] (เก็บจาก dropdown ในหน้าเว็บ) */
+function supExportSheet(dateStr, picksJson) {
+  var picks = []; try { picks = picksJson ? JSON.parse(picksJson) : []; } catch (e0) {}
+  picks = picks.filter(function (g) { return g && g.names && g.names.filter(Boolean).length; });
+  if (!picks.length) throw new Error('ยังไม่ได้เลือกคนที่จะส่งซัพในเมนู');
+  var d = rbLoadResLL_(rbDateFromIso_(dateStr));
+  var owner = acOwnerTeams_(d.res, d.ll);
+  // ชื่อ (ตัวพิมพ์ใหญ่) → รายละเอียดคน (ตำแหน่ง/กะ/ทีม) จาก roster วันนั้น
+  var pdb = {};
+  function addP(team, r) {
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off' && r.bucket !== 'off') return;
+    var key = String(r.name || '').toUpperCase().trim(); if (!key || pdb[key]) return;
+    pdb[key] = { name: r.name, pos: r.pos || r.posGroup || '', shift: r.shiftTime || r.shift || '', team: team };
+  }
+  Object.keys(d.res.teams).forEach(function (t) { d.res.teams[t].records.forEach(function (r) { addP(t, r); }); });
+  if (d.ll && d.ll.totals && d.ll.totals.staff > 0) Object.keys(d.ll.sections).forEach(function (s) { d.ll.sections[s].records.forEach(function (r) { addP('LL·' + s, r); }); });
+  var byTeam = {};
+  picks.forEach(function (g) {
+    var names = (g.names || []).filter(Boolean);
+    var t = owner[g.airline] || g.airline || '?';
+    var tm = byTeam[t] = byTeam[t] || {};
+    var fr = tm[g.flight] = tm[g.flight] || { flight: g.flight, sta: '', std: g.std || '', people: [] };
+    names.forEach(function (nm) {
+      var p = pdb[String(nm).toUpperCase().trim()] || { name: nm, pos: '', shift: '', team: '' };
+      fr.people.push({ name: p.name, pos: p.pos, shift: p.shift, role: (g.phase || 'ซัพพอร์ต') + (p.team && p.team !== t ? ' ←' + p.team : '') });
+    });
+  });
+  var out = {}; Object.keys(byTeam).forEach(function (t) { out[t] = Object.keys(byTeam[t]).map(function (f) { return byTeam[t][f]; }); });
+  return apExportGrid_('Assignment (Support) ' + dateStr, out, dateStr);
+}
 /** Export "Auto Assign" (replan) → ชีตกริด (ไฟลท์×คน) แยกทีมเจ้าของไฟลท์ (team='' = ทุกทีม) */
 function apExportAuto(dateStr, team) {
   var d = rbLoadResLL_(rbDateFromIso_(dateStr));
@@ -5195,7 +5284,11 @@ var CONFIG_RB = {
   OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
   LL_FILE_ID:       '', // ไฟล์ LL — ใส่ ID ถ้าบัญชีที่รันมีสิทธิ์เข้า (ของเดิม '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg'); เว้นว่าง = ข้าม LL
   COUNTER_FILE_ID:  '1sUxh2xu4U3Jx2uqxOp0tyjr2mPGi7xS23RUNWmTzQPE', // ไฟล์ "PAS Counter Bridge" (IMPORTRANGE เคาน์เตอร์ของท่าเข้ามาเอง) — เว้นว่าง = ไม่ตัดตามเคาน์เตอร์
-  // ไฟล์ COUNTER CHECK ของท่าโดยตรง (ถ้าวันหลังแชร์ให้บัญชีที่รันได้): '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk'
+  // ไฟล์ COUNTER CHECK ของท่าโดยตรง (ต้นทาง IMPORTRANGE): '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk'
+  COUNTER_SRC_ID:   '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk', // ไฟล์ COUNTER CHECK ของท่า (ต้นทางให้ Bridge IMPORTRANGE) — เว้นว่าง = ไม่รีเฟรช Bridge อัตโนมัติ
+  COUNTER_SRC_RANGE:'A1:J400',                              // ช่วงเซลล์ที่ IMPORTRANGE จากแท็บของท่า
+  COUNTER_SRC_TABFMT:'DDMONYY',                             // รูปแบบชื่อแท็บของท่า: DDMONYY=06JUL26 · DMONYY=6JUL26 · DDMON=06JUL · DMON=6JUL
+  COUNTER_BRIDGE_DAYS: 7,                                   // สร้างแท็บครอบ ±N วันจากวันนี้ใน Bridge
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
@@ -6168,6 +6261,9 @@ function rbSupportHtml(iso) {
     rows.forEach(function (r) { nF[r.flight] = 1; r.cands.forEach(function (c) { supTeams[c.team] = 1; }); });
     var hd = '<div class="sectionlabel">🆘 <b>Support / เติมคน</b> (รวม "เติม Assign เดิม") — ไฟลท์ที่คนไม่ครบตาม SLA: <b class="badd">' + Object.keys(nF).length +
       ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + rows.length + ' รายการ — เมนูตั้งค่าคนที่ <b>ว่าง + รู้ระบบ</b> ให้อัตโนมัติ · เลือก <b>พนักงานอื่นๆ</b> ได้จากในเมนู</div>';
+    var expBar = '<div class="expbar" style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<b>📤 ส่งให้พนักงาน:</b> <button class="btn btn--accent" onclick="supExport()">สร้างไฟล์ชีตแจ้ง Assignment (จากที่เลือกในเมนู · 1 แท็บ/ทีม)</button>' +
+      '<span class="supexpmsg muted"></span></div>';
     // แถบเลือกหลายทีม: เลือกได้ว่าจะดึงคนจากทีมไหนมาช่วย (คลิกสลับเปิด/ปิด)
     var teamBar = Object.keys(supTeams).sort().map(function (t) {
       return '<button class="supteam on" data-t="' + rbEsc_(t) + '" onclick="toggleSupTeam(this)">' + rbEsc_(t) + '</button>';
@@ -6210,7 +6306,9 @@ function rbSupportHtml(iso) {
       } else {
         who = '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
       }
-      return '<tr class="' + (r.cands.length || others.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
+      return '<tr class="' + (r.cands.length || others.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) +
+        '" data-flight="' + rbAttr_(r.flight) + '" data-air="' + rbAttr_(r.airline) + '" data-std="' + rbAttr_(r.STD) + '" data-phase="' + rbAttr_(r.phase) +
+        '"><td class="b">' + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
         '</td><td class="badd">' + rbEsc_(r.phase) + ' ขาด ' + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
         '</td><td class="tnum">' + rbEsc_(r.win) + '</td><td>' + who + '</td></tr>';
@@ -6228,7 +6326,7 @@ function rbSupportHtml(iso) {
       '<div style="padding:8px 14px"><textarea id="supimpin" rows="7" placeholder="วางข้อความขอซัพจาก Duty (ไลน์) ทั้งก้อนได้เลย — รองรับหลายสาย/หลายไฟลท์" style="width:100%;font-size:13px;font-family:monospace"></textarea>' +
       '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supImport()">🔎 แปลง/พรีวิว</button> <button class="btn" onclick="supImportSheet()">📤 สร้างชีต</button> <span id="supimpmsg" class="muted"></span></div>' +
       '<div id="supimpout" style="margin-top:8px"></div></div></details>';
-    return hd + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+    return hd + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
@@ -6799,6 +6897,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}' +
+    'function supExport(){var v=document.getElementById("view-sup");if(!v)return;var picks=[];[].forEach.call(v.querySelectorAll("tbody tr[data-flight]"),function(tr){if(tr.style.display==="none")return;var names=[];[].forEach.call(tr.querySelectorAll(".namepick"),function(s){if(s.value.trim())names.push(s.value.trim());});if(!names.length)return;picks.push({flight:tr.getAttribute("data-flight"),airline:tr.getAttribute("data-air"),std:tr.getAttribute("data-std"),phase:tr.getAttribute("data-phase"),names:names});});if(!picks.length){alert("ยังไม่ได้เลือกคนในเมนู");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=v.querySelector(".supexpmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ชีต…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment (Support)</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).supExportSheet(ISO,JSON.stringify(picks));}' +
     'function supCheck(){var el=document.getElementById("supchkin");var t=el?el.value:"";if(!t.trim()){alert("วางรายชื่อก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อใช้ปุ่มตรวจ");return;}var m=document.getElementById("supchkmsg");if(m)m.textContent="⏳ กำลังตรวจ…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supchkout").innerHTML=h;makeSortable();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supchkout").innerHTML="<div class=\\"panel\\">ตรวจไม่ได้: "+e.message+"</div>";}).rbCheckDeployHtml(ISO,t);}' +
     'function supImport(){var el=document.getElementById("supimpin");var t=el?el.value:"";if(!t.trim()){alert("วางข้อความ Duty ก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var m=document.getElementById("supimpmsg");if(m)m.textContent="⏳ กำลังแปลง…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supimpout").innerHTML=h;makeSortable();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supimpout").innerHTML="<div class=\\"panel\\">แปลงไม่ได้: "+e.message+"</div>";}).rbDutyImportHtml(ISO,t);}' +
     'function supImportSheet(){var el=document.getElementById("supimpin");var t=el?el.value:"";if(!t.trim()){alert("วางข้อความ Duty ก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างชีต");return;}var m=document.getElementById("supimpmsg");if(m)m.innerHTML="⏳ กำลังสร้างชีต…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดชีต Support Duty</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างชีตไม่ได้: "+e.message);}).dutyExportSheet(ISO,t);}function loadFill(){lazy("fillbox","rbFillPlanHtml","fill");}function loadAuto(){lazy("autobox","rbAutoAssignHtml","auto");}' +

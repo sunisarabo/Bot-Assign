@@ -388,6 +388,37 @@ function apExportFill(dateStr, team, exJson) {
   var out = {}; Object.keys(byTeam).forEach(function (t) { out[t] = Object.keys(byTeam[t]).map(function (f) { return byTeam[t][f]; }); });
   return apExportGrid_('Assignment (เติม) ' + dateStr, out, dateStr);
 }
+/** Export จากแท็บ Support: ใช้คนที่ "เลือกไว้ในเมนู" จริง (ไม่ใช่ auto) → ชีตกริด แยกทีมเจ้าของไฟลท์
+ *  picksJson = [{flight, airline, std, phase, names:[...]}] (เก็บจาก dropdown ในหน้าเว็บ) */
+function supExportSheet(dateStr, picksJson) {
+  var picks = []; try { picks = picksJson ? JSON.parse(picksJson) : []; } catch (e0) {}
+  picks = picks.filter(function (g) { return g && g.names && g.names.filter(Boolean).length; });
+  if (!picks.length) throw new Error('ยังไม่ได้เลือกคนที่จะส่งซัพในเมนู');
+  var d = rbLoadResLL_(rbDateFromIso_(dateStr));
+  var owner = acOwnerTeams_(d.res, d.ll);
+  // ชื่อ (ตัวพิมพ์ใหญ่) → รายละเอียดคน (ตำแหน่ง/กะ/ทีม) จาก roster วันนั้น
+  var pdb = {};
+  function addP(team, r) {
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off' && r.bucket !== 'off') return;
+    var key = String(r.name || '').toUpperCase().trim(); if (!key || pdb[key]) return;
+    pdb[key] = { name: r.name, pos: r.pos || r.posGroup || '', shift: r.shiftTime || r.shift || '', team: team };
+  }
+  Object.keys(d.res.teams).forEach(function (t) { d.res.teams[t].records.forEach(function (r) { addP(t, r); }); });
+  if (d.ll && d.ll.totals && d.ll.totals.staff > 0) Object.keys(d.ll.sections).forEach(function (s) { d.ll.sections[s].records.forEach(function (r) { addP('LL·' + s, r); }); });
+  var byTeam = {};
+  picks.forEach(function (g) {
+    var names = (g.names || []).filter(Boolean);
+    var t = owner[g.airline] || g.airline || '?';
+    var tm = byTeam[t] = byTeam[t] || {};
+    var fr = tm[g.flight] = tm[g.flight] || { flight: g.flight, sta: '', std: g.std || '', people: [] };
+    names.forEach(function (nm) {
+      var p = pdb[String(nm).toUpperCase().trim()] || { name: nm, pos: '', shift: '', team: '' };
+      fr.people.push({ name: p.name, pos: p.pos, shift: p.shift, role: (g.phase || 'ซัพพอร์ต') + (p.team && p.team !== t ? ' ←' + p.team : '') });
+    });
+  });
+  var out = {}; Object.keys(byTeam).forEach(function (t) { out[t] = Object.keys(byTeam[t]).map(function (f) { return byTeam[t][f]; }); });
+  return apExportGrid_('Assignment (Support) ' + dateStr, out, dateStr);
+}
 /** Export "Auto Assign" (replan) → ชีตกริด (ไฟลท์×คน) แยกทีมเจ้าของไฟลท์ (team='' = ทุกทีม) */
 function apExportAuto(dateStr, team) {
   var d = rbLoadResLL_(rbDateFromIso_(dateStr));

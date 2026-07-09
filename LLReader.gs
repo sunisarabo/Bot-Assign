@@ -202,6 +202,64 @@ function counterReadFromRoster_(ss) {
   for (i = 0; i < sheets.length; i++) { m = counterParseSheet_(sheets[i]); if (m) return m; }   // fallback: แท็บไหนก็ได้ที่รูปแบบตรง
   return null;
 }
+// ─── COUNTER BRIDGE ±N วัน (IMPORTRANGE อัตโนมัติ) ──────────────────────────
+// สร้างแท็บใน "PAS Counter Bridge" ครอบ ±N วันจากวันนี้ · แต่ละแท็บ = วันที่ (เช่น 06JUL26)
+// ดึง (IMPORTRANGE) เคาน์เตอร์ของท่าวันนั้นเข้ามา → dashboard เปิดดูวันไหนใน ±7 วันก็มีข้อมูล
+// findCounterTab_ จับแท็บตามชื่อวันที่อยู่แล้ว จึงไม่ต้องแก้ฝั่งอ่าน
+/** ชื่อแท็บของวันที่ ตามรูปแบบที่ท่าตั้ง (ให้ตรงกับ findCounterTab_) */
+function rbCounterTabName_(dt, fmt) {
+  var d = dt.getDate(), dPad = ('0' + d).slice(-2);
+  var mon = MON_RB[dt.getMonth()], yr2 = String(dt.getFullYear()).slice(2);
+  switch (String(fmt || 'DDMONYY').toUpperCase()) {
+    case 'DMONYY': return d + mon + yr2;      // 6JUL26
+    case 'DDMON':  return dPad + mon;         // 06JUL
+    case 'DMON':   return d + mon;            // 6JUL
+    default:       return dPad + mon + yr2;   // 06JUL26
+  }
+}
+/** ชื่อแท็บนี้ "หน้าตาเป็นวันที่" หรือไม่ (ใช้ล้างแท็บเก่านอกช่วง) */
+function rbIsDateTabName_(nm) {
+  return new RegExp('^\\d{1,2}\\s*(' + MON_RB.join('|') + ')', 'i').test(String(nm || '').trim());
+}
+/** สร้าง/รีเฟรชแท็บ Bridge ให้ครอบ ±COUNTER_BRIDGE_DAYS วันจากวันนี้ (รันเองครั้งแรก + ตั้ง trigger รายวัน)
+ *  หมายเหตุ: IMPORTRANGE ครั้งแรกจากไฟล์ต้นทางใหม่ ต้องเปิด Bridge กด "อนุญาตการเข้าถึง" 1 ครั้ง แล้วที่เหลือใช้ได้เอง */
+function rbCounterBridgeRefresh() {
+  var C = CONFIG_RB;
+  if (!C.COUNTER_FILE_ID) throw new Error('ยังไม่ได้ตั้ง COUNTER_FILE_ID (ไฟล์ Bridge)');
+  if (!C.COUNTER_SRC_ID)  throw new Error('ยังไม่ได้ตั้ง COUNTER_SRC_ID (ไฟล์ COUNTER CHECK ของท่า)');
+  var days = C.COUNTER_BRIDGE_DAYS || 7;
+  var range = C.COUNTER_SRC_RANGE || 'A1:J400';
+  var fmt = C.COUNTER_SRC_TABFMT || 'DDMONYY';
+  var srcUrl = 'https://docs.google.com/spreadsheets/d/' + C.COUNTER_SRC_ID;
+  var bridge = SpreadsheetApp.openById(C.COUNTER_FILE_ID);
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var want = {};
+  for (var off = -days; off <= days; off++) {
+    var dt = new Date(today.getTime() + off * 86400000);
+    var name = rbCounterTabName_(dt, fmt);                 // ชื่อแท็บ Bridge = ชื่อแท็บของท่า (วันนั้น)
+    want[name] = 1;
+    var sh = bridge.getSheetByName(name) || bridge.insertSheet(name);
+    // IFERROR กันวันที่ท่ายังไม่ลงข้อมูล (แท็บไม่มี) → เว้นว่าง ไม่พังทั้งชีต
+    sh.getRange(1, 1).setFormula('=IFERROR(IMPORTRANGE("' + srcUrl + '","' + name + '!' + range + '"),"")');
+  }
+  // ล้างแท็บ "วันที่" เก่านอกช่วง (คงแท็บอื่น เช่น README/COUNTER ไว้)
+  bridge.getSheets().forEach(function (sh) {
+    var nm = sh.getName();
+    if (rbIsDateTabName_(nm) && !want[nm] && bridge.getSheets().length > 1) {
+      try { bridge.deleteSheet(sh); } catch (e) {}
+    }
+  });
+  SpreadsheetApp.flush();
+  return 'รีเฟรช Bridge: ' + Object.keys(want).length + ' แท็บ (วันนี้ ±' + days + ' วัน)';
+}
+/** ติดตั้ง trigger รายวัน (เลื่อนหน้าต่าง ±7 วันอัตโนมัติ) + รีเฟรชทันที 1 ครั้ง */
+function rbInstallCounterBridgeTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'rbCounterBridgeRefresh') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('rbCounterBridgeRefresh').timeBased().everyDays(1).atHour(1).create();
+  return rbCounterBridgeRefresh() + ' · ตั้ง trigger รายวัน 01:00 แล้ว';
+}
 /** จำนวนเคาน์เตอร์ที่ท่าจัดให้ไฟลท์นี้ (roster flight อาจเป็นคู่ "EY410/EY411") → null ถ้าไม่มี */
 function counterForFlight_(map, flight) {
   if (!map) return null;
