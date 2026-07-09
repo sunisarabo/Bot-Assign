@@ -2144,6 +2144,30 @@ function slaCandidates_(f, ph, pool, max) {
   }
   return max ? cands.slice(0, max) : cands;
 }
+/** "พนักงานอื่นๆ" — คนที่ "ว่างช่วงนั้น" แต่ถูกตัดออกจาก candidate หลักเพราะไม่ตรงระบบ/ตำแหน่ง
+ *  (เผื่อ Duty รู้ว่าคนนี้ช่วยได้ หรือระบบไม่ใช่ข้อบังคับตายตัว) → ให้เลือกเสริมได้ในเมนู
+ *  · เช็คเวลาว่างจริง (ครอบ window + ไม่ติดไฟลท์อื่น + ไม่ถูกจอง) เหมือน candidate หลัก
+ *  · ตัดคนที่อยู่ใน candidate หลักแล้ว (exclude) และคนทีมเดียวกับไฟลท์ */
+function slaOtherCands_(f, ph, pool, max, exclude) {
+  var win = slaPhaseWindow_(f, ph);
+  if (!win) return [];
+  var ex = {}; (exclude || []).forEach(function (n) { ex[n] = 1; });
+  var cands = pool.filter(function (p) {
+    if (ex[p.name]) return false;                           // อยู่ในรายการหลักแล้ว
+    if (f.teams[p.team]) return false;                      // คนทีมเดียวกับไฟลท์
+    if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
+    var buf = slaTransitBuf_(p.busy, win[0]);
+    for (var i = 0; i < p.busy.length; i++) { var b = p.busy[i]; if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false; }
+    for (var j = 0; j < p.hold.length; j++) { var h = p.hold[j]; if (win[0] < h[1] + buf && win[1] > h[0] - buf) return false; }
+    return true;
+  });
+  var PRI = { PSA: 0, SNR: 1, PSS: 2 };
+  cands.sort(function (a, b) {
+    return (a.off ? 1 : 0) - (b.off ? 1 : 0) || (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
+      (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+  });
+  return max ? cands.slice(0, max) : cands;
+}
 function slaWinTxt_(f, ph) {
   var w = slaPhaseWindow_(f, ph);
   return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
@@ -2207,6 +2231,11 @@ function slaSupportRows_(res, ll) {
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
         cands: cands.map(function (c) {
+          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
+                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
+        }),
+        // พนักงานอื่นๆ ที่ว่างช่วงนั้น (ไม่ตรงระบบ/ตำแหน่ง) — ตัวเลือกเสริมในเมนู
+        others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; })) : []).map(function (c) {
           return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
                    shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
         }),
@@ -6137,8 +6166,8 @@ function rbSupportHtml(iso) {
     var rows = slaSupportRows_(d.res, d.ll);
     var nF = {}, supTeams = {};
     rows.forEach(function (r) { nF[r.flight] = 1; r.cands.forEach(function (c) { supTeams[c.team] = 1; }); });
-    var hd = '<div class="sectionlabel">ไฟลท์ที่คนไม่ครบตาม SLA: <b class="badd">' + Object.keys(nF).length +
-      ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + rows.length + ' รายการ — แนะนำคนที่ <b>ว่างช่วงนั้น + รู้ระบบเช็คอิน</b></div>';
+    var hd = '<div class="sectionlabel">🆘 <b>Support / เติมคน</b> (รวม "เติม Assign เดิม") — ไฟลท์ที่คนไม่ครบตาม SLA: <b class="badd">' + Object.keys(nF).length +
+      ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + rows.length + ' รายการ — เมนูตั้งค่าคนที่ <b>ว่าง + รู้ระบบ</b> ให้อัตโนมัติ · เลือก <b>พนักงานอื่นๆ</b> ได้จากในเมนู</div>';
     // แถบเลือกหลายทีม: เลือกได้ว่าจะดึงคนจากทีมไหนมาช่วย (คลิกสลับเปิด/ปิด)
     var teamBar = Object.keys(supTeams).sort().map(function (t) {
       return '<button class="supteam on" data-t="' + rbEsc_(t) + '" onclick="toggleSupTeam(this)">' + rbEsc_(t) + '</button>';
@@ -6148,19 +6177,27 @@ function rbSupportHtml(iso) {
       '<span class="muted" style="font-size:12px">— ถ้าทีมที่เลือกไม่พอ ระบบเติม <span class="sup--sub" style="padding:1px 6px;border-radius:6px">↪ ทดแทน</span> จากทีมอื่นให้ครบจำนวนที่ขาด</span></div>';
     var body = rows.map(function (r) {
       var who;
-      if (r.cands.length) {
+      var others = r.others || [];
+      if (r.cands.length || others.length) {
         var grps = slaGroupCands_(r.cands);
+        function optRow(p, defName) {
+          return '<option value="' + rbAttr_(p.name) + '"' + (p.name === defName ? ' selected' : '') + '>' +
+            rbEsc_(p.name + ' · ' + (p.pos || '') + ' · ' + (p.team || '') + ' · ' + (p.shift || '') + ' · ' + (p.n || 0) + ' ไฟลท์'
+              + (p.hlevel && p.hlevel !== 'ok' ? '  ⚠️ ' + (p.htxt || 'เกินชั่วโมง') : '')) + '</option>';
+        }
         function sel(defName) {
           var h = '<select class="namepick"><option value=""' + (defName ? '' : ' selected') + '>— เลือกคน —</option>';
           grps.forEach(function (g) {
             h += '<optgroup label="' + rbEsc_(g.team) + ' (' + g.people.length + ')">';
-            g.people.forEach(function (p) {
-              h += '<option value="' + rbAttr_(p.name) + '"' + (p.name === defName ? ' selected' : '') + '>' +
-                rbEsc_(p.name + ' · ' + (p.pos || '') + ' · ' + (p.shift || '') + ' · ' + (p.n || 0) + ' ไฟลท์'
-                  + (p.hlevel && p.hlevel !== 'ok' ? '  ⚠️ ' + (p.htxt || 'เกินชั่วโมง') : '')) + '</option>';
-            });
+            g.people.forEach(function (p) { h += optRow(p, defName); });
             h += '</optgroup>';
           });
+          // พนักงานอื่นๆ ที่ว่างช่วงนั้น (ไม่ตรงระบบ/ตำแหน่ง) — เลือกเสริมได้ถ้า Duty รู้ว่าช่วยได้
+          if (others.length) {
+            h += '<optgroup label="อื่นๆ · ว่างช่วงนี้ (ไม่ตรงระบบ) (' + others.length + ')">';
+            others.forEach(function (p) { h += optRow(p, defName); });
+            h += '</optgroup>';
+          }
           return h + '</select>';
         }
         // 1 ช่อง = 1 คน · ค่าเริ่มต้นกระจายหลายทีม (แนะทีมอื่นด้วย ไม่ใช่ทีมลอยซ้ำ) แล้วค่อยเติมจากที่ดีสุด
@@ -6168,11 +6205,12 @@ function rbSupportHtml(iso) {
         r.cands.forEach(function (c) { if (picked.length < r.shortN && !usedT[c.team]) { usedT[c.team] = 1; picked.push(c.name); } });
         for (var ci = 0; picked.length < r.shortN && ci < r.cands.length; ci++) if (picked.indexOf(r.cands[ci].name) < 0) picked.push(r.cands[ci].name);
         for (var i = 0; i < r.shortN; i++) slots.push(sel(picked[i] || ''));
-        who = '<div class="pickwrap">' + slots.join('') + '</div>';
+        who = '<div class="pickwrap">' + slots.join('') + '</div>' +
+          (!r.cands.length ? '<div class="muted" style="font-size:11px">ไม่มีคนตรงระบบ — เลือกจาก "อื่นๆ" ที่ว่างช่วงนี้ได้</div>' : '');
       } else {
         who = '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
       }
-      return '<tr class="' + (r.cands.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
+      return '<tr class="' + (r.cands.length || others.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
         '</td><td class="badd">' + rbEsc_(r.phase) + ' ขาด ' + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
         '</td><td class="tnum">' + rbEsc_(r.win) + '</td><td>' + who + '</td></tr>';
@@ -6283,8 +6321,8 @@ function rbAppbar_(date) {
 /** AOTGA Manpower — แถบเมนูซ้าย (Phase 4): brand + เมนู + Live */
 var RB_NAV_ = [
   ['dash','▦','Dashboard',''], ['tt','☰','Timetable','loadTT()'],
-  ['flt','✈','Flights & SLA','loadFlt()','s'], ['sup','🆘','Support','loadSup()','s'],
-  ['ac','🧭','ตรวจ Assign','loadAC()','a'], ['fill','🧩','เติม Assign เดิม','loadFill()'],
+  ['flt','✈','Flights & SLA','loadFlt()','s'], ['sup','🆘','Support / เติมคน','loadSup()','s'],
+  ['ac','🧭','ตรวจ Assign','loadAC()','a'],
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
   ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
@@ -6714,8 +6752,6 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     : '<div id="acbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจการ Assign…</div></div>';
   var supInner = staticMode ? rbSupportHtml(iso)
     : '<div id="supbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังหาคนซัพพอร์ต…</div></div>';
-  var fillInner = staticMode ? rbFillPlanHtml(iso)
-    : '<div id="fillbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังเติมคนเสริมไฟลท์ที่ขาด…</div></div>';
   var autoInner = staticMode ? rbAutoAssignHtml(iso)
     : '<div id="autobox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังจัดเวรใหม่ทั้งหมดตาม SLA…</div></div>';
   var advInner = '<div id="advbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กดแท็บเพื่อจัดเวรล่วงหน้า (อ่านลิงก์ ROSTER/FLIGHT/รายชื่อจริง)…</div></div>';
@@ -6743,7 +6779,6 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
     '<div id="view-sup" style="display:none">' + supInner + '</div>' +
     '<div id="view-ac" style="display:none">' + acInner + '</div>' +
-    '<div id="view-fill" style="display:none">' + fillInner + '</div>' +
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
@@ -6756,7 +6791,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","fill","auto","adv","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadDc(){lazy("dcbox","rbDataCheckHtml","dc");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +

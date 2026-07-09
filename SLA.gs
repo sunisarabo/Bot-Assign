@@ -810,6 +810,30 @@ function slaCandidates_(f, ph, pool, max) {
   }
   return max ? cands.slice(0, max) : cands;
 }
+/** "พนักงานอื่นๆ" — คนที่ "ว่างช่วงนั้น" แต่ถูกตัดออกจาก candidate หลักเพราะไม่ตรงระบบ/ตำแหน่ง
+ *  (เผื่อ Duty รู้ว่าคนนี้ช่วยได้ หรือระบบไม่ใช่ข้อบังคับตายตัว) → ให้เลือกเสริมได้ในเมนู
+ *  · เช็คเวลาว่างจริง (ครอบ window + ไม่ติดไฟลท์อื่น + ไม่ถูกจอง) เหมือน candidate หลัก
+ *  · ตัดคนที่อยู่ใน candidate หลักแล้ว (exclude) และคนทีมเดียวกับไฟลท์ */
+function slaOtherCands_(f, ph, pool, max, exclude) {
+  var win = slaPhaseWindow_(f, ph);
+  if (!win) return [];
+  var ex = {}; (exclude || []).forEach(function (n) { ex[n] = 1; });
+  var cands = pool.filter(function (p) {
+    if (ex[p.name]) return false;                           // อยู่ในรายการหลักแล้ว
+    if (f.teams[p.team]) return false;                      // คนทีมเดียวกับไฟลท์
+    if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
+    var buf = slaTransitBuf_(p.busy, win[0]);
+    for (var i = 0; i < p.busy.length; i++) { var b = p.busy[i]; if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false; }
+    for (var j = 0; j < p.hold.length; j++) { var h = p.hold[j]; if (win[0] < h[1] + buf && win[1] > h[0] - buf) return false; }
+    return true;
+  });
+  var PRI = { PSA: 0, SNR: 1, PSS: 2 };
+  cands.sort(function (a, b) {
+    return (a.off ? 1 : 0) - (b.off ? 1 : 0) || (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
+      (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+  });
+  return max ? cands.slice(0, max) : cands;
+}
 function slaWinTxt_(f, ph) {
   var w = slaPhaseWindow_(f, ph);
   return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
@@ -873,6 +897,11 @@ function slaSupportRows_(res, ll) {
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
         cands: cands.map(function (c) {
+          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
+                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
+        }),
+        // พนักงานอื่นๆ ที่ว่างช่วงนั้น (ไม่ตรงระบบ/ตำแหน่ง) — ตัวเลือกเสริมในเมนู
+        others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; })) : []).map(function (c) {
           return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
                    shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
         }),
