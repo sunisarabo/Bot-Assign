@@ -133,28 +133,53 @@ function debugDumpLL(llFileId, y, m, d) {
 // ใช้ตัดเพดาน "เช็คอิน" ของ SLA: ถ้าท่าให้เคาน์เตอร์น้อยกว่าที่ SLA ต้องการ → ส่งคนได้เท่าเคาน์เตอร์
 /** หา tab ของวันที่ในไฟล์ counter (ชื่อแบบ "16 MAY26" / "6JUL26") — ใช้แพตเทิร์นเดียวกับ LL */
 function findCounterTab_(ss, date) { return findLLTab_(ss, date); }
-/** parse ชีต counter หนึ่งแท็บ → { "EY411":10, "KC564":5, ... } · คืน null ถ้าไม่ใช่รูปแบบ counter */
-function counterParseSheet_(sh) {
+/** วันที่ในเซลล์ (Date object หรือ "09.07.2026" / "9/7/26" — วันก่อนเดือน) → {d,m,y} หรือ null */
+function counterRowDate_(v) {
+  if (v instanceof Date && v.getFullYear() > 1990) return { d: v.getDate(), m: v.getMonth() + 1, y: v.getFullYear() };
+  var m = String(v == null ? '' : v).match(/\b(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})\b/);
+  if (!m) return null;
+  var y = +m[3]; if (y < 100) y += 2000;
+  return { d: +m[1], m: +m[2], y: y };
+}
+/** parse ชีต counter หนึ่งแท็บ → { "EY411":10, "KC564":5, ... } · คืน null ถ้าไม่ใช่รูปแบบ counter
+ *  wantDate (Date) = ถ้าชีตมี "คอลัมน์วันที่" (ไฟล์รวมหลายวัน เช่น Bridge ดึง ±7 วัน) → กรองเอาเฉพาะวันนั้น
+ *  ถ้าไม่มีคอลัมน์วันที่ (ชีตวันเดียว) → อ่านทั้งแท็บเหมือนเดิม */
+function counterParseSheet_(sh, wantDate) {
   if (!sh) return null;
   var last = sh.getLastRow(); if (last < 3) return null;
-  var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 10)).getValues();
-  var hi = -1, cAir = 0, cFlt = 1, cCtr = -1, cOpen = -1;
+  var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 20)).getValues();
+  var hi = -1, cAir = 0, cFlt = 1, cCtr = -1, cOpen = -1, cDate = -1;
   for (var r = 0; r < Math.min(rows.length, 6); r++) {
     var line = rows[r].map(function (v) { return String(v || '').toUpperCase(); });
     if (line.some(function (v) { return v.indexOf('FLIGHT') >= 0; }) && line.some(function (v) { return /NO\.?\s*OF/.test(v); })) {
-      hi = r; cAir = 0; cFlt = 1; cCtr = -1; cOpen = -1;
+      hi = r; cAir = 0; cFlt = 1; cCtr = -1; cOpen = -1; cDate = -1;
       line.forEach(function (v, i) {
         if (v.indexOf('AIRLINE') >= 0) cAir = i;
         else if (v.indexOf('FLIGHT') >= 0) cFlt = i;
         else if (/NO\.?\s*OF/.test(v)) cCtr = i;                    // "NO. OF COUNTER" (จำนวน) — ไม่ใช่ "COUNTER NO." (ป้ายเลขเคาน์เตอร์)
         else if (v.indexOf('OPEN') >= 0) cOpen = i;                 // "OPEN-CLOSE TIME" (เวลาเปิด-ปิดเคาน์เตอร์จริง)
+        else if (v.indexOf('DATE') >= 0) cDate = i;                 // "DATE" / "FLIGHT DATE" — ไฟล์รวมหลายวัน
       });
       break;
     }
   }
   if (hi < 0 || cCtr < 0) return null;                             // ไม่พบคอลัมน์จำนวนเคาน์เตอร์ → ไม่ใช่ชีต counter
+  // ไม่มีหัว "DATE" แต่ข้อมูลมีวันที่ฝังในคอลัมน์ (เช่น 09.07.2026) → หาคอลัมน์วันที่อัตโนมัติ
+  if (cDate < 0) {
+    for (var c = 0; c < (rows[hi + 1] || []).length; c++) {
+      var hit = 0;
+      for (var rr = hi + 1; rr < Math.min(rows.length, hi + 6); rr++) { if (counterRowDate_((rows[rr] || [])[c])) hit++; }
+      if (hit >= 2) { cDate = c; break; }
+    }
+  }
+  var wd = wantDate ? { d: wantDate.getDate(), m: wantDate.getMonth() + 1, y: wantDate.getFullYear() } : null;
   var map = {}, curAir = '', nEntry = 0;
   for (var i = hi + 1; i < rows.length; i++) {
+    // กรองตามวันที่ (เฉพาะเมื่อชีตมีคอลัมน์วันที่ + ระบุ wantDate)
+    if (wd && cDate >= 0) {
+      var rd = counterRowDate_(rows[i][cDate]);
+      if (rd && !(rd.d === wd.d && rd.m === wd.m && rd.y === wd.y)) continue;   // คนละวัน → ข้าม (แถวไม่มีวันที่ = ปล่อยผ่าน)
+    }
     var air = String(rows[i][cAir] || '').trim().toUpperCase();
     if (air) curAir = air;
     var flt = String(rows[i][cFlt] || '').trim().toUpperCase().replace(/\s+/g, '');
@@ -188,18 +213,19 @@ function counterReadForDate(fileId, date) {
   if (!fileId) return null;
   var ss = SpreadsheetApp.openById(fileId);
   var tab = findCounterTab_(ss, date);
-  if (tab) { var m = counterParseSheet_(ss.getSheetByName(tab)); if (m) return m; }
-  return counterReadFromRoster_(ss);                               // ไฟล์ bridge แท็บเดียว "COUNTER"
+  if (tab) { var m = counterParseSheet_(ss.getSheetByName(tab), date); if (m) return m; }
+  return counterReadFromRoster_(ss, date);                         // แท็บเดียว: ไฟล์ท่าวันเดียว หรือ Bridge รวมหลายวัน (กรองด้วยคอลัมน์วันที่)
 }
 /** อ่านแท็บเคาน์เตอร์จากไฟล์ (ตารางเวร/bridge): เอาแท็บชื่อ "COUNTER" ก่อน
- *  ไม่มี → สแกนทุกแท็บหาอันที่เป็นรูปแบบ counter (มีหัว FLIGHT + NO. OF COUNTER) — bridge ตั้งชื่อแท็บอะไรก็ได้ */
-function counterReadFromRoster_(ss) {
+ *  ไม่มี → สแกนทุกแท็บหาอันที่เป็นรูปแบบ counter (มีหัว FLIGHT + NO. OF COUNTER) — bridge ตั้งชื่อแท็บอะไรก็ได้
+ *  date = กรองเฉพาะวันนั้น ถ้าแท็บมีคอลัมน์วันที่ (ไฟล์รวมหลายวัน) */
+function counterReadFromRoster_(ss, date) {
   if (!ss) return null;
   var sheets = ss.getSheets(), i, m;
   for (i = 0; i < sheets.length; i++) {
-    if (sheets[i].getName().toUpperCase().indexOf('COUNTER') >= 0) { m = counterParseSheet_(sheets[i]); if (m) return m; }
+    if (sheets[i].getName().toUpperCase().indexOf('COUNTER') >= 0) { m = counterParseSheet_(sheets[i], date); if (m) return m; }
   }
-  for (i = 0; i < sheets.length; i++) { m = counterParseSheet_(sheets[i]); if (m) return m; }   // fallback: แท็บไหนก็ได้ที่รูปแบบตรง
+  for (i = 0; i < sheets.length; i++) { m = counterParseSheet_(sheets[i], date); if (m) return m; }   // fallback: แท็บไหนก็ได้ที่รูปแบบตรง
   return null;
 }
 // ─── COUNTER BRIDGE ±N วัน (IMPORTRANGE อัตโนมัติ) ──────────────────────────
