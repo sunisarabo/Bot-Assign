@@ -138,15 +138,16 @@ function counterParseSheet_(sh) {
   if (!sh) return null;
   var last = sh.getLastRow(); if (last < 3) return null;
   var rows = sh.getRange(1, 1, last, Math.min(sh.getLastColumn(), 10)).getValues();
-  var hi = -1, cAir = 0, cFlt = 1, cCtr = -1;
+  var hi = -1, cAir = 0, cFlt = 1, cCtr = -1, cOpen = -1;
   for (var r = 0; r < Math.min(rows.length, 6); r++) {
     var line = rows[r].map(function (v) { return String(v || '').toUpperCase(); });
     if (line.some(function (v) { return v.indexOf('FLIGHT') >= 0; }) && line.some(function (v) { return /NO\.?\s*OF/.test(v); })) {
-      hi = r; cAir = 0; cFlt = 1; cCtr = -1;
+      hi = r; cAir = 0; cFlt = 1; cCtr = -1; cOpen = -1;
       line.forEach(function (v, i) {
         if (v.indexOf('AIRLINE') >= 0) cAir = i;
         else if (v.indexOf('FLIGHT') >= 0) cFlt = i;
         else if (/NO\.?\s*OF/.test(v)) cCtr = i;                    // "NO. OF COUNTER" (จำนวน) — ไม่ใช่ "COUNTER NO." (ป้ายเลขเคาน์เตอร์)
+        else if (v.indexOf('OPEN') >= 0) cOpen = i;                 // "OPEN-CLOSE TIME" (เวลาเปิด-ปิดเคาน์เตอร์จริง)
       });
       break;
     }
@@ -160,11 +161,25 @@ function counterParseSheet_(sh) {
     if (!flt) continue;
     var n = parseInt(String(rows[i][cCtr] || '').replace(/[^0-9.]/g, ''), 10);
     if (!(n > 0)) continue;
+    // เวลาเปิด-ปิดเคาน์เตอร์จริง (เช่น "09:15-11:35" → เปิด 09:15, ปิด 11:35)
+    var op = '', cl = '';
+    if (cOpen >= 0) { var oc = String(rows[i][cOpen] || '').match(/(\d{1,2})[:.]?(\d{2})/g); if (oc && oc.length) { op = rrTimePair_(oc[0]); if (oc.length > 1) cl = rrTimePair_(oc[oc.length - 1]); } }
     map[flt] = n; nEntry++;                                         // "EY411"
+    if (op) { map['@' + flt] = op; if (cl) map['~' + flt] = cl; }
     var mm = flt.match(/^([0-9A-Z]{2})?(\d{2,4})/);                 // เลขไฟลท์
-    if (mm) { var a = mm[1] || curAir; if (a) map[a + mm[2]] = n; map['#' + mm[2]] = n; }
+    if (mm) { var a = mm[1] || curAir; if (a) { map[a + mm[2]] = n; if (op) { map['@' + a + mm[2]] = op; if (cl) map['~' + a + mm[2]] = cl; } } map['#' + mm[2]] = n; if (op) { map['@#' + mm[2]] = op; if (cl) map['~#' + mm[2]] = cl; } }
   }
   return nEntry ? map : null;
+}
+/** เวลาเปิด/ปิดเคาน์เตอร์ที่ท่าจัด สำหรับไฟลท์ (roster pair → ขาออกในไฟล์ท่า) → {op,cl} หรือ null */
+function counterTimesForFlight_(map, flight) {
+  if (!map) return null;
+  var s = String(flight || '').toUpperCase().replace(/\s+/g, '');
+  var keys = [s];
+  var air = (typeof slaAirlineOf_ === 'function') ? slaAirlineOf_(flight) : '';
+  (s.match(/\d{2,4}/g) || []).forEach(function (nn) { if (air) keys.push(air + nn); keys.push('#' + nn); });
+  for (var i = 0; i < keys.length; i++) { if (map['@' + keys[i]] != null) return { op: map['@' + keys[i]], cl: map['~' + keys[i]] || '' }; }
+  return null;
 }
 /** อ่านจากไฟล์เคาน์เตอร์แยก (COUNTER_FILE_ID):
  *  1) แท็บตามวันที่ (ไฟล์ของท่าที่มีแท็บรายวัน) — ต้องแชร์ไฟล์ให้บัญชีที่รัน

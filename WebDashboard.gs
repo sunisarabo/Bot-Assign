@@ -97,7 +97,22 @@ function rbLoadResLLraw_(date) {
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
   // ถ้าไม่มีแท็บ COUNTER ในไฟล์เวร → ลองไฟล์ COUNTER CHECK ของท่า (ต้องแชร์ให้บัญชีที่รัน)
   if (!res.counters && CONFIG_RB.COUNTER_FILE_ID) { try { res.counters = counterReadForDate(CONFIG_RB.COUNTER_FILE_ID, date); } catch (e3) {} }
+  // เติมเวลาเปิด-ปิดเคาน์เตอร์จริงจากท่า ลง assignment (ถ้าชีตเวรไม่ได้กรอก OP/CL)
+  //  → coverage คิดจากเวลาเปิดจริง (เช่น เปิด 09:50 คนเข้า 09:00 = ครอบคลุม) ไม่ใช่ประมาณ STD−180
+  if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
   return { res: res, ll: ll };
+}
+/** เติม a.OP/a.CL จากเวลาเปิด-ปิดเคาน์เตอร์ของท่า (เฉพาะที่ชีตเวรไม่ได้กรอกไว้) */
+function rbApplyCounterTimes_(res) {
+  Object.keys(res.teams).forEach(function (t) {
+    (res.teams[t].records || []).forEach(function (r) {
+      (r.assignments || []).forEach(function (a) {
+        if (a.OP && a.OP !== '00:00') return;                       // ชีตกรอกเวลาเปิดเองแล้ว → เคารพ
+        var ct = counterTimesForFlight_(res.counters, a.flight);
+        if (ct && ct.op) { a.OP = ct.op; if (ct.cl && (!a.CL || a.CL === '00:00')) a.CL = ct.cl; }
+      });
+    });
+  });
 }
 /** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */
 function rbCachePutBig_(key, str, ttl) {
