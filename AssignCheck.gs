@@ -110,11 +110,19 @@ function acFlightWin_(a) {
     if (ghi <= glo) ghi += 1440;
     return [glo, ghi];
   }
-  var lo = null, hi = (std != null) ? std + post : null;      // hi = STD + post (รวมงาน post-flight)
+  // งานเช็คอินล้วน (ไม่มีเกท/ขาเข้า/SUP · เช่น "Y3 NO GATE") → ไม่คิดครอบคลุมถึงเกท/post-flight
+  var ciOnly = phs && phs.length && phs.every(function (x) { return x === 'CI'; });
+  var lo = null, hi;
+  if (ciOnly && std != null) {
+    // จบที่ "ปิดเคาน์เตอร์": C (ถ้ามี) · ไม่งั้น STD+cc (เวลาเคาน์เตอร์ปิดตาม SLA) — ไม่บวก post-flight
+    hi = (cl != null) ? cl : (std + ((db && db.cc != null) ? db.cc : -60));
+  } else {
+    hi = (std != null) ? std + post : null;                   // hi = STD + post (รวมงาน post-flight)
+  }
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
   if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ
-  // งานเช็คอินล้วน (ไม่มีเกท) → จบที่ "ปิดเคาน์เตอร์ (C)" ถ้ามี ไม่ลากถึง STD+post (กัน turnaround ยาว เช่น EK378 ปิด 18:55 แต่ออก 19:55)
-  if (cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && !(phs && phs.indexOf('GATE') >= 0)) hi = cl + post;
+  // งานเช็คอินที่มีเฟสอื่นปน แต่ไม่มีเกท → จบที่ "ปิดเคาน์เตอร์ (C)" ถ้ามี ไม่ลากถึง STD+post (กัน turnaround ยาว เช่น EK378 ปิด 18:55 แต่ออก 19:55)
+  if (!ciOnly && cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && !(phs && phs.indexOf('GATE') >= 0)) hi = cl + post;
   if (hi == null && sta != null) { lo = sta - brief; hi = sta + post; }   // ขาเข้าล้วน → รอบ STA
   if (lo == null || hi == null) {                             // fallback: min-max ของเวลาที่มี
     var ts = [sta, op, cl, std].filter(function (x) { return x; });

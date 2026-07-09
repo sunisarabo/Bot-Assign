@@ -1920,6 +1920,8 @@ function slaPhasesOf_(task) {
   if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR|CIQ|IMMIG/.test(u)) p.ARR = 1;          // arrival · CIQ (ด่าน ตม./ศุลกากร ขาเข้า)
   if (/\bG[ABCKM]?\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|(^|[\s\/])D\b|(^|[\s\/])I\b/.test(u)) p.GATE = 1;   // gate: G(Agent)/GA/GB(Boarding)/GC(Controller)/GK(Flight Release)/GM(Monitor) · D=Gate Dom, I=Gate Int (PG · ต้นโทเคนเท่านั้น กัน "A-D"/"INT")
   if (/\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|PSM|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b|COUNTER/.test(u)) p.CI = 1;   // เช็คอิน · CT/Y/J/W/B/F+เลข = เคาน์เตอร์ตามชั้นโดยสาร · KSK=kiosk · Bag Drop · crew sign
+  // "NO GATE" = เน้นย้ำว่าไม่ต้องไปเกท (ทำเช็คอินอย่างเดียว) → ตัดเฟสเกทออก ไม่ให้คิดครอบคลุมถึงเกท/post-flight
+  if (/\bNO\s*-?\s*GATE\b|NON\s*-?\s*GATE|\bNO\s*GT\b|งดเกท|ไม่\s*(?:ต้อง)?\s*(?:ไป|ขึ้น)?\s*เกท/.test(u)) delete p.GATE;
   var keys = Object.keys(p);
   return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
@@ -2673,11 +2675,19 @@ function acFlightWin_(a) {
     if (ghi <= glo) ghi += 1440;
     return [glo, ghi];
   }
-  var lo = null, hi = (std != null) ? std + post : null;      // hi = STD + post (รวมงาน post-flight)
+  // งานเช็คอินล้วน (ไม่มีเกท/ขาเข้า/SUP · เช่น "Y3 NO GATE") → ไม่คิดครอบคลุมถึงเกท/post-flight
+  var ciOnly = phs && phs.length && phs.every(function (x) { return x === 'CI'; });
+  var lo = null, hi;
+  if (ciOnly && std != null) {
+    // จบที่ "ปิดเคาน์เตอร์": C (ถ้ามี) · ไม่งั้น STD+cc (เวลาเคาน์เตอร์ปิดตาม SLA) — ไม่บวก post-flight
+    hi = (cl != null) ? cl : (std + ((db && db.cc != null) ? db.cc : -60));
+  } else {
+    hi = (std != null) ? std + post : null;                   // hi = STD + post (รวมงาน post-flight)
+  }
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
   if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ
-  // งานเช็คอินล้วน (ไม่มีเกท) → จบที่ "ปิดเคาน์เตอร์ (C)" ถ้ามี ไม่ลากถึง STD+post (กัน turnaround ยาว เช่น EK378 ปิด 18:55 แต่ออก 19:55)
-  if (cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && !(phs && phs.indexOf('GATE') >= 0)) hi = cl + post;
+  // งานเช็คอินที่มีเฟสอื่นปน แต่ไม่มีเกท → จบที่ "ปิดเคาน์เตอร์ (C)" ถ้ามี ไม่ลากถึง STD+post (กัน turnaround ยาว เช่น EK378 ปิด 18:55 แต่ออก 19:55)
+  if (!ciOnly && cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && !(phs && phs.indexOf('GATE') >= 0)) hi = cl + post;
   if (hi == null && sta != null) { lo = sta - brief; hi = sta + post; }   // ขาเข้าล้วน → รอบ STA
   if (lo == null || hi == null) {                             // fallback: min-max ของเวลาที่มี
     var ts = [sta, op, cl, std].filter(function (x) { return x; });

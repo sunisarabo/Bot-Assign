@@ -502,6 +502,8 @@ function slaPhasesOf_(task) {
   if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR|CIQ|IMMIG/.test(u)) p.ARR = 1;          // arrival · CIQ (ด่าน ตม./ศุลกากร ขาเข้า)
   if (/\bG[ABCKM]?\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|(^|[\s\/])D\b|(^|[\s\/])I\b/.test(u)) p.GATE = 1;   // gate: G(Agent)/GA/GB(Boarding)/GC(Controller)/GK(Flight Release)/GM(Monitor) · D=Gate Dom, I=Gate Int (PG · ต้นโทเคนเท่านั้น กัน "A-D"/"INT")
   if (/\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d|\bJ\d|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|PSM|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b|COUNTER/.test(u)) p.CI = 1;   // เช็คอิน · CT/Y/J/W/B/F+เลข = เคาน์เตอร์ตามชั้นโดยสาร · KSK=kiosk · Bag Drop · crew sign
+  // "NO GATE" = เน้นย้ำว่าไม่ต้องไปเกท (ทำเช็คอินอย่างเดียว) → ตัดเฟสเกทออก ไม่ให้คิดครอบคลุมถึงเกท/post-flight
+  if (/\bNO\s*-?\s*GATE\b|NON\s*-?\s*GATE|\bNO\s*GT\b|งดเกท|ไม่\s*(?:ต้อง)?\s*(?:ไป|ขึ้น)?\s*เกท/.test(u)) delete p.GATE;
   var keys = Object.keys(p);
   return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
