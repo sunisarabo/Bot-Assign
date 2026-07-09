@@ -724,7 +724,9 @@ function slaSupportPool_(res, ll, teamSys, includeOff) {
     // ช่วงเวลา re-sked (แบบ Duty: "re-sked 11-20") — จากกะรายสัปดาห์ที่เคารพไว้ · ไม่มีกะ → "ทุกช่วง"
     var offWin = (off && ds > -100000 && de < 100000)
       ? (rrFmtMin_(((ds % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((de % 1440) + 1440) % 1440)) : '';
+    var otoff = (r.bucket === 'ot_off');                     // มาทำ OT ในวันหยุดของตัวเอง
     pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '', off: off,
+      otoff: otoff, rest: off || otoff,                      // "วันหยุด" (OFF re-sked หรือ OT-OFF) → ไม่แนะนำก่อนคนกะปกติ
       float: slaIsFloatTeam_(team),
       ds: ds, de: de, busy: busy, hold: [], sys: teamSys[team] || {}, nflt: flts.length,
       shiftDisp: off ? ('OFF · re-sked ' + (offWin || 'ทุกช่วง') + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
@@ -795,14 +797,16 @@ function slaCandidates_(f, ph, pool, max) {
     return true;
   });
   function ovh(x) { return (x.hstat && (x.hstat.level === 'over' || x.hstat.level === 'high')) ? 1 : 0; }   // ชั่วโมงเกินเกณฑ์ → ดันท้าย
+  function rst(x) { return x.rest ? 1 : 0; }   // วันหยุด (OT-OFF / OFF re-sked) → ดันท้ายสุด ไม่แนะนำก่อนคนกะปกติ
   if (ph === 'SUP') {
-    // ทำงานก่อน OFF · ชั่วโมงไม่เกินก่อน · ทีมลอย(PVTLP/STBY)ก่อน · Sup ก่อน Snr · งานน้อยกว่าก่อน
-    cands.sort(function (a, b) { return (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || (a.posGroup === 'PSS' ? 0 : 1) - (b.posGroup === 'PSS' ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
+    // คนกะปกติก่อน · วันหยุด(OT-OFF/OFF)ท้ายสุด · ชั่วโมงไม่เกินก่อน · ทีมลอย(PVTLP/STBY)ก่อน · Sup ก่อน Snr · งานน้อยกว่าก่อน
+    cands.sort(function (a, b) { return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || (a.posGroup === 'PSS' ? 0 : 1) - (b.posGroup === 'PSS' ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
   } else {
-    // CI / GATE / ARR: ทำงานก่อน OFF · ชั่วโมงไม่เกินก่อน · ทีมลอยก่อน · Agent → Senior → Sup · งานน้อย/ว่างกว่าก่อน
+    // CI / GATE / ARR: คนกะปกติก่อน · วันหยุด(OT-OFF/OFF)ท้ายสุด · ชั่วโมงไม่เกินก่อน · ทีมลอยก่อน · Agent → Senior → Sup · งานน้อย/ว่างกว่าก่อน
     var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
-      return (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
+      return rst(a) - rst(b) ||
+        (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
         ovh(a) - ovh(b) ||
         (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
         (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
@@ -829,7 +833,7 @@ function slaOtherCands_(f, ph, pool, max, exclude) {
   });
   var PRI = { PSA: 0, SNR: 1, PSS: 2 };
   cands.sort(function (a, b) {
-    return (a.off ? 1 : 0) - (b.off ? 1 : 0) || (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
+    return (a.rest ? 1 : 0) - (b.rest ? 1 : 0) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
       (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
   });
   return max ? cands.slice(0, max) : cands;
@@ -897,7 +901,7 @@ function slaSupportRows_(res, ll) {
         STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
         needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
         cands: cands.map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
+          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off, rest: !!c.rest,
                    shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
         }),
         // พนักงานอื่นๆ ที่ว่างช่วงนั้น (ไม่ตรงระบบ/ตำแหน่ง) — ตัวเลือกเสริมในเมนู

@@ -379,9 +379,12 @@ function rbSupportHtml(iso) {
           return h + '</select>';
         }
         // 1 ช่อง = 1 คน · ค่าเริ่มต้นกระจายหลายทีม (แนะทีมอื่นด้วย ไม่ใช่ทีมลอยซ้ำ) แล้วค่อยเติมจากที่ดีสุด
+        // คนกะปกติก่อน · คนวันหยุด (OT-OFF/OFF) เป็นตัวเลือกสำรอง เติมเฉพาะเมื่อคนกะปกติไม่พอ
         var slots = [], usedT = {}, picked = [];
-        r.cands.forEach(function (c) { if (picked.length < r.shortN && !usedT[c.team]) { usedT[c.team] = 1; picked.push(c.name); } });
-        for (var ci = 0; picked.length < r.shortN && ci < r.cands.length; ci++) if (picked.indexOf(r.cands[ci].name) < 0) picked.push(r.cands[ci].name);
+        var normalC = r.cands.filter(function (c) { return !c.rest; });
+        var restC = r.cands.filter(function (c) { return c.rest; });
+        [normalC, restC].forEach(function (list) { list.forEach(function (c) { if (picked.length < r.shortN && !usedT[c.team]) { usedT[c.team] = 1; picked.push(c.name); } }); });
+        [normalC, restC].forEach(function (list) { for (var ci = 0; picked.length < r.shortN && ci < list.length; ci++) if (picked.indexOf(list[ci].name) < 0) picked.push(list[ci].name); });
         for (var i = 0; i < r.shortN; i++) slots.push(sel(picked[i] || ''));
         who = '<div class="pickwrap">' + slots.join('') + '</div>' +
           (!r.cands.length ? '<div class="muted" style="font-size:11px">ไม่มีคนตรงระบบ — เลือกจาก "อื่นๆ" ที่ว่างช่วงนี้ได้</div>' : '');
