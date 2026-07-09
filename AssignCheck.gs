@@ -72,6 +72,11 @@ function acFlightWin_(a) {
   }
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
+  // งานพูล/โซนที่ไม่ใช่ไฟลท์ (LP MORNING/AFTERNOON ฯลฯ) — STA/STD = ช่วงเวลางานจริง (เช่น 05:00–15:00)
+  // ใช้ช่วงนั้นตรง ๆ ไม่คิดแบบเปิดเคาน์เตอร์ก่อน STD (กันได้ช่วงผิด เช่น 11:00–15:20 แทน 05:00–15:00)
+  if (sta != null && std != null && typeof acIsFlight_ === 'function' && !acIsFlight_(a.flight)) {
+    var lw2 = std; if (lw2 <= sta) lw2 += 1440; return [sta, lw2];
+  }
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
   var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย
   // Crew Sign / CRW ที่ไม่ได้นั่งเคาน์เตอร์ → ช่วงแคบ: 25 นาทีก่อน STA จนถึง STD (เซ็นรับ-ส่งลูกเรือ ไม่ใช่เปิดเคาน์เตอร์เต็มช่วง)
