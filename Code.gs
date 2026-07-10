@@ -6088,7 +6088,33 @@ function rbLoadResLLraw_(date) {
   // เติมเวลาเปิด-ปิดเคาน์เตอร์จริงจากท่า ลง assignment (ถ้าชีตเวรไม่ได้กรอก OP/CL)
   //  → coverage คิดจากเวลาเปิดจริง (เช่น เปิด 09:50 คนเข้า 09:00 = ครอบคลุม) ไม่ใช่ประมาณ STD−180
   if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
+  try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
   return { res: res, ll: ll };
+}
+/** ชื่อ → คีย์เทียบ (คำแรก ตัวพิมพ์ใหญ่ ตัด (…) ออก) — ใช้จับคู่คนข้ามทีม */
+function rbNameKey_(name) {
+  var s = String(name || '').trim().toUpperCase().split(/[\s(]/)[0];
+  return s.length >= 3 ? s : '';
+}
+/** แถวซัพพอร์ตที่ไม่มีรหัสทีมต้นสังกัด → ค้นชื่อในเวรทั้งวัน (แถวปกติ ไม่ใช่ซัพ)
+ *  เจอในทีมเดียวชัดเจน → ใส่ทีมให้อัตโนมัติ (supportTeamAuto) · เจอหลายทีม/ไม่เจอ → คงเตือน (กันเดาผิด) */
+function rbResolveSupportTeams_(res, ll) {
+  var idx = {};
+  function add(team, r) {
+    if (r.support) return;                                  // ดัชนีจากแถว "ตัวจริง" ของทีมเท่านั้น
+    var k = rbNameKey_(r.name); if (!k) return;
+    (idx[k] = idx[k] || {})[team] = 1;
+  }
+  Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { add(t, r); }); });
+  if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { add('LL·' + s, r); }); });
+  function resolve(recvTeam, r) {
+    if (!r.support || r.supportTeam) return;
+    var k = rbNameKey_(r.name); if (!k) return;
+    var teams = Object.keys(idx[k] || {}).filter(function (t) { return t !== recvTeam; });
+    if (teams.length === 1) { r.supportTeam = teams[0]; r.supportTeamAuto = true; }   // ชัดเจนทีมเดียว → ใส่ให้
+  }
+  Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { resolve(t, r); }); });
+  if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { resolve('LL·' + s, r); }); });
 }
 /** เติม a.OP/a.CL จากเวลาเปิด-ปิดเคาน์เตอร์ของท่า (เฉพาะที่ชีตเวรไม่ได้กรอกไว้) */
 function rbApplyCounterTimes_(res) {
@@ -6797,7 +6823,7 @@ function rbTtRows_(res, ll) {
     var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot, r.bucket) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช · ot_off นับแค่ OT)
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     if (hs) ot += ' <span class="muted">· รวม '+hs.total+'ช</span>' + (hs.level!=='ok' ? ' <span class="'+(hs.level==='short'?'tag':'badd')+'">⚠️ '+rbEsc_(hs.txt)+'</span>' : '');
-    var supTag = r.support ? ' <span class="tag" title="มาช่วยจากทีม '+rbEsc_(r.supportTeam||'')+'">🤝 ซัพจาก '+rbEsc_(r.supportTeam||'?')+'</span>' : '';
+    var supTag = r.support ? ' <span class="tag" title="มาช่วยจากทีม '+rbEsc_(r.supportTeam||'')+(r.supportTeamAuto?' (ค้นจากชื่อในเวรอัตโนมัติ)':'')+'">🤝 ซัพจาก '+rbEsc_(r.supportTeam||'?')+(r.supportTeamAuto?' <span class="muted">·จากชื่อ</span>':'')+'</span>' : '';
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.support?'ซัพ':(r.id||''))+
       '</td><td>'+rbEsc_(r.name)+supTag+'</td><td>'+rbEsc_(r.pos||'')+'</td><td>'+sh+'</td><td>'+ot+'</td><td class="tnum">'+rbFltCount_(r.assignments)+
       '</td><td>'+rbFlightChips_(r.assignments, r.team, owner)+'</td></tr>';
