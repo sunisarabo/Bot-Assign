@@ -928,7 +928,8 @@ function slaManualSupportRows_(res, ll, requests) {
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
     var row = slaSupRow_(f, ph, n, pool, winOv);
-    row.manual = true; if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
+    row.manual = true; row.label = rq.label || '';
+    if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
   });
 }

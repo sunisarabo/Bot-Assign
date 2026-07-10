@@ -2418,7 +2418,8 @@ function slaManualSupportRows_(res, ll, requests) {
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
     var row = slaSupRow_(f, ph, n, pool, winOv);
-    row.manual = true; if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
+    row.manual = true; row.label = rq.label || '';
+    if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
   });
 }
@@ -6604,8 +6605,9 @@ function rbSupportHtml(iso, addJson) {
       '<div id="supchkout" style="margin-top:8px"></div></div></details>';
     var importPanel = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">📥 แปลงข้อความ Duty → ชีต (วางข้อความขอซัพจากไลน์ → แตกเป็นตาราง + สร้างชีต)</summary>' +
       '<div style="padding:8px 14px"><textarea id="supimpin" rows="7" placeholder="วางข้อความขอซัพจาก Duty (ไลน์) ทั้งก้อนได้เลย — รองรับหลายสาย/หลายไฟลท์" style="width:100%;font-size:13px;font-family:monospace"></textarea>' +
-      '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supDutyToRows()">➕ แตกคำขอ → คิดคนในตาราง</button> <button class="btn" onclick="supImport()">🔎 แปลงชื่อ/พรีวิว</button> <button class="btn" onclick="supImportSheet()">📤 สร้างชีต</button> <span id="supimpmsg" class="muted"></span></div>' +
-      '<div class="muted" style="font-size:11.5px;margin-top:4px">➕ = วางข้อความ "ขอซัพ" (ไฟลท์+ตำแหน่ง+จำนวน+เวลา) → ระบบแตกเป็นแถว + คิดคนให้ในตารางด้านล่าง</div>' +
+      '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supDutyPlan()">📋 คิด + แสดงแบบสรุป (แนะนำ/สำรอง)</button> <button class="btn" onclick="supDutyToRows()">➕ แตกเป็นแถวเลือกคน</button> <button class="btn" onclick="supImport()">🔎 แปลงชื่อ</button> <button class="btn" onclick="supImportSheet()">📤 สร้างชีต</button> <span id="supimpmsg" class="muted"></span></div>' +
+      '<div class="muted" style="font-size:11.5px;margin-top:4px">📋 = ตารางสรุป แนะนำ/สำรอง (อ่าน+คัดลอกส่งไลน์) · ➕ = แตกเป็นแถวเลือกคนเองในตาราง Support</div>' +
+      '<div id="supplanout" style="margin-top:8px"></div>' +
       '<div id="supimpout" style="margin-top:8px"></div></div></details>';
     return hd + addBar + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
@@ -6613,6 +6615,46 @@ function rbSupportHtml(iso, addJson) {
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
+/** แผนซัพจาก Duty (แนะนำ/สำรอง) — วางข้อความขอซัพ → ตารางอ่านง่าย + ข้อความคัดลอกส่งไลน์ */
+function rbSupDutyPlanHtml(iso, text) {
+  try {
+    var reqs = (typeof dutyParseRequests_ === 'function') ? dutyParseRequests_(text) : [];
+    if (!reqs.length) return '<div class="panel muted" style="padding:14px">ไม่พบคำขอในข้อความ — ต้องมีเลขไฟลท์ + ตำแหน่ง (ARR/GATE) + จำนวน</div>';
+    var d = rbLoadResLL_(rbDateFromIso_(iso));
+    var rows = slaManualSupportRows_(d.res, d.ll, reqs);
+    var txt = [];
+    function nm(c) { return '<b>' + rbEsc_(c.name) + '</b> <span class="muted">' + rbEsc_(c.team) + '</span>'; }
+    function nmMuted(c) { return rbEsc_(c.name) + ' <span class="muted">(' + rbEsc_(c.team) + ')</span>'; }
+    var body = rows.map(function (r) {
+      var win = r.win || '-';
+      var w = (typeof slaParseWin_ === 'function' && r.win) ? slaParseWin_(r.win) : null;
+      var over = w && w[1] > 1440;                                    // ข้ามเที่ยงคืน
+      var pick, alt = '', pickTxt;
+      if (r.block) { pick = '<span class="badd">🚫 ' + rbEsc_(r.block) + '</span>'; pickTxt = '(' + r.block + ')'; }
+      else if (!r.cands.length) {
+        pick = r.others.length ? '<span class="muted">อื่นๆว่าง: ' + r.others.slice(0, 2).map(nmMuted).join(', ') + '</span>' : '<span class="badd">ไม่มีคนว่าง</span>';
+        pickTxt = r.others.length ? ('อื่นๆ ' + r.others.slice(0, 2).map(function (c) { return c.name + '(' + c.team + ')'; }).join(', ')) : 'ไม่มีคนว่าง';
+      } else {
+        var top = r.cands.slice(0, r.shortN);
+        pick = top.map(nm).join(' · ');
+        alt = r.cands.slice(r.shortN, r.shortN + 3).map(nmMuted).join(', ');
+        pickTxt = top.map(function (c) { return c.name + '(' + c.team + ')'; }).join(', ');
+      }
+      var pos = r.label || r.phase;
+      var altTxt = r.cands.slice(r.shortN, r.shortN + 3).map(function (c) { return c.name; }).join(', ');
+      txt.push(r.flight + ' · ' + pos + ' · ' + win + ' → ' + pickTxt + (altTxt ? ('  (สำรอง ' + altTxt + ')') : ''));
+      return '<tr data-team="' + rbEsc_(r.team) + '"><td class="b">' + rbEsc_(r.flight) + (over ? ' <span title="ดึกข้ามคืน">⚠️</span>' : '') +
+        '</td><td>' + rbEsc_(pos) + '</td><td class="tnum">' + rbEsc_(win) + '</td><td>' + pick + '</td><td>' + (alt || '<span class="muted">—</span>') + '</td></tr>';
+    }).join('');
+    var copyText = txt.join('\n');
+    var hd = '<div class="sectionlabel">📋 <b>แผนซัพจาก Duty</b> — แตกได้ <b>' + reqs.length + '</b> คำขอ · แนะนำคนที่ <b>ว่าง + รู้ระบบ</b> (กันเวลาซ้อนแล้ว)</div>';
+    var copyBar = '<div style="margin:8px 0"><button class="btn btn--accent" onclick="(function(b){var t=b.parentNode.querySelector(\'textarea\');t.style.display=\'block\';t.focus();t.select();if(navigator.clipboard)navigator.clipboard.writeText(t.value);b.textContent=\'✓ คัดลอกแล้ว\';setTimeout(function(){b.textContent=\'📋 คัดลอกข้อความ (ส่งไลน์)\';},1500);})(this)">📋 คัดลอกข้อความ (ส่งไลน์)</button>' +
+      '<textarea readonly rows="' + Math.min(rows.length + 1, 18) + '" style="display:none;width:100%;margin-top:8px;font-family:monospace;font-size:12px;white-space:pre;overflow:auto">' + rbEsc_(copyText) + '</textarea></div>';
+    return hd + copyBar + rbTblCard_('📋 แนะนำ / สำรอง (ตามคำขอ Duty)',
+      '<tr><th>ไฟลท์</th><th>ตำแหน่ง</th><th>ช่วง</th><th>แนะนำ (ชื่อ · ทีม)</th><th>สำรอง</th></tr>', body,
+      rbCtrls_('view-sup', true));
+  } catch (e) { return '<div class="panel">คิดแผนไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
 /** ตรวจรายชื่อที่จะส่งซัพ (เรียกจากปุ่มในแท็บ Support) */
 function rbCheckDeployHtml(iso, text) {
   try {
@@ -7184,6 +7226,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'window.__supAdd=window.__supAdd||[];' +
     'function supAddReq(){var fe=document.getElementById("supAddFlt");var f=(fe?fe.value:"").trim().toUpperCase();var ph=document.getElementById("supAddPh").value;var n=Math.max(1,parseInt(document.getElementById("supAddN").value||"1",10)||1);var we=document.getElementById("supAddWin");var win=(we?we.value:"").trim();if(!f){alert("ใส่เลขไฟลท์ก่อน เช่น PG270");return;}window.__supAdd.push({flight:f,phase:ph,n:n,win:win});supReload();}' +
     'function supClearReq(){window.__supAdd=[];supReload();}' +
+    'function supDutyPlan(){var el=document.getElementById("supimpin");var t=el?el.value:"";if(!t.trim()){alert("วางข้อความขอซัพก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var m=document.getElementById("supimpmsg");if(m)m.textContent="⏳ กำลังคิดแผนซัพ…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supplanout").innerHTML=h;makeSortable();buildTeamSels();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supplanout").innerHTML="<div class=\\"panel\\">คิดไม่ได้: "+e.message+"</div>";}).rbSupDutyPlanHtml(ISO,t);}' +
     'function supDutyToRows(){var el=document.getElementById("supimpin");var t=el?el.value:"";if(!t.trim()){alert("วางข้อความขอซัพก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var m=document.getElementById("supimpmsg");if(m)m.textContent="⏳ กำลังแตกคำขอ + คิดคน…";google.script.run.withSuccessHandler(function(json){var reqs=[];try{reqs=JSON.parse(json);}catch(e){}if(!reqs.length){if(m)m.textContent="";alert("แตกคำขอไม่ได้ — ตรวจรูปแบบ (ต้องมีเลขไฟลท์ + ตำแหน่ง เช่น ARR/GATE + จำนวน)");return;}window.__supAdd=(window.__supAdd||[]).concat(reqs);if(m)m.textContent="แตกได้ "+reqs.length+" คำขอ ↓";supReload();}).withFailureHandler(function(e){if(m)m.textContent="";alert("แตกไม่ได้: "+e.message);}).dutyRequestsJson(t);}' +
     'function supReload(){if(STATIC){alert("เปิดผ่าน /exec เพื่อคิดคนตามคำขอ");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var b=document.getElementById("supbox");if(b)b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ กำลังคิดคนตามคำขอ Duty…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">คิดคนไม่ได้: "+e.message+"</div>";}).rbSupportHtml(ISO,JSON.stringify(window.__supAdd));}' +
     'function supExport(){var v=document.getElementById("view-sup");if(!v)return;var picks=[];[].forEach.call(v.querySelectorAll("tbody tr[data-flight]"),function(tr){if(tr.style.display==="none")return;var names=[];[].forEach.call(tr.querySelectorAll(".namepick"),function(s){if(s.value.trim())names.push(s.value.trim());});if(!names.length)return;picks.push({flight:tr.getAttribute("data-flight"),airline:tr.getAttribute("data-air"),std:tr.getAttribute("data-std"),phase:tr.getAttribute("data-phase"),names:names});});if(!picks.length){alert("ยังไม่ได้เลือกคนในเมนู");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=v.querySelector(".supexpmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ชีต…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment (Support)</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).supExportSheet(ISO,JSON.stringify(picks));}' +
