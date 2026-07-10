@@ -90,3 +90,27 @@ function rbMasterNameTeam_(masterFileId) {
   }
   return out;
 }
+
+/** ตารางแมปแก้เอง (ชั้นค้นที่ 3) — แท็บ "Master_Mapping" ในไฟล์รายชื่อ
+ *  คอลัมน์ A = คำค้น/ชื่อ (เช่น KUNNIDA) · B = ทีม/หมวด (เช่น PVT) → { UPPERKEY: 'ทีม' }
+ *  ให้ผู้ใช้เติมเคสที่ระบบค้นอัตโนมัติไม่เจอได้เอง (ฟรี ไม่ต้องใช้ AI) */
+function rbMasterMapping_(masterFileId) {
+  var out = {};
+  var id = masterFileId || MASTER_FILE_ID_RB;
+  if (!id) return out;
+  try {
+    var ss = SpreadsheetApp.openById(id);
+    var ws = ss.getSheetByName('Master_Mapping');
+    if (!ws) return out;
+    var last = ws.getLastRow(); if (last < 1) return out;
+    var rows = ws.getRange(1, 1, last, 2).getValues();
+    rows.forEach(function (r) {
+      var k = String(r[0] == null ? '' : r[0]).trim().toUpperCase();
+      var v = String(r[1] == null ? '' : r[1]).trim();
+      if (!k || !v) return;
+      if (/^(คำค้น|KEY|KEYWORD|ชื่อ|NAME)$/i.test(k)) return;      // ข้ามหัวตาราง
+      out[k] = v;
+    });
+  } catch (e) {}
+  return out;
+}

@@ -1140,6 +1140,30 @@ function rbMasterNameTeam_(masterFileId) {
   return out;
 }
 
+/** ตารางแมปแก้เอง (ชั้นค้นที่ 3) — แท็บ "Master_Mapping" ในไฟล์รายชื่อ
+ *  คอลัมน์ A = คำค้น/ชื่อ (เช่น KUNNIDA) · B = ทีม/หมวด (เช่น PVT) → { UPPERKEY: 'ทีม' }
+ *  ให้ผู้ใช้เติมเคสที่ระบบค้นอัตโนมัติไม่เจอได้เอง (ฟรี ไม่ต้องใช้ AI) */
+function rbMasterMapping_(masterFileId) {
+  var out = {};
+  var id = masterFileId || MASTER_FILE_ID_RB;
+  if (!id) return out;
+  try {
+    var ss = SpreadsheetApp.openById(id);
+    var ws = ss.getSheetByName('Master_Mapping');
+    if (!ws) return out;
+    var last = ws.getLastRow(); if (last < 1) return out;
+    var rows = ws.getRange(1, 1, last, 2).getValues();
+    rows.forEach(function (r) {
+      var k = String(r[0] == null ? '' : r[0]).trim().toUpperCase();
+      var v = String(r[1] == null ? '' : r[1]).trim();
+      if (!k || !v) return;
+      if (/^(คำค้น|KEY|KEYWORD|ชื่อ|NAME)$/i.test(k)) return;      // ข้ามหัวตาราง
+      out[k] = v;
+    });
+  } catch (e) {}
+  return out;
+}
+
 
 // ===== LLReader.gs =====
 
@@ -6143,13 +6167,22 @@ function rbResolveSupportTeams_(res, ll) {
   }
   Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { resolve(t, r); }); });
   if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { resolve('LL·' + s, r); }); });
-  // Fallback: ค้นทีมต้นสังกัดจากไฟล์รายชื่อพนักงาน (master · Pax Manpower)
+  // ชั้น 2: ค้นทีมต้นสังกัดจากไฟล์รายชื่อพนักงาน (master · Pax Manpower)
   if (unresolved.length && MASTER_FILE_ID_RB && typeof rbMasterNameTeam_ === 'function') {
     var midx = {}; try { midx = rbMasterNameTeam_(MASTER_FILE_ID_RB); } catch (em) { midx = {}; }
     unresolved.forEach(function (u) {
       if (u.r.supportTeam) return;
       var teams = Object.keys(midx[u.k] || {}).filter(function (t) { return t !== u.recv; });
       if (teams.length === 1) { u.r.supportTeam = teams[0]; u.r.supportTeamAuto = true; u.r.supportTeamSrc = 'master'; }
+    });
+  }
+  // ชั้น 3: ตารางแมปแก้เอง (Master_Mapping) — คนเติมเคสที่เหลือได้เอง (เช่น KUNNIDA)
+  var stillLeft = unresolved.filter(function (u) { return !u.r.supportTeam; });
+  if (stillLeft.length && MASTER_FILE_ID_RB && typeof rbMasterMapping_ === 'function') {
+    var mmap = {}; try { mmap = rbMasterMapping_(MASTER_FILE_ID_RB); } catch (e7) { mmap = {}; }
+    stillLeft.forEach(function (u) {
+      var ovr = mmap[u.k] || mmap[String(u.r.name || '').trim().toUpperCase()];
+      if (ovr) { u.r.supportTeam = ovr; u.r.supportTeamAuto = true; u.r.supportTeamSrc = 'map'; }
     });
   }
 }
@@ -6860,8 +6893,10 @@ function rbTtRows_(res, ll) {
     var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot, r.bucket) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช · ot_off นับแค่ OT)
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     if (hs) ot += ' <span class="muted">· รวม '+hs.total+'ช</span>' + (hs.level!=='ok' ? ' <span class="'+(hs.level==='short'?'tag':'badd')+'">⚠️ '+rbEsc_(hs.txt)+'</span>' : '');
-    var supAutoLbl = r.supportTeamAuto ? (r.supportTeamSrc === 'master' ? ' <span class="muted">·จากรายชื่อ</span>' : ' <span class="muted">·จากชื่อในเวร</span>') : '';
-    var supTag = r.support ? ' <span class="tag" title="มาช่วยจากทีม '+rbEsc_(r.supportTeam||'')+(r.supportTeamAuto?(r.supportTeamSrc==='master'?' (ค้นจากไฟล์รายชื่อพนักงาน)':' (ค้นจากชื่อในเวรวันนี้)'):'')+'">🤝 ซัพจาก '+rbEsc_(r.supportTeam||'?')+supAutoLbl+'</span>' : '';
+    var _src = {master:'·จากรายชื่อ', map:'·จากตารางแมป', '':'·จากชื่อในเวร'};
+    var _srcTitle = {master:' (ค้นจากไฟล์รายชื่อพนักงาน)', map:' (จากตาราง Master_Mapping)', '':' (ค้นจากชื่อในเวรวันนี้)'};
+    var supAutoLbl = r.supportTeamAuto ? ' <span class="muted">'+(_src[r.supportTeamSrc||'']||'·จากชื่อ')+'</span>' : '';
+    var supTag = r.support ? ' <span class="tag" title="มาช่วยจากทีม '+rbEsc_(r.supportTeam||'')+(r.supportTeamAuto?(_srcTitle[r.supportTeamSrc||'']||''):'')+'">🤝 ซัพจาก '+rbEsc_(r.supportTeam||'?')+supAutoLbl+'</span>' : '';
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.support?'ซัพ':(r.id||''))+
       '</td><td>'+rbEsc_(r.name)+supTag+'</td><td>'+rbEsc_(r.pos||'')+'</td><td>'+sh+'</td><td>'+ot+'</td><td class="tnum">'+rbFltCount_(r.assignments)+
       '</td><td>'+rbFlightChips_(r.assignments, r.team, owner)+'</td></tr>';
