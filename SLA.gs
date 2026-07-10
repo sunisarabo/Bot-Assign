@@ -775,8 +775,8 @@ function slaTransitBuf_(busy, winStart) {
  *  · CI  = รู้ระบบเช็คอินของสายการบินนั้น + ว่าง (ตำแหน่งใดก็ได้)
  *  · SUP = ต้องเป็นตำแหน่ง Sup + รู้ระบบนั้น + ว่าง (สำหรับ Sup/Flight Controller)
  *  · GATE/ARR = ไม่ต้องใช้ระบบ · เรียงลำดับ Agent → Senior → Sup */
-function slaCandidates_(f, ph, pool, max) {
-  var win = slaPhaseWindow_(f, ph);
+function slaCandidates_(f, ph, pool, max, winOverride) {
+  var win = winOverride || slaPhaseWindow_(f, ph);           // winOverride = ช่วงเวลาที่ Duty ระบุเอง
   if (!win) return [];                                       // ไฟลท์ไม่มีเวลา → เช็คคนว่างไม่ได้ → ไม่แนะคนข้ามทีม (กันแนะคนกะไม่ตรงเวลาจริง)
   var needSys = slaNeedSys_(f.airline, ph);                   // '' = iPort/ไม่จำกัด → ทุกคนช่วยได้
   var needNorm = needSys ? slaSysNorm_(needSys) : '';
@@ -820,8 +820,8 @@ function slaCandidates_(f, ph, pool, max) {
  *  (เผื่อ Duty รู้ว่าคนนี้ช่วยได้ หรือระบบไม่ใช่ข้อบังคับตายตัว) → ให้เลือกเสริมได้ในเมนู
  *  · เช็คเวลาว่างจริง (ครอบ window + ไม่ติดไฟลท์อื่น + ไม่ถูกจอง) เหมือน candidate หลัก
  *  · ตัดคนที่อยู่ใน candidate หลักแล้ว (exclude) และคนทีมเดียวกับไฟลท์ */
-function slaOtherCands_(f, ph, pool, max, exclude) {
-  var win = slaPhaseWindow_(f, ph);
+function slaOtherCands_(f, ph, pool, max, exclude, winOverride) {
+  var win = winOverride || slaPhaseWindow_(f, ph);
   if (!win) return [];
   var ex = {}; (exclude || []).forEach(function (n) { ex[n] = 1; });
   var cands = pool.filter(function (p) {
@@ -889,20 +889,29 @@ function slaCandView_(c) {
   return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off, rest: !!c.rest,
            shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
 }
-/** สร้าง 1 แถวซัพพอร์ต: ไฟลท์ f · phase ph · ขาด n คน · จาก pool ที่เตรียมไว้ */
-function slaSupRow_(f, ph, n, pool) {
+/** สร้าง 1 แถวซัพพอร์ต: ไฟลท์ f · phase ph · ขาด n คน · จาก pool · winOverride = ช่วงเวลาที่ Duty ระบุ (ถ้ามี) */
+function slaSupRow_(f, ph, n, pool, winOverride) {
   var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
-  var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND) : [];       // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
-  var rwin = slaPhaseWindow_(f, ph);
+  var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND, winOverride) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
+  var rwin = winOverride || slaPhaseWindow_(f, ph);
   if (rwin) cands.slice(0, n).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
+  var winTxt = winOverride ? (rrFmtMin_(((winOverride[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((winOverride[1] % 1440) + 1440) % 1440)) : slaWinTxt_(f, ph);
   return {
     flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList || '',
-    STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: n, win: slaWinTxt_(f, ph),
+    STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: n, win: winTxt,
     needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
     cands: cands.map(slaCandView_),
-    others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; })) : []).map(slaCandView_),
+    others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; }), winOverride) : []).map(slaCandView_),
     nCand: cands.length,
   };
+}
+/** แปลงช่วงเวลา "0635-0735" / "06:35-07:35" → [lo,hi] นาที (ข้ามเที่ยงคืน hi<lo → +1440) */
+function slaParseWin_(s) {
+  var m = String(s || '').match(/(\d{1,2})[:.]?(\d{2})\s*[-–]\s*(\d{1,2})[:.]?(\d{2})/);
+  if (!m) return null;
+  var lo = (+m[1]) * 60 + (+m[2]), hi = (+m[3]) * 60 + (+m[4]);
+  if (hi <= lo) hi += 1440;
+  return [lo, hi];
 }
 /** คำขอซัพแบบเพิ่มเอง (Duty) — [{flight, phase, n}] → แถวเหมือน slaSupportRows_ (คิดคนให้ แม้ไฟลท์ไม่ขาดตาม SLA) */
 function slaManualSupportRows_(res, ll, requests) {
@@ -917,8 +926,9 @@ function slaManualSupportRows_(res, ll, requests) {
     var key = slaFlightKey_(rq.flight);
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
-    var row = slaSupRow_(f, ph, n, pool);
-    row.manual = true; if (!fmap[key]) row.noRoster = true;
+    var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
+    var row = slaSupRow_(f, ph, n, pool, winOv);
+    row.manual = true; if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
   });
 }
