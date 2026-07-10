@@ -43,6 +43,59 @@ function dutyParse_(text) {
   return out;
 }
 
+// ─── DUTY "REQUEST" FORMAT (ทีมขอ N คน/ตำแหน่ง · ไม่มีชื่อ) → คำขอซัพให้ระบบคิดคน ───
+/** "0820"/"08.20"/"08:20" → "08:20" */
+function diTime_(s) { var m = String(s || '').match(/(\d{1,2})[:.]?(\d{2})/); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
+/** ป้ายตำแหน่งจากข้อความ → phase (CI/SUP/GATE/ARR) หรือ null */
+function dutyPhaseOf_(label) {
+  var u = String(label || '').toUpperCase().trim(); if (!u) return null;
+  if (/CHK-?IN|CHECK-?IN|\bCKIN\b|\bCI\b/.test(u)) return 'CI';
+  if (/\bSUP\b|SPVR|\bSOD\b|SUPERVIS/.test(u)) return 'SUP';
+  if (/GATE|BOARD|^G(\s|$|\d)/.test(u)) return 'GATE';                     // GATE / GATE INT / GATE 83 DOM / G
+  if (/ARR|CIQ|TRANSFER|\bTF\b|\bMEET\b|รับเครื่อง|ESCORT/.test(u)) return 'ARR';   // ARR / ARR+TF / ASST CIQ
+  return null;
+}
+var DI_FLT2 = /((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*\d{2,4})?)/;
+/** แตกข้อความ "คำขอซัพ" จาก Duty → [{flight, phase, n, win, sta, std, label}] (ป้อนเข้า slaManualSupportRows_) */
+function dutyParseRequests_(text) {
+  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null;
+  function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
+  String(text || '').split(/\n/).forEach(function (raw) {
+    var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
+    // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35"
+    if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา/.test(s)) {
+      var wm = s.match(/(\d{1,2}[:.]?\d{2})\s*[-–]\s*(\d{1,2}[:.]?\d{2})/);
+      if (wm) { curWin = diTime_(wm[1]) + '-' + diTime_(wm[2]); return; }
+    }
+    var fm = s.match(DI_FLT2);
+    // หัวไฟลท์ = มีรหัสไฟลท์ + ไม่ใช่ป้ายตำแหน่ง
+    if (fm && dutyPhaseOf_(s) === null && (/STA|STD|RON/i.test(s) || new RegExp('^\\W*' + fm[1].replace(/\s/g, '').slice(0, 2), 'i').test(s))) {
+      flush(1);
+      curF = fm[1].replace(/\s/g, '').toUpperCase();
+      curSta = ''; curStd = ''; curWin = '';                   // เริ่มไฟลท์ใหม่ → ล้างค่าเก่า (กันค่าค้างข้ามไฟลท์)
+      var t = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i), d = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i);
+      if (t) curSta = diTime_(t[1]); if (d) curStd = diTime_(d[1]);   // EY: STA/STD อยู่บรรทัดถัดไป → เติมทีหลัง
+      return;
+    }
+    // STA | 0640  /  STD | 0925 (แยกบรรทัด)
+    var sm = s.match(/^STA\D*(\d{1,2}[:.]?\d{2})/i); if (sm) { curSta = diTime_(sm[1]); return; }
+    var dm2 = s.match(/^STD\D*(\d{1,2}[:.]?\d{2})/i); if (dm2) { curStd = diTime_(dm2[1]); return; }
+    // จำนวน (บรรทัดตัวเลขล้วน) → ให้ตำแหน่งที่ค้างอยู่
+    if (/^\d{1,2}$/.test(s)) { if (pending) { pending.n = parseInt(s, 10) || 1; out.push(pending); pending = null; } return; }
+    // ป้ายตำแหน่ง (ตัดเลขลำดับ/ขีดนำหน้า)
+    var clean = s.replace(/^[\-\s]*\d+[.)]?\s*/, '').replace(/^[\-\s]+/, '');
+    var ph = dutyPhaseOf_(clean);
+    if (ph && curF) {
+      flush(1);
+      pending = { flight: curF, phase: ph, n: null, win: curWin, sta: curSta, std: curStd, label: clean.replace(/\(.*?\)/g, '').replace(/เครื่องลงเร็ว.*$/, '').trim().slice(0, 22) };
+    }
+  });
+  flush(1);
+  return out;
+}
+/** เรียกจากปุ่มในแท็บ Support: แตกข้อความ Duty → JSON คำขอ (ให้ client ป้อนเข้าตารางคิดคน) */
+function dutyRequestsJson(text) { try { return JSON.stringify(dutyParseRequests_(text)); } catch (e) { return '[]'; } }
+
 /** ตรวจแต่ละรายการกับ roster วันนั้น → เติม {found, recTeam, bucket, shift, status} */
 function dutyValidate_(res, ll, entries) {
   var people = {};

@@ -5340,6 +5340,59 @@ function dutyParse_(text) {
   return out;
 }
 
+// ─── DUTY "REQUEST" FORMAT (ทีมขอ N คน/ตำแหน่ง · ไม่มีชื่อ) → คำขอซัพให้ระบบคิดคน ───
+/** "0820"/"08.20"/"08:20" → "08:20" */
+function diTime_(s) { var m = String(s || '').match(/(\d{1,2})[:.]?(\d{2})/); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
+/** ป้ายตำแหน่งจากข้อความ → phase (CI/SUP/GATE/ARR) หรือ null */
+function dutyPhaseOf_(label) {
+  var u = String(label || '').toUpperCase().trim(); if (!u) return null;
+  if (/CHK-?IN|CHECK-?IN|\bCKIN\b|\bCI\b/.test(u)) return 'CI';
+  if (/\bSUP\b|SPVR|\bSOD\b|SUPERVIS/.test(u)) return 'SUP';
+  if (/GATE|BOARD|^G(\s|$|\d)/.test(u)) return 'GATE';                     // GATE / GATE INT / GATE 83 DOM / G
+  if (/ARR|CIQ|TRANSFER|\bTF\b|\bMEET\b|รับเครื่อง|ESCORT/.test(u)) return 'ARR';   // ARR / ARR+TF / ASST CIQ
+  return null;
+}
+var DI_FLT2 = /((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*\d{2,4})?)/;
+/** แตกข้อความ "คำขอซัพ" จาก Duty → [{flight, phase, n, win, sta, std, label}] (ป้อนเข้า slaManualSupportRows_) */
+function dutyParseRequests_(text) {
+  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null;
+  function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
+  String(text || '').split(/\n/).forEach(function (raw) {
+    var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
+    // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35"
+    if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา/.test(s)) {
+      var wm = s.match(/(\d{1,2}[:.]?\d{2})\s*[-–]\s*(\d{1,2}[:.]?\d{2})/);
+      if (wm) { curWin = diTime_(wm[1]) + '-' + diTime_(wm[2]); return; }
+    }
+    var fm = s.match(DI_FLT2);
+    // หัวไฟลท์ = มีรหัสไฟลท์ + ไม่ใช่ป้ายตำแหน่ง
+    if (fm && dutyPhaseOf_(s) === null && (/STA|STD|RON/i.test(s) || new RegExp('^\\W*' + fm[1].replace(/\s/g, '').slice(0, 2), 'i').test(s))) {
+      flush(1);
+      curF = fm[1].replace(/\s/g, '').toUpperCase();
+      curSta = ''; curStd = ''; curWin = '';                   // เริ่มไฟลท์ใหม่ → ล้างค่าเก่า (กันค่าค้างข้ามไฟลท์)
+      var t = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i), d = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i);
+      if (t) curSta = diTime_(t[1]); if (d) curStd = diTime_(d[1]);   // EY: STA/STD อยู่บรรทัดถัดไป → เติมทีหลัง
+      return;
+    }
+    // STA | 0640  /  STD | 0925 (แยกบรรทัด)
+    var sm = s.match(/^STA\D*(\d{1,2}[:.]?\d{2})/i); if (sm) { curSta = diTime_(sm[1]); return; }
+    var dm2 = s.match(/^STD\D*(\d{1,2}[:.]?\d{2})/i); if (dm2) { curStd = diTime_(dm2[1]); return; }
+    // จำนวน (บรรทัดตัวเลขล้วน) → ให้ตำแหน่งที่ค้างอยู่
+    if (/^\d{1,2}$/.test(s)) { if (pending) { pending.n = parseInt(s, 10) || 1; out.push(pending); pending = null; } return; }
+    // ป้ายตำแหน่ง (ตัดเลขลำดับ/ขีดนำหน้า)
+    var clean = s.replace(/^[\-\s]*\d+[.)]?\s*/, '').replace(/^[\-\s]+/, '');
+    var ph = dutyPhaseOf_(clean);
+    if (ph && curF) {
+      flush(1);
+      pending = { flight: curF, phase: ph, n: null, win: curWin, sta: curSta, std: curStd, label: clean.replace(/\(.*?\)/g, '').replace(/เครื่องลงเร็ว.*$/, '').trim().slice(0, 22) };
+    }
+  });
+  flush(1);
+  return out;
+}
+/** เรียกจากปุ่มในแท็บ Support: แตกข้อความ Duty → JSON คำขอ (ให้ client ป้อนเข้าตารางคิดคน) */
+function dutyRequestsJson(text) { try { return JSON.stringify(dutyParseRequests_(text)); } catch (e) { return '[]'; } }
+
 /** ตรวจแต่ละรายการกับ roster วันนั้น → เติม {found, recTeam, bucket, shift, status} */
 function dutyValidate_(res, ll, entries) {
   var people = {};
@@ -6535,7 +6588,8 @@ function rbSupportHtml(iso, addJson) {
       '<div id="supchkout" style="margin-top:8px"></div></div></details>';
     var importPanel = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">📥 แปลงข้อความ Duty → ชีต (วางข้อความขอซัพจากไลน์ → แตกเป็นตาราง + สร้างชีต)</summary>' +
       '<div style="padding:8px 14px"><textarea id="supimpin" rows="7" placeholder="วางข้อความขอซัพจาก Duty (ไลน์) ทั้งก้อนได้เลย — รองรับหลายสาย/หลายไฟลท์" style="width:100%;font-size:13px;font-family:monospace"></textarea>' +
-      '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supImport()">🔎 แปลง/พรีวิว</button> <button class="btn" onclick="supImportSheet()">📤 สร้างชีต</button> <span id="supimpmsg" class="muted"></span></div>' +
+      '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supDutyToRows()">➕ แตกคำขอ → คิดคนในตาราง</button> <button class="btn" onclick="supImport()">🔎 แปลงชื่อ/พรีวิว</button> <button class="btn" onclick="supImportSheet()">📤 สร้างชีต</button> <span id="supimpmsg" class="muted"></span></div>' +
+      '<div class="muted" style="font-size:11.5px;margin-top:4px">➕ = วางข้อความ "ขอซัพ" (ไฟลท์+ตำแหน่ง+จำนวน+เวลา) → ระบบแตกเป็นแถว + คิดคนให้ในตารางด้านล่าง</div>' +
       '<div id="supimpout" style="margin-top:8px"></div></div></details>';
     return hd + addBar + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
@@ -7114,6 +7168,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'window.__supAdd=window.__supAdd||[];' +
     'function supAddReq(){var fe=document.getElementById("supAddFlt");var f=(fe?fe.value:"").trim().toUpperCase();var ph=document.getElementById("supAddPh").value;var n=Math.max(1,parseInt(document.getElementById("supAddN").value||"1",10)||1);var we=document.getElementById("supAddWin");var win=(we?we.value:"").trim();if(!f){alert("ใส่เลขไฟลท์ก่อน เช่น PG270");return;}window.__supAdd.push({flight:f,phase:ph,n:n,win:win});supReload();}' +
     'function supClearReq(){window.__supAdd=[];supReload();}' +
+    'function supDutyToRows(){var el=document.getElementById("supimpin");var t=el?el.value:"";if(!t.trim()){alert("วางข้อความขอซัพก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var m=document.getElementById("supimpmsg");if(m)m.textContent="⏳ กำลังแตกคำขอ + คิดคน…";google.script.run.withSuccessHandler(function(json){var reqs=[];try{reqs=JSON.parse(json);}catch(e){}if(!reqs.length){if(m)m.textContent="";alert("แตกคำขอไม่ได้ — ตรวจรูปแบบ (ต้องมีเลขไฟลท์ + ตำแหน่ง เช่น ARR/GATE + จำนวน)");return;}window.__supAdd=(window.__supAdd||[]).concat(reqs);if(m)m.textContent="แตกได้ "+reqs.length+" คำขอ ↓";supReload();}).withFailureHandler(function(e){if(m)m.textContent="";alert("แตกไม่ได้: "+e.message);}).dutyRequestsJson(t);}' +
     'function supReload(){if(STATIC){alert("เปิดผ่าน /exec เพื่อคิดคนตามคำขอ");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var b=document.getElementById("supbox");if(b)b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ กำลังคิดคนตามคำขอ Duty…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">คิดคนไม่ได้: "+e.message+"</div>";}).rbSupportHtml(ISO,JSON.stringify(window.__supAdd));}' +
     'function supExport(){var v=document.getElementById("view-sup");if(!v)return;var picks=[];[].forEach.call(v.querySelectorAll("tbody tr[data-flight]"),function(tr){if(tr.style.display==="none")return;var names=[];[].forEach.call(tr.querySelectorAll(".namepick"),function(s){if(s.value.trim())names.push(s.value.trim());});if(!names.length)return;picks.push({flight:tr.getAttribute("data-flight"),airline:tr.getAttribute("data-air"),std:tr.getAttribute("data-std"),phase:tr.getAttribute("data-phase"),names:names});});if(!picks.length){alert("ยังไม่ได้เลือกคนในเมนู");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=v.querySelector(".supexpmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ชีต…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment (Support)</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).supExportSheet(ISO,JSON.stringify(picks));}' +
     'function supCheck(){var el=document.getElementById("supchkin");var t=el?el.value:"";if(!t.trim()){alert("วางรายชื่อก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อใช้ปุ่มตรวจ");return;}var m=document.getElementById("supchkmsg");if(m)m.textContent="⏳ กำลังตรวจ…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supchkout").innerHTML=h;makeSortable();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supchkout").innerHTML="<div class=\\"panel\\">ตรวจไม่ได้: "+e.message+"</div>";}).rbCheckDeployHtml(ISO,t);}' +
