@@ -137,14 +137,20 @@ function rrParseJobText_(text) {
   });
   return out;
 }
-/** แถวซัพพอร์ต (ทีมรับใส่คนช่วยจากทีมอื่น): ชื่อ = "NAME TEAMCODE" เช่น "TANADON PVT" → {name:'TANADON', team:'PVT'} */
+/** แถวซัพพอร์ต (ทีมรับใส่คนช่วยจากทีมอื่น): รหัสทีมต้นสังกัดต่อท้ายชื่อ
+ *  รองรับ 2 รูปแบบ: "TANADON PVT" (เว้นวรรค) และ "THADASAK (WY)" / "PREEDA(ZF)" (วงเล็บ)
+ *  → {name:'TANADON', team:'PVT'} */
 function rrSupportTeam_(name) {
-  var toks = String(name || '').trim().split(/\s+/);
+  var s = String(name || '').trim();
+  // รูปแบบวงเล็บ "ชื่อ (WY)" — รหัสทีมในวงเล็บท้ายชื่อ
+  var mp = s.match(/^(.*\S)\s*\(\s*([A-Za-z][A-Za-z0-9]{1,4})\s*\)\s*$/);
+  if (mp) return { team: mp[2].toUpperCase(), name: mp[1].trim() };
+  var toks = s.split(/\s+/);
   if (toks.length >= 2) {
-    var last = toks[toks.length - 1];
+    var last = toks[toks.length - 1].replace(/[()]/g, '');   // เผื่อวงเล็บติดมากับ token สุดท้าย
     if (/^[A-Z0-9]{2,5}$/.test(last) && /[A-Z]/.test(last)) return { team: last.toUpperCase(), name: toks.slice(0, -1).join(' ') };
   }
-  return { team: '', name: String(name || '').trim() };
+  return { team: '', name: s };
 }
 /** task ที่เป็นการอบรม/ประชุม (ไม่ใช่งานไฟลท์) → ไปเทรน ไม่ได้คุมไฟลท์ */
 function rrIsTrainingTask_(task) {
