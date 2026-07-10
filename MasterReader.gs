@@ -91,6 +91,24 @@ function rbMasterNameTeam_(masterFileId) {
   return out;
 }
 
+/** สร้างชีต "Master_Mapping" ในไฟล์รายชื่อ (รันครั้งเดียวใน Apps Script) — พร้อมหัวตาราง + ตัวอย่าง
+ *  แล้วเปิดชีตไปเติม: คอลัมน์ A = ชื่อ/คำค้น · B = ทีม (เช่น KUNNIDA | PVT) → ระบบค้นทีมชั้นที่ 3 ให้เอง */
+function rbMasterMappingSetup() {
+  if (!MASTER_FILE_ID_RB) throw new Error('ยังไม่ได้ตั้ง MASTER_FILE_ID_RB');
+  var ss = SpreadsheetApp.openById(MASTER_FILE_ID_RB);
+  var sh = ss.getSheetByName('Master_Mapping');
+  var created = false;
+  if (!sh) {
+    sh = ss.insertSheet('Master_Mapping'); created = true;
+    sh.getRange(1, 1, 1, 2).setValues([['ชื่อ/คำค้น', 'ทีม/หมวด']])
+      .setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff');
+    sh.getRange(2, 1, 2, 2).setValues([['KUNNIDA', '(ใส่ทีมจริงตรงนี้)'], ['ตัวอย่าง: ชื่อพนักงาน', 'รหัสทีม เช่น PVT']]);
+    sh.getRange(2, 2).setFontColor('#c0392b');
+    sh.setColumnWidth(1, 240); sh.setColumnWidth(2, 160); sh.setFrozenRows(1);
+  }
+  Logger.log((created ? 'สร้างแท็บ Master_Mapping แล้ว' : 'มีแท็บ Master_Mapping อยู่แล้ว') + ' → ' + ss.getUrl() + '#gid=' + sh.getSheetId());
+  return ss.getUrl() + '#gid=' + sh.getSheetId();
+}
 /** ตารางแมปแก้เอง (ชั้นค้นที่ 3) — แท็บ "Master_Mapping" ในไฟล์รายชื่อ
  *  คอลัมน์ A = คำค้น/ชื่อ (เช่น KUNNIDA) · B = ทีม/หมวด (เช่น PVT) → { UPPERKEY: 'ทีม' }
  *  ให้ผู้ใช้เติมเคสที่ระบบค้นอัตโนมัติไม่เจอได้เอง (ฟรี ไม่ต้องใช้ AI) */
