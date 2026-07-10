@@ -1061,8 +1061,8 @@ function debugDumpRoster(ssId) {
  */
 
 // ใส่ ID ไฟล์ Pax Manpower ถ้าบัญชีที่รันมีสิทธิ์เข้า (เว้นว่าง = ข้าม ไม่แสดงจำนวนพนักงานรวม)
-// ของเดิม: '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8'
-var MASTER_FILE_ID_RB = '';
+// ใช้แสดงจำนวนพนักงานรวม + ค้นทีมต้นสังกัดของคนซัพจากชื่อ (rbMasterNameTeam_)
+var MASTER_FILE_ID_RB = '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8';
 var DEPT_PSA_TH = 'การโดยสาร';
 var DEPT_LL_TH  = 'ติดตามสัมภาระ';
 
@@ -1112,6 +1112,32 @@ function debugDumpMaster(masterFileId) {
   Logger.log('PSA byPos: %s', JSON.stringify(hc.PSA.byPos));
   Logger.log('LL  byPos: %s', JSON.stringify(hc.LL.byPos));
   return hc;
+}
+
+/** ดัชนี "ชื่อ (คำแรก ตัวพิมพ์ใหญ่ · ทั้งไทย/อังกฤษ) → { team: 1 }" จากไฟล์ master (Total)
+ *  ใช้ค้นทีมต้นสังกัดของคนซัพที่ไม่มีรหัสทีมในชีตรายวัน (ตัด Resigned ออก) */
+function rbMasterNameTeam_(masterFileId) {
+  var out = {};
+  var id = masterFileId || MASTER_FILE_ID_RB;
+  if (!id) return out;
+  var ss = SpreadsheetApp.openById(id);
+  var ws = ss.getSheetByName('Total');
+  if (!ws) return out;
+  var data = ws.getDataRange().getValues();
+  function key(nm) {
+    var s = String(nm == null ? '' : nm).trim().toUpperCase().split(/[\s(]/)[0];
+    return s.length >= 3 ? s : '';
+  }
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (String(row[13] || '').trim() === 'Resigned') continue;   // ลาออกแล้ว ไม่นับ
+    var team = String(row[2] || '').trim();                        // คอลัมน์ Team
+    if (!team) continue;
+    [row[10], row[4]].forEach(function (nm) {                      // NameEN(10) · NameTH(4)
+      var k = key(nm); if (k) (out[k] = out[k] || {})[team] = 1;
+    });
+  }
+  return out;
 }
 
 
@@ -6107,14 +6133,25 @@ function rbResolveSupportTeams_(res, ll) {
   }
   Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { add(t, r); }); });
   if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { add('LL·' + s, r); }); });
+  var unresolved = [];
   function resolve(recvTeam, r) {
     if (!r.support || r.supportTeam) return;
     var k = rbNameKey_(r.name); if (!k) return;
     var teams = Object.keys(idx[k] || {}).filter(function (t) { return t !== recvTeam; });
     if (teams.length === 1) { r.supportTeam = teams[0]; r.supportTeamAuto = true; }   // ชัดเจนทีมเดียว → ใส่ให้
+    else unresolved.push({ recv: recvTeam, r: r, k: k });                             // ไม่เจอ/กำกวมในเวรวันนี้ → ลองไฟล์ master ต่อ
   }
   Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { resolve(t, r); }); });
   if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { resolve('LL·' + s, r); }); });
+  // Fallback: ค้นทีมต้นสังกัดจากไฟล์รายชื่อพนักงาน (master · Pax Manpower)
+  if (unresolved.length && MASTER_FILE_ID_RB && typeof rbMasterNameTeam_ === 'function') {
+    var midx = {}; try { midx = rbMasterNameTeam_(MASTER_FILE_ID_RB); } catch (em) { midx = {}; }
+    unresolved.forEach(function (u) {
+      if (u.r.supportTeam) return;
+      var teams = Object.keys(midx[u.k] || {}).filter(function (t) { return t !== u.recv; });
+      if (teams.length === 1) { u.r.supportTeam = teams[0]; u.r.supportTeamAuto = true; u.r.supportTeamSrc = 'master'; }
+    });
+  }
 }
 /** เติม a.OP/a.CL จากเวลาเปิด-ปิดเคาน์เตอร์ของท่า (เฉพาะที่ชีตเวรไม่ได้กรอกไว้) */
 function rbApplyCounterTimes_(res) {
@@ -6823,7 +6860,8 @@ function rbTtRows_(res, ll) {
     var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot, r.bucket) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช · ot_off นับแค่ OT)
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     if (hs) ot += ' <span class="muted">· รวม '+hs.total+'ช</span>' + (hs.level!=='ok' ? ' <span class="'+(hs.level==='short'?'tag':'badd')+'">⚠️ '+rbEsc_(hs.txt)+'</span>' : '');
-    var supTag = r.support ? ' <span class="tag" title="มาช่วยจากทีม '+rbEsc_(r.supportTeam||'')+(r.supportTeamAuto?' (ค้นจากชื่อในเวรอัตโนมัติ)':'')+'">🤝 ซัพจาก '+rbEsc_(r.supportTeam||'?')+(r.supportTeamAuto?' <span class="muted">·จากชื่อ</span>':'')+'</span>' : '';
+    var supAutoLbl = r.supportTeamAuto ? (r.supportTeamSrc === 'master' ? ' <span class="muted">·จากรายชื่อ</span>' : ' <span class="muted">·จากชื่อในเวร</span>') : '';
+    var supTag = r.support ? ' <span class="tag" title="มาช่วยจากทีม '+rbEsc_(r.supportTeam||'')+(r.supportTeamAuto?(r.supportTeamSrc==='master'?' (ค้นจากไฟล์รายชื่อพนักงาน)':' (ค้นจากชื่อในเวรวันนี้)'):'')+'">🤝 ซัพจาก '+rbEsc_(r.supportTeam||'?')+supAutoLbl+'</span>' : '';
     return '<tr data-team="'+rbEsc_(r.team)+'" data-start="'+st+'"><td class="b">'+rbEsc_(r.team)+'</td><td class="tnum">'+rbEsc_(r.support?'ซัพ':(r.id||''))+
       '</td><td>'+rbEsc_(r.name)+supTag+'</td><td>'+rbEsc_(r.pos||'')+'</td><td>'+sh+'</td><td>'+ot+'</td><td class="tnum">'+rbFltCount_(r.assignments)+
       '</td><td>'+rbFlightChips_(r.assignments, r.team, owner)+'</td></tr>';

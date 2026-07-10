@@ -12,8 +12,8 @@
  */
 
 // ใส่ ID ไฟล์ Pax Manpower ถ้าบัญชีที่รันมีสิทธิ์เข้า (เว้นว่าง = ข้าม ไม่แสดงจำนวนพนักงานรวม)
-// ของเดิม: '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8'
-var MASTER_FILE_ID_RB = '';
+// ใช้แสดงจำนวนพนักงานรวม + ค้นทีมต้นสังกัดของคนซัพจากชื่อ (rbMasterNameTeam_)
+var MASTER_FILE_ID_RB = '1oqKI1lbXDow6JCHCOqRIhT7o7dI9U9zfpyV8CJGOUJ8';
 var DEPT_PSA_TH = 'การโดยสาร';
 var DEPT_LL_TH  = 'ติดตามสัมภาระ';
 
@@ -63,4 +63,30 @@ function debugDumpMaster(masterFileId) {
   Logger.log('PSA byPos: %s', JSON.stringify(hc.PSA.byPos));
   Logger.log('LL  byPos: %s', JSON.stringify(hc.LL.byPos));
   return hc;
+}
+
+/** ดัชนี "ชื่อ (คำแรก ตัวพิมพ์ใหญ่ · ทั้งไทย/อังกฤษ) → { team: 1 }" จากไฟล์ master (Total)
+ *  ใช้ค้นทีมต้นสังกัดของคนซัพที่ไม่มีรหัสทีมในชีตรายวัน (ตัด Resigned ออก) */
+function rbMasterNameTeam_(masterFileId) {
+  var out = {};
+  var id = masterFileId || MASTER_FILE_ID_RB;
+  if (!id) return out;
+  var ss = SpreadsheetApp.openById(id);
+  var ws = ss.getSheetByName('Total');
+  if (!ws) return out;
+  var data = ws.getDataRange().getValues();
+  function key(nm) {
+    var s = String(nm == null ? '' : nm).trim().toUpperCase().split(/[\s(]/)[0];
+    return s.length >= 3 ? s : '';
+  }
+  for (var i = 1; i < data.length; i++) {
+    var row = data[i];
+    if (String(row[13] || '').trim() === 'Resigned') continue;   // ลาออกแล้ว ไม่นับ
+    var team = String(row[2] || '').trim();                        // คอลัมน์ Team
+    if (!team) continue;
+    [row[10], row[4]].forEach(function (nm) {                      // NameEN(10) · NameTH(4)
+      var k = key(nm); if (k) (out[k] = out[k] || {})[team] = 1;
+    });
+  }
+  return out;
 }
