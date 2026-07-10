@@ -1293,12 +1293,11 @@ function counterParseSheet_(sh, wantDate) {
   }
   var wd = wantDate ? { d: wantDate.getDate(), m: wantDate.getMonth() + 1, y: wantDate.getFullYear() } : null;
   // รวมต่อไฟลท์ (รองรับทั้ง 2 เลย์เอาต์ผ่านตัวสะสมเดียว)
-  var agg = {}, order = [], curAir = '';
+  var agg = {}, order = [], curAir = '', curDate = null;
   for (var i = hi + 1; i < rows.length; i++) {
-    if (wd && cDate >= 0) {                                        // กรองตามวันที่ (ไฟล์รวมหลายวัน)
-      var rd = counterRowDate_(rows[i][cDate]);
-      if (rd && !(rd.d === wd.d && rd.m === wd.m && rd.y === wd.y)) continue;
-    }
+    // วันที่ (ไฟล์รวมหลายวัน) — อาจอยู่แค่แถวแรกของแต่ละวัน → จำค่าล่าสุดไล่ลงมา (เหมือน AIRLINE)
+    if (cDate >= 0) { var rd = counterRowDate_(rows[i][cDate]); if (rd) curDate = rd; }
+    if (wd && cDate >= 0 && (!curDate || !(curDate.d === wd.d && curDate.m === wd.m && curDate.y === wd.y))) continue;
     var air = String(rows[i][cAir] || '').trim().toUpperCase();
     if (air) curAir = air;
     var flt = String(rows[i][cFlt] || '').trim().toUpperCase().replace(/\s+/g, '');
