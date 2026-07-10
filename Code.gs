@@ -1523,7 +1523,7 @@ var SLA_DB = {
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',3,'GM','GATE']]},
   'HX': {ci:-240,cc:-50,go:-60,brief:60,post:30,total:11,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',4,'GM','GATE']]},
-  'EY': {ci:-180,cc:-60,go:-60,lc:-45,brief:60,post:30,total:11,
+  'EY': {ci:-180,cc:-60,go:-60,lc:-45,brief:60,post:45,total:11,   // EY บ้าน: +1hr ก่อนเปิดเคาน์เตอร์ (brief) · +45 นาทีหลัง STD (เคลียร์หลังไฟท์) ตามที่ทีมแจ้ง
     roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC/CTR','CI'],['SOD/CTR',1,'SOD/CTR','CI'],
            ['J-CLASS',2,'J','CI'],['BOARDING',5,'B','GATE'],['ARRIVAL',1,'ARR','ARR']]},
   'AY': {ci:-180,cc:-60,go:-60,brief:60,post:30,total:9,
@@ -2660,6 +2660,14 @@ function acFlightWin_(a) {
   }
   var db = (typeof slaGet_ === 'function') ? slaGet_(slaAirlineOf_(a.flight)) : null;
   var brief = (db && db.brief) || 60, ci = (db && db.ci) || -180, post = (db && db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย
+  // EY บ้าน: ทุกตำแหน่ง (WEL GUEST/ACA/ARR/BINGO/SUP/…) ทำช่วงเดียวกัน = เปิดเคาน์เตอร์→STD
+  //  บรีฟ +1 ชม.ก่อนเปิดเคาน์เตอร์ · +45 นาทีหลัง STD (เคลียร์หลังไฟท์) ตามที่ทีมแจ้ง — ไม่แยกแบบ ARR/เกทแคบ
+  if (std != null && typeof slaAirlineOf_ === 'function' && slaAirlineOf_(a.flight) === 'EY' && !acIsActivity_(String((a.task || '') + ' ' + (a.flight || '')))) {
+    var eop = (op != null) ? op : (std + ci);   // เวลาเปิดเคาน์เตอร์ (จากไฟล์ท่า หรือ STD+ci)
+    var elo = eop - brief, ehi = std + post;
+    if (ehi <= elo) ehi += 1440;
+    return [elo, ehi];
+  }
   // Crew Sign / CRW ที่ไม่ได้นั่งเคาน์เตอร์ → ช่วงแคบ: 25 นาทีก่อน STA จนถึง STD (เซ็นรับ-ส่งลูกเรือ ไม่ใช่เปิดเคาน์เตอร์เต็มช่วง)
   var tsk = String(a.task || '');
   var isCrew = /CREW\s*SIGN|\bCRW\b/i.test(tsk);

@@ -89,7 +89,7 @@ var SLA_DB = {
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',3,'GM','GATE']]},
   'HX': {ci:-240,cc:-50,go:-60,brief:60,post:30,total:11,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',4,'GM','GATE']]},
-  'EY': {ci:-180,cc:-60,go:-60,lc:-45,brief:60,post:30,total:11,
+  'EY': {ci:-180,cc:-60,go:-60,lc:-45,brief:60,post:45,total:11,   // EY บ้าน: +1hr ก่อนเปิดเคาน์เตอร์ (brief) · +45 นาทีหลัง STD (เคลียร์หลังไฟท์) ตามที่ทีมแจ้ง
     roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC/CTR','CI'],['SOD/CTR',1,'SOD/CTR','CI'],
            ['J-CLASS',2,'J','CI'],['BOARDING',5,'B','GATE'],['ARRIVAL',1,'ARR','ARR']]},
   'AY': {ci:-180,cc:-60,go:-60,brief:60,post:30,total:9,
