@@ -126,9 +126,25 @@ function dutyValidate_(res, ll, entries) {
 function rbDutyImportHtml(iso, text) {
   try {
     var entries = dutyParse_(text);
-    if (!entries.length) return '<div class="panel muted" style="padding:14px">ไม่พบรายการซัพในข้อความ — ตรวจรูปแบบ (ต้องมีเลขไฟลท์ + บรรทัดชื่อ เช่น "1. PANISARA ZF")</div>';
+    var reqs = dutyParseRequests_(text);
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    dutyValidate_(d.res, d.ll, entries);
+    if (entries.length) dutyValidate_(d.res, d.ll, entries);
+    // ข้อความ "ขอซัพ" (ระบุตำแหน่ง+จำนวน ไม่มีชื่อคนที่ตรง roster) → โชว์คำขอ + ปุ่มคิดคน แทนการเดาชื่อมั่ว
+    var foundNames = entries.filter(function (e) { return e.found; }).length;
+    if (reqs.length >= 1 && foundNames === 0) {
+      var rb2 = reqs.map(function (q) {
+        var win = q.win || ((q.sta || q.std) ? ((q.sta || '–') + '-' + (q.std || '–')) : '-');
+        return '<tr><td class="b">' + rbEsc_(q.flight) + '</td><td>' + rbEsc_(SLA_PH_LB[q.phase] || q.phase) +
+          (q.label ? ' <span class="muted">(' + rbEsc_(q.label) + ')</span>' : '') + '</td><td class="tnum">' + q.n +
+          '</td><td class="tnum">' + rbEsc_(win) + '</td></tr>';
+      }).join('');
+      return '<div class="sectionlabel">ℹ️ ข้อความนี้เป็น <b>"คำขอซัพ"</b> (ตำแหน่ง+จำนวน ไม่มีชื่อคน) — แตกได้ <b class="okk">' + reqs.length +
+        ' คำขอ</b><br><span class="muted">กดปุ่ม <b>➕ แตกคำขอ → คิดคนในตาราง</b> ด้านบน เพื่อให้ระบบจับคนว่างให้</span></div>' +
+        '<div style="margin:6px 0"><button class="btn btn--accent" onclick="supDutyToRows()">➕ แตกคำขอ → คิดคนในตาราง</button></div>' +
+        rbTblCard_('📥 คำขอซัพจาก Duty (พรีวิว)',
+          '<tr><th>Flight</th><th>ตำแหน่ง</th><th>จำนวน</th><th>ช่วงเวลา</th></tr>', rb2, '');
+    }
+    if (!entries.length) return '<div class="panel muted" style="padding:14px">ไม่พบรายการในข้อความ — ถ้าเป็น "ขอซัพ" (ตำแหน่ง+จำนวน) กดปุ่ม <b>➕ แตกคำขอ → คิดคนในตาราง</b> · ถ้าเป็นลิสต์ชื่อคน ต้องมี "ไฟลท์ + ชื่อ" เช่น "1. PANISARA ZF"</div>';
     var notIn = entries.filter(function (e) { return e.found && !e.inSheet; }).length;
     var nf = entries.filter(function (e) { return !e.found; }).length;
     var body = entries.map(function (e) {
