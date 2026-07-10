@@ -2374,6 +2374,44 @@ var SLA_MAX_CAND = 24;     // pool คนช่วยต่อ 1 ตำแหน
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
 /** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
+/** map candidate → รูปแบบที่ view ใช้ */
+function slaCandView_(c) {
+  return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off, rest: !!c.rest,
+           shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
+}
+/** สร้าง 1 แถวซัพพอร์ต: ไฟลท์ f · phase ph · ขาด n คน · จาก pool ที่เตรียมไว้ */
+function slaSupRow_(f, ph, n, pool) {
+  var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
+  var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND) : [];       // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
+  var rwin = slaPhaseWindow_(f, ph);
+  if (rwin) cands.slice(0, n).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
+  return {
+    flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList || '',
+    STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: n, win: slaWinTxt_(f, ph),
+    needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
+    cands: cands.map(slaCandView_),
+    others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; })) : []).map(slaCandView_),
+    nCand: cands.length,
+  };
+}
+/** คำขอซัพแบบเพิ่มเอง (Duty) — [{flight, phase, n}] → แถวเหมือน slaSupportRows_ (คิดคนให้ แม้ไฟลท์ไม่ขาดตาม SLA) */
+function slaManualSupportRows_(res, ll, requests) {
+  requests = (requests || []).filter(function (r) { return r && r.flight && r.phase; });
+  if (!requests.length) return [];
+  var fmap = {}; slaCollectFlights_(res, ll).forEach(function (f) { fmap[slaFlightKey_(f.flight)] = f; });
+  var teamSys = slaTeamSystems_(res, ll);
+  var pool = slaSupportPool_(res, ll, teamSys, true);
+  return requests.map(function (rq) {
+    var ph = String(rq.phase).toUpperCase(); if (!SLA_PH_LB[ph]) ph = 'GATE';
+    var n = Math.max(1, parseInt(rq.n, 10) || 1);
+    var key = slaFlightKey_(rq.flight);
+    var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
+                           STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
+    var row = slaSupRow_(f, ph, n, pool);
+    row.manual = true; if (!fmap[key]) row.noRoster = true;
+    return row;
+  });
+}
 function slaSupportRows_(res, ll) {
   var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok && !f.noTime; });
   var teamSys = slaTeamSystems_(res, ll);
@@ -2382,27 +2420,7 @@ function slaSupportRows_(res, ll) {
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       if (!f.short[ph]) return;
-      var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
-      var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
-      // จอง (tentatively) คนที่น่าจะถูกส่งจริง = top shortN ตามช่วงเวลาเฟสนี้
-      // → ไฟลท์อื่นที่เวลาทับกันจะไม่แนะคนเดิมซ้ำ (กระจายคน + กันส่งซ้อน) เรียงไฟลท์ตามเวลาอยู่แล้ว
-      var rwin = slaPhaseWindow_(f, ph);
-      if (rwin) cands.slice(0, f.short[ph]).forEach(function (c) { c.hold.push(rwin); });
-      rows.push({
-        flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
-        STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
-        needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
-        cands: cands.map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off, rest: !!c.rest,
-                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
-        }),
-        // พนักงานอื่นๆ ที่ว่างช่วงนั้น (ไม่ตรงระบบ/ตำแหน่ง) — ตัวเลือกเสริมในเมนู
-        others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; })) : []).map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
-                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
-        }),
-        nCand: cands.length,
-      });
+      rows.push(slaSupRow_(f, ph, f.short[ph], pool));
     });
   });
   return rows;
@@ -6419,14 +6437,26 @@ function rbAutoAssignHtml(iso, fcJson) {
 }
 
 /** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
-function rbSupportHtml(iso) {
+function rbSupportHtml(iso, addJson) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    var rows = slaSupportRows_(d.res, d.ll);
+    var autoRows = slaSupportRows_(d.res, d.ll);
+    var manualRows = [];
+    if (addJson) { try { manualRows = slaManualSupportRows_(d.res, d.ll, JSON.parse(addJson)); } catch (ea) { manualRows = []; } }
+    var rows = manualRows.concat(autoRows);        // คำขอ Duty (เพิ่มเอง) ขึ้นก่อน
     var nF = {}, supTeams = {};
-    rows.forEach(function (r) { nF[r.flight] = 1; r.cands.forEach(function (c) { supTeams[c.team] = 1; }); });
+    autoRows.forEach(function (r) { nF[r.flight] = 1; });
+    rows.forEach(function (r) { r.cands.forEach(function (c) { supTeams[c.team] = 1; }); });
     var hd = '<div class="sectionlabel">🆘 <b>Support / เติมคน</b> (รวม "เติม Assign เดิม") — ไฟลท์ที่คนไม่ครบตาม SLA: <b class="badd">' + Object.keys(nF).length +
-      ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + rows.length + ' รายการ — เมนูตั้งค่าคนที่ <b>ว่าง + รู้ระบบ</b> ให้อัตโนมัติ · เลือก <b>พนักงานอื่นๆ</b> ได้จากในเมนู</div>';
+      ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + autoRows.length + ' รายการ' + (manualRows.length ? ' · <b class="okk">คำขอ Duty ' + manualRows.length + '</b>' : '') +
+      ' — เมนูตั้งค่าคนที่ <b>ว่าง + รู้ระบบ</b> ให้อัตโนมัติ · เลือก <b>พนักงานอื่นๆ</b> ได้จากในเมนู</div>';
+    // แถบเพิ่มคำขอเอง (Duty สั่งช่วยไฟลท์/ตำแหน่งที่ระบบไม่ได้จับว่าขาด)
+    var addBar = '<div class="supaddbar" style="margin:8px 0;padding:10px 12px;border:1px dashed #cdd8e6;border-radius:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<b>➕ เพิ่มคำขอซัพ (Duty):</b> ไฟลท์ <input id="supAddFlt" placeholder="เช่น PG270" style="width:120px;padding:4px 7px;border:1px solid #cdd8e6;border-radius:6px;text-transform:uppercase">' +
+      ' ตำแหน่ง <select id="supAddPh" style="padding:4px 7px;border:1px solid #cdd8e6;border-radius:6px"><option value="ARR">Arrival</option><option value="GATE">Gate</option><option value="CI">Check-in</option><option value="SUP">SUP</option></select>' +
+      ' จำนวน <input id="supAddN" type="number" value="1" min="1" style="width:54px;padding:4px 7px;border:1px solid #cdd8e6;border-radius:6px">' +
+      ' <button class="btn btn--accent" onclick="supAddReq()">เพิ่ม + คิดคน</button> <button class="btn" onclick="supClearReq()">ล้างคำขอ</button>' +
+      '<span class="supaddmsg muted" style="font-size:12px"></span></div>';
     var expBar = '<div class="expbar" style="margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<b>📤 ส่งให้พนักงาน:</b> <button class="btn btn--accent" onclick="supExport()">สร้างไฟล์ชีตแจ้ง Assignment (จากที่เลือกในเมนู · 1 แท็บ/ทีม)</button>' +
       '<span class="supexpmsg muted"></span></div>';
@@ -6475,14 +6505,15 @@ function rbSupportHtml(iso) {
       } else {
         who = '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
       }
+      var mtag = r.manual ? '<span class="tag" style="background:#fff3cd;color:#8a6d00">➕ Duty</span> ' : '';
       return '<tr class="' + (r.cands.length || others.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) +
         '" data-flight="' + rbAttr_(r.flight) + '" data-air="' + rbAttr_(r.airline) + '" data-std="' + rbAttr_(r.STD) + '" data-phase="' + rbAttr_(r.phase) +
-        '"><td class="b">' + rbEsc_(r.flight) +
+        '"><td class="b">' + mtag + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
-        '</td><td class="badd">' + rbEsc_(r.phase) + ' ขาด ' + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
-        '</td><td class="tnum">' + rbEsc_(r.win) + '</td><td>' + who + '</td></tr>';
+        '</td><td class="' + (r.manual ? '' : 'badd') + '">' + rbEsc_(r.phase) + (r.manual ? ' ขอ ' : ' ขาด ') + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
+        '</td><td class="tnum">' + rbEsc_(r.win) + (r.noRoster ? ' <span class="muted">(ไม่พบไฟลท์ในเวร)</span>' : '') + '</td><td>' + who + '</td></tr>';
     }).join('');
-    if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA</td></tr>';
+    if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA — เพิ่มคำขอ Duty เองได้ที่แถบด้านบน</td></tr>';
     var sosTxt = ''; try { sosTxt = slaSOSText_(d.res, d.ll, iso); } catch (es) { sosTxt = ''; }
     var sosBlock = '<details class="tablecard" style="margin-bottom:10px"><summary style="cursor:pointer;padding:10px 14px;font-weight:700">📋 ข้อความ SOS (คัดลอกส่งไลน์ได้เลย · เฉพาะคนทีมอื่น)</summary>' +
       '<div style="padding:8px 14px"><button class="btn btn--accent" onclick="(function(b){var t=b.parentNode.querySelector(\'textarea\');t.focus();t.select();if(navigator.clipboard){navigator.clipboard.writeText(t.value);}else{document.execCommand(\'copy\');}b.textContent=\'✓ คัดลอกแล้ว\';setTimeout(function(){b.textContent=\'📋 คัดลอกข้อความ\';},1500);})(this)">📋 คัดลอกข้อความ</button>' +
@@ -6495,7 +6526,7 @@ function rbSupportHtml(iso) {
       '<div style="padding:8px 14px"><textarea id="supimpin" rows="7" placeholder="วางข้อความขอซัพจาก Duty (ไลน์) ทั้งก้อนได้เลย — รองรับหลายสาย/หลายไฟลท์" style="width:100%;font-size:13px;font-family:monospace"></textarea>' +
       '<div style="margin-top:6px"><button class="btn btn--accent" onclick="supImport()">🔎 แปลง/พรีวิว</button> <button class="btn" onclick="supImportSheet()">📤 สร้างชีต</button> <span id="supimpmsg" class="muted"></span></div>' +
       '<div id="supimpout" style="margin-top:8px"></div></div></details>';
-    return hd + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+    return hd + addBar + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
@@ -7069,6 +7100,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}' +
+    'window.__supAdd=window.__supAdd||[];' +
+    'function supAddReq(){var fe=document.getElementById("supAddFlt");var f=(fe?fe.value:"").trim().toUpperCase();var ph=document.getElementById("supAddPh").value;var n=Math.max(1,parseInt(document.getElementById("supAddN").value||"1",10)||1);if(!f){alert("ใส่เลขไฟลท์ก่อน เช่น PG270");return;}window.__supAdd.push({flight:f,phase:ph,n:n});supReload();}' +
+    'function supClearReq(){window.__supAdd=[];supReload();}' +
+    'function supReload(){if(STATIC){alert("เปิดผ่าน /exec เพื่อคิดคนตามคำขอ");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var b=document.getElementById("supbox");if(b)b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:20px;text-align:center\\">⏳ กำลังคิดคนตามคำขอ Duty…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">คิดคนไม่ได้: "+e.message+"</div>";}).rbSupportHtml(ISO,JSON.stringify(window.__supAdd));}' +
     'function supExport(){var v=document.getElementById("view-sup");if(!v)return;var picks=[];[].forEach.call(v.querySelectorAll("tbody tr[data-flight]"),function(tr){if(tr.style.display==="none")return;var names=[];[].forEach.call(tr.querySelectorAll(".namepick"),function(s){if(s.value.trim())names.push(s.value.trim());});if(!names.length)return;picks.push({flight:tr.getAttribute("data-flight"),airline:tr.getAttribute("data-air"),std:tr.getAttribute("data-std"),phase:tr.getAttribute("data-phase"),names:names});});if(!picks.length){alert("ยังไม่ได้เลือกคนในเมนู");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=v.querySelector(".supexpmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ชีต…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แจ้ง Assignment (Support)</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).supExportSheet(ISO,JSON.stringify(picks));}' +
     'function supCheck(){var el=document.getElementById("supchkin");var t=el?el.value:"";if(!t.trim()){alert("วางรายชื่อก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อใช้ปุ่มตรวจ");return;}var m=document.getElementById("supchkmsg");if(m)m.textContent="⏳ กำลังตรวจ…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supchkout").innerHTML=h;makeSortable();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supchkout").innerHTML="<div class=\\"panel\\">ตรวจไม่ได้: "+e.message+"</div>";}).rbCheckDeployHtml(ISO,t);}' +
     'function supImport(){var el=document.getElementById("supimpin");var t=el?el.value:"";if(!t.trim()){alert("วางข้อความ Duty ก่อน");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}var m=document.getElementById("supimpmsg");if(m)m.textContent="⏳ กำลังแปลง…";google.script.run.withSuccessHandler(function(h){if(m)m.textContent="";document.getElementById("supimpout").innerHTML=h;makeSortable();}).withFailureHandler(function(e){if(m)m.textContent="";document.getElementById("supimpout").innerHTML="<div class=\\"panel\\">แปลงไม่ได้: "+e.message+"</div>";}).rbDutyImportHtml(ISO,t);}' +

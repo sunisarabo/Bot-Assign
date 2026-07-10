@@ -884,6 +884,44 @@ var SLA_MAX_CAND = 24;     // pool คนช่วยต่อ 1 ตำแหน
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
 /** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
+/** map candidate → รูปแบบที่ view ใช้ */
+function slaCandView_(c) {
+  return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off, rest: !!c.rest,
+           shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
+}
+/** สร้าง 1 แถวซัพพอร์ต: ไฟลท์ f · phase ph · ขาด n คน · จาก pool ที่เตรียมไว้ */
+function slaSupRow_(f, ph, n, pool) {
+  var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
+  var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND) : [];       // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
+  var rwin = slaPhaseWindow_(f, ph);
+  if (rwin) cands.slice(0, n).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
+  return {
+    flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList || '',
+    STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: n, win: slaWinTxt_(f, ph),
+    needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
+    cands: cands.map(slaCandView_),
+    others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; })) : []).map(slaCandView_),
+    nCand: cands.length,
+  };
+}
+/** คำขอซัพแบบเพิ่มเอง (Duty) — [{flight, phase, n}] → แถวเหมือน slaSupportRows_ (คิดคนให้ แม้ไฟลท์ไม่ขาดตาม SLA) */
+function slaManualSupportRows_(res, ll, requests) {
+  requests = (requests || []).filter(function (r) { return r && r.flight && r.phase; });
+  if (!requests.length) return [];
+  var fmap = {}; slaCollectFlights_(res, ll).forEach(function (f) { fmap[slaFlightKey_(f.flight)] = f; });
+  var teamSys = slaTeamSystems_(res, ll);
+  var pool = slaSupportPool_(res, ll, teamSys, true);
+  return requests.map(function (rq) {
+    var ph = String(rq.phase).toUpperCase(); if (!SLA_PH_LB[ph]) ph = 'GATE';
+    var n = Math.max(1, parseInt(rq.n, 10) || 1);
+    var key = slaFlightKey_(rq.flight);
+    var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
+                           STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
+    var row = slaSupRow_(f, ph, n, pool);
+    row.manual = true; if (!fmap[key]) row.noRoster = true;
+    return row;
+  });
+}
 function slaSupportRows_(res, ll) {
   var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok && !f.noTime; });
   var teamSys = slaTeamSystems_(res, ll);
@@ -892,27 +930,7 @@ function slaSupportRows_(res, ll) {
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       if (!f.short[ph]) return;
-      var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
-      var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
-      // จอง (tentatively) คนที่น่าจะถูกส่งจริง = top shortN ตามช่วงเวลาเฟสนี้
-      // → ไฟลท์อื่นที่เวลาทับกันจะไม่แนะคนเดิมซ้ำ (กระจายคน + กันส่งซ้อน) เรียงไฟลท์ตามเวลาอยู่แล้ว
-      var rwin = slaPhaseWindow_(f, ph);
-      if (rwin) cands.slice(0, f.short[ph]).forEach(function (c) { c.hold.push(rwin); });
-      rows.push({
-        flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
-        STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
-        needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
-        cands: cands.map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off, rest: !!c.rest,
-                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
-        }),
-        // พนักงานอื่นๆ ที่ว่างช่วงนั้น (ไม่ตรงระบบ/ตำแหน่ง) — ตัวเลือกเสริมในเมนู
-        others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; })) : []).map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off,
-                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
-        }),
-        nCand: cands.length,
-      });
+      rows.push(slaSupRow_(f, ph, f.short[ph], pool));
     });
   });
   return rows;
