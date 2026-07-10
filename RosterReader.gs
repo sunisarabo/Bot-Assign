@@ -418,7 +418,7 @@ function rrParseStandard_(rows, team, meta) {
     fltcols = fltcols.filter(function (f) { return !f.cancelled; });   // ตัดไฟลท์ที่ยกเลิกออก (ไม่บันทึก assignment)
   }
 
-  var recs = [], seen = {};
+  var recs = [], seen = {}, recByIdd = {};
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
     var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
@@ -444,9 +444,9 @@ function rrParseStandard_(rows, team, meta) {
     }
     if (!name || (!isSup && (idd.length < 6 || idd.length > 8))) continue;
     var nU = name.toUpperCase();
-    if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE' || seen[idd]) continue;
+    if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE') continue;
     if (!isSup && rrUp_(row[cm.id]).indexOf('EX') === 0) continue;     // template "Ex. 212121" sample row
-    seen[idd] = true;
+    var dupOf = seen[idd] ? recByIdd[idd] : null;                      // ID ซ้ำ (บล็อกซ้ำในแท็บ เช่น SU: CHECK IN + GATE ASSIGN)
 
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
     var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
@@ -555,7 +555,7 @@ function rrParseStandard_(rows, team, meta) {
     // otType (ฟิลด์เดียว สำหรับสถิติ/แสดงผล): มีฝั่งหลังกะ → POST ไม่งั้นจัดประเภทช่วงแรกอัตโนมัติ
     var primarySpan = otSpans.length ? [otSpans[otSpans.length - 1].a, otSpans[otSpans.length - 1].b] : [null, null];
     var otType = oth > 0 ? (twoSided ? (otG2 ? 'POST' : 'PRE') : rrOtType_(srng, primarySpan, bkt === 'ot_off')) : null;
-    recs.push({
+    var rec = {
       team: team, id: idd, name: name,
       support: isSup, supportTeam: supTeam,                  // มาช่วยจากทีมไหน (แถวซัพพอร์ต)
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
@@ -570,7 +570,11 @@ function rrParseStandard_(rows, team, meta) {
       // (ถ้ามี REMARK เช่น "Off"/"SL" = ตั้งใจให้หยุด → ไม่เติม เคารพชีตรายวัน)
       blankRow: (!shift && !timev && !remark && srng[0] == null && assigns.length === 0),
       assignments: assigns,
-    });
+    };
+    // ID ซ้ำ: ถ้าบล็อกแรกที่เก็บไว้ "ว่างเปล่า" แต่บล็อกนี้มีข้อมูล (กะ/สถานะ/งาน) → ใช้บล็อกนี้แทน
+    // (แท็บ SU มี CHECK IN บนสุด (กะว่าง) + GATE ASSIGN ล่าง (กะครบ) ID เดียวกัน)
+    if (dupOf) { if (dupOf.blankRow && !rec.blankRow) { for (var k in rec) dupOf[k] = rec[k]; } continue; }
+    seen[idd] = true; recByIdd[idd] = rec; recs.push(rec);
   }
   // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
   // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
