@@ -24,13 +24,15 @@ function readMasterHeadcount(masterFileId) {
     if (!ws) { Logger.log('⚠️ Master: ไม่พบชีต "Total" → ข้าม'); return null; }
     var data = ws.getDataRange().getValues();
 
-    var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0 };
+    var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0, ids: {} };
     var now = new Date();
 
     for (var i = 1; i < data.length; i++) {
       var row = data[i];
       var idStr = String(row[1] == null ? '' : row[1]).replace(/\.0*$/, '').trim();
-      if (!/^\d{6,8}$/.test(idStr.replace(/\D/g, ''))) continue;
+      var idNum = idStr.replace(/\D/g, '');
+      if (!/^\d{6,8}$/.test(idNum)) continue;
+      hc.ids[idNum] = 1;                                        // ทุก ID ที่มีในไฟล์รายชื่อ (รวม resigned/office/LL) → ใช้เช็ค "ในเวรแต่ไม่มีใน master"
 
       var status = String(row[13] || '').trim();
       if (status === 'Resigned') continue;

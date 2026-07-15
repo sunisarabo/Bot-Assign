@@ -866,6 +866,28 @@ function rbAggRowHtml_(label, b) {
     '</td><td style="min-width:90px">' + rbBarMini_(pct) + '</td></tr>';
 }
 function rbTeamRows_(teams, order){ return order.map(function(t){ return rbAggRowHtml_(t, teams[t]); }).join(''); }
+/** การ์ดเตือน: คนที่อยู่ในเวรวันนี้แต่ไม่มีรหัสในไฟล์รายชื่อ (master) → ให้ไปเพิ่มใน master ให้ครบ
+ *  (ตัดแถว SUPPORT/รหัสจำลองออก · เทียบเฉพาะรหัสจริง 6-8 หลัก) */
+function rbMasterMissingCard_(res, ll, master) {
+  if (!master || !master.ids) return '';
+  var miss = [], seen = {};
+  function scan(team, r) {
+    var id = String(r.id || '').trim();
+    if (!/^\d{6,8}$/.test(id)) return;                         // ข้ามแถวซัพ/รหัสจำลอง (SUP...)
+    if (master.ids[id] || seen[id]) return;
+    seen[id] = 1; miss.push({ team: team, id: id, name: r.name || '' });
+  }
+  Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { scan(t, r); }); });
+  if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { scan('LL·' + s, r); }); });
+  if (!miss.length) return '';
+  miss.sort(function (a, b) { return a.team < b.team ? -1 : a.team > b.team ? 1 : 0; });
+  var rows = miss.map(function (m) {
+    return '<tr><td>' + rbEsc_(m.team) + '</td><td class="tnum">' + rbEsc_(m.id) + '</td><td class="b">' + rbEsc_(m.name) + '</td></tr>';
+  }).join('');
+  return '<div style="margin-top:16px">' + rbTblCard_('⚠️ ในเวรวันนี้แต่ไม่มีรหัสในไฟล์รายชื่อ (master) — ' + miss.length + ' คน',
+    '<tr><th>ทีม(แท็บเวร)</th><th>รหัส</th><th>ชื่อ</th></tr>', rows,
+    '<span class="muted" style="font-weight:400">ทำให้ยอดทีมไม่ตรง master · เพิ่มคนเหล่านี้เข้าไฟล์รายชื่อให้ครบ</span>') + '</div>';
+}
 function rbPosRows_(positions, order) {
   return order.map(function (p) {
     var b = positions[p]; if (!b) return '';
@@ -1061,6 +1083,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
+    rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
     (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +
     '</div>' +
