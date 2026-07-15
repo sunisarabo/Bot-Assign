@@ -647,6 +647,17 @@ function slaCollectFlights_(res, ll) {
       var d = f.req[ph] - f.assigned[ph];
       if (d > 0) f.short[ph] = d;
     });
+    // เกลี่ยคนภาคพื้น Gate ↔ Arrival: เป็นคนกลุ่มเดียวกัน (แรมป์) — เฟสหนึ่งเกินไปยืนแทนที่ขาดอีกเฟสได้
+    // (เช่น Gate 6/2 เกิน 4 คน · Arrival 0/1 ขาด 1 → ดึงคนเกินจากเกทมายืน arrival = ครบ ไม่นับขาด)
+    var rampSpare = Math.max(0, f.assigned.GATE - f.req.GATE) + Math.max(0, f.assigned.ARR - f.req.ARR);
+    ['ARR', 'GATE'].forEach(function (ph) {
+      if (f.short[ph] && rampSpare > 0) {
+        var use = Math.min(f.short[ph], rampSpare);
+        f.short[ph] -= use; rampSpare -= use;
+        (f.redist = f.redist || []).push(ph);
+        if (f.short[ph] <= 0) delete f.short[ph];
+      }
+    });
     f.shortTotal = Math.max(0, f.req.total - f.assigned.total);
     // คนรวมพอ/เกิน (คนเกิน) → เฟสยืดหยุ่น Check-in/Gate/Arrival ที่ขาด จัดสรรจากคนที่มีได้ ไม่นับเป็นขาด · SUP ยังต้องมีจริง (จัดแทนไม่ได้)
     if (f.shortTotal === 0) {

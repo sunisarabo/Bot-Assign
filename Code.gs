@@ -2159,6 +2159,17 @@ function slaCollectFlights_(res, ll) {
       var d = f.req[ph] - f.assigned[ph];
       if (d > 0) f.short[ph] = d;
     });
+    // เกลี่ยคนภาคพื้น Gate ↔ Arrival: เป็นคนกลุ่มเดียวกัน (แรมป์) — เฟสหนึ่งเกินไปยืนแทนที่ขาดอีกเฟสได้
+    // (เช่น Gate 6/2 เกิน 4 คน · Arrival 0/1 ขาด 1 → ดึงคนเกินจากเกทมายืน arrival = ครบ ไม่นับขาด)
+    var rampSpare = Math.max(0, f.assigned.GATE - f.req.GATE) + Math.max(0, f.assigned.ARR - f.req.ARR);
+    ['ARR', 'GATE'].forEach(function (ph) {
+      if (f.short[ph] && rampSpare > 0) {
+        var use = Math.min(f.short[ph], rampSpare);
+        f.short[ph] -= use; rampSpare -= use;
+        (f.redist = f.redist || []).push(ph);
+        if (f.short[ph] <= 0) delete f.short[ph];
+      }
+    });
     f.shortTotal = Math.max(0, f.req.total - f.assigned.total);
     // คนรวมพอ/เกิน (คนเกิน) → เฟสยืดหยุ่น Check-in/Gate/Arrival ที่ขาด จัดสรรจากคนที่มีได้ ไม่นับเป็นขาด · SUP ยังต้องมีจริง (จัดแทนไม่ได้)
     if (f.shortTotal === 0) {
@@ -5397,31 +5408,64 @@ function dutyParseRequests_(text) {
   String(text || '').split(/\n/).forEach(function (raw) {
     var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
     // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35" / "ขอ stand by ขาเข้า 07:40 - 09:10"
-    if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา|STAND\s*BY|\bSTBY\b/i.test(s)) {
+    if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา|STAND\s*BY|\bSTBY\b|\bSBY\b/i.test(s)) {
       var wm = s.match(/(\d{1,2}[:.]?\d{2})\s*[-–]\s*(\d{1,2}[:.]?\d{2})/);
       if (wm) { curWin = diTime_(wm[1]) + '-' + diTime_(wm[2]); return; }
+    }
+    // บรรทัดที่ "ขึ้นต้น" ด้วย standby เช่น "SBY AT GATE 1750" / "STBY 0740"
+    //   · ถ้ามีตำแหน่งต่อท้าย (AT GATE) → เป็นคำขอตำแหน่งนั้น + เวลายืน  · ถ้าล้วนเวลา → แค่เวลาเริ่มยืน
+    if (/^\s*(SBY|STBY|STAND\s*BY)\b/i.test(s.replace(/^[\-\s]*\d*[.)]?\s*/, ''))) {
+      var one = s.match(/(\d{1,2}[:.]?\d{2})/);
+      var sbyPh = dutyPhaseOf_(s.replace(/^\s*[\-\d.)\s]*(SBY|STBY|STAND\s*BY)\b/i, ''));
+      if (sbyPh && curF) {
+        flush(1);
+        var sbyT = one ? diTime_(one[1]) : curSta;
+        pending = { flight: curF, phase: sbyPh, n: null, win: sbyT ? (sbyT + (curStd ? '-' + curStd : '')) : curWin,
+          sta: sbyT || curSta, std: curStd,
+          label: s.replace(/\d{1,2}[:.]?\d{2}/g, '').replace(/^[\-\s]*/, '').trim().slice(0, 22) };
+        return;
+      }
+      if (one) { curSta = diTime_(one[1]); if (pending && !pending.sta) pending.sta = curSta; }
+      return;
     }
     // บรรทัดเวลาล้วน "STA.../STD..." (เช่น "STA1800/STD1855", "STA 08:10 / STD 09:00", "STA: 0845 STD: 1025")
     // จับก่อนหัวไฟลท์ กัน "STA1800" ถูกอ่านเป็นไฟลท์ "TA1800"
     if (/^\s*STA\b/i.test(s) || /^\s*STD\b/i.test(s) || /^\s*ETA\b/i.test(s)) {
+      var m2 = s.match(/STA\D*(\d{1,2}[:.]?\d{2})\s*\/\s*(\d{1,2}[:.]?\d{2})/i);   // "STA 1240/1350" = STA + STD
+      if (m2) { curSta = diTime_(m2[1]); curStd = diTime_(m2[2]);
+        if (pending) { if (!pending.sta) pending.sta = curSta; if (!pending.std) pending.std = curStd; } return; }
       var sa = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i) || s.match(/ETA\D*(\d{1,2}[:.]?\d{2})/i);
       var sdd = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i);
       if (sa) curSta = diTime_(sa[1]); if (sdd) curStd = diTime_(sdd[1]);
+      if (pending) { if (sa && !pending.sta) pending.sta = curSta; if (sdd && !pending.std) pending.std = curStd; }  // เติมเวลาให้คำขอที่เปิดค้าง
       return;
     }
     var fm = s.match(DI_FLT2);
-    // หัวไฟลท์ = มีรหัสไฟลท์ + ไม่ใช่ป้ายตำแหน่ง
-    if (fm && dutyPhaseOf_(s) === null && (/STA|STD|RON/i.test(s) || new RegExp('^\\W*' + fm[1].replace(/\s/g, '').slice(0, 2), 'i').test(s))) {
+    // "รบกวนขอ Support RY" / "ขอ Support EY" — สายไม่มีเลขไฟลท์ → ใช้รหัสสายเป็น pseudo-flight (คำขอไม่หลุดไปเกาะไฟลท์อื่น)
+    if (!fm) { var supM = s.match(/SUPP?ORT\s+([A-Z]{2})\b/i); if (supM && dutyPhaseOf_(s) === null) { flush(1); curF = supM[1].toUpperCase(); curSta = ''; curStd = ''; curWin = ''; return; } }
+    // หัวไฟลท์ = รหัสไฟลท์อยู่ "ต้นบรรทัด" (โทเคนแรก) — ครอบคลุมกรณีมีตำแหน่งต่อท้ายบรรทัดเดียวกัน เช่น "SU284/286 ARR+G"
+    var fltAtStart = fm && /^\W*$/.test(s.slice(0, fm.index));
+    if (fm && (fltAtStart || (dutyPhaseOf_(s) === null && /STA|STD|RON/i.test(s)))) {
       flush(1);
       curF = fm[1].replace(/\s/g, '').toUpperCase();
       curSta = ''; curStd = ''; curWin = '';                   // เริ่มไฟลท์ใหม่ → ล้างค่าเก่า (กันค่าค้างข้ามไฟลท์)
       var t = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i), d = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i);
       if (t) curSta = diTime_(t[1]); if (d) curStd = diTime_(d[1]);   // EY: STA/STD อยู่บรรทัดถัดไป → เติมทีหลัง
+      // ตำแหน่งต่อท้ายหัวไฟลท์บรรทัดเดียวกัน (เช่น "SU284/286 ARR+G") → เปิดคำขอตำแหน่งแรกไว้ (รายละเอียดเวลา/เกทตามบรรทัดถัดไป)
+      var rest = s.slice(fm.index + fm[0].length).replace(/^[\s\/]+/, '');
+      var ph0 = dutyPhaseOf_(rest);
+      if (ph0) {
+        var lSby0 = (rest.match(/(?:STBY|STAND\s*BY)\D*(\d{1,2}[:.]?\d{2})/i) || [])[1];
+        pending = { flight: curF, phase: ph0, n: null,
+          win: (lSby0 && curStd) ? (diTime_(lSby0) + '-' + curStd) : curWin,
+          sta: curSta, std: curStd,
+          label: rest.replace(/\(.*?\)/g, '').replace(/\b(STA|STD|STBY|STAND\s*BY|ETA)\b.*$/i, '').trim().slice(0, 22) };
+      }
       return;
     }
-    // STA | 0640  /  STD | 0925 (แยกบรรทัด)
-    var sm = s.match(/^STA\D*(\d{1,2}[:.]?\d{2})/i); if (sm) { curSta = diTime_(sm[1]); return; }
-    var dm2 = s.match(/^STD\D*(\d{1,2}[:.]?\d{2})/i); if (dm2) { curStd = diTime_(dm2[1]); return; }
+    // STA | 0640  /  STD | 0925 (แยกบรรทัด) — เติมเวลาให้คำขอที่ยังเปิดค้างอยู่ด้วย (เช่น "SU284/286 ARR+G" แล้วบรรทัดถัดมา "STA 0830")
+    var sm = s.match(/^STA\D*(\d{1,2}[:.]?\d{2})/i); if (sm) { curSta = diTime_(sm[1]); if (pending && !pending.sta) pending.sta = curSta; return; }
+    var dm2 = s.match(/^STD\D*(\d{1,2}[:.]?\d{2})/i); if (dm2) { curStd = diTime_(dm2[1]); if (pending && !pending.std) pending.std = curStd; return; }
     // จำนวน (บรรทัดตัวเลขล้วน) → ให้ตำแหน่งที่ค้างอยู่
     if (/^\d{1,2}$/.test(s)) { if (pending) { pending.n = parseInt(s, 10) || 1; out.push(pending); pending = null; } return; }
     // ป้ายตำแหน่ง (ตัดเลขลำดับ/ขีดนำหน้า)
@@ -5429,7 +5473,15 @@ function dutyParseRequests_(text) {
     var ph = dutyPhaseOf_(clean);
     if (ph && curF) {
       flush(1);
-      pending = { flight: curF, phase: ph, n: null, win: curWin, sta: curSta, std: curStd, label: clean.replace(/\(.*?\)/g, '').replace(/เครื่องลงเร็ว.*$/, '').trim().slice(0, 22) };
+      // เวลาฝังในบรรทัดตำแหน่งเอง เช่น "GATE STD 1035 stby 0900" / "ARR+G STA 0830"
+      var lSta = (clean.match(/STA\D*(\d{1,2}[:.]?\d{2})/i) || [])[1];
+      var lStd = (clean.match(/STD\D*(\d{1,2}[:.]?\d{2})/i) || [])[1];
+      var lSby = (clean.match(/(?:STBY|STAND\s*BY)\D*(\d{1,2}[:.]?\d{2})/i) || [])[1];
+      var lWin = curWin;
+      if (lSby && lStd) lWin = diTime_(lSby) + '-' + diTime_(lStd);              // stby→STD = ช่วงงาน
+      pending = { flight: curF, phase: ph, n: null, win: lWin,
+        sta: lSta ? diTime_(lSta) : curSta, std: lStd ? diTime_(lStd) : curStd,
+        label: clean.replace(/\(.*?\)/g, '').replace(/\b(STA|STD|STBY|STAND\s*BY|ETA)\b.*$/i, '').replace(/เครื่องลงเร็ว.*$/, '').trim().slice(0, 22) };
     }
   });
   flush(1);
