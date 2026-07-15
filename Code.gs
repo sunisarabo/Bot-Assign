@@ -2166,6 +2166,9 @@ function slaCollectFlights_(res, ll) {
       ['CI', 'GATE', 'ARR'].forEach(function (ph) { if (f.short[ph]) { redist.push(ph); delete f.short[ph]; } });
       if (redist.length) f.redist = redist;
     }
+    // ทุกเฟส (SUP/CI/ARR/GATE) ครบแล้ว → ส่วน "เกิน (extra)" ของ total ถือว่าครอบจากคนทำหลายหน้าที่
+    // (เช่น เช็คอิน 5 คนไปทำเกทต่อ → GATE 5/1) จึงไม่นับ "ขาดรวม" ทั้งที่ทุกเฟสเกิน/ครบ
+    if (Object.keys(f.short).length === 0) f.shortTotal = 0;
     f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
     var home = homeTeamOf(f.airline);                          // ทีมเจ้าของสายการบิน (ถ้ามี) มาก่อนทีมที่มาช่วย
     if (home) f.teams[home] = true;                            // ให้ candidate ถือว่าทีมนี้เป็นเจ้าของ (ไม่นับ support ซ้ำ)
