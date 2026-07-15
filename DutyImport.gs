@@ -61,10 +61,11 @@ function dutyPhaseOf_(label) {
 var DI_FLT2 = /\b((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*\d{2,4})?)/;   // \b กัน "TA1800" ใน "STA1800"
 /** แตกข้อความ "คำขอซัพ" จาก Duty → [{flight, phase, n, win, sta, std, label}] (ป้อนเข้า slaManualSupportRows_) */
 function dutyParseRequests_(text) {
-  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null;
+  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null, fltFresh = false;
   function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
   String(text || '').split(/\n/).forEach(function (raw) {
     var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
+    var wasFresh = fltFresh; fltFresh = false;   // fresh = บรรทัดก่อนเป็น "หัวไฟลท์เปล่า" → บรรทัดนี้ถ้าเป็นหัวไฟลท์สายเดียวกัน = ขาที่สองของ turnaround
     // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35" / "ขอ stand by ขาเข้า 07:40 - 09:10"
     if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา|STAND\s*BY|\bSTBY\b|\bSBY\b/i.test(s)) {
       var wm = s.match(/(\d{1,2}[:.]?\d{2})\s*[-–]\s*(\d{1,2}[:.]?\d{2})/);
@@ -104,8 +105,17 @@ function dutyParseRequests_(text) {
     // หัวไฟลท์ = รหัสไฟลท์อยู่ "ต้นบรรทัด" (โทเคนแรก) — ครอบคลุมกรณีมีตำแหน่งต่อท้ายบรรทัดเดียวกัน เช่น "SU284/286 ARR+G"
     var fltAtStart = fm && /^\W*$/.test(s.slice(0, fm.index));
     if (fm && (fltAtStart || (dutyPhaseOf_(s) === null && /STA|STD|RON/i.test(s)))) {
+      var fcode = fm[1].replace(/\s/g, '').toUpperCase();
+      // ขาที่สองของ turnaround เดียวกัน — หัวไฟลท์เปล่า 2 บรรทัดติด สายเดียวกัน เช่น "PG271 STA.." แล้ว "PG272 STD.." → รวมเป็น "PG271/272"
+      if (wasFresh && curF && curF.indexOf('/') < 0 && fcode.indexOf('/') < 0 && fcode.slice(0, 2) === curF.slice(0, 2)) {
+        curF = curF + '/' + fcode.slice(2);
+        var d2 = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i); if (d2) curStd = diTime_(d2[1]);
+        var a2 = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i); if (a2 && !curSta) curSta = diTime_(a2[1]);
+        fltFresh = true; return;
+      }
       flush(1);
-      curF = fm[1].replace(/\s/g, '').toUpperCase();
+      curF = fcode;
+      fltFresh = true;                                         // หัวไฟลท์เปล่า → พร้อมรวมขาที่สอง (จะถูกล้างเมื่อเจอตำแหน่ง/เวลา)
       curSta = ''; curStd = ''; curWin = '';                   // เริ่มไฟลท์ใหม่ → ล้างค่าเก่า (กันค่าค้างข้ามไฟลท์)
       var t = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i), d = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i);
       if (t) curSta = diTime_(t[1]); if (d) curStd = diTime_(d[1]);   // EY: STA/STD อยู่บรรทัดถัดไป → เติมทีหลัง
@@ -113,6 +123,7 @@ function dutyParseRequests_(text) {
       var rest = s.slice(fm.index + fm[0].length).replace(/^[\s\/]+/, '');
       var ph0 = dutyPhaseOf_(rest);
       if (ph0) {
+        fltFresh = false;                                      // มีตำแหน่งในบรรทัดหัวไฟลท์ → ไม่ใช่หัวเปล่า → ห้ามรวมขาที่สอง
         var lSby0 = (rest.match(/(?:STBY|STAND\s*BY)\D*(\d{1,2}[:.]?\d{2})/i) || [])[1];
         pending = { flight: curF, phase: ph0, n: null,
           win: (lSby0 && curStd) ? (diTime_(lSby0) + '-' + curStd) : curWin,
@@ -143,6 +154,12 @@ function dutyParseRequests_(text) {
     }
   });
   flush(1);
+  // ระบุชนิดเกทใน/นอกจากป้ายตำแหน่ง (GATE INT / GATE 83 DOM) → ให้หน้า Support แยกแสดง/จับคู่คนถูกชนิด
+  out.forEach(function (r) {
+    if (r.phase === 'GATE' && typeof slaGateType_ === 'function') {
+      var g = slaGateType_(r.label); r.gtype = (g === 'I') ? 'INT' : (g === 'D' ? 'DOM' : '');
+    }
+  });
   return out;
 }
 /** เรียกจากปุ่มในแท็บ Support: แตกข้อความ Duty → JSON คำขอ (ให้ client ป้อนเข้าตารางคิดคน) */

@@ -455,7 +455,7 @@ function rbSupportHtml(iso, addJson) {
         '" data-flight="' + rbAttr_(r.flight) + '" data-air="' + rbAttr_(r.airline) + '" data-std="' + rbAttr_(r.STD) + '" data-phase="' + rbAttr_(r.phase) +
         '"><td class="b">' + mtag + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
-        '</td><td class="' + (r.manual ? '' : 'badd') + '">' + rbEsc_(r.phase) + (r.manual ? ' ขอ ' : ' ขาด ') + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
+        '</td><td class="' + (r.manual ? '' : 'badd') + '">' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + (r.manual ? ' ขอ ' : ' ขาด ') + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
         '</td><td class="tnum">' + rbEsc_(r.win) + (r.noRoster ? ' <span class="muted">(ไม่พบไฟลท์ในเวร)</span>' : '') + '</td><td>' + who + '</td></tr>';
     }).join('');
     if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA — เพิ่มคำขอ Duty เองได้ที่แถบด้านบน</td></tr>';
@@ -953,8 +953,9 @@ function rbFltCards_(res, ll) {
       var short = f.short || {};
       function tile(lb, av, rv, ph){
         var bad = short[ph] > 0;
+        var sub = (ph==='GATE' && (a.GD||a.GI)) ? '<div class="tnum" style="font-size:10px;color:#7c8ba1;margin-top:2px">DOM '+(a.GD||0)+' · INT '+(a.GI||0)+'</div>' : '';   // แยกเกทใน/นอก
         return '<div class="fc-tile'+(bad?' fc-tile--bad':'')+'"><div class="fc-tile__l">'+lb+'</div>' +
-          '<div class="fc-tile__v tnum">'+(av||0)+'<span class="fc-tile__r">/'+(rv||0)+'</span></div></div>';
+          '<div class="fc-tile__v tnum">'+(av||0)+'<span class="fc-tile__r">/'+(rv||0)+'</span></div>'+sub+'</div>';
       }
       var stat = f.noTime ? '<span class="fc-pill fc-pill--warn">ขาด STA/STD</span>'
                : (f.ok ? '<span class="fc-pill fc-pill--ok">✔ ครบ</span>'

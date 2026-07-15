@@ -2020,6 +2020,17 @@ function slaPhasesOf_(task) {
   return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
 
+/** ชนิดเกทของ task: 'D' = Gate Dom (ในประเทศ) · 'I' = Gate Int (ระหว่างประเทศ) · null = เกททั่วไป (ไม่ระบุชนิด)
+ *  ใช้แยกนับเกทใน/นอกของ PG (ทีมแยกยืน GATE DOM / GATE INT คนละคน) */
+function slaGateType_(task) {
+  var u = String(task || '').toUpperCase();
+  if (/\bINT\b|INTER|ระหว่างประเทศ|ต่างประเทศ/.test(u)) return 'I';
+  if (/\bDOM\b|DOMESTIC|ในประเทศ/.test(u)) return 'D';
+  if (/(^|[\s\/])I\b/.test(u) && !/\bPRINT\b|\bPOINT\b/.test(u)) return 'I';   // โทเคน I เดี่ยว = Gate Int (PG)
+  if (/(^|[\s\/])D\b/.test(u)) return 'D';                                     // โทเคน D เดี่ยว = Gate Dom
+  return null;
+}
+
 /** ทีมที่ไม่เกี่ยวกับ SLA เช็คอิน/เกท — ไม่นับใน Flights & SLA / Support */
 function slaSkipTeam_(team) {
   var t = String(team || '').toUpperCase();
@@ -2040,7 +2051,7 @@ function slaCollectFlights_(res, ll) {
       if (!flights[key]) {
         flights[key] = { flight: raw, airline: slaAirlineOf_(key), teams: {},
           STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '', AC: a.AC || '',
-          assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
+          assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0, GD: 0, GI: 0 }, staff: [] };
       }
       var f = flights[key];
       f.teams[team] = true;
@@ -2051,6 +2062,7 @@ function slaCollectFlights_(res, ll) {
       var phs = slaPhasesOf_(a.task);
       if (!phs.length) { f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: 'TRAIN' }); return; }   // ไปเทรน → แสดงได้ แต่ไม่นับเป็นคนคุมไฟลท์
       phs.forEach(function (ph) { f.assigned[ph]++; });          // นับทุกเฟสที่คนนี้ครอบคลุม
+      if (phs.indexOf('GATE') >= 0) { var gt = slaGateType_(a.task); if (gt === 'D') f.assigned.GD++; else if (gt === 'I') f.assigned.GI++; }   // แยกนับเกทใน/นอก
       f.assigned.total++;                                        // total = headcount (1 คน นับ 1)
       f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: phs.join('/') });
     });
@@ -2397,8 +2409,9 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   var body = [], status = [];
   flights.forEach(function (f) {
     function cell(ph) { return f.assigned[ph] + '/' + f.req[ph] + (f.short[ph] ? ' ⚠️-' + f.short[ph] : ' ✓'); }
+    function gcell() { var b = cell('GATE'); if (f.assigned.GD || f.assigned.GI) b += ' (D' + f.assigned.GD + '·I' + f.assigned.GI + ')'; return b; }   // แยกเกทใน/นอก
     body.push([f.flight, f.airline, f.teamList, f.STA, f.STD, f.OP, f.CL,
-               f.assigned.total, f.req.total, cell('SUP'), cell('CI'), cell('GATE'), cell('ARR')]);
+               f.assigned.total, f.req.total, cell('SUP'), cell('CI'), gcell(), cell('ARR')]);
     status.push(f.ok);
   });
   if (body.length) {
@@ -2462,7 +2475,7 @@ function slaManualSupportRows_(res, ll, requests) {
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
     var row = slaSupRow_(f, ph, n, pool, winOv);
-    row.manual = true; row.label = rq.label || '';
+    row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
     if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
   });
@@ -5403,10 +5416,11 @@ function dutyPhaseOf_(label) {
 var DI_FLT2 = /\b((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*\d{2,4})?)/;   // \b กัน "TA1800" ใน "STA1800"
 /** แตกข้อความ "คำขอซัพ" จาก Duty → [{flight, phase, n, win, sta, std, label}] (ป้อนเข้า slaManualSupportRows_) */
 function dutyParseRequests_(text) {
-  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null;
+  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null, fltFresh = false;
   function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
   String(text || '').split(/\n/).forEach(function (raw) {
     var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
+    var wasFresh = fltFresh; fltFresh = false;   // fresh = บรรทัดก่อนเป็น "หัวไฟลท์เปล่า" → บรรทัดนี้ถ้าเป็นหัวไฟลท์สายเดียวกัน = ขาที่สองของ turnaround
     // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35" / "ขอ stand by ขาเข้า 07:40 - 09:10"
     if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา|STAND\s*BY|\bSTBY\b|\bSBY\b/i.test(s)) {
       var wm = s.match(/(\d{1,2}[:.]?\d{2})\s*[-–]\s*(\d{1,2}[:.]?\d{2})/);
@@ -5446,8 +5460,17 @@ function dutyParseRequests_(text) {
     // หัวไฟลท์ = รหัสไฟลท์อยู่ "ต้นบรรทัด" (โทเคนแรก) — ครอบคลุมกรณีมีตำแหน่งต่อท้ายบรรทัดเดียวกัน เช่น "SU284/286 ARR+G"
     var fltAtStart = fm && /^\W*$/.test(s.slice(0, fm.index));
     if (fm && (fltAtStart || (dutyPhaseOf_(s) === null && /STA|STD|RON/i.test(s)))) {
+      var fcode = fm[1].replace(/\s/g, '').toUpperCase();
+      // ขาที่สองของ turnaround เดียวกัน — หัวไฟลท์เปล่า 2 บรรทัดติด สายเดียวกัน เช่น "PG271 STA.." แล้ว "PG272 STD.." → รวมเป็น "PG271/272"
+      if (wasFresh && curF && curF.indexOf('/') < 0 && fcode.indexOf('/') < 0 && fcode.slice(0, 2) === curF.slice(0, 2)) {
+        curF = curF + '/' + fcode.slice(2);
+        var d2 = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i); if (d2) curStd = diTime_(d2[1]);
+        var a2 = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i); if (a2 && !curSta) curSta = diTime_(a2[1]);
+        fltFresh = true; return;
+      }
       flush(1);
-      curF = fm[1].replace(/\s/g, '').toUpperCase();
+      curF = fcode;
+      fltFresh = true;                                         // หัวไฟลท์เปล่า → พร้อมรวมขาที่สอง (จะถูกล้างเมื่อเจอตำแหน่ง/เวลา)
       curSta = ''; curStd = ''; curWin = '';                   // เริ่มไฟลท์ใหม่ → ล้างค่าเก่า (กันค่าค้างข้ามไฟลท์)
       var t = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i), d = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i);
       if (t) curSta = diTime_(t[1]); if (d) curStd = diTime_(d[1]);   // EY: STA/STD อยู่บรรทัดถัดไป → เติมทีหลัง
@@ -5455,6 +5478,7 @@ function dutyParseRequests_(text) {
       var rest = s.slice(fm.index + fm[0].length).replace(/^[\s\/]+/, '');
       var ph0 = dutyPhaseOf_(rest);
       if (ph0) {
+        fltFresh = false;                                      // มีตำแหน่งในบรรทัดหัวไฟลท์ → ไม่ใช่หัวเปล่า → ห้ามรวมขาที่สอง
         var lSby0 = (rest.match(/(?:STBY|STAND\s*BY)\D*(\d{1,2}[:.]?\d{2})/i) || [])[1];
         pending = { flight: curF, phase: ph0, n: null,
           win: (lSby0 && curStd) ? (diTime_(lSby0) + '-' + curStd) : curWin,
@@ -5485,6 +5509,12 @@ function dutyParseRequests_(text) {
     }
   });
   flush(1);
+  // ระบุชนิดเกทใน/นอกจากป้ายตำแหน่ง (GATE INT / GATE 83 DOM) → ให้หน้า Support แยกแสดง/จับคู่คนถูกชนิด
+  out.forEach(function (r) {
+    if (r.phase === 'GATE' && typeof slaGateType_ === 'function') {
+      var g = slaGateType_(r.label); r.gtype = (g === 'I') ? 'INT' : (g === 'D' ? 'DOM' : '');
+    }
+  });
   return out;
 }
 /** เรียกจากปุ่มในแท็บ Support: แตกข้อความ Duty → JSON คำขอ (ให้ client ป้อนเข้าตารางคิดคน) */
@@ -6687,7 +6717,7 @@ function rbSupportHtml(iso, addJson) {
         '" data-flight="' + rbAttr_(r.flight) + '" data-air="' + rbAttr_(r.airline) + '" data-std="' + rbAttr_(r.STD) + '" data-phase="' + rbAttr_(r.phase) +
         '"><td class="b">' + mtag + rbEsc_(r.flight) +
         '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') + '</td><td>' + rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.STD) +
-        '</td><td class="' + (r.manual ? '' : 'badd') + '">' + rbEsc_(r.phase) + (r.manual ? ' ขอ ' : ' ขาด ') + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
+        '</td><td class="' + (r.manual ? '' : 'badd') + '">' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + (r.manual ? ' ขอ ' : ' ขาด ') + r.shortN + (r.needSys ? ' <span class="muted">(' + rbEsc_(r.needSys) + ')</span>' : '') +
         '</td><td class="tnum">' + rbEsc_(r.win) + (r.noRoster ? ' <span class="muted">(ไม่พบไฟลท์ในเวร)</span>' : '') + '</td><td>' + who + '</td></tr>';
     }).join('');
     if (!body) body = '<tr><td colspan="8" class="okk" style="text-align:center;padding:20px">✅ ทุกไฟลท์ส่งพนักงานครบตาม SLA — เพิ่มคำขอ Duty เองได้ที่แถบด้านบน</td></tr>';
@@ -7185,8 +7215,9 @@ function rbFltCards_(res, ll) {
       var short = f.short || {};
       function tile(lb, av, rv, ph){
         var bad = short[ph] > 0;
+        var sub = (ph==='GATE' && (a.GD||a.GI)) ? '<div class="tnum" style="font-size:10px;color:#7c8ba1;margin-top:2px">DOM '+(a.GD||0)+' · INT '+(a.GI||0)+'</div>' : '';   // แยกเกทใน/นอก
         return '<div class="fc-tile'+(bad?' fc-tile--bad':'')+'"><div class="fc-tile__l">'+lb+'</div>' +
-          '<div class="fc-tile__v tnum">'+(av||0)+'<span class="fc-tile__r">/'+(rv||0)+'</span></div></div>';
+          '<div class="fc-tile__v tnum">'+(av||0)+'<span class="fc-tile__r">/'+(rv||0)+'</span></div>'+sub+'</div>';
       }
       var stat = f.noTime ? '<span class="fc-pill fc-pill--warn">ขาด STA/STD</span>'
                : (f.ok ? '<span class="fc-pill fc-pill--ok">✔ ครบ</span>'

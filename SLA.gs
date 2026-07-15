@@ -508,6 +508,17 @@ function slaPhasesOf_(task) {
   return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
 }
 
+/** ชนิดเกทของ task: 'D' = Gate Dom (ในประเทศ) · 'I' = Gate Int (ระหว่างประเทศ) · null = เกททั่วไป (ไม่ระบุชนิด)
+ *  ใช้แยกนับเกทใน/นอกของ PG (ทีมแยกยืน GATE DOM / GATE INT คนละคน) */
+function slaGateType_(task) {
+  var u = String(task || '').toUpperCase();
+  if (/\bINT\b|INTER|ระหว่างประเทศ|ต่างประเทศ/.test(u)) return 'I';
+  if (/\bDOM\b|DOMESTIC|ในประเทศ/.test(u)) return 'D';
+  if (/(^|[\s\/])I\b/.test(u) && !/\bPRINT\b|\bPOINT\b/.test(u)) return 'I';   // โทเคน I เดี่ยว = Gate Int (PG)
+  if (/(^|[\s\/])D\b/.test(u)) return 'D';                                     // โทเคน D เดี่ยว = Gate Dom
+  return null;
+}
+
 /** ทีมที่ไม่เกี่ยวกับ SLA เช็คอิน/เกท — ไม่นับใน Flights & SLA / Support */
 function slaSkipTeam_(team) {
   var t = String(team || '').toUpperCase();
@@ -528,7 +539,7 @@ function slaCollectFlights_(res, ll) {
       if (!flights[key]) {
         flights[key] = { flight: raw, airline: slaAirlineOf_(key), teams: {},
           STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '', AC: a.AC || '',
-          assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
+          assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0, GD: 0, GI: 0 }, staff: [] };
       }
       var f = flights[key];
       f.teams[team] = true;
@@ -539,6 +550,7 @@ function slaCollectFlights_(res, ll) {
       var phs = slaPhasesOf_(a.task);
       if (!phs.length) { f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: 'TRAIN' }); return; }   // ไปเทรน → แสดงได้ แต่ไม่นับเป็นคนคุมไฟลท์
       phs.forEach(function (ph) { f.assigned[ph]++; });          // นับทุกเฟสที่คนนี้ครอบคลุม
+      if (phs.indexOf('GATE') >= 0) { var gt = slaGateType_(a.task); if (gt === 'D') f.assigned.GD++; else if (gt === 'I') f.assigned.GI++; }   // แยกนับเกทใน/นอก
       f.assigned.total++;                                        // total = headcount (1 คน นับ 1)
       f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: phs.join('/') });
     });
@@ -885,8 +897,9 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   var body = [], status = [];
   flights.forEach(function (f) {
     function cell(ph) { return f.assigned[ph] + '/' + f.req[ph] + (f.short[ph] ? ' ⚠️-' + f.short[ph] : ' ✓'); }
+    function gcell() { var b = cell('GATE'); if (f.assigned.GD || f.assigned.GI) b += ' (D' + f.assigned.GD + '·I' + f.assigned.GI + ')'; return b; }   // แยกเกทใน/นอก
     body.push([f.flight, f.airline, f.teamList, f.STA, f.STD, f.OP, f.CL,
-               f.assigned.total, f.req.total, cell('SUP'), cell('CI'), cell('GATE'), cell('ARR')]);
+               f.assigned.total, f.req.total, cell('SUP'), cell('CI'), gcell(), cell('ARR')]);
     status.push(f.ok);
   });
   if (body.length) {
@@ -950,7 +963,7 @@ function slaManualSupportRows_(res, ll, requests) {
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
     var row = slaSupRow_(f, ph, n, pool, winOv);
-    row.manual = true; row.label = rq.label || '';
+    row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
     if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
   });
