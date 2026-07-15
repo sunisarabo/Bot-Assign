@@ -686,6 +686,11 @@ function slaTeamSystems_(res, ll) {
   function add(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
     (r.assignments || []).forEach(function (a) {
+      if (!acIsFlight_(a.flight)) return;
+      // "รู้ระบบเช็คอิน" = เคยทำ "เช็คอิน" จริงบนไฟลท์นั้น — ไม่ใช่แค่ทำ gate/arr
+      // (ทีมลอย CHARTER/PVT ทำ gate/arr บนไฟลท์ Altea ก็ไม่ได้แปลว่าเช็คอิน Altea เป็น)
+      var phs = slaPhasesOf_(a.task);
+      if (phs.indexOf('CI') < 0) return;
       var s = slaSystemOf_(slaAirlineOf_(a.flight));
       if (s) { (sys[team] = sys[team] || {})[slaSysNorm_(s)] = true; }   // เก็บเป็น normalized
     });
