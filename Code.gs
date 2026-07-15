@@ -2115,9 +2115,9 @@ function slaCollectFlights_(res, ll) {
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
     f.req = slaReq_(f.airline, f.AC);
-    // AK เลขไฟลท์ 4 หลัก (8xxx) = เที่ยวบิน ferry → ไม่ต้องใช้เช็คอิน (ตัด CI + เกทที่มาจากเช็คอิน)
+    // AK เลขไฟลท์ 4 หลัก = เที่ยวบิน ferry → ไม่ต้องใช้เช็คอิน (ตัด CI + เกทที่มาจากเช็คอิน)
     var akNum = (f.airline === 'AK') ? +((String(f.flight).match(/\d{3,4}/) || ['0'])[0]) : 0;
-    if (akNum >= 8000) { f.ferry = true; f.req.CI = 0; f.req.total = f.req.SUP + f.req.ARR + f.req.GATE; }
+    if (akNum >= 1000) { f.ferry = true; f.req.CI = 0; f.req.total = f.req.SUP + f.req.ARR + f.req.GATE; }
     // ท่าจัดเคาน์เตอร์เช็คอินให้เท่าไหร่ → เพดานเช็คอิน = min(SLA, เคาน์เตอร์ที่ท่าให้)
     // (ส่งคนได้เท่าเคาน์เตอร์ที่มีจริง → ไม่แจ้งว่า SLA ไม่ครบทั้งที่ท่าตัดเคาน์เตอร์เอง)
     if (res && res.counters && f.req.CI > 0) {
