@@ -46,26 +46,37 @@ function dutyParse_(text) {
 // ─── DUTY "REQUEST" FORMAT (ทีมขอ N คน/ตำแหน่ง · ไม่มีชื่อ) → คำขอซัพให้ระบบคิดคน ───
 /** "0820"/"08.20"/"08:20" → "08:20" */
 function diTime_(s) { var m = String(s || '').match(/(\d{1,2})[:.]?(\d{2})/); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
-/** ป้ายตำแหน่งจากข้อความ → phase (CI/SUP/GATE/ARR) หรือ null */
+/** ป้ายตำแหน่งจากข้อความ → phase (CI/SUP/GATE/ARR) หรือ null
+ *  จับ "โทเคนบทบาทตัวแรก" เพื่อไม่ให้ลำดับผิด (เช่น ARR/G → ARR · GATE+BIR → GATE) และไม่ชนรหัสไฟลท์ (G9687) */
 function dutyPhaseOf_(label) {
-  var u = String(label || '').toUpperCase().trim(); if (!u) return null;
-  if (/CHK-?IN|CHECK-?IN|\bCKIN\b|\bCI\b/.test(u)) return 'CI';
-  if (/\bSUP\b|SPVR|\bSOD\b|SUPERVIS/.test(u)) return 'SUP';
-  if (/GATE|BOARD|^G(\s|$|\d)/.test(u)) return 'GATE';                     // GATE / GATE INT / GATE 83 DOM / G
-  if (/ARR|CIQ|TRANSFER|\bTF\b|\bMEET\b|รับเครื่อง|ESCORT/.test(u)) return 'ARR';   // ARR / ARR+TF / ASST CIQ
-  return null;
+  var u = String(label || '').toUpperCase();
+  var m = u.match(/CHECK\s*-?\s*IN|CHK[\s-]*IN|\bCKIN\b|\bCI\b|\bSUP\b|SPVR|\bSOD\b|SUPERVIS|\bARR\b|ARRIVAL|\bGATE\b|\bGTE\b|BOARD|\bG\b|\bCIQ\b|\bCRW\b|CREW|\bMEET\b|ASSIST|ASSIT|\bASST\b|\bIB\b|STBY|STAND\s*BY|\bTF\b|T\/F|\bBIR\b|รับเครื่อง|ESCORT/);
+  if (!m) return null;
+  var t = m[0];
+  if (/^(CHECK|CHK|CKIN)/.test(t) || t === 'CI') return 'CI';
+  if (/SUP|SPVR|SOD|SUPERVIS/.test(t)) return 'SUP';
+  if (/GATE|GTE|BOARD/.test(t) || t === 'G') return 'GATE';                // GATE / GTE / G (คำเดี่ยว) — ไม่จับ G9687
+  return 'ARR';                                                            // ARR/CIQ/CRW/MEET/ASST/IB/STBY/TF/BIR/ESCORT
 }
-var DI_FLT2 = /((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*\d{2,4})?)/;
+var DI_FLT2 = /\b((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*\d{2,4})?)/;   // \b กัน "TA1800" ใน "STA1800"
 /** แตกข้อความ "คำขอซัพ" จาก Duty → [{flight, phase, n, win, sta, std, label}] (ป้อนเข้า slaManualSupportRows_) */
 function dutyParseRequests_(text) {
   var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null;
   function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
   String(text || '').split(/\n/).forEach(function (raw) {
     var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
-    // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35"
-    if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา/.test(s)) {
+    // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35" / "ขอ stand by ขาเข้า 07:40 - 09:10"
+    if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา|STAND\s*BY|\bSTBY\b/i.test(s)) {
       var wm = s.match(/(\d{1,2}[:.]?\d{2})\s*[-–]\s*(\d{1,2}[:.]?\d{2})/);
       if (wm) { curWin = diTime_(wm[1]) + '-' + diTime_(wm[2]); return; }
+    }
+    // บรรทัดเวลาล้วน "STA.../STD..." (เช่น "STA1800/STD1855", "STA 08:10 / STD 09:00", "STA: 0845 STD: 1025")
+    // จับก่อนหัวไฟลท์ กัน "STA1800" ถูกอ่านเป็นไฟลท์ "TA1800"
+    if (/^\s*STA\b/i.test(s) || /^\s*STD\b/i.test(s) || /^\s*ETA\b/i.test(s)) {
+      var sa = s.match(/STA\D*(\d{1,2}[:.]?\d{2})/i) || s.match(/ETA\D*(\d{1,2}[:.]?\d{2})/i);
+      var sdd = s.match(/STD\D*(\d{1,2}[:.]?\d{2})/i);
+      if (sa) curSta = diTime_(sa[1]); if (sdd) curStd = diTime_(sdd[1]);
+      return;
     }
     var fm = s.match(DI_FLT2);
     // หัวไฟลท์ = มีรหัสไฟลท์ + ไม่ใช่ป้ายตำแหน่ง
