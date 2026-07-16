@@ -459,6 +459,12 @@ function rrParseStandard_(rows, team, meta) {
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
     var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
     var remark = (cm.remark >= 0 && cm.remark < row.length) ? rrClean_(row[cm.remark]) : '';
+    // สถานะ (Off/VAC/SICK) บางแถวกรอก "เยื้อง" มาช่องซ้ายของ REMARK เช่น QR: "Off" ตกในคอลัมน์ Total Hrs.
+    // → REMARK ว่างเลยนับเป็นมาทำงานผิด · ถ้า REMARK ไม่มีสถานะ ให้ดูช่องซ้ายถัดไป (Total Hrs เป็นตัวเลข ไม่ชนคำสถานะ)
+    if (cm.remark - 1 >= 0 && !/\b(OFF|VAC|SICK|\bSL\b|\bBL\b|OT\s*OFF|ONDUTY)\b/i.test(rrUp_(remark))) {
+      var nbL = rrClean_(row[cm.remark - 1]);
+      if (/^(OFF|OT\s*-?\s*OFF|VAC(?:ATION)?|SICK|SL|BL|DAY\s*OFF|ลา|หยุด)\b/i.test(nbL)) remark = nbL;
+    }
     // คอลัมน์ "สถานะงาน" ก่อนบล็อกไฟลท์ (เช่น KE/OZ: ":: FLIGHT ::") — เขียน "OFF"/"OFF/Training" สำหรับคนหยุด
     // (คนยังมีรหัสกะหมุนเวียน เช่น J8 → ถ้าไม่ดูคอลัมน์นี้จะอ่านเป็นมาทำงานทั้งทีม)
     var leadLbl = (cm.flt - 1 >= 0 && cm.flt - 1 < row.length) ? rrClean_(row[cm.flt - 1]) : '';
