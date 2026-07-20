@@ -101,6 +101,8 @@ function rbLoadResLLraw_(date) {
   //  → coverage คิดจากเวลาเปิดจริง (เช่น เปิด 09:50 คนเข้า 09:00 = ครอบคลุม) ไม่ใช่ประมาณ STD−180
   if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
   try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
+  // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD ที่ชีตเวรไม่ได้กรอก (แนบไว้กับ res)
+  if (typeof WF_FILE_ID !== 'undefined' && WF_FILE_ID) { try { res._sched = wfLoadSchedule_(WF_FILE_ID, date); } catch (e7) {} }
   return { res: res, ll: ll };
 }
 /** ชื่อ → คีย์เทียบ (คำแรก ตัวพิมพ์ใหญ่ ตัด (…) ออก) — ใช้จับคู่คนข้ามทีม */

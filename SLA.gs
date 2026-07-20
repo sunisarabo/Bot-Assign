@@ -266,7 +266,7 @@ var SLA_AC = {
   'KC':[['A320',4,1,1,8],['B737',5,1,1,9]],
   '6E':[['A321',5,1,1,9],['A320',4,1,1,8]],
   'CA':[['A320/B737',4,1,1,8],['A330',6,1,1,10]],
-  'CZ':[['A321',4,1,1,8],['A330',6,1,1,10]],
+  'CZ':[['A320',4,1,1,8],['A321',4,1,1,8],['A330',6,1,1,10]],
   'HU':[['B737',4,1,1,8],['A330',6,1,1,10]],
   'SV':[['B789',6,2,1,11],['B78X',7,2,1,12]],
   'VN':[['A320/A321',5,1,1,8],['B787/A350',7,1,1,10]],
@@ -612,8 +612,10 @@ function slaCollectFlights_(res, ll) {
     return '';
   }
   // compute requirement + shortages per flight
+  var wfSched = (res && res._sched) || null;                  // ตารางบินสัปดาห์ (ถ้าตั้งค่า) → เติม A/C TYPE/เวลาที่ชีตเวรไม่ได้กรอก
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
+    if (wfSched && typeof wfEnrichFlight_ === 'function') wfEnrichFlight_(f, wfSched);   // เติมก่อนคิด req (A/C TYPE เปลี่ยน req เช็คอิน)
     f.req = slaReq_(f.airline, f.AC);
     // AK เลขไฟลท์ 4 หลัก = เที่ยวบิน ferry/freighter (ไม่มีผู้โดยสาร) → คิดแค่ SUP · ตัด Check-in/Arrival/Gate
     var akNum = (f.airline === 'AK') ? +((String(f.flight).match(/\d{3,4}/) || ['0'])[0]) : 0;

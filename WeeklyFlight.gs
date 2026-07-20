@@ -1,0 +1,157 @@
+/**
+ * WeeklyFlight.gs — อ่าน "ตารางบินรายสัปดาห์" (Summary Weekly Flight) เป็น source of truth
+ * =============================================================================
+ * ไฟล์ตารางบินมี A/C TYPE + STA/STD + วันบิน ต่อไฟลท์ ต่อวัน (แท็บ = วันที่ เช่น "17JUL")
+ * ปัญหาเดิม: ชีต Assignment คนกรอก A/C TYPE เอง มักลืม → SLA เด้งเป็นลำใหญ่ = false "ขาด"
+ * โมดูลนี้: จับคู่ Airline+Flt+วันที่ → เติม A/C TYPE + STA/STD ให้ SLA อัตโนมัติ (ไม่ต้องกรอกมือ)
+ *
+ * วิธีตั้งค่า:
+ *   1) เอาไฟล์ตารางบิน (xlsx) ขึ้น Google Drive แล้วเปิดเป็น Google Sheets (แท็บชื่อวันที่ DDMON)
+ *      — จะรวมหลายสัปดาห์ไว้ไฟล์เดียว (หลายแท็บ) ก็ได้ ระบบหาแท็บตามวันที่ให้เอง
+ *   2) วาง ID ไฟล์ลงใน WF_FILE_ID ด้านล่าง (เว้นว่าง = ปิดฟีเจอร์ ระบบยังทำงานปกติ)
+ *   3) คอลัมน์ที่ระบบอ่าน: Airlines · Flt no. · STA · STD · A/C TYPE · Remarks (หาหัวตารางอัตโนมัติ)
+ */
+
+var WF_FILE_ID = '';   // ← ใส่ ID ไฟล์ Google Sheets ตารางบิน (เว้นว่าง = ปิด)
+
+/** รหัสเครื่องในตารางบิน (IATA/ICAO) → ชื่อที่ตาราง SLA_AC จับคู่ได้ (slaAcPick_ จับแบบ prefix) */
+var WF_AC_MAP = {
+  'B789': 'B787-9', 'B788': 'B787-8', 'B78X': 'B787-10', 'B78J': 'B787-10',
+  'A21N': 'A321Neo', 'A20N': 'A320Neo', 'A21': 'A321', 'A20': 'A320',
+  'B38M': 'B737-8', 'B737M': 'B737-8', 'B7M8': 'B737-8', 'B39M': 'B737-9',
+  'B73H': 'B737-800', 'B738': 'B737-800', 'B737': 'B737', 'B735': 'B737-500',
+  'AT72': 'ATR72', 'AT75': 'ATR72', 'AT76': 'ATR72', 'ATR': 'ATR72',
+  'B773': '777-300', 'B77W': '777-300', 'B777': '777-300', 'B772': '777-200',
+  'B763': '767-300', 'B764': '767-400',
+  'A333': 'A330', 'A332': 'A330', 'A339': 'A330', 'A330': 'A330',
+  'A359': 'A350', 'A35K': 'A350', 'A350': 'A350',
+  'A319': 'A319', 'A320': 'A320', 'A321': 'A321',
+  'B788F': 'B787-8'
+};
+
+/** normalize รหัสเครื่อง → ชื่อ SLA (XXXX/ว่าง/ไม่รู้จัก → '') */
+function wfNormAc_(code) {
+  var c = String(code == null ? '' : code).trim().toUpperCase().replace(/\s+/g, '');
+  if (!c || /^X+$/.test(c) || c === 'TBA' || c === 'TBN') return '';
+  if (WF_AC_MAP[c]) return WF_AC_MAP[c];
+  // ตัด suffix (เช่น B38M/W) แล้วลองอีกครั้ง
+  var base = c.replace(/[^A-Z0-9].*$/, '');
+  if (WF_AC_MAP[base]) return WF_AC_MAP[base];
+  return c;   // ไม่รู้จัก → ส่งรหัสดิบ (slaAcPick_ จับ prefix ได้บ้าง · ไม่ตรงก็ fallback SLA_RQ)
+}
+
+/** "0715"/"07:15"/"7:15" → "07:15" (ว่าง/ไม่ใช่เวลา → '') */
+function wfTime_(s) {
+  var m = String(s == null ? '' : s).trim().match(/^(\d{1,2})[:.]?(\d{2})$/);
+  return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : '';
+}
+
+/** ชื่อแท็บวันที่ที่เป็นไปได้ เช่น 17 ก.ค. → ["17JUL","17 JUL","17JUL2026",...] */
+function wfDateTabs_(date) {
+  var mon = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][date.getMonth()];
+  var dd = ('0' + date.getDate()).slice(-2), d1 = String(date.getDate());
+  var yy = String(date.getFullYear()).slice(-2);
+  return [dd + mon, d1 + mon, dd + ' ' + mon, d1 + ' ' + mon, dd + mon + yy, dd + '-' + mon].map(function (x) { return x.toUpperCase(); });
+}
+
+/** map หัวคอลัมน์ → ตำแหน่ง (หา Airlines/Flt/STA/STD/A/C TYPE/Remarks แบบยืดหยุ่น) */
+function wfColMap_(values) {
+  for (var r = 0; r < Math.min(values.length, 8); r++) {
+    var row = values[r].map(function (x) { return String(x == null ? '' : x).trim().toUpperCase(); });
+    var cm = {};
+    row.forEach(function (h, i) {
+      if (/^AIRLINE/.test(h)) cm.air = i;
+      else if (/^FL(T|IGHT)?\s*NO|^FLT$/.test(h)) cm.flt = i;
+      else if (h === 'STA') cm.sta = i;
+      else if (h === 'STD') cm.std = i;
+      else if (/A\/?C\s*TYPE|AIRCRAFT/.test(h)) cm.ac = i;
+      else if (/^REMARK/.test(h)) cm.rem = i;
+      else if (/^ROUTING|^ROUTE/.test(h)) cm.rte = i;
+    });
+    if (cm.air != null && cm.flt != null && cm.ac != null) { cm.headRow = r; return cm; }
+  }
+  return null;
+}
+
+/** แปลงชีตตารางบิน 1 วัน → ดัชนี { slaFlightKey: {ac,sta,std,routing,cancelled,remark} } (แยกออกมาเพื่อทดสอบได้) */
+function wfParseDaySheet_(sheet) {
+  var out = {};
+  var values = sheet.getDataRange().getValues();
+  var cm = wfColMap_(values);
+  if (!cm) return out;
+  for (var i = cm.headRow + 1; i < values.length; i++) {
+    var row = values[i];
+    var air = String(row[cm.air] == null ? '' : row[cm.air]).trim().toUpperCase();
+    var flt = String(row[cm.flt] == null ? '' : row[cm.flt]).trim();
+    if (!air || !flt || !/^[A-Z0-9]{2}$/.test(air) || !/\d/.test(flt)) continue;   // ไม่ใช่แถวไฟลท์
+    var raw = air + flt.replace(/\s+/g, '');                                        // "EY" + "410/411" → "EY410/411"
+    var key = (typeof slaFlightKey_ === 'function') ? slaFlightKey_(raw) : (air + (flt.match(/\d+/) || [''])[0]);
+    var rem = cm.rem != null ? String(row[cm.rem] || '').toUpperCase() : '';
+    out[key] = {
+      airline: air, flt: flt,
+      ac: wfNormAc_(cm.ac != null ? row[cm.ac] : ''),
+      sta: wfTime_(cm.sta != null ? row[cm.sta] : ''),
+      std: wfTime_(cm.std != null ? row[cm.std] : ''),
+      routing: cm.rte != null ? String(row[cm.rte] || '').trim() : '',
+      remark: cm.rem != null ? String(row[cm.rem] || '').trim() : '',
+      cancelled: /CANCEL/.test(rem)
+    };
+  }
+  return out;
+}
+
+/** โหลดตารางบินของวันที่กำหนดจากไฟล์ Google Sheets (หาแท็บตามวันที่) → ดัชนี (ว่าง = ไม่พบ/ปิดฟีเจอร์) */
+function wfLoadSchedule_(fileId, date) {
+  var id = fileId || WF_FILE_ID;
+  if (!id) return null;
+  var ss = SpreadsheetApp.openById(id);
+  var want = wfDateTabs_(date);
+  var sheet = null;
+  ss.getSheets().forEach(function (sh) {
+    if (sheet) return;
+    var nm = sh.getName().trim().toUpperCase().replace(/\s+/g, '');
+    for (var i = 0; i < want.length; i++) { if (nm === want[i].replace(/\s+/g, '')) { sheet = sh; return; } }
+  });
+  if (!sheet) return null;
+  return wfParseDaySheet_(sheet);
+}
+
+/** เติม A/C TYPE + STA/STD จากตารางบินให้ไฟลท์ที่ยังไม่มี (เรียกใน slaCollectFlights_) — คืนจำนวนที่เติม */
+function wfEnrichFlight_(f, sched) {
+  if (!sched || !f) return;
+  var w = sched[(typeof slaFlightKey_ === 'function') ? slaFlightKey_(f.flight) : f.flight];
+  if (!w) return;
+  if ((!f.AC || f.AC === '') && w.ac) { f.AC = w.ac; f.acFromSched = true; }
+  if ((!f.STA || f.STA === '') && w.sta) f.STA = w.sta;
+  if ((!f.STD || f.STD === '') && w.std) f.STD = w.std;
+  if (w.cancelled) f.schedCancelled = true;   // แจ้งเตือน (ยังไม่ตัด SLA อัตโนมัติ กันตารางระบุกำกวม)
+}
+
+/** เทียบตารางบิน 2 วัน/สัปดาห์ → รายการที่เปลี่ยน (เวลา/เครื่อง/ยกเลิก/เพิ่มใหม่/หาย) */
+function wfDiff_(oldSched, newSched) {
+  var chg = [];
+  oldSched = oldSched || {}; newSched = newSched || {};
+  Object.keys(newSched).forEach(function (k) {
+    var n = newSched[k], o = oldSched[k];
+    if (!o) { chg.push({ key: k, flt: n.airline + n.flt, type: 'ใหม่', detail: (n.ac || '') + ' ' + (n.std || n.sta || '') }); return; }
+    if (o.ac !== n.ac && n.ac && o.ac) chg.push({ key: k, flt: n.airline + n.flt, type: 'เปลี่ยนเครื่อง', detail: o.ac + ' → ' + n.ac });
+    if ((o.sta !== n.sta && o.sta && n.sta) || (o.std !== n.std && o.std && n.std))
+      chg.push({ key: k, flt: n.airline + n.flt, type: 'เปลี่ยนเวลา', detail: (o.sta || '–') + '/' + (o.std || '–') + ' → ' + (n.sta || '–') + '/' + (n.std || '–') });
+    if (n.cancelled && !o.cancelled) chg.push({ key: k, flt: n.airline + n.flt, type: 'ยกเลิก', detail: n.remark });
+  });
+  Object.keys(oldSched).forEach(function (k) {
+    if (!newSched[k]) chg.push({ key: k, flt: oldSched[k].airline + oldSched[k].flt, type: 'หายไป', detail: '' });
+  });
+  return chg;
+}
+
+/** ตรวจสถานะการต่อไฟล์ตารางบิน (รันใน Apps Script เพื่อทดสอบว่าตั้งค่าถูก) */
+function wfSelfTest(dateIso) {
+  if (!WF_FILE_ID) return 'ยังไม่ได้ตั้ง WF_FILE_ID (ฟีเจอร์ปิดอยู่) — ใส่ ID ไฟล์ตารางบินก่อน';
+  var d = dateIso ? new Date(dateIso) : new Date();
+  var sched = wfLoadSchedule_(WF_FILE_ID, d);
+  if (!sched) return 'เปิดไฟล์ได้ แต่ไม่พบแท็บวันที่ ' + wfDateTabs_(d)[0] + ' (ตรวจชื่อแท็บให้เป็น DDMON เช่น 17JUL)';
+  var n = Object.keys(sched).length;
+  var sample = Object.keys(sched).slice(0, 5).map(function (k) { return k + '=' + (sched[k].ac || '?') + '/' + (sched[k].std || sched[k].sta || '?'); });
+  return 'พบ ' + n + ' ไฟลท์ในตารางบิน ' + wfDateTabs_(d)[0] + ' · ตัวอย่าง: ' + sample.join(', ');
+}
