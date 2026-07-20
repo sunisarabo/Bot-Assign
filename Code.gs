@@ -3287,7 +3287,7 @@ function apPick_(pool, f, ph, win, sameTeamOk, homeTeam) {
     if (sc < bs) { bs = sc; best = p; }
   }
   if (best) {
-    if (win) best.busy.push([win[0], win[1]]);
+    if (win && ph !== 'SUP') best.busy.push([win[0], win[1]]);   // SUP = หัวหน้าลอย คุมหลายไฟลท์พร้อมกันได้ → ไม่ล็อกเวลา (ไม่งั้นขาด SUP เกือบทุกไฟลท์)
     best.plan++;
   }
   return best;
@@ -3490,6 +3490,8 @@ function apReplan_(res, ll, fcByCode) {
       if (ex[ph]) return;                                                // common check-in จัดแล้ว → ข้าม
       var win = slaPhaseWindow_(f, ph);
       for (var k = 0; k < phaseReq[ph]; k++) {
+        // เกทของไฟลท์ที่มีเช็คอิน: คนเช็คอิน "เดินต่อไปยืนเกท" (ไม่ใช้คนใหม่ ไม่ต้องพัก) เหมือนจัดเอง — กันขาดเกททั้งที่เช็คอินเต็ม
+        if (ph === 'GATE' && f.req.CI > 0 && assign.CI[k]) { assign.GATE.push(assign.CI[k]); continue; }
         var p = apPick_(pool, f, ph, win, true, home);                   // จัดใหม่ = ทีมเดียวกันได้
         if (p) assign[ph].push(apPersonView_(p));
         else { shortx[ph] = phaseReq[ph] - k; break; }
