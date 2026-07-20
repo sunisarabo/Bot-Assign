@@ -479,11 +479,14 @@ var SLA_ROLES = {
   'ZF':[1,1,6,1,0,1,4,1,0,10], 'ZH':[1,1,4,1,0,1,4,1,0,8],
 };
 /** บทบาทเต็มต่อไฟลท์ → {SUP,FC,CI,ARR,STB,GM,GA,post,sep,total} (GM = Gate Monitor/Controller, post = Post Departure) */
-function slaRoles_(airline) {
+function slaRoles_(airline, acType) {
   var c = String(airline || '').toUpperCase();
   var r = SLA_ROLES[c] || (SLA_ALIAS[c] && SLA_ROLES[SLA_ALIAS[c]]);
-  if (!r) { var q = slaReq_(airline); return { SUP: 1, FC: 1, CI: q.CI, ARR: q.ARR, STB: 0, GM: 1, GA: Math.max(0, (q.total || 0) - 4 - q.CI - q.ARR), post: 1, sep: false, total: q.total }; }
-  return { SUP: r[0], FC: r[1], CI: r[2], ARR: r[3], STB: r[4], GM: r[5], GA: r[6], post: r[7], sep: !!r[8], total: r[9] };
+  if (!r) { var q = slaReq_(airline, acType); return { SUP: 1, FC: 1, CI: q.CI, ARR: q.ARR, STB: 0, GM: 1, GA: Math.max(0, (q.total || 0) - 4 - q.CI - q.ARR), post: 1, sep: false, total: q.total }; }
+  var out = { SUP: r[0], FC: r[1], CI: r[2], ARR: r[3], STB: r[4], GM: r[5], GA: r[6], post: r[7], sep: !!r[8], total: r[9] };
+  // aircraft-aware: ปรับจำนวนเช็คอินตามชนิดเครื่อง (เดลต้าจากค่า base) — ใช้ในจัดล่วงหน้าเมื่อมี A/C TYPE
+  if (acType) { var d = slaReq_(airline, acType).CI - slaReq_(airline).CI; if (d) { out.CI = Math.max(0, out.CI + d); out.total = Math.max(0, out.total + d); } }
+  return out;
 }
 /** เวลาเปิด-ปิดเคาน์เตอร์เช็คอินของไฟลท์ (จาก CI window) → "HH:MM-HH:MM" */
 function slaCounterTime_(f) {
