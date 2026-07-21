@@ -611,6 +611,7 @@ var RB_NAV_ = [
   ['flt','✈','Flights & SLA','loadFlt()','s'], ['sup','🆘','Support / เติมคน','loadSup()','s'],
   ['ac','🧭','ตรวจ Assign','loadAC()','a'],
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
+  ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'],
   ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
 function rbRail_(shortCount, acCount) {
@@ -868,6 +869,44 @@ function rbAggRowHtml_(label, b) {
     '</td><td style="min-width:90px">' + rbBarMini_(pct) + '</td></tr>';
 }
 function rbTeamRows_(teams, order){ return order.map(function(t){ return rbAggRowHtml_(t, teams[t]); }).join(''); }
+/** Lazy view: 📆 ภาพรวมไฟลท์ทั้งสัปดาห์ (7 วัน) — ไฟลท์/เวลา/เครื่อง/จำนวนคนที่ต้องใช้ ตาม SLA จากตารางบิน */
+function rbWeekFlightsHtml(iso) {
+  try {
+    if (typeof WF_FILE_ID === 'undefined' || !WF_FILE_ID)
+      return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ตารางบิน</b><br><span class="muted">ใส่ ID ไฟล์ Summary Weekly Flight ที่ตัวแปร <b>WF_FILE_ID</b> ใน WeeklyFlight.gs (แท็บชื่อวันที่ เช่น 17JUL) แล้วรีเฟรช</span></div>';
+    var date = iso ? rbDateFromIso_(iso) : new Date();
+    var week = wfWeekSummary_(WF_FILE_ID, date);
+    if (!week) return '<div class="panel muted" style="padding:22px">เปิดไฟล์ตารางบินไม่ได้ (ตรวจสิทธิ์เข้าถึง / ID) หรือไม่มีข้อมูล</div>';
+    var anyFound = week.some(function (d) { return d.found; });
+    if (!anyFound) return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ของสัปดาห์นี้ในไฟล์ตารางบิน (ชื่อแท็บต้องเป็น DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>)</div>';
+    var wSum = { SUP: 0, CI: 0, GATE: 0, ARR: 0, bodies: 0, nFlt: 0 };
+    var rows = week.map(function (d) {
+      if (!d.found) return '<tr class="muted"><td class="b">' + rbEsc_(d.label) + '</td><td colspan="7" style="text-align:center">— ไม่มีแท็บวันนี้ —</td></tr>';
+      var t = d.tot; ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (p) { wSum[p] += t[p]; }); wSum.bodies += d.bodies; wSum.nFlt += d.nFlt;
+      return '<tr><td class="b">' + rbEsc_(d.label) + '</td><td class="tnum">' + d.nFlt + (d.nCancel ? ' <span class="badd">ยก' + d.nCancel + '</span>' : '') +
+        '</td><td class="tnum">' + t.SUP + '</td><td class="tnum">' + t.CI + '</td><td class="tnum">' + t.GATE + '</td><td class="tnum">' + t.ARR +
+        '</td><td class="tnum b" style="background:#eef6ff">' + d.bodies + '</td><td class="tnum">' + (d.peakHr ? (d.peakHr + ':00·' + d.peakN) : '-') + '</td></tr>';
+    }).join('');
+    var foot = '<tr style="border-top:2px solid #1f4e79;font-weight:700"><td>รวมสัปดาห์</td><td class="tnum">' + wSum.nFlt + '</td><td class="tnum">' + wSum.SUP +
+      '</td><td class="tnum">' + wSum.CI + '</td><td class="tnum">' + wSum.GATE + '</td><td class="tnum">' + wSum.ARR + '</td><td class="tnum" style="background:#dceafe">' + wSum.bodies + '</td><td></td></tr>';
+    var sum = rbTblCard_('📆 ภาพรวมกำลังคนรายสัปดาห์ (ตาม SLA จากตารางบิน)',
+      '<tr><th>วันที่</th><th>ไฟลท์</th><th>SUP</th><th>Check-in</th><th>Gate</th><th>Arrival</th><th>คน~</th><th>พีคออก</th></tr>', rows + foot,
+      '<span class="muted" style="font-weight:400">คน~ = ผลรวมคน·ไฟลท์ (person-slots · เกทใช้คนเช็คอินต่อ) ใช้เทียบภาระแต่ละวัน — คนจริงน้อยกว่านี้ (1 คนทำหลายไฟลท์) · พีคออก = ชั่วโมงบินออกมากสุด</span>');
+    var det = week.filter(function (d) { return d.found; }).map(function (d) {
+      var fr = d.flights.map(function (f) {
+        var r = f.req, cls = f.cancelled ? ' style="text-decoration:line-through;opacity:.5"' : '';
+        return '<tr' + cls + '><td class="b">' + rbEsc_(f.flight) + '</td><td>' + rbEsc_(f.airline) + '</td><td class="tnum">' + rbEsc_(f.sta || '–') + '/' + rbEsc_(f.std || '–') +
+          '</td><td>' + rbEsc_(f.ac || '<span class="badd">?</span>') + '</td><td class="tnum">' + r.SUP + '</td><td class="tnum">' + r.CI + '</td><td class="tnum">' + r.GATE +
+          '</td><td class="tnum">' + r.ARR + '</td><td class="tnum b">' + wfBodies_(r) + '</td></tr>';
+      }).join('');
+      return '<details style="margin-top:8px"><summary style="cursor:pointer;padding:9px 13px;background:#eef6ff;border-radius:8px;font-weight:600">' +
+        rbEsc_(d.label) + ' — ' + d.nFlt + ' ไฟลท์ · คน~ <b>' + d.bodies + '</b>' + (d.nCancel ? ' · <span class="badd">ยกเลิก ' + d.nCancel + '</span>' : '') + '</summary>' +
+        '<div style="overflow-x:auto;margin-top:4px">' + rbTblCard_('',
+          '<tr><th>Flight</th><th>สาย</th><th>STA/STD</th><th>เครื่อง</th><th>SUP</th><th>CI</th><th>Gate</th><th>Arr</th><th>คน~</th></tr>', fr, '') + '</div></details>';
+    }).join('');
+    return sum + '<div class="sectionlabel" style="margin-top:14px">📋 รายไฟลท์ต่อวัน <span class="muted">(กดวันเพื่อกางดู)</span></div>' + det;
+  } catch (e) { return '<div class="panel" style="padding:20px">ภาพรวมสัปดาห์ผิดพลาด: ' + rbEsc_(e.message) + '</div>'; }
+}
 /** การ์ดเตือน: คนที่อยู่ในเวรวันนี้แต่ไม่มีรหัสในไฟล์รายชื่อ (master) → ให้ไปเพิ่มใน master ให้ครบ
  *  (ตัดแถว SUPPORT/รหัสจำลองออก · เทียบเฉพาะรหัสจริง 6-8 หลัก) */
 function rbMasterMissingCard_(res, ll, master) {
@@ -1096,6 +1135,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-auto" style="display:none">' + autoInner + '</div>' +
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
+    '<div id="view-week" style="display:none"><div id="weekbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตารางบินสัปดาห์…</div></div></div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
     '<div id="view-dc" style="display:none"><div id="dcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจข้อมูล…</div></div></div>' +
     '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
@@ -1105,8 +1145,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","week","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
+    'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
     'function loadDc(){lazy("dcbox","rbDataCheckHtml","dc");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +

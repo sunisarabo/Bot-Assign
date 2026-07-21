@@ -100,20 +100,80 @@ function wfParseDaySheet_(sheet) {
   return out;
 }
 
-/** โหลดตารางบินของวันที่กำหนดจากไฟล์ Google Sheets (หาแท็บตามวันที่) → ดัชนี (ว่าง = ไม่พบ/ปิดฟีเจอร์) */
-function wfLoadSchedule_(fileId, date) {
-  var id = fileId || WF_FILE_ID;
-  if (!id) return null;
-  var ss = SpreadsheetApp.openById(id);
-  var want = wfDateTabs_(date);
+/** หาแท็บวันที่ในไฟล์ที่เปิดแล้ว → parse (แยกออกมาเพื่อไม่ต้องเปิดไฟล์ซ้ำ 7 รอบตอนดูทั้งสัปดาห์) */
+function wfLoadScheduleFromSs_(ss, date) {
+  var want = wfDateTabs_(date).map(function (x) { return x.replace(/\s+/g, ''); });
   var sheet = null;
   ss.getSheets().forEach(function (sh) {
     if (sheet) return;
     var nm = sh.getName().trim().toUpperCase().replace(/\s+/g, '');
-    for (var i = 0; i < want.length; i++) { if (nm === want[i].replace(/\s+/g, '')) { sheet = sh; return; } }
+    if (want.indexOf(nm) >= 0) sheet = sh;
   });
-  if (!sheet) return null;
-  return wfParseDaySheet_(sheet);
+  return sheet ? wfParseDaySheet_(sheet) : null;
+}
+
+/** โหลดตารางบินของวันที่กำหนดจากไฟล์ Google Sheets (หาแท็บตามวันที่) → ดัชนี (ว่าง = ไม่พบ/ปิดฟีเจอร์) */
+function wfLoadSchedule_(fileId, date) {
+  var id = fileId || WF_FILE_ID;
+  if (!id) return null;
+  return wfLoadScheduleFromSs_(SpreadsheetApp.openById(id), date);
+}
+
+/** จำนวนคนที่ SLA ต้องการของไฟลท์ในตาราง (ไม่ต้องมี roster) — คิดตามชนิดเครื่อง + ขา (STA/STD) */
+function wfFlightReq_(flight, ac, sta, std) {
+  var airline = (typeof slaAirlineOf_ === 'function') ? slaAirlineOf_(flight) : String(flight).slice(0, 2);
+  var req = slaReq_(airline, ac);
+  var akNum = (airline === 'AK') ? +((String(flight).match(/\d{3,4}/) || ['0'])[0]) : 0;
+  if (akNum >= 1000) return { SUP: req.SUP, CI: 0, GATE: 0, ARR: 0, total: req.SUP, ferry: true };   // ferry → SUP อย่างเดียว
+  var dep = slaRealMin_(std), arr = slaRealMin_(sta);
+  var hasDep = dep != null, hasArr = arr != null;
+  if (hasArr && hasDep && arr === dep) hasArr = false;                                                // STA=STD = RON (ขาออกอย่างเดียว)
+  var extra = Math.max(0, (req.total || 0) - (req.SUP + req.CI + req.GATE + req.ARR));
+  var CI = req.CI, GATE = req.GATE, ARR = req.ARR;
+  if (hasDep || hasArr) { if (!hasDep) { CI = 0; GATE = 0; extra = 0; } if (!hasArr) { ARR = 0; } }
+  return { SUP: req.SUP, CI: CI, GATE: GATE, ARR: ARR, total: req.SUP + CI + GATE + ARR + extra };
+}
+
+/** คนโดยประมาณ (distinct bodies) ต่อไฟลท์ = SUP + max(เช็คอิน,เกท) + Arrival (เกทมักใช้คนเช็คอินต่อ) */
+function wfBodies_(r) { return (r.SUP || 0) + Math.max(r.CI || 0, r.GATE || 0) + (r.ARR || 0); }
+
+/** 7 วันของสัปดาห์ที่มี date (เริ่มวันจันทร์) → [Date x7] */
+function wfWeekDates_(date) {
+  var mon = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));                                              // ย้อนไปวันจันทร์
+  var out = [];
+  for (var i = 0; i < 7; i++) { out.push(new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i)); }
+  return out;
+}
+
+/** สรุปตารางบิน 7 วัน (สัปดาห์ที่มี date) → [{date,label,found,flights:[{flight,airline,ac,sta,std,req,cancelled}],tot,bodies,peakHr,peakN}] */
+function wfWeekSummary_(fileId, date) {
+  var id = fileId || WF_FILE_ID;
+  if (!id) return null;
+  var ss = SpreadsheetApp.openById(id);
+  var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  return wfWeekDates_(date).map(function (d) {
+    var sched = null; try { sched = wfLoadScheduleFromSs_(ss, d); } catch (e) {}
+    var label = ('0' + d.getDate()).slice(-2) + MON[d.getMonth()] + ' (' + TH[d.getDay()] + ')';
+    var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    if (!sched) return { date: iso, label: label, found: false, flights: [], tot: { SUP: 0, CI: 0, GATE: 0, ARR: 0 }, bodies: 0 };
+    var flights = [], tot = { SUP: 0, CI: 0, GATE: 0, ARR: 0 }, bodies = 0, hrN = {};
+    Object.keys(sched).forEach(function (k) {
+      var w = sched[k];
+      if (!(typeof acIsFlight_ !== 'function' || acIsFlight_(w.airline + w.flt))) { /* keep */ }
+      var req = wfFlightReq_(w.airline + w.flt, w.ac, w.sta, w.std);
+      flights.push({ flight: w.airline + w.flt, airline: w.airline, ac: w.ac || '', sta: w.sta, std: w.std, req: req, cancelled: w.cancelled });
+      if (w.cancelled) return;
+      ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (p) { tot[p] += req[p] || 0; });
+      bodies += wfBodies_(req);
+      var hr = (w.std || w.sta || '').slice(0, 2); if (hr) hrN[hr] = (hrN[hr] || 0) + 1;               // พีค = ชั่วโมงที่มีบินออกมากสุด
+    });
+    flights.sort(function (a, b) { return String(a.std || a.sta || 'zz').localeCompare(String(b.std || b.sta || 'zz')); });
+    var peakHr = '', peakN = 0; Object.keys(hrN).forEach(function (h) { if (hrN[h] > peakN) { peakN = hrN[h]; peakHr = h; } });
+    return { date: iso, label: label, found: true, flights: flights, tot: tot, bodies: bodies, peakHr: peakHr, peakN: peakN,
+      nFlt: flights.filter(function (f) { return !f.cancelled; }).length, nCancel: flights.filter(function (f) { return f.cancelled; }).length };
+  });
 }
 
 /** เติม A/C TYPE + STA/STD จากตารางบินให้ไฟลท์ที่ยังไม่มี (เรียกใน slaCollectFlights_) — คืนจำนวนที่เติม */
