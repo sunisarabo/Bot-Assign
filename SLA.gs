@@ -961,7 +961,8 @@ function slaManualSupportRows_(res, ll, requests) {
   var teamSys = slaTeamSystems_(res, ll);
   var pool = slaSupportPool_(res, ll, teamSys, true);
   return requests.map(function (rq) {
-    var ph = String(rq.phase).toUpperCase(); if (!SLA_PH_LB[ph]) ph = 'GATE';
+    var rawPh = String(rq.phase).toUpperCase();
+    var ph = SLA_PH_LB[rawPh] ? rawPh : 'GATE';                // RF/ไม่รู้จัก → ใช้กลไกหาคนแบบ GATE (ปล่อยเครื่อง = งานเกท/แรมป์)
     var n = Math.max(1, parseInt(rq.n, 10) || 1);
     var key = slaFlightKey_(rq.flight);
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
@@ -969,6 +970,7 @@ function slaManualSupportRows_(res, ll, requests) {
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
     var row = slaSupRow_(f, ph, n, pool, winOv);
     row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
+    if (rawPh === 'RF') row.phase = 'ปล่อยเครื่อง (RF)';       // แสดงเป็น RF แม้หาคนแบบเกท
     if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
   });

@@ -2702,7 +2702,8 @@ function slaManualSupportRows_(res, ll, requests) {
   var teamSys = slaTeamSystems_(res, ll);
   var pool = slaSupportPool_(res, ll, teamSys, true);
   return requests.map(function (rq) {
-    var ph = String(rq.phase).toUpperCase(); if (!SLA_PH_LB[ph]) ph = 'GATE';
+    var rawPh = String(rq.phase).toUpperCase();
+    var ph = SLA_PH_LB[rawPh] ? rawPh : 'GATE';                // RF/ไม่รู้จัก → ใช้กลไกหาคนแบบ GATE (ปล่อยเครื่อง = งานเกท/แรมป์)
     var n = Math.max(1, parseInt(rq.n, 10) || 1);
     var key = slaFlightKey_(rq.flight);
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
@@ -2710,6 +2711,7 @@ function slaManualSupportRows_(res, ll, requests) {
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
     var row = slaSupRow_(f, ph, n, pool, winOv);
     row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
+    if (rawPh === 'RF') row.phase = 'ปล่อยเครื่อง (RF)';       // แสดงเป็น RF แม้หาคนแบบเกท
     if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
   });
@@ -5657,9 +5659,10 @@ function diTime_(s) { var m = String(s || '').match(/(\d{1,2})[:.]?(\d{2})/); re
  *  จับ "โทเคนบทบาทตัวแรก" เพื่อไม่ให้ลำดับผิด (เช่น ARR/G → ARR · GATE+BIR → GATE) และไม่ชนรหัสไฟลท์ (G9687) */
 function dutyPhaseOf_(label) {
   var u = String(label || '').toUpperCase();
-  var m = u.match(/CHECK\s*-?\s*IN|CHK[\s-]*IN|\bCKIN\b|\bCI\b|\bCT\d+|\bCS\b|\bSUP\b|SPVR|\bSOD\b|SUPERVIS|\bARR\b|ARRIVAL|\bGATE\b|\bGTE\b|BOARD|\bG\b|\bCIQ\b|\bCRW\b|CREW|\bMEET\b|ASSIST|ASSIT|\bASST\b|\bIB\b|STBY|STAND\s*BY|\bTF\b|T\/F|\bBIR\b|รับเครื่อง|ESCORT/);
+  var m = u.match(/CHECK\s*-?\s*IN|CHK[\s-]*IN|\bCKIN\b|\bCI\b|\bCT\d+|\bCS\b|\bSUP\b|SPVR|\bSOD\b|SUPERVIS|\bRELEASE\b|\bFLT\s*RL\b|\bRF\b|ปล่อยเครื่อง|\bARR\b|ARRIVAL|\bGATE\b|\bGTE\b|BOARD|\bG\b|\bCIQ\b|\bCRW\b|CREW|\bMEET\b|ASSIST|ASSIT|\bASST\b|\bIB\b|STBY|STAND\s*BY|\bTF\b|T\/F|\bBIR\b|รับเครื่อง|ESCORT/);
   if (!m) return null;
   var t = m[0];
+  if (t === 'RF' || /RELEASE|FLT\s*RL|ปล่อยเครื่อง/.test(t)) return 'RF';   // ปล่อยเครื่อง (release) — หาคนแบบเกท แสดงป้าย RF
   if (/^(CHECK|CHK|CKIN|CT\d|CS)/.test(t) || t === 'CI') return 'CI';       // CTn = เคาน์เตอร์ · CS = check-in support
   if (/SUP|SPVR|SOD|SUPERVIS/.test(t)) return 'SUP';
   if (/GATE|GTE|BOARD/.test(t) || t === 'G') return 'GATE';                // GATE / GTE / G (คำเดี่ยว) — ไม่จับ G9687
@@ -5668,11 +5671,13 @@ function dutyPhaseOf_(label) {
 var DI_FLT2 = /\b((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*(?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])?\d{2,4})?)/;   // \b กัน "TA1800" · ขาที่สองมี/ไม่มีรหัสสาย (9C8771/9C8772 · PG271/272)
 /** แตกข้อความ "คำขอซัพ" จาก Duty → [{flight, phase, n, win, sta, std, label}] (ป้อนเข้า slaManualSupportRows_) */
 function dutyParseRequests_(text) {
-  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null, fltFresh = false;
+  var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null, fltFresh = false, rfMode = false;
   function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
   String(text || '').split(/\n/).forEach(function (raw) {
     var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
     var wasFresh = fltFresh; fltFresh = false;   // fresh = บรรทัดก่อนเป็น "หัวไฟลท์เปล่า" → บรรทัดนี้ถ้าเป็นหัวไฟลท์สายเดียวกัน = ขาที่สองของ turnaround
+    // หัวข้อ "ขอซัพปล่อยเครื่อง (RF)" — ตั้งโหมด RF ให้ไฟลท์ถัดไป (บรรทัด "SU285 CTC CTR G11 (0950)" ไม่มีคำตำแหน่งปกติ)
+    if (!s.match(DI_FLT2) && /ปล่อยเครื่อง|\(RF\)|\bRELEASE\b|\bFLT\s*RL\b/i.test(s)) { rfMode = true; return; }
     // ช่วงเวลาที่ระบุ "ขอคนช่วงเวลา 06.35 - 07.35" / "ขอ stand by ขาเข้า 07:40 - 09:10"
     if (/ขอคน|ช่วงเวลา|ช่วง\s*เวลา|STAND\s*BY|\bSTBY\b|\bSBY\b/i.test(s)) {
       var wm = s.match(/(\d{1,2}[:.]?\d{2})\s*[-–]\s*(\d{1,2}[:.]?\d{2})/);
@@ -5739,6 +5744,13 @@ function dutyParseRequests_(text) {
           win: (lSby0 && curStd) ? (diTime_(lSby0) + '-' + curStd) : curWin,
           sta: curSta, std: curStd,
           label: rest.replace(/\(.*?\)/g, '').replace(/\b(STA|STD|STBY|STAND\s*BY|ETA)\b.*$/i, '').trim().slice(0, 22) };
+      } else if (rfMode) {                                     // โหมดปล่อยเครื่อง — "SU285 CTC CTR G11 (0950)" → คำขอ RF
+        fltFresh = false; rfMode = false;
+        var rfT = (rest.match(/(\d{1,2}[:.]?\d{2})/) || [])[1];
+        pending = { flight: curF, phase: 'RF', n: null,
+          win: rfT ? (diTime_(rfT) + (curStd ? '-' + curStd : '')) : curWin,
+          sta: rfT ? diTime_(rfT) : curSta, std: curStd,
+          label: (rest.replace(/\(.*?\)/g, '').replace(/\d{1,2}[:.]?\d{2}/g, '').trim().slice(0, 22) || 'ปล่อยเครื่อง') };
       }
       return;
     }
