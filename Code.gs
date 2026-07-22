@@ -1532,7 +1532,13 @@ function counterForFlight_(map, flight) {
  *   3) คอลัมน์ที่ระบบอ่าน: Airlines · Flt no. · STA · STD · A/C TYPE · Remarks (หาหัวตารางอัตโนมัติ)
  */
 
-var WF_FILE_ID = '';   // ← ใส่ ID ไฟล์ Google Sheets ตารางบิน (เว้นว่าง = ปิด)
+var WF_FILE_ID = '';   // ← ใส่ ID ไฟล์ Google Sheets ตารางบิน (เว้นว่าง = ปิด) · หรือตั้งใน Project Settings → Script Properties คีย์ WF_FILE_ID (ไม่ต้อง deploy ใหม่)
+
+/** ID ไฟล์ตารางบิน — อ่านจาก Script Property 'WF_FILE_ID' ก่อน (ตั้งใน UI ได้) แล้วค่อย fallback ตัวแปรในโค้ด */
+function wfFileId_() {
+  try { var v = PropertiesService.getScriptProperties().getProperty('WF_FILE_ID'); if (v) return String(v).trim(); } catch (e) {}
+  return WF_FILE_ID;
+}
 
 /** รหัสเครื่องในตารางบิน (IATA/ICAO) → ชื่อที่ตาราง SLA_AC จับคู่ได้ (slaAcPick_ จับแบบ prefix) */
 var WF_AC_MAP = {
@@ -1634,7 +1640,7 @@ function wfLoadScheduleFromSs_(ss, date) {
 
 /** โหลดตารางบินของวันที่กำหนดจากไฟล์ Google Sheets (หาแท็บตามวันที่) → ดัชนี (ว่าง = ไม่พบ/ปิดฟีเจอร์) */
 function wfLoadSchedule_(fileId, date) {
-  var id = fileId || WF_FILE_ID;
+  var id = fileId || wfFileId_();
   if (!id) return null;
   return wfLoadScheduleFromSs_(SpreadsheetApp.openById(id), date);
 }
@@ -1668,7 +1674,7 @@ function wfWeekDates_(date) {
 
 /** สรุปตารางบิน 7 วัน (สัปดาห์ที่มี date) → [{date,label,found,flights:[{flight,airline,ac,sta,std,req,cancelled}],tot,bodies,peakHr,peakN}] */
 function wfWeekSummary_(fileId, date) {
-  var id = fileId || WF_FILE_ID;
+  var id = fileId || wfFileId_();
   if (!id) return null;
   var ss = SpreadsheetApp.openById(id);
   var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
@@ -1727,9 +1733,9 @@ function wfDiff_(oldSched, newSched) {
 
 /** ตรวจสถานะการต่อไฟล์ตารางบิน (รันใน Apps Script เพื่อทดสอบว่าตั้งค่าถูก) */
 function wfSelfTest(dateIso) {
-  if (!WF_FILE_ID) return 'ยังไม่ได้ตั้ง WF_FILE_ID (ฟีเจอร์ปิดอยู่) — ใส่ ID ไฟล์ตารางบินก่อน';
+  if (!wfFileId_()) return 'ยังไม่ได้ตั้ง WF_FILE_ID (ฟีเจอร์ปิดอยู่) — ใส่ ID ไฟล์ตารางบินที่ตัวแปร WF_FILE_ID หรือ Script Property';
   var d = dateIso ? new Date(dateIso) : new Date();
-  var sched = wfLoadSchedule_(WF_FILE_ID, d);
+  var sched = wfLoadSchedule_(wfFileId_(), d);
   if (!sched) return 'เปิดไฟล์ได้ แต่ไม่พบแท็บวันที่ ' + wfDateTabs_(d)[0] + ' (ตรวจชื่อแท็บให้เป็น DDMON เช่น 17JUL)';
   var n = Object.keys(sched).length;
   var sample = Object.keys(sched).slice(0, 5).map(function (k) { return k + '=' + (sched[k].ac || '?') + '/' + (sched[k].std || sched[k].sta || '?'); });
@@ -4160,7 +4166,7 @@ function advReadRoster_(tgt) {
 /** อ่านตารางบิน FLIGHT สำหรับวันที่ tgt (อ่านทุกแท็บ) → [{flight,airline,STA,STD,OP,CL}] */
 function advReadFlights_(tgt) {
   // ตั้งค่าที่เดียว: ถ้ากำหนด WF_FILE_ID (ไฟล์ Summary รายวัน) → จัดล่วงหน้าใช้ไฟล์เดียวกัน · ไม่งั้นใช้ ADV_FLIGHT_ID เดิม
-  var fid = (typeof WF_FILE_ID !== 'undefined' && WF_FILE_ID) ? WF_FILE_ID : advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID);
+  var fid = (typeof wfFileId_ === 'function' && wfFileId_()) ? wfFileId_() : advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID);
   var ss = SpreadsheetApp.openById(fid);
   // ── ฟอร์แมต "Summary Weekly Flight" (แท็บ = วันที่ เช่น 17JUL · มี A/C TYPE) — ไฟล์เดียวกับ SLA รายวัน ──
   if (typeof wfDateTabs_ === 'function' && typeof wfParseDaySheet_ === 'function') {
@@ -6635,7 +6641,7 @@ function rbLoadResLLraw_(date) {
   if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
   try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
   // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD ที่ชีตเวรไม่ได้กรอก (แนบไว้กับ res)
-  if (typeof WF_FILE_ID !== 'undefined' && WF_FILE_ID) { try { res._sched = wfLoadSchedule_(WF_FILE_ID, date); } catch (e7) {} }
+  if (typeof wfFileId_ === 'function' && wfFileId_()) { try { res._sched = wfLoadSchedule_(wfFileId_(), date); } catch (e7) {} }
   return { res: res, ll: ll };
 }
 /** ชื่อ → คีย์เทียบ (คำแรก ตัวพิมพ์ใหญ่ ตัด (…) ออก) — ใช้จับคู่คนข้ามทีม */
@@ -7405,10 +7411,10 @@ function rbTeamRows_(teams, order){ return order.map(function(t){ return rbAggRo
 /** Lazy view: 📆 ภาพรวมไฟลท์ทั้งสัปดาห์ (7 วัน) — ไฟลท์/เวลา/เครื่อง/จำนวนคนที่ต้องใช้ ตาม SLA จากตารางบิน */
 function rbWeekFlightsHtml(iso) {
   try {
-    if (typeof WF_FILE_ID === 'undefined' || !WF_FILE_ID)
-      return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ตารางบิน</b><br><span class="muted">ใส่ ID ไฟล์ Summary Weekly Flight ที่ตัวแปร <b>WF_FILE_ID</b> ใน WeeklyFlight.gs (แท็บชื่อวันที่ เช่น 17JUL) แล้วรีเฟรช</span></div>';
+    if (typeof wfFileId_ !== 'function' || !wfFileId_())
+      return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ตารางบิน</b><br><span class="muted">ตั้ง ID ไฟล์ Summary Weekly Flight ที่ <b>Project Settings → Script Properties</b> คีย์ <b>WF_FILE_ID</b> (หรือตัวแปร WF_FILE_ID ใน WeeklyFlight.gs) · แท็บชื่อวันที่ DDMON เช่น 17JUL แล้วรีเฟรช</span></div>';
     var date = iso ? rbDateFromIso_(iso) : new Date();
-    var week = wfWeekSummary_(WF_FILE_ID, date);
+    var week = wfWeekSummary_(wfFileId_(), date);
     if (!week) return '<div class="panel muted" style="padding:22px">เปิดไฟล์ตารางบินไม่ได้ (ตรวจสิทธิ์เข้าถึง / ID) หรือไม่มีข้อมูล</div>';
     var anyFound = week.some(function (d) { return d.found; });
     if (!anyFound) return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ของสัปดาห์นี้ในไฟล์ตารางบิน (ชื่อแท็บต้องเป็น DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>)</div>';

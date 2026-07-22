@@ -102,7 +102,7 @@ function rbLoadResLLraw_(date) {
   if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
   try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
   // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD ที่ชีตเวรไม่ได้กรอก (แนบไว้กับ res)
-  if (typeof WF_FILE_ID !== 'undefined' && WF_FILE_ID) { try { res._sched = wfLoadSchedule_(WF_FILE_ID, date); } catch (e7) {} }
+  if (typeof wfFileId_ === 'function' && wfFileId_()) { try { res._sched = wfLoadSchedule_(wfFileId_(), date); } catch (e7) {} }
   return { res: res, ll: ll };
 }
 /** ชื่อ → คีย์เทียบ (คำแรก ตัวพิมพ์ใหญ่ ตัด (…) ออก) — ใช้จับคู่คนข้ามทีม */
@@ -872,10 +872,10 @@ function rbTeamRows_(teams, order){ return order.map(function(t){ return rbAggRo
 /** Lazy view: 📆 ภาพรวมไฟลท์ทั้งสัปดาห์ (7 วัน) — ไฟลท์/เวลา/เครื่อง/จำนวนคนที่ต้องใช้ ตาม SLA จากตารางบิน */
 function rbWeekFlightsHtml(iso) {
   try {
-    if (typeof WF_FILE_ID === 'undefined' || !WF_FILE_ID)
-      return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ตารางบิน</b><br><span class="muted">ใส่ ID ไฟล์ Summary Weekly Flight ที่ตัวแปร <b>WF_FILE_ID</b> ใน WeeklyFlight.gs (แท็บชื่อวันที่ เช่น 17JUL) แล้วรีเฟรช</span></div>';
+    if (typeof wfFileId_ !== 'function' || !wfFileId_())
+      return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ตารางบิน</b><br><span class="muted">ตั้ง ID ไฟล์ Summary Weekly Flight ที่ <b>Project Settings → Script Properties</b> คีย์ <b>WF_FILE_ID</b> (หรือตัวแปร WF_FILE_ID ใน WeeklyFlight.gs) · แท็บชื่อวันที่ DDMON เช่น 17JUL แล้วรีเฟรช</span></div>';
     var date = iso ? rbDateFromIso_(iso) : new Date();
-    var week = wfWeekSummary_(WF_FILE_ID, date);
+    var week = wfWeekSummary_(wfFileId_(), date);
     if (!week) return '<div class="panel muted" style="padding:22px">เปิดไฟล์ตารางบินไม่ได้ (ตรวจสิทธิ์เข้าถึง / ID) หรือไม่มีข้อมูล</div>';
     var anyFound = week.some(function (d) { return d.found; });
     if (!anyFound) return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ของสัปดาห์นี้ในไฟล์ตารางบิน (ชื่อแท็บต้องเป็น DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>)</div>';

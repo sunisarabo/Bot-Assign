@@ -159,7 +159,7 @@ function advReadRoster_(tgt) {
 /** อ่านตารางบิน FLIGHT สำหรับวันที่ tgt (อ่านทุกแท็บ) → [{flight,airline,STA,STD,OP,CL}] */
 function advReadFlights_(tgt) {
   // ตั้งค่าที่เดียว: ถ้ากำหนด WF_FILE_ID (ไฟล์ Summary รายวัน) → จัดล่วงหน้าใช้ไฟล์เดียวกัน · ไม่งั้นใช้ ADV_FLIGHT_ID เดิม
-  var fid = (typeof WF_FILE_ID !== 'undefined' && WF_FILE_ID) ? WF_FILE_ID : advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID);
+  var fid = (typeof wfFileId_ === 'function' && wfFileId_()) ? wfFileId_() : advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID);
   var ss = SpreadsheetApp.openById(fid);
   // ── ฟอร์แมต "Summary Weekly Flight" (แท็บ = วันที่ เช่น 17JUL · มี A/C TYPE) — ไฟล์เดียวกับ SLA รายวัน ──
   if (typeof wfDateTabs_ === 'function' && typeof wfParseDaySheet_ === 'function') {

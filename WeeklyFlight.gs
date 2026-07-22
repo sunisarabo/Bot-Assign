@@ -12,7 +12,13 @@
  *   3) คอลัมน์ที่ระบบอ่าน: Airlines · Flt no. · STA · STD · A/C TYPE · Remarks (หาหัวตารางอัตโนมัติ)
  */
 
-var WF_FILE_ID = '';   // ← ใส่ ID ไฟล์ Google Sheets ตารางบิน (เว้นว่าง = ปิด)
+var WF_FILE_ID = '';   // ← ใส่ ID ไฟล์ Google Sheets ตารางบิน (เว้นว่าง = ปิด) · หรือตั้งใน Project Settings → Script Properties คีย์ WF_FILE_ID (ไม่ต้อง deploy ใหม่)
+
+/** ID ไฟล์ตารางบิน — อ่านจาก Script Property 'WF_FILE_ID' ก่อน (ตั้งใน UI ได้) แล้วค่อย fallback ตัวแปรในโค้ด */
+function wfFileId_() {
+  try { var v = PropertiesService.getScriptProperties().getProperty('WF_FILE_ID'); if (v) return String(v).trim(); } catch (e) {}
+  return WF_FILE_ID;
+}
 
 /** รหัสเครื่องในตารางบิน (IATA/ICAO) → ชื่อที่ตาราง SLA_AC จับคู่ได้ (slaAcPick_ จับแบบ prefix) */
 var WF_AC_MAP = {
@@ -114,7 +120,7 @@ function wfLoadScheduleFromSs_(ss, date) {
 
 /** โหลดตารางบินของวันที่กำหนดจากไฟล์ Google Sheets (หาแท็บตามวันที่) → ดัชนี (ว่าง = ไม่พบ/ปิดฟีเจอร์) */
 function wfLoadSchedule_(fileId, date) {
-  var id = fileId || WF_FILE_ID;
+  var id = fileId || wfFileId_();
   if (!id) return null;
   return wfLoadScheduleFromSs_(SpreadsheetApp.openById(id), date);
 }
@@ -148,7 +154,7 @@ function wfWeekDates_(date) {
 
 /** สรุปตารางบิน 7 วัน (สัปดาห์ที่มี date) → [{date,label,found,flights:[{flight,airline,ac,sta,std,req,cancelled}],tot,bodies,peakHr,peakN}] */
 function wfWeekSummary_(fileId, date) {
-  var id = fileId || WF_FILE_ID;
+  var id = fileId || wfFileId_();
   if (!id) return null;
   var ss = SpreadsheetApp.openById(id);
   var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
@@ -207,9 +213,9 @@ function wfDiff_(oldSched, newSched) {
 
 /** ตรวจสถานะการต่อไฟล์ตารางบิน (รันใน Apps Script เพื่อทดสอบว่าตั้งค่าถูก) */
 function wfSelfTest(dateIso) {
-  if (!WF_FILE_ID) return 'ยังไม่ได้ตั้ง WF_FILE_ID (ฟีเจอร์ปิดอยู่) — ใส่ ID ไฟล์ตารางบินก่อน';
+  if (!wfFileId_()) return 'ยังไม่ได้ตั้ง WF_FILE_ID (ฟีเจอร์ปิดอยู่) — ใส่ ID ไฟล์ตารางบินที่ตัวแปร WF_FILE_ID หรือ Script Property';
   var d = dateIso ? new Date(dateIso) : new Date();
-  var sched = wfLoadSchedule_(WF_FILE_ID, d);
+  var sched = wfLoadSchedule_(wfFileId_(), d);
   if (!sched) return 'เปิดไฟล์ได้ แต่ไม่พบแท็บวันที่ ' + wfDateTabs_(d)[0] + ' (ตรวจชื่อแท็บให้เป็น DDMON เช่น 17JUL)';
   var n = Object.keys(sched).length;
   var sample = Object.keys(sched).slice(0, 5).map(function (k) { return k + '=' + (sched[k].ac || '?') + '/' + (sched[k].std || sched[k].sta || '?'); });
