@@ -585,6 +585,12 @@ function rrParseStandard_(rows, team, meta) {
   // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
   // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
   rrApplyTrainingNotes_(rows, recs);
+  // ธง "เทรน/กิจกรรม" = มาทำงาน (working/ot_off) · มีงานที่เป็นอบรมล้วน · ไม่มีไฟลท์จริง (ไม่พร้อมลงไฟลท์)
+  recs.forEach(function (r) {
+    r.training = (r.bucket === 'working' || r.bucket === 'ot_off') && (r.assignments || []).length > 0
+      && !(r.assignments || []).some(function (a) { return acIsFlight_(a.flight); })
+      && (r.assignments || []).some(function (a) { return rrIsTrainingTask_(a.flight) || rrIsTrainingTask_(a.task); });
+  });
   return recs;
 }
 /** หาโน้ต "…TRAINING/LOAD CONTROL… : ชื่อ" ในชีต แล้วผูกกับพนักงานที่ชื่อตรง (ถ้ายังไม่มีไฟลท์จริง) */
@@ -908,6 +914,7 @@ function rrAddBucket_(agg, r, isHol) {
   else if (r.bucket === 'off') agg.off++;
   else if (r.bucket === 'sick') agg.sick++;
   else if (r.bucket === 'vac') agg.leave++;
+  if (r.training) agg.training++;                              // ซับเซ็ตของ working: อบรม/กิจกรรม (ไม่พร้อมลงไฟลท์)
   if (r.ot > 0) {
     agg.otPeople++; agg.otHours += r.ot;
     if (r.bucket === 'ot_off') { agg.otOffHrs += r.ot; }       // OT OFF hours (count = ot_off)
@@ -921,7 +928,7 @@ function rrAddBucket_(agg, r, isHol) {
   agg.staff++;
 }
 function rrNewAgg_() {
-  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
+  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, training: 0, otPeople: 0, otHours: 0,
            otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, otHol: 0, otHolHrs: 0, flights: 0 };
 }
 function rrRoundAgg_(a) {

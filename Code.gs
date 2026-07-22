@@ -593,6 +593,12 @@ function rrParseStandard_(rows, team, meta) {
   // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
   // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
   rrApplyTrainingNotes_(rows, recs);
+  // ธง "เทรน/กิจกรรม" = มาทำงาน (working/ot_off) · มีงานที่เป็นอบรมล้วน · ไม่มีไฟลท์จริง (ไม่พร้อมลงไฟลท์)
+  recs.forEach(function (r) {
+    r.training = (r.bucket === 'working' || r.bucket === 'ot_off') && (r.assignments || []).length > 0
+      && !(r.assignments || []).some(function (a) { return acIsFlight_(a.flight); })
+      && (r.assignments || []).some(function (a) { return rrIsTrainingTask_(a.flight) || rrIsTrainingTask_(a.task); });
+  });
   return recs;
 }
 /** หาโน้ต "…TRAINING/LOAD CONTROL… : ชื่อ" ในชีต แล้วผูกกับพนักงานที่ชื่อตรง (ถ้ายังไม่มีไฟลท์จริง) */
@@ -916,6 +922,7 @@ function rrAddBucket_(agg, r, isHol) {
   else if (r.bucket === 'off') agg.off++;
   else if (r.bucket === 'sick') agg.sick++;
   else if (r.bucket === 'vac') agg.leave++;
+  if (r.training) agg.training++;                              // ซับเซ็ตของ working: อบรม/กิจกรรม (ไม่พร้อมลงไฟลท์)
   if (r.ot > 0) {
     agg.otPeople++; agg.otHours += r.ot;
     if (r.bucket === 'ot_off') { agg.otOffHrs += r.ot; }       // OT OFF hours (count = ot_off)
@@ -929,7 +936,7 @@ function rrAddBucket_(agg, r, isHol) {
   agg.staff++;
 }
 function rrNewAgg_() {
-  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
+  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, training: 0, otPeople: 0, otHours: 0,
            otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, otHol: 0, otHolHrs: 0, flights: 0 };
 }
 function rrRoundAgg_(a) {
@@ -7606,9 +7613,11 @@ function rbKpiHero_(C, master, shortCount, fltTotal, urgent) {
 // ── table rows ──────────────────────────────────────────────────────────────
 function rbBarMini_(pct){ return '<div class="barmini"><i style="width:'+pct+'%"></i><b>'+pct+'%</b></div>'; }
 function rbAggRowHtml_(label, b) {
-  var work = b.working + b.ot_off, pct = b.staff>0 ? Math.round(work/b.staff*100) : 0;
+  var work = b.working + b.ot_off, tr = b.training || 0, avail = Math.max(0, work - tr);
+  var pct = b.staff>0 ? Math.round(work/b.staff*100) : 0;
+  var trCell = tr ? ('<b class="badd">' + tr + '</b> <span class="muted">→ว่าง ' + avail + '</span>') : '<span class="muted">—</span>';
   return '<tr><td class="b">' + rbEsc_(label) + '</td><td class="tnum">' + b.staff + '</td><td class="tnum"><b>' + work +
-    '</b></td><td class="tnum">' + b.off + '</td><td class="tnum">' + b.sick + '</td><td class="tnum">' + b.leave + '</td><td class="tnum">' + rbOtTxt_(b.ot_off, b.otOffHrs) +
+    '</b></td><td class="tnum">' + trCell + '</td><td class="tnum">' + b.off + '</td><td class="tnum">' + b.sick + '</td><td class="tnum">' + b.leave + '</td><td class="tnum">' + rbOtTxt_(b.ot_off, b.otOffHrs) +
     '</td><td class="tnum">' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td class="tnum">' + rbOtTxt_(b.otPost, b.otPostHrs) +
     '</td><td style="min-width:90px">' + rbBarMini_(pct) + '</td></tr>';
 }
@@ -7815,13 +7824,13 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     otPreN:C.otPre, otPostN:C.otPost, otOffN:C.ot_off, otPreH:C.otPreHrs, otPostH:C.otPostHrs, otOffH:C.otOffHrs,
     otHolN:C.otHol, otHolH:C.otHolHrs, c:CI };
 
-  var teamHead = '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>OFF</th><th>Sick</th><th>Vac</th><th>OT-Off</th><th>OT ก่อน</th><th>OT หลัง</th><th>%Working</th></tr>';
+  var teamHead = '<tr><th>ทีม</th><th>Total</th><th>Working</th><th>เทรน</th><th>OFF</th><th>Sick</th><th>Vac</th><th>OT-Off</th><th>OT ก่อน</th><th>OT หลัง</th><th>%Working</th></tr>';
   var posHead = '<tr><th>ตำแหน่ง</th><th>Total</th><th>Work</th><th>OT-Off</th><th>Off</th><th>Sick</th><th>Leave</th><th>OT ก่อน</th><th>OT หลัง</th></tr>';
   var masterLine = master ? ('<div class="sectionlabel">👥 พนักงานทั้งหมด (Active): PSA <b>'+master.PSA.total+'</b> + LL <b>'+master.LL.total+'</b> = <b>'+(master.PSA.total+master.LL.total)+'</b> คน</div>') : '';
   var llCards = '';
   if (L) {
     var secRows = Object.keys(ll.sections).map(function(s){ return rbAggRowHtml_(s, ll.sections[s]); }).join('');
-    llCards = rbTblCard_('🟡 LL by Section', '<tr><th>ส่วนงาน</th><th>Total</th><th>Working</th><th>OFF</th><th>Sick</th><th>Vac</th><th>OT-Off</th><th>OT ก่อน</th><th>OT หลัง</th><th>%Working</th></tr>', secRows) +
+    llCards = rbTblCard_('🟡 LL by Section', '<tr><th>ส่วนงาน</th><th>Total</th><th>Working</th><th>เทรน</th><th>OFF</th><th>Sick</th><th>Vac</th><th>OT-Off</th><th>OT ก่อน</th><th>OT หลัง</th><th>%Working</th></tr>', secRows) +
       rbTblCard_('🟡 LL by Position', posHead, rbPosRows_(ll.positions, ['PSS','SNR','PSA','Porter','Admin','Trainee']));
   }
 
