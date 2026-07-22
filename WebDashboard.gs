@@ -103,6 +103,8 @@ function rbLoadResLLraw_(date) {
   try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
   // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD ที่ชีตเวรไม่ได้กรอก (แนบไว้กับ res)
   if (typeof wfFileId_ === 'function' && wfFileId_()) { try { res._sched = wfLoadSchedule_(wfFileId_(), date); } catch (e7) {} }
+  // MODE เคาน์เตอร์ (ปกติ/Common check-in) ที่ Duty ใส่เองในฟอร์ม (แถว 2) → อ่านมาแนบกับ res
+  try { if (typeof formModeIndex_ === 'function' && roster.ss) res._flightMode = formModeIndex_(roster.ss); } catch (e8) {}
   return { res: res, ll: ll };
 }
 /** ชื่อ → คีย์เทียบ (คำแรก ตัวพิมพ์ใหญ่ ตัด (…) ออก) — ใช้จับคู่คนข้ามทีม */
@@ -1027,11 +1029,12 @@ function rbFltCards_(res, ll) {
                        : '<span class="fc-pill fc-pill--bad">'+rbEsc_(typeof slaShortText_==='function'?slaShortText_(f):'ขาดคน')+'</span>');
       var ac = f.AC ? '<span class="fc-ac">✈ '+rbEsc_(slaAcModel_(f.AC))+'</span>' : '';
       var ctr = (f.ctr!=null) ? '<span class="fc-ctr'+(f.ctrCap?' fc-ctr--cap':'')+'" title="เคาน์เตอร์ที่ท่าจัดให้'+(f.ctrCap?(' (SLA '+f.ctrCap+' · ท่าตัดเหลือ '+f.ctr+')'):'')+'">🎫 '+f.ctr+' ctr'+(f.ctrCap?' ⤵':'')+'</span>' : '';
+      var cmode = /common/i.test(f.mode||'') ? '<span class="fc-common" title="Duty ระบุเปิดแบบ Common check-in">🔗 Common</span>' : '';
       var txt = (f.flight+' '+air+' '+(f.teamList||'')+' '+slaAirName_(air)).toLowerCase();
       return '<div class="fltcard'+(f.ok&&!f.noTime?'':' fltcard--bad')+'" data-team="'+rbEsc_(f.teamList||'')+'" data-txt="'+rbEsc_(txt)+'">' +
           '<div class="fltcard__air"><div class="fltcard__code">'+rbEsc_(air)+'</div><div class="fltcard__name">'+rbEsc_(slaAirName_(air))+'</div></div>' +
           '<div class="fltcard__body"><div class="fltcard__top"><div><div class="fltcard__flt">'+rbEsc_(f.flight)+'</div>' +
-            '<div class="fltcard__time">STA '+rbEsc_(f.STA||'–')+' · STD '+rbEsc_(f.STD||'–')+' '+ac+' '+ctr+'</div></div>'+stat+'</div>' +
+            '<div class="fltcard__time">STA '+rbEsc_(f.STA||'–')+' · STD '+rbEsc_(f.STD||'–')+' '+ac+' '+ctr+' '+cmode+'</div></div>'+stat+'</div>' +
             '<div class="fltcard__tiles">'+tile('SUP',a.SUP,req.SUP,'SUP')+tile('Check-in',a.CI,req.CI,'CI')+tile('Arrival',a.ARR,req.ARR,'ARR')+tile('Gate',a.GATE,req.GATE,'GATE')+'</div>' +
           '</div></div>';
     } catch (ec) { return '<div class="fltcard fltcard--bad"><div class="fltcard__body">'+rbEsc_(f&&f.flight)+' — แสดงไม่ได้</div></div>'; }
@@ -1254,6 +1257,7 @@ var rbVIEW_CSS_ = `
 .fc-ac { color: var(--royal); font-weight: 600; }
 .fc-ctr { color: #6b7c98; font-weight: 600; }
 .fc-ctr--cap { color: #c07d17; font-weight: 700; }
+.fc-common { color: #7a5b13; background: #fff3d6; font-weight: 700; border-radius: 6px; padding: 0 5px; }
 .fc-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; white-space: nowrap; }
 .fc-pill--ok { background: #e4f4ec; color: #1a8f63; }
 .fc-pill--bad { background: #fbe6e3; color: #c0392b; }

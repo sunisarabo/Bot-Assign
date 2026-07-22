@@ -616,8 +616,10 @@ function slaCollectFlights_(res, ll) {
   }
   // compute requirement + shortages per flight
   var wfSched = (res && res._sched) || null;                  // ตารางบินสัปดาห์ (ถ้าตั้งค่า) → เติม A/C TYPE/เวลาที่ชีตเวรไม่ได้กรอก
+  var fMode = (res && res._flightMode) || null;               // MODE เคาน์เตอร์ที่ Duty ใส่เอง (ปกติ/Common check-in)
   var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
+    if (fMode && fMode[k]) f.mode = fMode[k];                 // แนบ MODE (manual) ให้ไฟลท์
     if (wfSched && typeof wfEnrichFlight_ === 'function') wfEnrichFlight_(f, wfSched);   // เติมก่อนคิด req (A/C TYPE เปลี่ยน req เช็คอิน)
     f.req = slaReq_(f.airline, f.AC);
     // AK เลขไฟลท์ 4 หลัก = เที่ยวบิน ferry/freighter (ไม่มีผู้โดยสาร) → คิดแค่ SUP · ตัด Check-in/Arrival/Gate
