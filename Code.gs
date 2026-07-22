@@ -1731,6 +1731,50 @@ function wfDiff_(oldSched, newSched) {
   return chg;
 }
 
+/** คีย์เรียงแท็บวันที่ "13JUL"/"01AUG" → เลข (เดือน*100+วัน) เรียงตามปฏิทิน */
+function wfTabSortKey_(name) {
+  var MON = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
+  var m = String(name || '').toUpperCase().replace(/\s+/g, '').match(/^(\d{1,2})([A-Z]{3})/);
+  return (m && MON[m[2]]) ? (MON[m[2]] * 100 + (+m[1])) : 9999;
+}
+
+/**
+ * รวมไฟล์ตารางบินหลายไฟล์ (xlsx/Google Sheets) → ชีตเดียว (แท็บ=วันที่ DDMON) แล้วตั้ง WF_FILE_ID ให้อัตโนมัติ
+ *   sourceIdsCsv : ID ไฟล์ตารางบิน คั่นด้วยจุลภาค เช่น "1aaa,1bbb,1ccc,1ddd,1eee" (รับ .xlsx หรือ Google Sheets)
+ *   targetId     : (ว่าง = สร้างไฟล์ใหม่ "PAS Flight Schedule" · มี = เพิ่มแท็บลงไฟล์เดิม)
+ *  ต้องเปิด Advanced Service "Drive API" (Services → Drive) เพื่อแปลง .xlsx
+ */
+function wfBuildScheduleSheet(sourceIdsCsv, targetId) {
+  var ids = String(sourceIdsCsv || '').split(/[,\s]+/).filter(Boolean);
+  if (!ids.length) throw new Error('ใส่ ID ไฟล์ตารางบิน (คั่นด้วยจุลภาค) เป็นอาร์กิวเมนต์แรก เช่น wfBuildScheduleSheet("1aaa,1bbb,...")');
+  var target = targetId ? SpreadsheetApp.openById(targetId) : SpreadsheetApp.create('PAS Flight Schedule (รวม)');
+  var existing = {}; target.getSheets().forEach(function (sh) { existing[sh.getName().toUpperCase().replace(/\s+/g, '')] = sh; });
+  var DDMON = /^\d{1,2}[A-Z]{3}/i, added = 0, skipped = 0, files = 0;
+  ids.forEach(function (id) {
+    var mime; try { mime = DriveApp.getFileById(id).getMimeType(); } catch (e) { Logger.log('เปิดไม่ได้: ' + id + ' (' + e.message + ')'); return; }
+    var opened, tempId = null;
+    if (mime === MimeType.GOOGLE_SHEETS) opened = SpreadsheetApp.openById(id);
+    else { var tmp = Drive.Files.copy({ title: '_TEMP_WF_' + id, mimeType: MimeType.GOOGLE_SHEETS }, id, { convert: true }); opened = SpreadsheetApp.openById(tmp.id); tempId = tmp.id; }
+    files++;
+    opened.getSheets().forEach(function (sh) {
+      var nm = sh.getName().trim();
+      if (!DDMON.test(nm.replace(/\s+/g, ''))) return;            // เฉพาะแท็บวันที่ (ข้ามแท็บอื่น)
+      var key = nm.toUpperCase().replace(/\s+/g, '');
+      if (existing[key]) { skipped++; return; }                   // มีแท็บวันนี้แล้ว → ข้าม (กันซ้ำข้ามสัปดาห์)
+      var copy = sh.copyTo(target); copy.setName(nm); existing[key] = copy; added++;
+    });
+    if (tempId) { try { DriveApp.getFileById(tempId).setTrashed(true); } catch (e) {} }
+  });
+  var blank = target.getSheetByName('Sheet1') || target.getSheetByName('ชีต1');
+  if (blank && target.getSheets().length > 1) { try { target.deleteSheet(blank); } catch (e) {} }
+  target.getSheets().slice().sort(function (a, b) { return wfTabSortKey_(a.getName()) - wfTabSortKey_(b.getName()); })
+    .forEach(function (sh, i) { target.setActiveSheet(sh); target.moveActiveSheet(i + 1); });   // เรียงแท็บตามวันที่
+  try { PropertiesService.getScriptProperties().setProperty('WF_FILE_ID', target.getId()); } catch (e) {}   // ตั้ง WF_FILE_ID ให้เลย
+  var msg = 'รวมเสร็จ: ' + files + ' ไฟล์ → เพิ่ม ' + added + ' แท็บ · ข้ามซ้ำ ' + skipped + ' · ตั้ง WF_FILE_ID = ' + target.getId() + '\n' + target.getUrl();
+  Logger.log(msg);
+  return msg;
+}
+
 /** ตรวจสถานะการต่อไฟล์ตารางบิน (รันใน Apps Script เพื่อทดสอบว่าตั้งค่าถูก) */
 function wfSelfTest(dateIso) {
   if (!wfFileId_()) return 'ยังไม่ได้ตั้ง WF_FILE_ID (ฟีเจอร์ปิดอยู่) — ใส่ ID ไฟล์ตารางบินที่ตัวแปร WF_FILE_ID หรือ Script Property';
