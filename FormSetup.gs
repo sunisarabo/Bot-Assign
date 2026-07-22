@@ -155,3 +155,27 @@ function formSetupAll(ssId) {
   var b = formBuildAllFlights(ssId);
   return a + '\n' + b;
 }
+
+/** เติม dropdown+MODE ให้ "ทุกไฟล์ Google Sheets ในโฟลเดอร์" (เช่น โฟลเดอร์เดือน 07.JUL26) รวดเดียว
+ *  ใช้: formSetupFolder('1wv7mAQ...')  ·  ถ้าไฟล์เยอะ/หมดเวลา ให้ส่ง onlyNewer เป็น ISO เพื่อทำเฉพาะไฟล์แก้ล่าสุด */
+function formSetupFolder(folderId, onlyNewer) {
+  var folder = DriveApp.getFolderById(folderId);
+  var files = folder.getFilesByType(MimeType.GOOGLE_SHEETS);
+  var cut = onlyNewer ? new Date(onlyNewer) : null;
+  var done = 0, skip = 0, log = [];
+  while (files.hasNext()) {
+    var f = files.next();
+    if (cut && f.getLastUpdated() < cut) { skip++; continue; }
+    try { formSetupForm(f.getId()); done++; log.push('✓ ' + f.getName()); }
+    catch (e) { log.push('✗ ' + f.getName() + ': ' + e.message); }
+  }
+  Logger.log('เติมฟอร์ม ' + done + ' ไฟล์ (ข้าม ' + skip + '):\n' + log.join('\n'));
+  return 'เติม dropdown+MODE ให้ ' + done + ' ไฟล์ในโฟลเดอร์ "' + folder.getName() + '"' + (skip ? (' · ข้าม ' + skip) : '');
+}
+
+/** เติมฟอร์มให้ "ไฟล์เวรของวันนี้" อัตโนมัติ (หาไฟล์ผ่าน rbOpenTodayRoster_) */
+function formSetupToday() {
+  var r = rbOpenTodayRoster_(new Date());
+  if (r.tempId) throw new Error('ไฟล์เวรวันนี้เป็น .xlsx (ต้องเป็น Google Sheets ถึงจะเติม dropdown ได้)');
+  return formSetupForm(r.ss.getId());
+}
