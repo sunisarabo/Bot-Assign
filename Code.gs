@@ -6813,7 +6813,12 @@ function doGet(e) {
   try {
     var d = rbLoadResLL_(date);
     var master = null;
-    if (MASTER_FILE_ID_RB) { try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e4) {} }
+    if (MASTER_FILE_ID_RB) {   // (ง) cache ไฟล์รายชื่อแยก TTL ยาว (1 ชม.) — เปลี่ยนไม่บ่อย ไม่ต้องเปิดไฟล์ซ้ำทุกครั้ง
+      var mkey = 'master_hc_' + MASTER_FILE_ID_RB;
+      var mc = null; try { mc = rbCacheGetBig_(mkey); } catch (eMc) {}
+      if (mc) { try { master = JSON.parse(mc); } catch (eMp) {} }
+      if (!master) { try { master = readMasterHeadcount(MASTER_FILE_ID_RB); if (master) rbCachePutBig_(mkey, JSON.stringify(master), RB_MASTER_TTL); } catch (e4) {} }
+    }
     html = rbBuildDashboardHtml_(d.res, d.ll, master, date, iso, base, tz);
   } catch (err) {
     html = '<!doctype html><html><head><meta charset="utf-8"><style>' + rbDesignCss_() + '</style></head>' +
@@ -6846,7 +6851,9 @@ function rbLoadResLL_(date) {
   if (got) { try { lock.releaseLock(); } catch (e3) {} }
   return out;
 }
-var RB_RESLL_TTL = 900;   // อายุ cache ข้อมูลรายวัน (วินาที) — 15 นาที · trigger อุ่น cache ทุก 5 นาทีจะคอยเติมให้สด
+var RB_RESLL_TTL = 1800;  // (ก) อายุ cache ข้อมูลรายวัน — 30 นาที (trigger อุ่นทุก 5 นาที · กด 🔄 เมื่ออยากเห็นสด)
+var RB_MASTER_TTL = 3600; // (ง) ไฟล์รายชื่อ (master) — 1 ชม. · RB_SCHED_TTL = ตารางบิน
+var RB_SCHED_TTL = 3600;  // (ง) ตารางบินสัปดาห์ต่อวัน — 1 ชม. (เปลี่ยนไม่บ่อย ไม่ต้องเปิดไฟล์ซ้ำ)
 
 /** อุ่น cache ของ "วันนี้" ไว้ล่วงหน้า — ผู้ใช้เปิดหน้าเว็บจะได้ข้อมูลทันที ไม่ต้องรออ่าน 20 ชีต
  *  (เทียบเท่า "background process" ในระบบใหญ่ · GAS ใช้ time-driven trigger แทน worker) */
@@ -6887,8 +6894,14 @@ function rbLoadResLLraw_(date) {
   //  → coverage คิดจากเวลาเปิดจริง (เช่น เปิด 09:50 คนเข้า 09:00 = ครอบคลุม) ไม่ใช่ประมาณ STD−180
   if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
   try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
-  // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD ที่ชีตเวรไม่ได้กรอก (แนบไว้กับ res)
-  if (typeof wfFileId_ === 'function' && wfFileId_()) { try { res._sched = wfLoadSchedule_(wfFileId_(), date); } catch (e7) {} }
+  // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD · (ง) cache ต่อวัน TTL 1 ชม. (ไม่เปิดไฟล์ซ้ำ)
+  if (typeof wfFileId_ === 'function' && wfFileId_()) {
+    var iso2 = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
+    var skey = 'wfsched_' + iso2;
+    var sc = null; try { sc = rbCacheGetBig_(skey); } catch (eSc) {}
+    if (sc) { try { res._sched = JSON.parse(sc); } catch (eSp) {} }
+    if (res._sched == null) { try { res._sched = wfLoadSchedule_(wfFileId_(), date) || null; rbCachePutBig_(skey, JSON.stringify(res._sched), RB_SCHED_TTL); } catch (e7) {} }
+  }
   // MODE เคาน์เตอร์ (ปกติ/Common check-in) ที่ Duty ใส่เองในฟอร์ม (แถว 2) → อ่านมาแนบกับ res
   try { if (typeof formModeIndex_ === 'function' && roster.ss) res._flightMode = formModeIndex_(roster.ss); } catch (e8) {}
   return { res: res, ll: ll };
@@ -6969,8 +6982,12 @@ function rbCacheGetBig_(key) {
 /** ล้างแคชของวันที่นั้น (เรียกจากปุ่ม 🔄 รีเฟรช) */
 function rbClearCache(iso) {
   try {
-    var c = CacheService.getScriptCache(), nn = c.get('resll_' + iso + '_n'), keys = ['resll_' + iso + '_n'];
-    if (nn) for (var i = 0; i < +nn; i++) keys.push('resll_' + iso + '_' + i);
+    var c = CacheService.getScriptCache(), keys = [];
+    // ล้างทุก cache ที่เกี่ยวกับวันนั้น + master + ตารางบิน (ให้ 🔄 ดึงสดจริง)
+    ['resll_' + iso, 'wfsched_' + iso, 'master_hc_' + MASTER_FILE_ID_RB].forEach(function (base) {
+      var nn = c.get(base + '_n'); keys.push(base + '_n');
+      if (nn) for (var i = 0; i < +nn; i++) keys.push(base + '_' + i);
+    });
     c.removeAll(keys);
   } catch (e) {}
   return true;
