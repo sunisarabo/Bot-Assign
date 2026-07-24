@@ -93,12 +93,53 @@ function rbStopWarmCache() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'rbWarmCache') ScriptApp.deleteTrigger(t); });
   return 'หยุด trigger อุ่น cache แล้ว';
 }
+/** {red,green,blue} (0-1) จาก Sheets API → "#rrggbb" (ว่าง = ขาว) */
+function rbRgbToHex_(c) {
+  if (!c) return '#ffffff';
+  function h(x) { var v = Math.round((x == null ? 1 : x) * 255); return ('0' + v.toString(16)).slice(-2); }
+  return '#' + h(c.red) + h(c.green) + h(c.blue);
+}
+/** อ่านทั้งไฟล์ (ทุกแท็บ + ค่า + สีพื้น + ขีดฆ่า) ด้วย Advanced Sheets API ครั้งเดียว → คืน ss จำลอง
+ *  (แทน ~60 การอ่าน SpreadsheetApp ด้วย 1 API call · reader เดิมใช้งานได้เหมือน ss จริง) */
+function rbFastSheets_(ssId) {
+  var resp = Sheets.Spreadsheets.get(ssId, {
+    includeGridData: true,
+    fields: 'sheets(properties(title),data(rowData(values(formattedValue,effectiveFormat(backgroundColor,textFormat/strikethrough)))))'
+  });
+  var sheets = (resp.sheets || []).map(function (sh) {
+    var title = sh.properties.title;
+    var grid = (sh.data && sh.data[0] && sh.data[0].rowData) || [];
+    var nRows = grid.length, nCols = 0;
+    grid.forEach(function (r) { if (r.values && r.values.length > nCols) nCols = r.values.length; });
+    function cel(r, c) { var row = grid[r - 1]; return (row && row.values) ? row.values[c - 1] : null; }
+    function val(r, c) { var x = cel(r, c); return (x && x.formattedValue != null) ? x.formattedValue : ''; }
+    function bg(r, c) { var x = cel(r, c); var f = x && x.effectiveFormat; return f ? rbRgbToHex_(f.backgroundColor) : '#ffffff'; }
+    function ln(r, c) { var x = cel(r, c); var t = x && x.effectiveFormat && x.effectiveFormat.textFormat; return (t && t.strikethrough) ? 'line-through' : 'none'; }
+    function blk(fn, r0, c0, nr, nc) { var o = []; for (var i = 0; i < nr; i++) { var row = []; for (var j = 0; j < nc; j++) row.push(fn(r0 + i, c0 + j)); o.push(row); } return o; }
+    return {
+      getName: function () { return title; },
+      getLastRow: function () { return nRows; },
+      getLastColumn: function () { return nCols || 1; },
+      getRange: function (r, c, nr, nc) {
+        nr = nr || 1; nc = nc || 1;
+        return { getValues: function () { return blk(val, r, c, nr, nc); }, getValue: function () { return val(r, c); },
+          getBackgrounds: function () { return blk(bg, r, c, nr, nc); }, getFontLines: function () { return blk(ln, r, c, nr, nc); } };
+      },
+      getDataRange: function () { return { getValues: function () { return blk(val, 1, 1, nRows || 1, nCols || 1); } }; }
+    };
+  });
+  var byName = {}; sheets.forEach(function (s) { byName[s.getName()] = s; });
+  return { getSheets: function () { return sheets; }, getSheetByName: function (n) { return byName[n] || null; } };
+}
 function rbLoadResLLraw_(date) {
   var roster = rbOpenTodayRoster_(date);
-  var res = readRosterFromSpreadsheet(roster.ss, date);
+  var ss = roster.ss;
+  // (ข) batch-read: ดึงทั้งไฟล์ครั้งเดียวผ่าน Advanced Sheets API (เร็วกว่ามากตอน cold) · พังเมื่อไหร่ fallback อ่านปกติ
+  try { if (typeof Sheets !== 'undefined' && Sheets.Spreadsheets) ss = rbFastSheets_(roster.ss.getId()); } catch (eFast) { ss = roster.ss; }
+  var res = readRosterFromSpreadsheet(ss, date);
   // แท็บ "COUNTER" ในไฟล์ตารางเวรเอง (อ่านก่อนลบไฟล์ชั่วคราว) — วิธีที่ไม่ต้องแชร์ไฟล์ท่า
   res.counters = null;
-  try { res.counters = counterReadFromRoster_(roster.ss); } catch (e4) {}
+  try { res.counters = counterReadFromRoster_(ss); } catch (e4) {}   // ใช้ ss ที่ดึงมาแล้ว (ไม่อ่านซ้ำ)
   if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   var ll = null;
   if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
@@ -117,7 +158,7 @@ function rbLoadResLLraw_(date) {
     if (res._sched == null) { try { res._sched = wfLoadSchedule_(wfFileId_(), date) || null; rbCachePutBig_(skey, JSON.stringify(res._sched), RB_SCHED_TTL); } catch (e7) {} }
   }
   // MODE เคาน์เตอร์ (ปกติ/Common check-in) ที่ Duty ใส่เองในฟอร์ม (แถว 2) → อ่านมาแนบกับ res
-  try { if (typeof formModeIndex_ === 'function' && roster.ss) res._flightMode = formModeIndex_(roster.ss); } catch (e8) {}
+  try { if (typeof formModeIndex_ === 'function' && ss) res._flightMode = formModeIndex_(ss); } catch (e8) {}
   return { res: res, ll: ll };
 }
 /** ชื่อ → คีย์เทียบ (คำแรก ตัวพิมพ์ใหญ่ ตัด (…) ออก) — ใช้จับคู่คนข้ามทีม */
