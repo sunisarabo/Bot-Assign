@@ -86,19 +86,28 @@ function formSetupForm(ssId) {
   return 'เติม dropdown ตำแหน่ง + MODE เคาน์เตอร์ ' + done + ' ไฟลท์ เรียบร้อย (แถว 2 = ปกติ/Common check-in)';
 }
 
-/** อ่าน MODE เคาน์เตอร์ (แถว 2) ทุกแท็บ → { flightKey: 'Common'/'ปกติ' } */
+/** อ่าน MODE เคาน์เตอร์ (แถว 2) ทุกแท็บ → { flightKey: 'Common'/'ปกติ' }
+ *  เร็วขึ้น: อ่านแถว 2-3 ครั้งเดียว/แท็บ (เดิม 2 รอบ) · ข้ามเร็วถ้าแถว 2 ว่างทั้งแถว (ยังไม่ได้ตั้ง MODE) */
 function formModeIndex_(ss) {
   var out = {};
   ss.getSheets().forEach(function (sh) {
-    if (/MANPOWER|MASTER|SHIFTDB|CODE|ALL FLIGHTS/i.test(sh.getName())) return;
-    var flights = formDetectFlightCols_(sh);
-    if (!flights.length) return;
-    var lastCol = sh.getLastColumn();
-    var r2 = sh.getRange(2, 1, 1, lastCol).getValues()[0];
-    flights.forEach(function (f) {
-      var m = String(r2[f.col - 1] || '').trim();
-      if (m) out[slaFlightKey_(f.flight)] = /common/i.test(m) ? 'Common check-in' : 'ปกติ';
-    });
+    var nm = sh.getName();
+    if (/MANPOWER|MASTER|SHIFTDB|CODE|ALL FLIGHTS|_CODES/i.test(nm)) return;
+    var lastCol = sh.getLastColumn(); if (lastCol < 2) return;
+    var top = sh.getRange(2, 1, 2, lastCol).getValues();       // แถว 2 (MODE) + แถว 3 (หัวไฟลท์) ในการอ่านครั้งเดียว
+    var r2 = top[0], r3 = top[1];
+    var hasMode = r2.some(function (v) { return /common|ปกติ/i.test(String(v || '')); });
+    if (!hasMode) return;                                       // ยังไม่ได้ตั้ง MODE ในแท็บนี้ → ข้าม (ไม่เสียเวลา)
+    var fltCol = -1;
+    for (var c = 0; c < r3.length; c++) { if (String(r3[c] || '').trim().toUpperCase() === 'FLIGHT') { fltCol = c; break; } }
+    if (fltCol < 0) return;
+    for (var c2 = fltCol + 1; c2 < r3.length; c2++) {
+      var v = String(r3[c2] || '').trim();
+      if (v && /(?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\s*\d{2,4}/i.test(v)) {
+        var m = String(r2[c2] || '').trim();
+        if (m) out[slaFlightKey_(v.replace(/\s/g, ''))] = /common/i.test(m) ? 'Common check-in' : 'ปกติ';
+      }
+    }
   });
   return out;
 }
