@@ -5394,6 +5394,21 @@ function otClearCache() {
   return n;
 }
 
+/** ลบเฉพาะ cache OT ที่ "เก่ากว่าจุดเริ่มซีซัน" (otRangeStart_) — เก็บซีซันปัจจุบันไว้ · กัน otc_* โตข้ามซีซัน
+ *  รันเป็นครั้งคราว (เช่นตอนขึ้นซีซันใหม่) หรือใส่ใน trigger ได้ · keepBeforeIso = กำหนดวันตัดเอง (เผื่ออยากเก็บนานกว่า) */
+function otPruneOldCache(keepBeforeIso) {
+  var props = PropertiesService.getScriptProperties(), all = props.getProperties() || {};
+  var cut = (keepBeforeIso && /^\d{4}-\d{2}-\d{2}$/.test(keepBeforeIso)) ? keepBeforeIso : otDateKey_(otRangeStart_(new Date()));
+  var n = 0;
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(OT_CACHE_PREFIX) !== 0) return;
+    var key = k.slice(OT_CACHE_PREFIX.length);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(key) && key < cut) { props.deleteProperty(k); n++; }   // เทียบสตริง YYYY-MM-DD = เรียงตามวันที่
+  });
+  Logger.log('otPruneOldCache: ลบ %s วันเก่า (ก่อน %s)', n, cut);
+  return 'ลบ cache OT เก่า ' + n + ' วัน (ก่อน ' + cut + ') · เก็บซีซันปัจจุบันไว้';
+}
+
 function otDashData_() { return {"months":["(สะสม)"],"teams":[{"team":"CHINA","total":3876.0,"months":{"(สะสม)":{"weeks":[],"total":3876.0}}},{"team":"QR/MH/OM/DE","total":3873.5,"months":{"(สะสม)":{"weeks":[],"total":3873.5}}},{"team":"SQ/CX/LY","total":1914.5,"months":{"(สะสม)":{"weeks":[],"total":1914.5}}},{"team":"JQ/IT/IX/AI/N0","total":1434.5,"months":{"(สะสม)":{"weeks":[],"total":1434.5}}},{"team":"EY/AY/DV","total":1367.5,"months":{"(สะสม)":{"weeks":[],"total":1367.5}}},{"team":"WY/G9/9C/DK","total":964.0,"months":{"(สะสม)":{"weeks":[],"total":964.0}}},{"team":"TK/VJ/SG/HY/OD","total":641.0,"months":{"(สะสม)":{"weeks":[],"total":641.0}}},{"team":"SV/WK/KA","total":462.5,"months":{"(สะสม)":{"weeks":[],"total":462.5}}},{"team":"PORTER","total":146.5,"months":{"(สะสม)":{"weeks":[],"total":146.5}}}]}; }
 function otDashCss_() { return OT_DASH_CSS_; }
 function otDashHtml_() { return OT_DASH_HTML_ + otEmbedPanel_(); }
