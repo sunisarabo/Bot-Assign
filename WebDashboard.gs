@@ -1085,8 +1085,8 @@ function rbGanttCss_() {
   '.gt-seg span{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
   '.gt-shift{background:linear-gradient(180deg,#2f74ad,#245d8f);color:#fff}'+
   '.gt-ot{background:linear-gradient(180deg,#f7b733,#e39a10);color:#3a2800}'+
-  '.gt-flt{position:absolute;bottom:4px;transform:translateX(-4px);height:16px;background:#e8f1fa;border:1px solid #b9cfe6;border-radius:5px;padding:0 5px;display:flex;align-items:center;z-index:1}'+
-  '.gt-flt span{font-size:10px;font-weight:700;color:#1f4e79;white-space:nowrap}'+
+  '.gt-flt{position:absolute;bottom:4px;height:16px;background:#dcebfa;border:1px solid #a8c6e6;border-radius:5px;padding:0 5px;display:flex;align-items:center;overflow:hidden;min-width:3px;z-index:1}'+
+  '.gt-flt span{font-size:10px;font-weight:700;color:#1f4e79;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
   '.gt-flt.sup{background:#fff1e0;border-color:#f0c088}.gt-flt.sup span{color:#b5651d}'+
   '.gt-status{position:absolute;top:11px;left:8px;font-size:11.5px;font-weight:700;padding:2px 10px;border-radius:6px}'+
   '.gt-status.off{background:#eef1f5;color:#5b7189}.gt-status.sl{background:#fbe9ec;color:#c93a4e}.gt-status.vac{background:#e8f1fa;color:#1f4e79}'+
@@ -1140,9 +1140,17 @@ function rbTtGantt_(res, ll) {
     }
     (r.assignments || []).forEach(function (a) {
       if (!acIsFlight_(a.flight)) return;
-      var tm = pmin(a.STD); if (tm == null) tm = pmin(a.STA); if (tm == null) return;
+      // วางตาม "ช่วงเวลาที่ถูก assign ให้ทำจริง": เคาน์เตอร์ OP–CL ก่อน (เช็คอิน) · ไม่งั้น STA–STD (ขาเข้า/เกท)
+      var lo = pmin(a.OP); if (lo == null) lo = pmin(a.STA); if (lo == null) lo = pmin(a.STD); if (lo == null) return;
+      var hi = pmin(a.CL); if (hi == null) hi = pmin(a.STD); if (hi == null) hi = lo + 20;
+      if (hi < lo) hi += 1440; if (hi - lo < 20) hi = lo + 20;   // อย่างน้อยกว้างพอเห็นป้าย
+      // จัดให้อยู่ใกล้กะ (กันไฟลท์ดึกไปโผล่ต้นแกน)
+      if (du.se != null) { while (lo - du.se > 720) { lo -= 1440; hi -= 1440; } }
+      if (barLo != null) { while (barLo - lo > 900) { lo += 1440; hi += 1440; } }
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
-      track += '<div class="gt-flt' + (sup ? ' sup' : '') + '" style="left:' + pct(tm) + '%" title="' + rbAttr_(a.flight + ' ' + (a.STA || '') + '/' + (a.STD || '')) + '"><span>' + rbEsc_(a.flight) + (sup ? ' 🔁' : '') + '</span></div>';
+      var lab = rbEsc_(a.flight) + (sup ? ' 🔁' : ''), ttl = rbAttr_(a.flight + ' · ' + ((a.OP || a.STA || '–') + '-' + (a.CL || a.STD || '–')));
+      function fone(x, y) { if (y <= x) return; track += '<div class="gt-flt' + (sup ? ' sup' : '') + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%" title="' + ttl + '"><span>' + lab + '</span></div>'; }
+      if (hi > 1440) { fone(lo, 1440); fone(0, hi - 1440); } else fone(lo < 0 ? 0 : lo, hi);
     });
     return '<div class="gt-row" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track">' + track + '</div></div>';
   }).join('');
