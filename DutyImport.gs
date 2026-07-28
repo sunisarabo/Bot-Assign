@@ -60,10 +60,35 @@ function dutyPhaseOf_(label) {
   return 'ARR';                                                            // ARR/CIQ/CRW/MEET/ASST/IB/STBY/TF/BIR/ESCORT
 }
 var DI_FLT2 = /\b((?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\d{2,4}(?:\s*\/\s*(?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])?\d{2,4})?)/;   // \b กัน "TA1800" · ขาที่สองมี/ไม่มีรหัสสาย (9C8771/9C8772 · PG271/272)
+// ─── ตรวจ "ชื่อคนที่ถูกจัดไว้แล้ว" ในคำขอ (Duty เติมสีเทา / ทีมใส่ชื่อเอง) → สล็อตนั้น "มีคนแล้ว" ไม่ต้องแนะนำ ───
+var DI_NAME_STOP = /^(GATE|GTE|ARR|ARRIVAL|INT|INTER|DOM|TRANSFER|TF|AGENT|SPVR|SUP|SOD|SUPERVISOR|SUPERVIS|CHK|CHECK|CKIN|CIN|IN|OUT|CS|CT|CRW|CREW|RF|RL|RELEASE|STBY|SBY|STAND|BY|ASST|ASSIT|ASSIST|CIQ|BIR|MEET|ESCORT|ONLY|LAST|OPEN|CLOSE|CLS|BRIEF|COUNTER|CTC|CTR|AND|OR|OB|IB|G|GA|AC|CI|BOARD|SUPPORT|SUPPOT|ปล่อยเครื่อง|เดินเอกสาร|ส่ง|ขอ|คน)$/i;
+/** โทเคนนี้เป็น "ชื่อคน" ไหม (ไม่ใช่คำตำแหน่ง/ตัวเลข) */
+function diName_(tok) { return !!tok && !DI_NAME_STOP.test(tok) && !/^\d+[:.]?\d*$/.test(tok) && /[A-Za-z฀-๿]/.test(tok) && tok.length >= 2; }
+/** สล็อตนี้ "ว่าง/ยังไม่จัด" ไหม — "X"/ว่าง/ไม่มีตัวอักษร = ว่าง (ต้องหาคน) */
+function diSlotOpen_(txt) { var s = String(txt || '').replace(/\(.*?\)/g, '').trim(); return /^x\b/i.test(s) || !/[A-Za-z฀-๿]/.test(s); }
+/** ดึงชื่อคนหลัง ":"/"::" — "GATE : Suthita QR"→"Suthita QR" · "CRW/GA:: Chutharat PV"→"Chutharat PV" · "SPVR/G : X"→'' · "GATE INT"→'' */
+function diAssignedName_(txt) {
+  var s = String(txt || '').replace(/\(.*?\)/g, '').trim();
+  var ci = s.search(/:/); if (ci < 0) return '';
+  var tail = s.slice(ci).replace(/^:+/, '').trim();
+  if (!tail || /^x\b/i.test(tail)) return '';
+  var nameW = tail.split(/[\s,\/·]+/).filter(Boolean).filter(diName_);
+  return nameW.length ? nameW.join(' ').slice(0, 26) : '';
+}
 /** แตกข้อความ "คำขอซัพ" จาก Duty → [{flight, phase, n, win, sta, std, label}] (ป้อนเข้า slaManualSupportRows_) */
 function dutyParseRequests_(text) {
   var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null, fltFresh = false, rfMode = false;
-  function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
+  function flush(def) {
+    if (!pending) return;
+    var names = (pending.names || []).slice();
+    if (pending.inlineName) names.unshift(pending.inlineName);
+    var xCount = (pending.xCount || 0) + (pending.inlineX ? 1 : 0);
+    var total = Math.max(pending.nExplicit || 0, names.length + xCount, def || 1, pending.n || 0);
+    pending.n = total;                                   // จำนวนที่ขอทั้งหมด
+    pending.open = names.length === 0 ? total : (xCount + Math.max(0, total - names.length - xCount));  // ยังต้องหาคนกี่คน
+    pending.assigned = names.join(', ');                 // ชื่อที่จัดไว้แล้ว (Duty/ทีม)
+    out.push(pending); pending = null;
+  }
   String(text || '').split(/\n/).forEach(function (raw) {
     // ตัด emoji/ธงชาติ (🇮🇳🇦🇺...) ออกทั้งบรรทัด — กันธงหน้าเลขไฟลท์ทำให้จับหัวไฟลท์ไม่ติด
     var s = String(raw).replace(/[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}️‍•▪]/gu, '').trim();
@@ -87,6 +112,7 @@ function dutyParseRequests_(text) {
         var sbyT = one ? diTime_(one[1]) : curSta;
         pending = { flight: curF, phase: sbyPh, n: null, win: sbyT ? (sbyT + (curStd ? '-' + curStd : '')) : curWin,
           sta: sbyT || curSta, std: curStd,
+          inlineName: diAssignedName_(s), inlineX: /:\s*x\b/i.test(s),
           label: s.replace(/\d{1,2}[:.]?\d{2}/g, '').replace(/^[\-\s]*/, '').trim().slice(0, 22) };
         return;
       }
@@ -111,6 +137,8 @@ function dutyParseRequests_(text) {
     var fm = s.match(DI_FLT2);
     // "รบกวนขอ Support RY" / "ขอ Support EY" — สายไม่มีเลขไฟลท์ → ใช้รหัสสายเป็น pseudo-flight (คำขอไม่หลุดไปเกาะไฟลท์อื่น)
     if (!fm) { var supM = s.match(/SUPP?ORT\s+([A-Z]{2})\b/i); if (supM && dutyPhaseOf_(s) === null) { flush(1); curF = supM[1].toUpperCase(); curSta = ''; curStd = ''; curWin = ''; return; } }
+    // หัวข้อทีม "SU รบกวนขอซัพพอต 15JAN26" / "W5 รบกวนขอซัพพอต" / "PG รบกวนขอซัพพอร์ต" — รหัสสายต้นบรรทัด → pseudo-flight (คำขอที่ไม่มีเลขไฟลท์ไม่หลุดไปเกาะไฟลท์ก่อนหน้า)
+    if (!fm) { var thM = s.match(/^\s*([A-Z][A-Z0-9])\s+(?:รบกวน|ขอ\s*ซัพ|ขอ\s*support)/i); if (thM && dutyPhaseOf_(s) === null) { flush(1); curF = thM[1].toUpperCase(); curSta = ''; curStd = ''; curWin = ''; fltFresh = false; return; } }
     // หัวไฟลท์ = รหัสไฟลท์อยู่ "ต้นบรรทัด" — รองรับเลขลำดับนำหน้า เช่น "1.9C8771/9C8772" (ไม่งั้นไฟลท์หลุด)
     var fltAtStart = fm && /^[\s\-]*\d{0,2}[.)]?\s*$/.test(s.slice(0, fm.index));
     if (fm && (fltAtStart || (dutyPhaseOf_(s) === null && /STA|STD|RON/i.test(s)))) {
@@ -137,6 +165,7 @@ function dutyParseRequests_(text) {
         pending = { flight: curF, phase: ph0, n: null,
           win: (lSby0 && curStd) ? (diTime_(lSby0) + '-' + curStd) : curWin,
           sta: curSta, std: curStd,
+          inlineName: diAssignedName_(rest), inlineX: /:\s*x\b/i.test(rest),
           label: rest.replace(/\(.*?\)/g, '').replace(/\b(STA|STD|STBY|STAND\s*BY|ETA)\b.*$/i, '').trim().slice(0, 22) };
       } else if (rfMode) {                                     // โหมดปล่อยเครื่อง — "SU285 CTC CTR G11 (0950)" → คำขอ RF
         fltFresh = false; rfMode = false;
@@ -144,6 +173,7 @@ function dutyParseRequests_(text) {
         pending = { flight: curF, phase: 'RF', n: null,
           win: rfT ? (diTime_(rfT) + (curStd ? '-' + curStd : '')) : curWin,
           sta: rfT ? diTime_(rfT) : curSta, std: curStd,
+          inlineName: diAssignedName_(rest), inlineX: /:\s*x\b/i.test(rest),
           label: (rest.replace(/\(.*?\)/g, '').replace(/\d{1,2}[:.]?\d{2}/g, '').trim().slice(0, 22) || 'ปล่อยเครื่อง') };
       }
       return;
@@ -155,7 +185,11 @@ function dutyParseRequests_(text) {
     // (ยกเว้นเลข+ตำแหน่ง เช่น "2.ARR" = ตำแหน่งใหม่ → ปล่อยให้ handler ตำแหน่งจัดการ)
     var numLead = s.match(/^\s*(\d{1,2})[.)]?\s*(.*)$/);
     if (numLead && pending && !DI_FLT2.test(s) && dutyPhaseOf_(numLead[2] || '') === null) {
-      var ni = +numLead[1]; if (ni >= 1 && ni <= 20) pending.n = Math.max(pending.n || 1, ni); return;
+      var ni = +numLead[1]; if (ni >= 1 && ni <= 20) pending.nExplicit = Math.max(pending.nExplicit || 0, ni);
+      var slot = String(numLead[2] || '').replace(/\(.*?\)/g, '').trim();   // "X"/ว่าง = ยังไม่จัด · "WASSANA SV" = จัดแล้ว
+      if (diSlotOpen_(slot)) pending.xCount = (pending.xCount || 0) + 1;
+      else { (pending.names = pending.names || []).push(slot.slice(0, 26)); }
+      return;
     }
     // ป้ายตำแหน่ง (ตัดเลขลำดับ/ขีดนำหน้า)
     var clean = s.replace(/^[\-\s]*\d+[.)]?\s*/, '').replace(/^[\-\s]+/, '');
@@ -170,10 +204,13 @@ function dutyParseRequests_(text) {
       if (lSby) lWin = diTime_(lSby) + '-' + (lStd ? diTime_(lStd) : (curStd || ''));   // stby→STD = ช่วงยืน (STD จากบรรทัดหรือหัวไฟลท์)
       pending = { flight: curF, phase: ph, n: null, win: lWin,
         sta: lSta ? diTime_(lSta) : curSta, std: lStd ? diTime_(lStd) : curStd,
+        inlineName: diAssignedName_(clean), inlineX: /:\s*x\b/i.test(clean),   // "GATE : Suthita QR" = จัดแล้ว · "SPVR/G : X" = ว่าง
         label: clean.replace(/\(.*?\)/g, '').replace(/\b(STA|STD|STBY|STAND\s*BY|ETA)\b.*$/i, '').replace(/เครื่องลงเร็ว.*$/, '').trim().slice(0, 22) };
     }
   });
   flush(1);
+  // "CTC CTR G11 (STBY..)" = เคาน์เตอร์ติดต่อของงานเดินเอกสาร (RF) ไม่ใช่คำขอ ARR — ตัดทิ้ง (แถว RF ที่ตามมาถูกจับแล้ว)
+  out = out.filter(function (r) { return !(r.phase === 'ARR' && /\bCTC\b/i.test(r.label || '')); });
   // ระบุชนิดเกทใน/นอกจากป้ายตำแหน่ง (GATE INT / GATE 83 DOM) → ให้หน้า Support แยกแสดง/จับคู่คนถูกชนิด
   out.forEach(function (r) {
     if (r.phase === 'GATE' && typeof slaGateType_ === 'function') {
@@ -327,15 +364,23 @@ function rqFindSupport(iso) {
     if (!reqs.length) return '<div class="panel muted" style="padding:22px">มีข้อความจาก ' + rbEsc_(srcs.join('+')) + ' แต่แตกเป็นคำร้องไม่ได้ (ตรวจรูปแบบ)</div>';
     var d = rbLoadResLL_(date);
     var rows = slaManualSupportRows_(d.res, d.ll, reqs);
+    var nOpen = 0, nCov = 0;
     var body = rows.map(function (r) {
-      var who = r.cands && r.cands.length
-        ? r.cands.slice(0, Math.max(1, r.shortN)).map(function (c) { return '<b>' + rbEsc_(c.name) + '</b> <span class="muted">' + rbEsc_(c.team) + (c.off ? ' ⛱️OFF' : (c.rest ? ' 😴' : '')) + ' · ' + rbEsc_(c.shift || '') + ' · ' + (c.n || 0) + ' ไฟลท์</span>'; }).join('<br>')
-        : '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
-      return '<tr><td class="b">' + rbEsc_(r.flight) + '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') +
-        '</td><td>' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + ' ขอ ' + r.shortN +
+      var who;
+      if (r.covered) { nCov++; who = '<span class="okk">✅ จัดแล้ว' + (r.assigned ? ': <b>' + rbEsc_(r.assigned) + '</b>' : '') + '</span>'; }
+      else {
+        nOpen++;
+        who = r.cands && r.cands.length
+          ? r.cands.slice(0, Math.max(1, r.shortN)).map(function (c) { return '<b>' + rbEsc_(c.name) + '</b> <span class="muted">' + rbEsc_(c.team) + (c.off ? ' ⛱️OFF' : (c.rest ? ' 😴' : '')) + ' · ' + rbEsc_(c.shift || '') + ' · ' + (c.n || 0) + ' ไฟลท์</span>'; }).join('<br>')
+          : '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
+        if (r.assigned) who = '<span class="muted">จัดแล้ว: ' + rbEsc_(r.assigned) + ' · ขออีก ' + r.shortN + '</span><br>' + who;   // จัดบางส่วน
+      }
+      var ask = r.covered ? ('มี ' + (r.reqN || 1) + ' คน') : ('ขออีก ' + r.shortN + (r.reqN > r.shortN ? '/' + r.reqN : ''));
+      return '<tr' + (r.covered ? ' style="opacity:.62"' : '') + '><td class="b">' + rbEsc_(r.flight) + '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') +
+        '</td><td>' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + ' ' + ask +
         (r.label ? ' <span class="muted">(' + rbEsc_(r.label) + ')</span>' : '') + '</td><td class="tnum">' + rbEsc_(r.win || '-') + '</td><td>' + who + '</td></tr>';
     }).join('');
-    return '<div class="sectionlabel">🆘 หาซัพจาก <b>' + rbEsc_(srcs.join(' + ')) + '</b> (คำร้องจริงจากทีม) — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
+    return '<div class="sectionlabel">🆘 หาซัพจาก <b>' + rbEsc_(srcs.join(' + ')) + '</b> (คำร้องจริงจากทีม) — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> · <b class="badd">' + nOpen + '</b> ยังต้องหาคน · <b class="okk">' + nCov + '</b> จัดแล้ว <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
       rbTblCard_('🆘 คำร้องขอซัพ + คนที่แนะนำ', '<tr><th>Flight</th><th>สาย</th><th>ระบบ</th><th>ตำแหน่งที่ขอ</th><th>ช่วงเวลา</th><th>คนที่แนะนำ (ว่าง · รู้ระบบ)</th></tr>', body, '');
   } catch (e) { return '<div class="panel" style="padding:20px">หาซัพจาก RQ ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }

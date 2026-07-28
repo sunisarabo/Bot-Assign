@@ -983,13 +983,17 @@ function slaManualSupportRows_(res, ll, requests) {
   return requests.map(function (rq) {
     var rawPh = String(rq.phase).toUpperCase();
     var ph = SLA_PH_LB[rawPh] ? rawPh : 'GATE';                // RF/ไม่รู้จัก → ใช้กลไกหาคนแบบ GATE (ปล่อยเครื่อง = งานเกท/แรมป์)
-    var n = Math.max(1, parseInt(rq.n, 10) || 1);
+    var reqN = Math.max(1, parseInt(rq.n, 10) || 1);           // จำนวนที่ขอทั้งหมด
+    var openN = (rq.open == null) ? reqN : Math.max(0, parseInt(rq.open, 10) || 0);   // ยังต้องหาคนกี่คน (หักคนที่ Duty/ทีมจัดแล้ว)
     var key = slaFlightKey_(rq.flight);
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
-    var row = slaSupRow_(f, ph, n, pool, winOv);
+    var row = slaSupRow_(f, ph, Math.max(1, openN), pool, winOv);
     row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
+    row.reqN = reqN; row.openN = openN; row.assigned = rq.assigned || '';   // จัดแล้วกี่คน/เหลือกี่คน + ชื่อที่จัดไว้
+    if (openN <= 0) { row.covered = true; row.shortN = 0; }   // ทุกสล็อตมีคนแล้ว → ไม่ต้องแนะนำ
+    else row.shortN = openN;
     if (rawPh === 'RF') row.phase = 'ปล่อยเครื่อง (RF)';       // แสดงเป็น RF แม้หาคนแบบเกท
     if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
     return row;
