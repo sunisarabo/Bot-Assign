@@ -271,10 +271,17 @@ function rbTimetableHtml(iso) {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var P = d.res.totals, L = d.ll && d.ll.totals.staff>0 ? d.ll.totals : null;
     var onDuty = (P.working+P.ot_off) + (L?(L.working+L.ot_off):0);
-    return '<style>' + rbVIEW_CSS_ + '</style>' + rbTblCard_('🕓 ตารางงานรายคน <span class="tt-cnt">' + onDuty + ' คนปฏิบัติงาน</span>',
+    var head = '<div class="tablecard__hd"><h3>🕓 ตารางงานรายคน <span class="tt-cnt">' + onDuty + ' คนปฏิบัติงาน</span></h3>' +
+      '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<input id="gtSearch" class="gt-search" placeholder="🔍 ค้นหาชื่อ/ทีม…" oninput="gtFilter()">' +
+      '<button class="btn" id="gtToggle" onclick="gtView()">📋 มุมมองตาราง</button></div></div>';
+    var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll) + '</div>';
+    var table = '<div id="gtTable" style="display:none">' + rbTblCard_('',
       '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
-      rbTtRows_(d.res, d.ll),
-      rbCtrls_('view-tt', true));
+      rbTtRows_(d.res, d.ll), '') + '</div>';
+    return '<style>' + rbVIEW_CSS_ + '</style>' + rbGanttCss_() +
+      '<div class="tablecard">' + head + '<div style="padding:0 16px 16px">' +
+      rbCtrls_('view-tt', false) + gantt + table + '</div></div>';
   } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 /** Lazy tab: Flights & SLA HTML. */
@@ -1057,6 +1064,91 @@ function rbTtRows_(res, ll) {
       '</td><td>'+rbFlightChips_(r.assignments, r.team, owner)+'</td></tr>';
   }).join('');
 }
+/** CSS สำหรับมุมมอง Gantt รายคน (แถบเวลา 24 ชม.) */
+function rbGanttCss_() {
+  return '<style>'+
+  '.gt{border:1px solid #d7e3f0;border-radius:12px;overflow:hidden;background:#fff}'+
+  '.gt-scroll{max-height:72vh;overflow-y:auto;overflow-x:hidden}'+
+  '.gt-row{display:grid;grid-template-columns:186px 1fr;align-items:stretch;border-bottom:1px solid #eef3f9}'+
+  '.gt-row:last-child{border-bottom:0}'+
+  '.gt-ruler{position:sticky;top:0;z-index:3;background:#f6f9fd;border-bottom:1px solid #d7e3f0}'+
+  '.gt-lbl{padding:7px 10px;border-right:1px solid #eef3f9;display:flex;flex-direction:column;justify-content:center;line-height:1.2;background:#fff}'+
+  '.gt-ruler .gt-lbl{background:#f6f9fd;font-weight:700;color:#1f4e79;font-size:12px}'+
+  '.gt-lbl b{font-size:13px;color:#12242f;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+  '.gt-lbl small{font-size:10.5px;color:#5b7189;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+  '.gt-axis{position:relative;height:26px}'+
+  '.gt-tick{position:absolute;top:5px;font-size:10.5px;color:#5b7189;transform:translateX(-50%);font-variant-numeric:tabular-nums}'+
+  '.gt-track{position:relative;height:46px;background:'+
+    'repeating-linear-gradient(90deg,#eef3f9 0 1px,transparent 1px,transparent calc(100%/24)),'+
+    'repeating-linear-gradient(90deg,#dbe6f2 0 1px,transparent 1px,transparent calc(100%/12))}'+
+  '.gt-seg{position:absolute;top:5px;height:20px;border-radius:6px;display:flex;align-items:center;padding:0 7px;overflow:hidden;box-shadow:0 1px 3px rgba(16,40,64,.18);min-width:3px}'+
+  '.gt-seg span{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+  '.gt-shift{background:linear-gradient(180deg,#2f74ad,#245d8f);color:#fff}'+
+  '.gt-ot{background:linear-gradient(180deg,#f7b733,#e39a10);color:#3a2800}'+
+  '.gt-flt{position:absolute;bottom:4px;transform:translateX(-4px);height:16px;background:#e8f1fa;border:1px solid #b9cfe6;border-radius:5px;padding:0 5px;display:flex;align-items:center;z-index:1}'+
+  '.gt-flt span{font-size:10px;font-weight:700;color:#1f4e79;white-space:nowrap}'+
+  '.gt-flt.sup{background:#fff1e0;border-color:#f0c088}.gt-flt.sup span{color:#b5651d}'+
+  '.gt-status{position:absolute;top:11px;left:8px;font-size:11.5px;font-weight:700;padding:2px 10px;border-radius:6px}'+
+  '.gt-status.off{background:#eef1f5;color:#5b7189}.gt-status.sl{background:#fbe9ec;color:#c93a4e}.gt-status.vac{background:#e8f1fa;color:#1f4e79}'+
+  '.gt-dim{opacity:.7}'+
+  '.gt-search{padding:6px 12px;border:1px solid #cfddec;border-radius:8px;font-family:inherit;font-size:13px;min-width:180px}'+
+  '@media(max-width:640px){.gt-row{grid-template-columns:120px 1fr}.gt-seg span{font-size:9.5px}}'+
+  '</style>';
+}
+/** มุมมอง Gantt: 1 คน = 1 แถบเวลา 24 ชม. (กะ=น้ำเงิน · OT=ส้ม · ไฟลท์=ป้าย) */
+function rbTtGantt_(res, ll) {
+  var owner = acOwnerTeams_(res, ll);
+  var rows = [];
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { rows.push(r); }); });
+  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { rows.push(r); }); });
+  var ord = { working: 0, ot_off: 1, off: 2, vac: 3, sick: 4 };
+  rows.sort(function (a, b) { return String(a.team).localeCompare(String(b.team)) || ((ord[a.bucket] || 0) - (ord[b.bucket] || 0)) || ((a.shiftStart == null ? 99999 : a.shiftStart) - (b.shiftStart == null ? 99999 : b.shiftStart)); });
+  function pmin(s) { var m = String(s || '').match(/(\d{1,2})[:.](\d{2})/); return m ? (+m[1] * 60 + +m[2]) : null; }
+  function pct(m) { return (m / 1440 * 100); }
+  function seg(lo, hi, cls, label, title) {
+    var out = '';
+    function one(a, b) { if (b <= a) return; out += '<div class="gt-seg ' + cls + '" style="left:' + pct(a) + '%;width:' + pct(b - a) + '%" title="' + rbAttr_(title || label) + '"><span>' + rbEsc_(label) + '</span></div>'; }
+    if (hi > 1440) { one(lo, 1440); one(0, hi - 1440); } else one(lo, hi);
+    return out;
+  }
+  var STLB = { off: 'OFF', sick: 'SL (ป่วย)', vac: 'ลา' }, STCLS = { off: 'off', sick: 'sl', vac: 'vac' };
+  var ticks = '';
+  for (var h = 0; h <= 24; h += 2) ticks += '<span class="gt-tick" style="left:' + pct(h * 60) + '%">' + ('0' + h).slice(-2) + '</span>';
+  var ruler = '<div class="gt-row gt-ruler"><div class="gt-lbl">คน (' + rows.length + ')</div><div class="gt-axis">' + ticks + '</div></div>';
+  var body = rows.map(function (r) {
+    var dn = rbAttr_(String(r.name + ' ' + r.team + ' ' + (r.id || '')).toLowerCase());
+    var head = '<div class="gt-lbl"><b>' + rbEsc_(r.name) + '</b><small>' + rbEsc_(r.team) + (r.pos ? ' · ' + rbEsc_(r.pos) : '') + '</small></div>';
+    var stl = STLB[r.bucket];
+    if (stl) return '<div class="gt-row gt-dim" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track"><div class="gt-status ' + STCLS[r.bucket] + '">' + stl + '</div></div></div>';
+    var du = acDuty_(r), track = '';
+    var isOtOff = r.bucket === 'ot_off';
+    var barLo = isOtOff ? du.ds : du.ss, barHi = isOtOff ? du.de : du.se;   // OT OFF = วันหยุดมาทำ OT → แถบคือช่วง OT (ds/de)
+    if (barLo != null && barHi != null) {
+      var shTxt = isOtOff ? ('OT' + (r.ot ? ' ' + r.ot + 'h' : '') + ' ' + rrFmtMin_(barLo) + '-' + rrFmtMin_(barHi % 1440))
+                          : ((r.shift || '') + ' ' + (r.shiftTime || (rrFmtMin_(du.ss) + '-' + rrFmtMin_(du.se % 1440))));
+      track += seg(barLo, barHi, isOtOff ? 'gt-ot' : 'gt-shift', shTxt.trim(), r.name + ' · ' + shTxt);
+    }
+    if (r.bucket !== 'ot_off') {
+      var spans = [];
+      if (r.otSpans && r.otSpans.length) r.otSpans.forEach(function (sp) { if (sp && sp.a != null) spans.push(sp); });
+      else { var orr = rrRangeStr_(r.otTime || ''); if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType }); }
+      spans.forEach(function (sp) {
+        var a = sp.a, b = (sp.b == null ? sp.a : sp.b); if (b <= a) b += 1440;
+        if (du.se != null) { while (a - du.se > 720) { a -= 1440; b -= 1440; } while (du.se - a > 720) { a += 1440; b += 1440; } }
+        track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''), 'OT ' + rrFmtMin_(a) + '-' + rrFmtMin_(b % 1440));
+      });
+    }
+    (r.assignments || []).forEach(function (a) {
+      if (!acIsFlight_(a.flight)) return;
+      var tm = pmin(a.STD); if (tm == null) tm = pmin(a.STA); if (tm == null) return;
+      var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
+      track += '<div class="gt-flt' + (sup ? ' sup' : '') + '" style="left:' + pct(tm) + '%" title="' + rbAttr_(a.flight + ' ' + (a.STA || '') + '/' + (a.STD || '')) + '"><span>' + rbEsc_(a.flight) + (sup ? ' 🔁' : '') + '</span></div>';
+    });
+    return '<div class="gt-row" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track">' + track + '</div></div>';
+  }).join('');
+  return '<div class="gt"><div class="gt-scroll">' + ruler + body + '</div></div>' +
+    '<div class="muted" style="margin-top:8px;font-size:12px">🟦 กะ · 🟧 OT · ป้าย = ไฟลท์ (🔁 = ซัพข้ามทีม) · แกน 00–24 น. · ข้ามเที่ยงคืนตัดเป็น 2 ท่อน</div>';
+}
 function rbFltRows_(res, ll) {
   return slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); }).map(function (f) {   // ซ่อนเศษขา (ขาที่สองซ้ำของไฟลท์ที่มีอยู่แล้ว)
     try {
@@ -1232,6 +1324,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'var LD={};function lazy(box,fn,id){if(STATIC||LD[id])return;LD[id]=1;if(!(window.google&&google.script&&google.script.run)){document.getElementById(box).innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">เปิดผ่าน Web App URL (/exec) เพื่อดูส่วนนี้</div>";return;}' +
     'google.script.run.withSuccessHandler(function(h){document.getElementById(box).innerHTML=h;makeSortable();buildTeamSels();buildExpTeams();}).withFailureHandler(function(e){LD[id]=0;document.getElementById(box).innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";})[fn](ISO);}' +
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}' +
+    'function gtView(){var w=document.getElementById("gtWrap"),t=document.getElementById("gtTable"),b=document.getElementById("gtToggle");if(!w||!t)return;var g=w.style.display!=="none";w.style.display=g?"none":"";t.style.display=g?"":"none";if(b)b.textContent=g?"📊 มุมมอง Gantt":"📋 มุมมองตาราง";}' +
+    'function gtFilter(){var e=document.getElementById("gtSearch");if(!e)return;var q=(e.value||"").toLowerCase().trim();[].forEach.call(document.querySelectorAll("#gtWrap .gt-row"),function(r){if(r.classList.contains("gt-ruler"))return;var n=r.getAttribute("data-name")||"";r.style.display=(!q||n.indexOf(q)>=0)?"":"none";});}' +
     'window.__supAdd=window.__supAdd||[];' +
     'function supAddReq(){var fe=document.getElementById("supAddFlt");var f=(fe?fe.value:"").trim().toUpperCase();var ph=document.getElementById("supAddPh").value;var n=Math.max(1,parseInt(document.getElementById("supAddN").value||"1",10)||1);var we=document.getElementById("supAddWin");var win=(we?we.value:"").trim();if(!f){alert("ใส่เลขไฟลท์ก่อน เช่น PG270");return;}window.__supAdd.push({flight:f,phase:ph,n:n,win:win});supReload();}' +
     'function supClearReq(){window.__supAdd=[];supReload();}' +
