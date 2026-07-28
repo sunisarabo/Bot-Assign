@@ -5967,7 +5967,7 @@ function dutyExportSheet(iso, text) {
 }
 
 // ─── RQ SUPPORT: อ่าน "ไฟล์รวมคำร้องขอซัพ" (แท็บวันที่ = ข้อความไลน์) → หาคนซัพ (แยกจาก SLA) ───
-var RQ_SHEET_ID = '';   // ← ID ไฟล์รวม RQ Support (เว้นว่าง = ปิด) · หรือตั้ง Script Property 'RQ_SHEET_ID'
+var RQ_SHEET_ID = '1tOsBEK8UQGkV_T5rSLgxmlf7SYQYUFbW8je8vXWCXkU';   // ← ID ไฟล์รวม RQ Support (เว้นว่าง = ปิด) · Script Property 'RQ_SHEET_ID' จะ override ค่านี้ถ้าตั้งไว้
 function rqSheetId_() {
   try { var v = PropertiesService.getScriptProperties().getProperty('RQ_SHEET_ID'); if (v) return String(v).trim(); } catch (e) {}
   return RQ_SHEET_ID;
