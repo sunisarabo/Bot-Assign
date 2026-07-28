@@ -295,16 +295,36 @@ function rqReadText_(ss, date) {
     return (b && b !== a) ? b : a;   // มีคอลัมน์ B (เวอร์ชันเติมชื่อจริง) → ใช้ B
   }).join('\n');
 }
-/** Lazy view: 🆘 หาซัพจากไฟล์ RQ (คำร้องจริงจากทีม) — แยกจาก SLA */
+// ─── อ่านคำร้องจาก Gmail (บัญชีที่รันสคริปต์) ───
+var RQ_GMAIL_QUERY = '';   // Script Property 'RQ_GMAIL_QUERY' — คำค้น Gmail เช่น "subject:(ขอซัพพอร์ต) newer_than:3d" (เว้นว่าง = ปิด)
+function rqGmailQuery_() { try { var v = PropertiesService.getScriptProperties().getProperty('RQ_GMAIL_QUERY'); if (v) return String(v).trim(); } catch (e) {} return RQ_GMAIL_QUERY; }
+/** อ่านอีเมลคำร้องขอซัพจาก Gmail ของ "บัญชีที่รันสคริปต์" → ข้อความรวม (เลือกเมลที่กล่าวถึงวันเป้าหมาย หรือรับใกล้วันนั้น ±2 วัน) */
+function rqReadGmail_(date) {
+  var q = rqGmailQuery_(); if (!q || typeof GmailApp === 'undefined') return '';
+  var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  var dd = date.getDate(), dRe = new RegExp('\\b0?' + dd + '\\s*[\\/\\-\\s]?\\s*(' + MON[date.getMonth()] + '|' + (date.getMonth() + 1) + ')\\b', 'i');
+  var out = [];
+  try {
+    GmailApp.search(q, 0, 40).forEach(function (th) {
+      th.getMessages().forEach(function (m) {
+        var subj = m.getSubject() || '', body = m.getPlainBody() || '';
+        if (dRe.test(subj) || dRe.test(body.slice(0, 500)) || Math.abs(m.getDate().getTime() - date.getTime()) < 2 * 86400000)
+          out.push(subj + '\n' + body);
+      });
+    });
+  } catch (e) {}
+  return out.join('\n\n———\n\n');
+}
+/** Lazy view: 🆘 หาซัพจากคำร้องจริง (ไฟล์ RQ + Gmail) — แยกจาก SLA */
 function rqFindSupport(iso) {
   try {
-    if (!rqSheetId_()) return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ RQ Support</b><br><span class="muted">ตั้ง ID ไฟล์รวมคำร้อง ที่ Script Property <b>RQ_SHEET_ID</b> (แท็บ = วันที่ เช่น 15JAN) แล้วรีเฟรช</span></div>';
     var date = iso ? rbDateFromIso_(iso) : new Date();
-    var ss = SpreadsheetApp.openById(rqSheetId_());
-    var text = rqReadText_(ss, date);
-    if (text == null) return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ ' + rbEsc_(date.getDate() + ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][date.getMonth()]) + ' ในไฟล์ RQ</div>';
+    var text = '', srcs = [];
+    if (rqSheetId_()) { try { var t = rqReadText_(SpreadsheetApp.openById(rqSheetId_()), date); if (t) { text += t + '\n'; srcs.push('ไฟล์ RQ'); } } catch (eS) {} }
+    var gm = rqReadGmail_(date); if (gm) { text += '\n' + gm; srcs.push('Gmail'); }
+    if (!text.trim()) return '<div class="panel" style="padding:22px"><b>ยังไม่มีแหล่งคำร้อง</b><br><span class="muted">ตั้ง Script Property <b>RQ_SHEET_ID</b> (ไฟล์รวมคำร้อง) หรือ <b>RQ_GMAIL_QUERY</b> (คำค้น Gmail) อย่างใดอย่างหนึ่ง</span></div>';
     var reqs = dutyParseRequests_(text);
-    if (!reqs.length) return '<div class="panel muted" style="padding:22px">แท็บวันนี้มีข้อความ แต่แตกเป็นคำร้องไม่ได้ (ตรวจรูปแบบ)</div>';
+    if (!reqs.length) return '<div class="panel muted" style="padding:22px">มีข้อความจาก ' + rbEsc_(srcs.join('+')) + ' แต่แตกเป็นคำร้องไม่ได้ (ตรวจรูปแบบ)</div>';
     var d = rbLoadResLL_(date);
     var rows = slaManualSupportRows_(d.res, d.ll, reqs);
     var body = rows.map(function (r) {
@@ -315,7 +335,7 @@ function rqFindSupport(iso) {
         '</td><td>' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + ' ขอ ' + r.shortN +
         (r.label ? ' <span class="muted">(' + rbEsc_(r.label) + ')</span>' : '') + '</td><td class="tnum">' + rbEsc_(r.win || '-') + '</td><td>' + who + '</td></tr>';
     }).join('');
-    return '<div class="sectionlabel">🆘 หาซัพจาก <b>ไฟล์ RQ (คำร้องจริงจากทีม)</b> — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
+    return '<div class="sectionlabel">🆘 หาซัพจาก <b>' + rbEsc_(srcs.join(' + ')) + '</b> (คำร้องจริงจากทีม) — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
       rbTblCard_('🆘 คำร้องขอซัพ + คนที่แนะนำ', '<tr><th>Flight</th><th>สาย</th><th>ระบบ</th><th>ตำแหน่งที่ขอ</th><th>ช่วงเวลา</th><th>คนที่แนะนำ (ว่าง · รู้ระบบ)</th></tr>', body, '');
   } catch (e) { return '<div class="panel" style="padding:20px">หาซัพจาก RQ ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
