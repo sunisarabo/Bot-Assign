@@ -156,7 +156,7 @@ function wfWeekDates_(date) {
 function wfWeekSummary_(fileId, date) {
   var id = fileId || wfFileId_();
   if (!id) return null;
-  var ss = SpreadsheetApp.openById(id);
+  var ss; try { ss = SpreadsheetApp.openById(id); } catch (ePerm) { return { _noAccess: id }; }   // เปิดไฟล์ไม่ได้ (สิทธิ์/ID) → คืน sentinel ให้หน้าแสดงวิธีแก้
   var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   return wfWeekDates_(date).map(function (d) {

@@ -842,7 +842,14 @@ function rbAdvanceHtml(iso, commonsJson) {
       }
     });
     return datebar + cciBar + hd + tbl + commonHtml + benchHtml;
-  } catch (e) { return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>'; }
+  } catch (e) {
+    // เปิดไฟล์ไม่ได้เพราะสิทธิ์ (บัญชีที่รันสคริปต์ไม่ได้แชร์) → การ์ดบอกวิธีแชร์ พร้อมอีเมลที่ต้องแชร์ให้
+    if (/สิทธิ|permission|access|denied|You do not have/i.test(String(e && e.message)) && typeof rbNoAccessCard_ === 'function') {
+      var fid = (typeof wfFileId_ === 'function' && wfFileId_()) || advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID) || '';
+      return rbNoAccessCard_('ตารางบิน/ชีตล่วงหน้า', fid);
+    }
+    return '<div class="panel">โหลด "จัดเวรล่วงหน้า" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total) และรหัสชีตใน Script Properties</div></div>';
+  }
 }
 
 /** ทดสอบการอ่านลิงก์สด (รันใน Apps Script editor เพื่อตรวจสิทธิ์/โครงสร้าง) — ไม่มี _ ท้าย จะได้ขึ้นใน Run */

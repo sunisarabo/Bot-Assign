@@ -938,6 +938,7 @@ function rbWeekFlightsHtml(iso) {
       return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ตารางบิน</b><br><span class="muted">ตั้ง ID ไฟล์ Summary Weekly Flight ที่ <b>Project Settings → Script Properties</b> คีย์ <b>WF_FILE_ID</b> (หรือตัวแปร WF_FILE_ID ใน WeeklyFlight.gs) · แท็บชื่อวันที่ DDMON เช่น 17JUL แล้วรีเฟรช</span></div>';
     var date = iso ? rbDateFromIso_(iso) : new Date();
     var week = wfWeekSummary_(wfFileId_(), date);
+    if (week && week._noAccess) return rbNoAccessCard_('ตารางบิน (Weekly Flight)', week._noAccess);
     if (!week) return '<div class="panel muted" style="padding:22px">เปิดไฟล์ตารางบินไม่ได้ (ตรวจสิทธิ์เข้าถึง / ID) หรือไม่มีข้อมูล</div>';
     var anyFound = week.some(function (d) { return d.found; });
     if (!anyFound) return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ของสัปดาห์นี้ในไฟล์ตารางบิน (ชื่อแท็บต้องเป็น DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>)</div>';
@@ -968,6 +969,17 @@ function rbWeekFlightsHtml(iso) {
     }).join('');
     return sum + '<div class="sectionlabel" style="margin-top:14px">📋 รายไฟลท์ต่อวัน <span class="muted">(กดวันเพื่อกางดู)</span></div>' + det;
   } catch (e) { return '<div class="panel" style="padding:20px">ภาพรวมสัปดาห์ผิดพลาด: ' + rbEsc_(e.message) + '</div>'; }
+}
+/** การ์ดแจ้ง: เปิดไฟล์ไม่ได้เพราะบัญชีที่รันสคริปต์ไม่มีสิทธิ์ — บอกอีเมลที่ต้องแชร์ให้ + ลิงก์ไฟล์ */
+function rbNoAccessCard_(what, fileId) {
+  var acct = '';
+  try { acct = Session.getEffectiveUser().getEmail(); } catch (e) {}
+  return '<div class="panel" style="padding:22px">' +
+    '<b>⚠️ เปิดไฟล์' + rbEsc_(what) + 'ไม่ได้ — บัญชีที่รันสคริปต์ไม่มีสิทธิ์เข้าถึง</b>' +
+    '<div class="muted" style="margin-top:8px;line-height:1.7">วิธีแก้: เปิดไฟล์ใน Google Drive → ปุ่ม <b>Share</b> → เพิ่มอีเมล' +
+    (acct ? ' <b>' + rbEsc_(acct) + '</b>' : ' <b>ที่ deploy เป็น "Execute as"</b>') + ' เป็น <b>Viewer/Editor</b> แล้วรีเฟรช<br>' +
+    '(ไฟล์นี้ถูกสร้างด้วยอีกบัญชี ระบบเลยเปิดไม่ได้ — แชร์ครั้งเดียวจบ)</div>' +
+    '<div style="margin-top:10px"><a href="https://docs.google.com/spreadsheets/d/' + rbEsc_(fileId) + '" target="_blank">🔗 เปิดไฟล์เพื่อกด Share</a></div></div>';
 }
 /** การ์ดเตือน: คนที่อยู่ในเวรวันนี้แต่ไม่มีรหัสในไฟล์รายชื่อ (master) → ให้ไปเพิ่มใน master ให้ครบ
  *  (ตัดแถว SUPPORT/รหัสจำลองออก · เทียบเฉพาะรหัสจริง 6-8 หลัก) */
