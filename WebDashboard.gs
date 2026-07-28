@@ -1033,7 +1033,7 @@ function rbTtRows_(res, ll) {
         '</td><td class="muted">—</td><td class="tnum">0</td><td class="muted">—</td></tr>';
     }
     var sh = rbEsc_(r.shift||'') + (r.shiftTime&&r.shiftTime!==r.shift ? ' <span class="muted">'+r.shiftTime+'</span>' : '');
-    var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot, r.bucket) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช · ot_off นับแค่ OT)
+    var hs = (typeof slaHoursStat_==='function') ? slaHoursStat_(r.shiftHrs, r.ot, r.bucket, r) : null;   // สถานะชั่วโมงตามระเบียบ (กะ 7-12ช · ot_off นับแค่ OT)
     var ot = r.ot ? ((r.bucket==='ot_off'?'<span class="tag">OFF</span>':(r.otType==='PRE'?'<span class="tag">ก่อน</span>':'<span class="tag">หลัง</span>'))+' '+(r.otTime||'')+' <span class="muted">('+r.ot+'h)</span>') : '<span class="muted">—</span>';
     if (hs) ot += ' <span class="muted">· รวม '+hs.total+'ช</span>' + (hs.level!=='ok' ? ' <span class="'+(hs.level==='short'?'tag':'badd')+'">⚠️ '+rbEsc_(hs.txt)+'</span>' : '');
     var _src = {master:'·จากรายชื่อ', map:'·จากตารางแมป', '':'·จากชื่อในเวร'};
