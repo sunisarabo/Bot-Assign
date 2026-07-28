@@ -8131,8 +8131,9 @@ function rbTtGantt_(res, ll, nowMin) {
       var hi = pmin(a.CL); if (hi == null) hi = pmin(a.STD); if (hi == null) hi = lo + 35;
       if (hi < lo) hi += 1440; if (hi - lo < 35) hi = lo + 35;   // เวลาจริง (ไม่ realign) · min 35 นาที ให้ป้ายพออ่าน
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
+      var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
       flts.push({ lo: lo, hi: hi, ph: rbFltPhase_(a.task), sup: sup,
-        lab: rbEsc_(a.flight) + (sup ? ' 🔁' : ''), ttl: rbAttr_(a.flight + (a.task ? ' (' + a.task + ')' : '') + ' · ' + ((a.OP || a.STA || '–') + '-' + (a.CL || a.STD || '–'))) });
+        lab: rbEsc_(leg1) + (sup ? ' 🔁' : ''), ttl: rbAttr_(a.flight + (a.task ? ' (' + a.task + ')' : '') + ' · ' + ((a.OP || a.STA || '–') + '-' + (a.CL || a.STD || '–'))) });
     });
     // จัดเลนกันทับ: เรียงตามเวลาเริ่ม แล้ววางเลนแรกที่ว่าง
     flts.sort(function (x, y) { return x.lo - y.lo; });
