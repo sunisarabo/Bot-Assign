@@ -7239,8 +7239,12 @@ function rbTimetableHtml(iso) {
     var head = '<div class="tablecard__hd"><h3>🕓 ตารางงานรายคน <span class="tt-cnt">' + onDuty + ' คนปฏิบัติงาน</span></h3>' +
       '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<input id="gtSearch" class="gt-search" placeholder="🔍 ค้นหาชื่อ/ทีม…" oninput="gtFilter()">' +
+      '<button class="btn" id="gtOffBtn" onclick="gtOff()">🙈 ซ่อนคนหยุด</button>' +
       '<button class="btn" id="gtToggle" onclick="gtView()">📋 มุมมองตาราง</button></div></div>';
-    var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll) + '</div>';
+    // เส้นเวลาปัจจุบัน — เฉพาะเมื่อดูวันที่ = วันนี้ (ตามเขต Asia/Bangkok)
+    var nowMin = -1;
+    try { var nw = new Date(), tz = Session.getScriptTimeZone(); if (Utilities.formatDate(nw, tz, 'yyyy-MM-dd') === iso) nowMin = +Utilities.formatDate(nw, tz, 'H') * 60 + +Utilities.formatDate(nw, tz, 'm'); } catch (eN) {}
+    var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll, nowMin) + '</div>';
     var table = '<div id="gtTable" style="display:none">' + rbTblCard_('',
       '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
       rbTtRows_(d.res, d.ll), '') + '</div>';
@@ -8043,16 +8047,24 @@ function rbGanttCss_() {
   '.gt-lbl small{font-size:10.5px;color:#5b7189;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
   '.gt-axis{position:relative;height:26px}'+
   '.gt-tick{position:absolute;top:5px;font-size:10.5px;color:#5b7189;transform:translateX(-50%);font-variant-numeric:tabular-nums}'+
-  '.gt-track{position:relative;height:46px;background:'+
+  '.gt-track{position:relative;min-height:44px;background:'+
     'repeating-linear-gradient(90deg,#eef3f9 0 1px,transparent 1px,transparent calc(100%/24)),'+
     'repeating-linear-gradient(90deg,#dbe6f2 0 1px,transparent 1px,transparent calc(100%/12))}'+
   '.gt-seg{position:absolute;top:5px;height:20px;border-radius:6px;display:flex;align-items:center;padding:0 7px;overflow:hidden;box-shadow:0 1px 3px rgba(16,40,64,.18);min-width:3px}'+
   '.gt-seg span{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
   '.gt-shift{background:linear-gradient(180deg,#2f74ad,#245d8f);color:#fff}'+
   '.gt-ot{background:linear-gradient(180deg,#f7b733,#e39a10);color:#3a2800}'+
-  '.gt-flt{position:absolute;bottom:4px;height:16px;background:#dcebfa;border:1px solid #a8c6e6;border-radius:5px;padding:0 5px;display:flex;align-items:center;overflow:hidden;min-width:3px;z-index:1}'+
-  '.gt-flt span{font-size:10px;font-weight:700;color:#1f4e79;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
-  '.gt-flt.sup{background:#fff1e0;border-color:#f0c088}.gt-flt.sup span{color:#b5651d}'+
+  '.gt-flt{position:absolute;height:16px;border-radius:5px;padding:0 5px;display:flex;align-items:center;overflow:hidden;min-width:3px;z-index:1;border:1px solid}'+
+  '.gt-flt span{font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+  '.gt-flt.ci{background:#dcebfa;border-color:#a8c6e6}.gt-flt.ci span{color:#1f4e79}'+
+  '.gt-flt.gate{background:#dcf2e4;border-color:#96d1ab}.gt-flt.gate span{color:#1c7a4f}'+
+  '.gt-flt.arr{background:#ece8fb;border-color:#c1b9e8}.gt-flt.arr span{color:#584fb0}'+
+  '.gt-flt.na{background:#eef1f5;border-color:#d3ddea}.gt-flt.na span{color:#5b7189}'+
+  '.gt-flt.sup{border-color:#e39a10;border-width:1.5px}'+
+  '.gt-now{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:2;pointer-events:none}'+
+  '.gt-hideoff .gt-dim{display:none}'+
+  '.gt-lg{display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:11px;color:#5b7189}'+
+  '.gt-lg i{width:11px;height:11px;border-radius:3px;display:inline-block;border:1px solid}'+
   '.gt-status{position:absolute;top:11px;left:8px;font-size:11.5px;font-weight:700;padding:2px 10px;border-radius:6px}'+
   '.gt-status.off{background:#eef1f5;color:#5b7189}.gt-status.sl{background:#fbe9ec;color:#c93a4e}.gt-status.vac{background:#e8f1fa;color:#1f4e79}'+
   '.gt-dim{opacity:.7}'+
@@ -8060,8 +8072,17 @@ function rbGanttCss_() {
   '@media(max-width:640px){.gt-row{grid-template-columns:120px 1fr}.gt-seg span{font-size:9.5px}}'+
   '</style>';
 }
-/** มุมมอง Gantt: 1 คน = 1 แถบเวลา 24 ชม. (กะ=น้ำเงิน · OT=ส้ม · ไฟลท์=ป้าย) */
-function rbTtGantt_(res, ll) {
+/** เฟสของไฟลท์จากรหัสงาน → สีป้าย (ci/gate/arr/na) */
+function rbFltPhase_(task) {
+  var u = String(task || '').toUpperCase();
+  if (/\bGATE\b|\bGTE\b|\bGA\b|\bGC\b|\bGD\b|\bGI\b|BOARD/.test(u)) return 'gate';
+  if (/\bARR\b|ARRIVAL|\bCIQ\b|\bIB\b|MEET|TRANSFER|T\/F|\bTF\b|\bT\/S\b/.test(u)) return 'arr';
+  if (/CHK|CHECK|\bCI\b|\bCT\d|\bCS\b|\bY\d?\b|\bJ\d?\b|PSC|IPAD|PRIO|\bFC\b|\bF\d/.test(u)) return 'ci';
+  return 'na';
+}
+/** มุมมอง Gantt: 1 คน = 1 แถบเวลา 24 ชม. (กะ=น้ำเงิน · OT=ส้ม · ไฟลท์=สีตามเฟส) · nowMin>=0 → เส้นเวลาปัจจุบัน */
+function rbTtGantt_(res, ll, nowMin) {
+  if (nowMin == null) nowMin = -1;
   var owner = acOwnerTeams_(res, ll);
   var rows = [];
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { rows.push(r); }); });
@@ -8084,7 +8105,7 @@ function rbTtGantt_(res, ll) {
     var dn = rbAttr_(String(r.name + ' ' + r.team + ' ' + (r.id || '')).toLowerCase());
     var head = '<div class="gt-lbl"><b>' + rbEsc_(r.name) + '</b><small>' + rbEsc_(r.team) + (r.pos ? ' · ' + rbEsc_(r.pos) : '') + '</small></div>';
     var stl = STLB[r.bucket];
-    if (stl) return '<div class="gt-row gt-dim" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track"><div class="gt-status ' + STCLS[r.bucket] + '">' + stl + '</div></div></div>';
+    if (stl) return '<div class="gt-row gt-dim" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track"><div class="gt-status ' + STCLS[r.bucket] + '">' + stl + '</div>' + (nowMin >= 0 ? '<div class="gt-now" style="left:' + pct(nowMin) + '%"></div>' : '') + '</div></div>';
     var du = acDuty_(r), track = '';
     var isOtOff = r.bucket === 'ot_off';
     var barLo = isOtOff ? du.ds : du.ss, barHi = isOtOff ? du.de : du.se;   // OT OFF = วันหยุดมาทำ OT → แถบคือช่วง OT (ds/de)
@@ -8103,24 +8124,49 @@ function rbTtGantt_(res, ll) {
         track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''), 'OT ' + rrFmtMin_(a) + '-' + rrFmtMin_(b % 1440));
       });
     }
+    // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
+    var flts = [];
     (r.assignments || []).forEach(function (a) {
       if (!acIsFlight_(a.flight)) return;
-      // วางตาม "ช่วงเวลาที่ถูก assign ให้ทำจริง": เคาน์เตอร์ OP–CL ก่อน (เช็คอิน) · ไม่งั้น STA–STD (ขาเข้า/เกท)
       var lo = pmin(a.OP); if (lo == null) lo = pmin(a.STA); if (lo == null) lo = pmin(a.STD); if (lo == null) return;
       var hi = pmin(a.CL); if (hi == null) hi = pmin(a.STD); if (hi == null) hi = lo + 20;
-      if (hi < lo) hi += 1440; if (hi - lo < 20) hi = lo + 20;   // อย่างน้อยกว้างพอเห็นป้าย
-      // จัดให้อยู่ใกล้กะ (กันไฟลท์ดึกไปโผล่ต้นแกน)
+      if (hi < lo) hi += 1440; if (hi - lo < 20) hi = lo + 20;
       if (du.se != null) { while (lo - du.se > 720) { lo -= 1440; hi -= 1440; } }
       if (barLo != null) { while (barLo - lo > 900) { lo += 1440; hi += 1440; } }
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
-      var lab = rbEsc_(a.flight) + (sup ? ' 🔁' : ''), ttl = rbAttr_(a.flight + ' · ' + ((a.OP || a.STA || '–') + '-' + (a.CL || a.STD || '–')));
-      function fone(x, y) { if (y <= x) return; track += '<div class="gt-flt' + (sup ? ' sup' : '') + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%" title="' + ttl + '"><span>' + lab + '</span></div>'; }
-      if (hi > 1440) { fone(lo, 1440); fone(0, hi - 1440); } else fone(lo < 0 ? 0 : lo, hi);
+      flts.push({ lo: lo, hi: hi, ph: rbFltPhase_(a.task), sup: sup,
+        lab: rbEsc_(a.flight) + (sup ? ' 🔁' : ''), ttl: rbAttr_(a.flight + (a.task ? ' (' + a.task + ')' : '') + ' · ' + ((a.OP || a.STA || '–') + '-' + (a.CL || a.STD || '–'))) });
     });
-    return '<div class="gt-row" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track">' + track + '</div></div>';
+    // จัดเลนกันทับ: เรียงตามเวลาเริ่ม แล้ววางเลนแรกที่ว่าง
+    flts.sort(function (x, y) { return x.lo - y.lo; });
+    var laneEnd = [];
+    flts.forEach(function (f) {
+      var ln = -1;
+      for (var i = 0; i < laneEnd.length; i++) { if (f.lo >= laneEnd[i] - 1) { ln = i; break; } }
+      if (ln < 0) { ln = laneEnd.length; laneEnd.push(0); }
+      laneEnd[ln] = f.hi; f.lane = ln;
+    });
+    var nLanes = laneEnd.length;
+    flts.forEach(function (f) {
+      var top = 30 + f.lane * 18;
+      function fone(x, y) { if (y <= x) return; track += '<div class="gt-flt ' + f.ph + (f.sup ? ' sup' : '') + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%;top:' + top + 'px" title="' + f.ttl + '"><span>' + f.lab + '</span></div>'; }
+      if (f.hi > 1440) { fone(f.lo, 1440); fone(0, f.hi - 1440); } else fone(f.lo < 0 ? 0 : f.lo, f.hi);
+    });
+    if (nowMin >= 0) track += '<div class="gt-now" style="left:' + pct(nowMin) + '%"></div>';
+    var H = nLanes ? (30 + nLanes * 18 + 6) : 44;
+    return '<div class="gt-row" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track" style="height:' + H + 'px">' + track + '</div></div>';
   }).join('');
   return '<div class="gt"><div class="gt-scroll">' + ruler + body + '</div></div>' +
-    '<div class="muted" style="margin-top:8px;font-size:12px">🟦 กะ · 🟧 OT · ป้าย = ไฟลท์ (🔁 = ซัพข้ามทีม) · แกน 00–24 น. · ข้ามเที่ยงคืนตัดเป็น 2 ท่อน</div>';
+    '<div style="margin-top:8px">' +
+    '<span class="gt-lg"><i style="background:#2f74ad;border-color:#245d8f"></i>กะ</span>' +
+    '<span class="gt-lg"><i style="background:#f7b733;border-color:#e39a10"></i>OT</span>' +
+    '<span class="gt-lg"><i style="background:#dcebfa;border-color:#a8c6e6"></i>เช็คอิน</span>' +
+    '<span class="gt-lg"><i style="background:#dcf2e4;border-color:#96d1ab"></i>เกท</span>' +
+    '<span class="gt-lg"><i style="background:#ece8fb;border-color:#c1b9e8"></i>ขาเข้า</span>' +
+    '<span class="gt-lg"><i style="background:#eef1f5;border-color:#d3ddea"></i>อื่น ๆ</span>' +
+    '<span class="gt-lg"><i style="background:#e5484d;border-color:#e5484d;width:3px"></i>เวลาปัจจุบัน</span>' +
+    '<span class="gt-lg">🔁 ซัพข้ามทีม (ขอบส้ม)</span>' +
+    '<span class="muted" style="font-size:11px">· ไฟลท์วางตามเวลาเคาน์เตอร์/งานจริง · ทับกันแยกเป็นเลน</span></div>';
 }
 function rbFltRows_(res, ll) {
   return slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); }).map(function (f) {   // ซ่อนเศษขา (ขาที่สองซ้ำของไฟลท์ที่มีอยู่แล้ว)
@@ -8299,6 +8345,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}' +
     'function gtView(){var w=document.getElementById("gtWrap"),t=document.getElementById("gtTable"),b=document.getElementById("gtToggle");if(!w||!t)return;var g=w.style.display!=="none";w.style.display=g?"none":"";t.style.display=g?"":"none";if(b)b.textContent=g?"📊 มุมมอง Gantt":"📋 มุมมองตาราง";}' +
     'function gtFilter(){var e=document.getElementById("gtSearch");if(!e)return;var q=(e.value||"").toLowerCase().trim();[].forEach.call(document.querySelectorAll("#gtWrap .gt-row"),function(r){if(r.classList.contains("gt-ruler"))return;var n=r.getAttribute("data-name")||"";r.style.display=(!q||n.indexOf(q)>=0)?"":"none";});}' +
+    'function gtOff(){var w=document.getElementById("gtWrap"),b=document.getElementById("gtOffBtn");if(!w)return;var h=w.classList.toggle("gt-hideoff");if(b)b.textContent=h?"👁️ แสดงคนหยุด":"🙈 ซ่อนคนหยุด";}' +
     'window.__supAdd=window.__supAdd||[];' +
     'function supAddReq(){var fe=document.getElementById("supAddFlt");var f=(fe?fe.value:"").trim().toUpperCase();var ph=document.getElementById("supAddPh").value;var n=Math.max(1,parseInt(document.getElementById("supAddN").value||"1",10)||1);var we=document.getElementById("supAddWin");var win=(we?we.value:"").trim();if(!f){alert("ใส่เลขไฟลท์ก่อน เช่น PG270");return;}window.__supAdd.push({flight:f,phase:ph,n:n,win:win});supReload();}' +
     'function supClearReq(){window.__supAdd=[];supReload();}' +
