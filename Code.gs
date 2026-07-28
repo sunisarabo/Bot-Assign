@@ -2748,8 +2748,9 @@ function slaCandView_(c) {
            shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
 }
 /** สร้าง 1 แถวซัพพอร์ต: ไฟลท์ f · phase ph · ขาด n คน · จาก pool · winOverride = ช่วงเวลาที่ Duty ระบุ (ถ้ามี) */
-function slaSupRow_(f, ph, n, pool, winOverride) {
-  var elig = (typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' };
+function slaSupRow_(f, ph, n, pool, winOverride, ignoreElig) {
+  var elig = ignoreElig ? { ok: true, reason: '' }             // RQ = ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA (เช่น "รับซัพเฉพาะ ARR/GATE")
+    : ((typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' });
   var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND, winOverride) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
   var rwin = winOverride || slaPhaseWindow_(f, ph);
   if (rwin) cands.slice(0, n).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
@@ -2787,7 +2788,7 @@ function slaManualSupportRows_(res, ll, requests) {
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
-    var row = slaSupRow_(f, ph, Math.max(1, openN), pool, winOv);
+    var row = slaSupRow_(f, ph, Math.max(1, openN), pool, winOv, true);   // ignoreElig: RQ ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA
     row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
     row.reqN = reqN; row.openN = openN; row.assigned = rq.assigned || '';   // จัดแล้วกี่คน/เหลือกี่คน + ชื่อที่จัดไว้
     if (openN <= 0) { row.covered = true; row.shortN = 0; }   // ทุกสล็อตมีคนแล้ว → ไม่ต้องแนะนำ
