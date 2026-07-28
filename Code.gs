@@ -5766,7 +5766,10 @@ function dutyParseRequests_(text) {
   var out = [], curF = '', curSta = '', curStd = '', curWin = '', pending = null, fltFresh = false, rfMode = false;
   function flush(def) { if (pending) { if (pending.n == null) pending.n = def || 1; out.push(pending); pending = null; } }
   String(text || '').split(/\n/).forEach(function (raw) {
-    var s = raw.replace(/[🔺🔻▪️•]/g, '').trim(); if (!s) return;
+    // ตัด emoji/ธงชาติ (🇮🇳🇦🇺...) ออกทั้งบรรทัด — กันธงหน้าเลขไฟลท์ทำให้จับหัวไฟลท์ไม่ติด
+    var s = String(raw).replace(/[\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}️‍•▪]/gu, '').trim();
+    if (!s) return;
+    if (/^(เนื่องจาก|หมายเหตุ|\*?LACK OF|remark\b|note\b)/i.test(s)) return;   // บรรทัดหมายเหตุ ไม่ใช่คำขอ
     var wasFresh = fltFresh; fltFresh = false;   // fresh = บรรทัดก่อนเป็น "หัวไฟลท์เปล่า" → บรรทัดนี้ถ้าเป็นหัวไฟลท์สายเดียวกัน = ขาที่สองของ turnaround
     // หัวข้อ "ขอซัพปล่อยเครื่อง (RF)" — ตั้งโหมด RF ให้ไฟลท์ถัดไป (บรรทัด "SU285 CTC CTR G11 (0950)" ไม่มีคำตำแหน่งปกติ)
     if (!s.match(DI_FLT2) && /ปล่อยเครื่อง|\(RF\)|\bRELEASE\b|\bFLT\s*RL\b/i.test(s)) { rfMode = true; return; }
@@ -5961,6 +5964,61 @@ function dutyExportSheet(iso, text) {
   sh.setFrozenRows(1);
   [90, 110, 130, 60, 110, 110, 200].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   return ss.getUrl();
+}
+
+// ─── RQ SUPPORT: อ่าน "ไฟล์รวมคำร้องขอซัพ" (แท็บวันที่ = ข้อความไลน์) → หาคนซัพ (แยกจาก SLA) ───
+var RQ_SHEET_ID = '';   // ← ID ไฟล์รวม RQ Support (เว้นว่าง = ปิด) · หรือตั้ง Script Property 'RQ_SHEET_ID'
+function rqSheetId_() {
+  try { var v = PropertiesService.getScriptProperties().getProperty('RQ_SHEET_ID'); if (v) return String(v).trim(); } catch (e) {}
+  return RQ_SHEET_ID;
+}
+/** หาแท็บวันที่ในไฟล์ RQ — รองรับชื่อมั่ว "15jan"/"22 JUL"/"16Jan26"/"1 DEC25"/"9 MAR" (ตัดช่องว่าง+ปี) */
+function rqFindDateTab_(ss, date) {
+  var mon = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][date.getMonth()];
+  var dd = date.getDate();
+  var want = [String(dd) + mon, ('0' + dd).slice(-2) + mon];   // "15JAN" / "15JAN"
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var nm = sheets[i].getName().toUpperCase().replace(/\s+/g, '').replace(/(20)?2[0-9]$/, '');   // ตัดช่องว่าง + ปี (26/2026)
+    if (want.indexOf(nm) >= 0) return sheets[i];
+  }
+  return null;
+}
+/** อ่านข้อความคำร้องจากแท็บวันนั้น (คอลัมน์ A + B ที่มีชื่อจริง) → string */
+function rqReadText_(ss, date) {
+  var sh = rqFindDateTab_(ss, date);
+  if (!sh) return null;
+  var last = sh.getLastRow(); if (last < 1) return '';
+  var vals = sh.getRange(1, 1, last, Math.min(2, sh.getLastColumn())).getValues();
+  return vals.map(function (r) {
+    var a = r[0] == null ? '' : String(r[0]).trim();
+    var b = (r.length > 1 && r[1] != null) ? String(r[1]).trim() : '';
+    return (b && b !== a) ? b : a;   // มีคอลัมน์ B (เวอร์ชันเติมชื่อจริง) → ใช้ B
+  }).join('\n');
+}
+/** Lazy view: 🆘 หาซัพจากไฟล์ RQ (คำร้องจริงจากทีม) — แยกจาก SLA */
+function rqFindSupport(iso) {
+  try {
+    if (!rqSheetId_()) return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ RQ Support</b><br><span class="muted">ตั้ง ID ไฟล์รวมคำร้อง ที่ Script Property <b>RQ_SHEET_ID</b> (แท็บ = วันที่ เช่น 15JAN) แล้วรีเฟรช</span></div>';
+    var date = iso ? rbDateFromIso_(iso) : new Date();
+    var ss = SpreadsheetApp.openById(rqSheetId_());
+    var text = rqReadText_(ss, date);
+    if (text == null) return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ ' + rbEsc_(date.getDate() + ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][date.getMonth()]) + ' ในไฟล์ RQ</div>';
+    var reqs = dutyParseRequests_(text);
+    if (!reqs.length) return '<div class="panel muted" style="padding:22px">แท็บวันนี้มีข้อความ แต่แตกเป็นคำร้องไม่ได้ (ตรวจรูปแบบ)</div>';
+    var d = rbLoadResLL_(date);
+    var rows = slaManualSupportRows_(d.res, d.ll, reqs);
+    var body = rows.map(function (r) {
+      var who = r.cands && r.cands.length
+        ? r.cands.slice(0, Math.max(1, r.shortN)).map(function (c) { return '<b>' + rbEsc_(c.name) + '</b> <span class="muted">' + rbEsc_(c.team) + (c.off ? ' ⛱️OFF' : (c.rest ? ' 😴' : '')) + ' · ' + rbEsc_(c.shift || '') + ' · ' + (c.n || 0) + ' ไฟลท์</span>'; }).join('<br>')
+        : '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
+      return '<tr><td class="b">' + rbEsc_(r.flight) + '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') +
+        '</td><td>' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + ' ขอ ' + r.shortN +
+        (r.label ? ' <span class="muted">(' + rbEsc_(r.label) + ')</span>' : '') + '</td><td class="tnum">' + rbEsc_(r.win || '-') + '</td><td>' + who + '</td></tr>';
+    }).join('');
+    return '<div class="sectionlabel">🆘 หาซัพจาก <b>ไฟล์ RQ (คำร้องจริงจากทีม)</b> — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
+      rbTblCard_('🆘 คำร้องขอซัพ + คนที่แนะนำ', '<tr><th>Flight</th><th>สาย</th><th>ระบบ</th><th>ตำแหน่งที่ขอ</th><th>ช่วงเวลา</th><th>คนที่แนะนำ (ว่าง · รู้ระบบ)</th></tr>', body, '');
+  } catch (e) { return '<div class="panel" style="padding:20px">หาซัพจาก RQ ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
 
@@ -7490,7 +7548,7 @@ var RB_NAV_ = [
   ['flt','✈','Flights & SLA','loadFlt()','s'], ['sup','🆘','Support / เติมคน','loadSup()','s'],
   ['ac','🧭','ตรวจ Assign','loadAC()','a'],
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
-  ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'],
+  ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'], ['rq','📨','RQ ซัพ (คำร้อง)','loadRq()'],
   ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
 function rbRail_(shortCount, acCount) {
@@ -8018,6 +8076,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div id="view-week" style="display:none"><div id="weekbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตารางบินสัปดาห์…</div></div></div>' +
+    '<div id="view-rq" style="display:none"><div id="rqbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังอ่านคำร้อง RQ…</div></div></div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
     '<div id="view-dc" style="display:none"><div id="dcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจข้อมูล…</div></div></div>' +
     '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
@@ -8027,9 +8086,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","week","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","week","rq","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
+    'function loadRq(){lazy("rqbox","rqFindSupport","rq");}' +
     'function loadDc(){lazy("dcbox","rbDataCheckHtml","dc");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +
