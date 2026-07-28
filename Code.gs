@@ -6075,7 +6075,9 @@ function rqFindSupport(iso) {
     if (!text.trim()) return '<div class="panel" style="padding:22px"><b>ยังไม่มีแหล่งคำร้อง</b><br><span class="muted">ตั้ง Script Property <b>RQ_SHEET_ID</b> (ไฟล์รวมคำร้อง) หรือ <b>RQ_GMAIL_QUERY</b> (คำค้น Gmail) อย่างใดอย่างหนึ่ง</span></div>';
     var reqs = dutyParseRequests_(text);
     if (!reqs.length) return '<div class="panel muted" style="padding:22px">มีข้อความจาก ' + rbEsc_(srcs.join('+')) + ' แต่แตกเป็นคำร้องไม่ได้ (ตรวจรูปแบบ)</div>';
-    var d = rbLoadResLL_(date);
+    var d, noRoster = false;
+    try { d = rbLoadResLL_(date); }                            // roster วันนั้นเปิดไม่ได้ (วันอนาคต/ยังไม่แชร์) → ยังโชว์คำร้องได้ แค่ไม่จับคู่คนว่าง
+    catch (eR) { noRoster = true; d = { res: { teams: {} }, ll: { totals: { staff: 0 }, sections: {} } }; }
     var rows = slaManualSupportRows_(d.res, d.ll, reqs);
     var nOpen = 0, nCov = 0;
     var body = rows.map(function (r) {
@@ -6093,7 +6095,8 @@ function rqFindSupport(iso) {
         '</td><td>' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + ' ' + ask +
         (r.label ? ' <span class="muted">(' + rbEsc_(r.label) + ')</span>' : '') + '</td><td class="tnum">' + rbEsc_(r.win || '-') + '</td><td>' + who + '</td></tr>';
     }).join('');
-    return '<div class="sectionlabel">🆘 หาซัพจาก <b>' + rbEsc_(srcs.join(' + ')) + '</b> (คำร้องจริงจากทีม) — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> · <b class="badd">' + nOpen + '</b> ยังต้องหาคน · <b class="okk">' + nCov + '</b> จัดแล้ว <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
+    var warn = noRoster ? '<div class="panel" style="padding:10px 14px;background:#fff7e6;border-left:4px solid #fec909;margin-bottom:8px">⚠️ เปิด roster ของวันนี้ไม่ได้ (วันอนาคต หรือยังไม่แชร์ไฟล์) — แสดง<b>คำร้อง</b>ได้ แต่ยัง<b>ไม่ได้จับคู่คนว่าง</b></div>' : '';
+    return warn + '<div class="sectionlabel">🆘 หาซัพจาก <b>' + rbEsc_(srcs.join(' + ')) + '</b> (คำร้องจริงจากทีม) — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> · <b class="badd">' + nOpen + '</b> ยังต้องหาคน · <b class="okk">' + nCov + '</b> จัดแล้ว <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
       rbTblCard_('🆘 คำร้องขอซัพ + คนที่แนะนำ', '<tr><th>Flight</th><th>สาย</th><th>ระบบ</th><th>ตำแหน่งที่ขอ</th><th>ช่วงเวลา</th><th>คนที่แนะนำ (ว่าง · รู้ระบบ)</th></tr>', body, '');
   } catch (e) { return '<div class="panel" style="padding:20px">หาซัพจาก RQ ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
