@@ -1154,8 +1154,7 @@ function rbTtGantt_(res, ll, nowMin) {
       if (r.otSpans && r.otSpans.length) r.otSpans.forEach(function (sp) { if (sp && sp.a != null) spans.push(sp); });
       else { var orr = rrRangeStr_(r.otTime || ''); if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType }); }
       spans.forEach(function (sp) {
-        var a = sp.a, b = (sp.b == null ? sp.a : sp.b); if (b <= a) b += 1440;
-        if (du.se != null) { while (a - du.se > 720) { a -= 1440; b -= 1440; } while (du.se - a > 720) { a += 1440; b += 1440; } }
+        var a = sp.a, b = (sp.b == null ? sp.a : sp.b); if (b <= a) b += 1440;   // ข้ามคืน → seg() ตัดเป็น 2 ท่อนเอง · ค่าเป็นเวลาจริง ไม่ต้อง realign
         track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''), 'OT ' + rrFmtMin_(a) + '-' + rrFmtMin_(b % 1440));
       });
     }
@@ -1164,10 +1163,8 @@ function rbTtGantt_(res, ll, nowMin) {
     (r.assignments || []).forEach(function (a) {
       if (!acIsFlight_(a.flight)) return;
       var lo = pmin(a.OP); if (lo == null) lo = pmin(a.STA); if (lo == null) lo = pmin(a.STD); if (lo == null) return;
-      var hi = pmin(a.CL); if (hi == null) hi = pmin(a.STD); if (hi == null) hi = lo + 20;
-      if (hi < lo) hi += 1440; if (hi - lo < 20) hi = lo + 20;
-      if (du.se != null) { while (lo - du.se > 720) { lo -= 1440; hi -= 1440; } }
-      if (barLo != null) { while (barLo - lo > 900) { lo += 1440; hi += 1440; } }
+      var hi = pmin(a.CL); if (hi == null) hi = pmin(a.STD); if (hi == null) hi = lo + 35;
+      if (hi < lo) hi += 1440; if (hi - lo < 35) hi = lo + 35;   // เวลาจริง (ไม่ realign) · min 35 นาที ให้ป้ายพออ่าน
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       flts.push({ lo: lo, hi: hi, ph: rbFltPhase_(a.task), sup: sup,
         lab: rbEsc_(a.flight) + (sup ? ' 🔁' : ''), ttl: rbAttr_(a.flight + (a.task ? ' (' + a.task + ')' : '') + ' · ' + ((a.OP || a.STA || '–') + '-' + (a.CL || a.STD || '–'))) });
