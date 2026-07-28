@@ -1098,6 +1098,10 @@ function rbGanttCss_() {
   '.gt-flt.sup{border-color:#e39a10;border-width:1.5px}'+
   '.gt-now{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:2;pointer-events:none}'+
   '.gt-hideoff .gt-dim{display:none}'+
+  '.gt-tip{position:fixed;z-index:99999;display:none;background:#0f2438;color:#eaf3fb;padding:9px 12px;border-radius:10px;font-size:12px;line-height:1.55;box-shadow:0 10px 30px rgba(0,0,0,.32);pointer-events:none;max-width:280px;border:1px solid #24445f}'+
+  '.gt-tip>div{color:#b7cfe6}'+
+  '.gt-tip>.gt-tip-h{color:#fff;font-weight:800;font-size:13.5px;margin-bottom:2px}'+
+  '.gt-seg,.gt-flt{cursor:default}'+
   '.gt-lg{display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:11px;color:#5b7189}'+
   '.gt-lg i{width:11px;height:11px;border-radius:3px;display:inline-block;border:1px solid}'+
   '.gt-status{position:absolute;top:11px;left:8px;font-size:11.5px;font-weight:700;padding:2px 10px;border-radius:6px}'+
@@ -1126,9 +1130,9 @@ function rbTtGantt_(res, ll, nowMin) {
   rows.sort(function (a, b) { return String(a.team).localeCompare(String(b.team)) || ((ord[a.bucket] || 0) - (ord[b.bucket] || 0)) || ((a.shiftStart == null ? 99999 : a.shiftStart) - (b.shiftStart == null ? 99999 : b.shiftStart)); });
   function pmin(s) { var m = String(s || '').match(/(\d{1,2})[:.](\d{2})/); return m ? (+m[1] * 60 + +m[2]) : null; }
   function pct(m) { return (m / 1440 * 100); }
-  function seg(lo, hi, cls, label, title) {
+  function seg(lo, hi, cls, label, tip) {
     var out = '';
-    function one(a, b) { if (b <= a) return; out += '<div class="gt-seg ' + cls + '" style="left:' + pct(a) + '%;width:' + pct(b - a) + '%" title="' + rbAttr_(title || label) + '"><span>' + rbEsc_(label) + '</span></div>'; }
+    function one(a, b) { if (b <= a) return; out += '<div class="gt-seg ' + cls + '" style="left:' + pct(a) + '%;width:' + pct(b - a) + '%" data-tip="' + rbAttr_(tip || label) + '"><span>' + rbEsc_(label) + '</span></div>'; }
     if (hi > 1440) { one(lo, 1440); one(0, hi - 1440); } else one(lo, hi);
     return out;
   }
@@ -1147,7 +1151,8 @@ function rbTtGantt_(res, ll, nowMin) {
     if (barLo != null && barHi != null) {
       var shTxt = isOtOff ? ('OT' + (r.ot ? ' ' + r.ot + 'h' : '') + ' ' + rrFmtMin_(barLo) + '-' + rrFmtMin_(barHi % 1440))
                           : ((r.shift || '') + ' ' + (r.shiftTime || (rrFmtMin_(du.ss) + '-' + rrFmtMin_(du.se % 1440))));
-      track += seg(barLo, barHi, isOtOff ? 'gt-ot' : 'gt-shift', shTxt.trim(), r.name + ' · ' + shTxt);
+      track += seg(barLo, barHi, isOtOff ? 'gt-ot' : 'gt-shift', shTxt.trim(),
+        r.name + '¦' + (isOtOff ? 'มาทำ OT (วันหยุด)' : ('กะ ' + shTxt)) + '¦' + r.team + (r.pos ? ' · ' + r.pos : ''));
     }
     if (r.bucket !== 'ot_off') {
       var spans = [];
@@ -1155,7 +1160,8 @@ function rbTtGantt_(res, ll, nowMin) {
       else { var orr = rrRangeStr_(r.otTime || ''); if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType }); }
       spans.forEach(function (sp) {
         var a = sp.a, b = (sp.b == null ? sp.a : sp.b); if (b <= a) b += 1440;   // ข้ามคืน → seg() ตัดเป็น 2 ท่อนเอง · ค่าเป็นเวลาจริง ไม่ต้อง realign
-        track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''), 'OT ' + rrFmtMin_(a) + '-' + rrFmtMin_(b % 1440));
+        track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''),
+          r.name + '¦OT' + (r.ot ? ' ' + r.ot + ' ชม.' : '') + (r.otType === 'PRE' ? ' (ก่อนกะ)' : ' (หลังกะ)') + '¦เวลา ' + rrFmtMin_(a) + '-' + rrFmtMin_(b % 1440));
       });
     }
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
@@ -1167,8 +1173,10 @@ function rbTtGantt_(res, ll, nowMin) {
       if (hi < lo) hi += 1440; if (hi - lo < 35) hi = lo + 35;   // เวลาจริง (ไม่ realign) · min 35 นาที ให้ป้ายพออ่าน
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
-      flts.push({ lo: lo, hi: hi, ph: rbFltPhase_(a.task), sup: sup,
-        lab: rbEsc_(leg1) + (sup ? ' 🔁' : ''), ttl: rbAttr_(a.flight + (a.task ? ' (' + a.task + ')' : '') + ' · ' + ((a.OP || a.STA || '–') + '-' + (a.CL || a.STD || '–'))) });
+      var ph = rbFltPhase_(a.task), phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', na: 'งาน' }[ph];
+      var win = (a.OP && a.CL) ? ('เคาน์เตอร์ ' + a.OP + '-' + a.CL) : ((a.STA || a.STD) ? ('ไฟลท์ ' + (a.STA || '–') + '/' + (a.STD || '–')) : '');
+      var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + (win ? '¦' + win : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
+      flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: rbEsc_(leg1) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
     });
     // จัดเลนกันทับ: เรียงตามเวลาเริ่ม แล้ววางเลนแรกที่ว่าง
     flts.sort(function (x, y) { return x.lo - y.lo; });
@@ -1182,7 +1190,7 @@ function rbTtGantt_(res, ll, nowMin) {
     var nLanes = laneEnd.length;
     flts.forEach(function (f) {
       var top = 30 + f.lane * 18;
-      function fone(x, y) { if (y <= x) return; track += '<div class="gt-flt ' + f.ph + (f.sup ? ' sup' : '') + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%;top:' + top + 'px" title="' + f.ttl + '"><span>' + f.lab + '</span></div>'; }
+      function fone(x, y) { if (y <= x) return; track += '<div class="gt-flt ' + f.ph + (f.sup ? ' sup' : '') + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%;top:' + top + 'px" data-tip="' + f.tip + '"><span>' + f.lab + '</span></div>'; }
       if (f.hi > 1440) { fone(f.lo, 1440); fone(0, f.hi - 1440); } else fone(f.lo < 0 ? 0 : f.lo, f.hi);
     });
     if (nowMin >= 0) track += '<div class="gt-now" style="left:' + pct(nowMin) + '%"></div>';
@@ -1379,6 +1387,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function gtView(){var w=document.getElementById("gtWrap"),t=document.getElementById("gtTable"),b=document.getElementById("gtToggle");if(!w||!t)return;var g=w.style.display!=="none";w.style.display=g?"none":"";t.style.display=g?"":"none";if(b)b.textContent=g?"📊 มุมมอง Gantt":"📋 มุมมองตาราง";}' +
     'function gtFilter(){var e=document.getElementById("gtSearch");if(!e)return;var q=(e.value||"").toLowerCase().trim();[].forEach.call(document.querySelectorAll("#gtWrap .gt-row"),function(r){if(r.classList.contains("gt-ruler"))return;var n=r.getAttribute("data-name")||"";r.style.display=(!q||n.indexOf(q)>=0)?"":"none";});}' +
     'function gtOff(){var w=document.getElementById("gtWrap"),b=document.getElementById("gtOffBtn");if(!w)return;var h=w.classList.toggle("gt-hideoff");if(b)b.textContent=h?"👁️ แสดงคนหยุด":"🙈 ซ่อนคนหยุด";}' +
+    '(function(){var tp;function hide(){if(tp)tp.style.display="none";}document.addEventListener("mouseover",function(e){var el=e.target.closest&&e.target.closest("[data-tip]");if(!el)return;if(!tp){tp=document.createElement("div");tp.className="gt-tip";document.body.appendChild(tp);}var ps=(el.getAttribute("data-tip")||"").split("¦");tp.innerHTML="<div class=\\"gt-tip-h\\">"+ps[0]+"</div>"+ps.slice(1).map(function(p){return "<div>"+p+"</div>";}).join("");tp.style.display="block";});document.addEventListener("mousemove",function(e){if(!tp||tp.style.display!=="block")return;var x=e.clientX+14,y=e.clientY+18,w=tp.offsetWidth,h=tp.offsetHeight;if(x+w>window.innerWidth-8)x=e.clientX-w-14;if(y+h>window.innerHeight-8)y=e.clientY-h-18;tp.style.left=x+"px";tp.style.top=y+"px";});document.addEventListener("mouseout",function(e){if(e.target.closest&&e.target.closest("[data-tip]"))hide();});})();' +
     'window.__supAdd=window.__supAdd||[];' +
     'function supAddReq(){var fe=document.getElementById("supAddFlt");var f=(fe?fe.value:"").trim().toUpperCase();var ph=document.getElementById("supAddPh").value;var n=Math.max(1,parseInt(document.getElementById("supAddN").value||"1",10)||1);var we=document.getElementById("supAddWin");var win=(we?we.value:"").trim();if(!f){alert("ใส่เลขไฟลท์ก่อน เช่น PG270");return;}window.__supAdd.push({flight:f,phase:ph,n:n,win:win});supReload();}' +
     'function supClearReq(){window.__supAdd=[];supReload();}' +
