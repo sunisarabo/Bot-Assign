@@ -1225,6 +1225,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
     'function loadRq(){lazy("rqbox","rqFindSupport","rq");}' +
+    'function rqReload(alt){var b=document.getElementById("rqbox");if(!b||!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังคิดทางเลือก…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";}).rqFindSupport(ISO,alt);}' +
     'function loadDc(){lazy("dcbox","rbDataCheckHtml","dc");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +

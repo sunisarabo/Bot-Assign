@@ -990,7 +990,7 @@ function slaManualSupportRows_(res, ll, requests) {
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
-    var row = slaSupRow_(f, ph, Math.max(1, openN), pool, winOv, true);   // ignoreElig: RQ ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA
+    var row = slaSupRow_(f, ph, openN, pool, winOv, true);    // ignoreElig: RQ ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA · openN=0 (จัดแล้ว) → ไม่จองคนจาก pool แต่ยังคิด cands ไว้เป็นทางเลือก
     row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
     row.reqN = reqN; row.openN = openN; row.assigned = rq.assigned || '';   // จัดแล้วกี่คน/เหลือกี่คน + ชื่อที่จัดไว้
     if (openN <= 0) { row.covered = true; row.shortN = 0; }   // ทุกสล็อตมีคนแล้ว → ไม่ต้องแนะนำ

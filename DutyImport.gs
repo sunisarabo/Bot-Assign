@@ -353,8 +353,9 @@ function rqReadGmail_(date) {
   return out.join('\n\n———\n\n');
 }
 /** Lazy view: 🆘 หาซัพจากคำร้องจริง (ไฟล์ RQ + Gmail) — แยกจาก SLA */
-function rqFindSupport(iso) {
+function rqFindSupport(iso, showAlt) {
   try {
+    showAlt = (showAlt === true || showAlt === 1 || showAlt === '1' || showAlt === 'true');
     var date = iso ? rbDateFromIso_(iso) : new Date();
     var text = '', srcs = [];
     if (rqSheetId_()) { try { var t = rqReadText_(SpreadsheetApp.openById(rqSheetId_()), date); if (t) { text += t + '\n'; srcs.push('ไฟล์ RQ'); } } catch (eS) {} }
@@ -369,7 +370,11 @@ function rqFindSupport(iso) {
     var nOpen = 0, nCov = 0;
     var body = rows.map(function (r) {
       var who;
-      if (r.covered) { nCov++; who = '<span class="okk">✅ จัดแล้ว' + (r.assigned ? ': <b>' + rbEsc_(r.assigned) + '</b>' : '') + '</span>'; }
+      if (r.covered) {
+        nCov++; who = '<span class="okk">✅ จัดแล้ว' + (r.assigned ? ': <b>' + rbEsc_(r.assigned) + '</b>' : '') + '</span>';
+        if (showAlt && r.cands && r.cands.length)                 // โหมดเสนอทางเลือก: โชว์ตัวสำรองเผื่อคนที่จัดไว้ติด OFF/เวลาไม่ครอบ
+          who += '<br><span class="muted">↳ ทางเลือก: ' + r.cands.slice(0, 2).map(function (c) { return rbEsc_(c.name) + ' <span class="muted">' + rbEsc_(c.team) + (c.off ? ' ⛱️OFF' : (c.rest ? ' 😴' : '')) + ' · ' + (c.n || 0) + ' ไฟลท์</span>'; }).join(' · ') + '</span>';
+      }
       else {
         nOpen++;
         who = r.cands && r.cands.length
@@ -383,7 +388,10 @@ function rqFindSupport(iso) {
         (r.label ? ' <span class="muted">(' + rbEsc_(r.label) + ')</span>' : '') + '</td><td class="tnum">' + rbEsc_(r.win || '-') + '</td><td>' + who + '</td></tr>';
     }).join('');
     var warn = noRoster ? '<div class="panel" style="padding:10px 14px;background:#fff7e6;border-left:4px solid #fec909;margin-bottom:8px">⚠️ เปิด roster ของวันนี้ไม่ได้ (วันอนาคต หรือยังไม่แชร์ไฟล์) — แสดง<b>คำร้อง</b>ได้ แต่ยัง<b>ไม่ได้จับคู่คนว่าง</b></div>' : '';
-    return warn + '<div class="sectionlabel">🆘 หาซัพจาก <b>' + rbEsc_(srcs.join(' + ')) + '</b> (คำร้องจริงจากทีม) — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> · <b class="badd">' + nOpen + '</b> ยังต้องหาคน · <b class="okk">' + nCov + '</b> จัดแล้ว <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' +
+    var altBtn = '<div style="margin:6px 0"><button class="btn" onclick="rqReload(' + (showAlt ? '0' : '1') + ')">' +
+      (showAlt ? '🙈 ซ่อนทางเลือก' : '🔁 เสนอทางเลือกแม้จัดแล้ว') + '</button>' +
+      (showAlt ? ' <span class="muted">— แสดงตัวสำรองต่อท้ายแถวที่จัดแล้ว (เผื่อคนเดิมติด OFF/เวลาไม่ครอบ)</span>' : '') + '</div>';
+    return warn + '<div class="sectionlabel">🆘 หาซัพจาก <b>' + rbEsc_(srcs.join(' + ')) + '</b> (คำร้องจริงจากทีม) — แตกได้ <b class="okk">' + reqs.length + ' คำร้อง</b> · <b class="badd">' + nOpen + '</b> ยังต้องหาคน · <b class="okk">' + nCov + '</b> จัดแล้ว <span class="muted">· คนละชุดกับ SLA (อิงที่ทีมขอมาจริง)</span></div>' + altBtn +
       rbTblCard_('🆘 คำร้องขอซัพ + คนที่แนะนำ', '<tr><th>Flight</th><th>สาย</th><th>ระบบ</th><th>ตำแหน่งที่ขอ</th><th>ช่วงเวลา</th><th>คนที่แนะนำ (ว่าง · รู้ระบบ)</th></tr>', body, '');
   } catch (e) { return '<div class="panel" style="padding:20px">หาซัพจาก RQ ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
