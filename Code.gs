@@ -5578,7 +5578,7 @@ if(document.readyState!=='loading')otInit();else window.addEventListener('load',
 
 /**
  * WorkHours.gs — ชั่วโมงทำงานรายสัปดาห์จาก ROSTER รายเดือน (ระเบียบ AOTGA)
- * กฎ: กะ 7-12 ชม./วัน · รวมเวลางาน ≤48 ชม./สัปดาห์ · วันทำงาน ≤6 วัน/สัปดาห์
+ * กฎ: กะ 7-12 ชม./วัน · รวมเวลางาน ≤48 ชม./สัปดาห์ · วันทำงาน ≤7 วัน/สัปดาห์
  * อ่านชีต "Code กะงาน" (รหัสกะ+สถานะวัน ของทุกคน ทุกวันในเดือน)
  *
  * รองรับเดือนถัดๆไป: ตั้ง Script Property 'PWMS_ROSTER_IDS' = {"2026-06":"<id>","2026-07":"<id>"}
@@ -5590,7 +5590,7 @@ var PWMS_ROSTER_MAP = {
   '2026-06': '1varvj0xmFPbyB7zMYCisTDOwmYGcWAoKHPVkIuC_9I0',   // 6. ROSTER JUNE 2026
   '2026-07': '1t6PSv0IdDRPvoTjAdYygtC4iC-OkHNkM0WkX9IKsTGs'    // 7. ROSTER JULY 2026
 };
-var WH_WEEK_MAXHR = 48, WH_WEEK_MAXDAY = 6;                            // เพดานรายสัปดาห์
+var WH_WEEK_MAXHR = 48, WH_WEEK_MAXDAY = 7;                            // เพดานรายสัปดาห์ (48 ชม. / 7 วัน)
 
 /** ไฟล์ roster ของเดือนที่มี iso นั้น: Script Property map → map ในโค้ด → default */
 function whRosterIdFor_(iso) {
@@ -5675,7 +5675,7 @@ function whWeekStat_(iso, id, estPerDay) {
            over48: over48, over6: over6, level: (over48 || over6) ? 'over' : (incomplete ? 'incomplete' : 'ok') };
 }
 
-/** Lazy tab: ⏱️ ชั่วโมง/สัปดาห์ — รายคน (สัปดาห์ของวันที่เลือก) + เตือนเกิน 48ช/6วัน */
+/** Lazy tab: ⏱️ ชั่วโมง/สัปดาห์ — รายคน (สัปดาห์ของวันที่เลือก) + เตือนเกิน 48ช/7วัน */
 function rbWeekHoursHtml(iso) {
   try {
     var R = whLoadMonth_(iso);
@@ -5701,7 +5701,7 @@ function rbWeekHoursHtml(iso) {
     var body = rows.map(function (x) {
       var w = x.w, warn = [];
       if (w.over48) warn.push((w.incomplete ? 'อาจเกิน' : 'เกิน') + ' 48ช (' + (w.incomplete ? '≈' : '') + w.total + ')');
-      if (w.over6) warn.push('เกิน 6 วัน (' + w.days + ')');
+      if (w.over6) warn.push('เกิน 7 วัน (' + w.days + ')');
       var cls = warn.length ? 'rowbad' : '', st;
       if (warn.length) st = '<span class="badd">⚠️ ' + rbEsc_(warn.join(' · ')) + '</span>' +
         (w.incomplete ? ' <span class="tag">📝 ROSTER ไม่มีรหัส ' + w.nocode + ' วัน (ประมาณจากกะวันนี้)</span>' : '');
@@ -5712,7 +5712,7 @@ function rbWeekHoursHtml(iso) {
         '</td><td>' + rbEsc_(x.name) + '</td><td>' + rbEsc_(x.pos) + '</td><td class="tnum">' + hdisp + '</td><td class="tnum">' + w.days + '</td><td>' + st + '</td></tr>';
     }).join('') || '<tr><td colspan="7" class="muted" style="text-align:center;padding:18px">— ไม่มีข้อมูล —</td></tr>';
     var hd = '<div class="sectionlabel" style="background:#fff7e6;border-left:4px solid #fec909;padding:8px 12px;border-radius:8px">' +
-      '⏱️ <b>ชั่วโมงทำงานรายสัปดาห์</b> (' + rbEsc_(wk) + ') ตามระเบียบ — เพดาน <b>48 ชม. / 6 วัน</b> ต่อสัปดาห์ · ' +
+      '⏱️ <b>ชั่วโมงทำงานรายสัปดาห์</b> (' + rbEsc_(wk) + ') ตามระเบียบ — เพดาน <b>48 ชม. / 7 วัน</b> ต่อสัปดาห์ · ' +
       (overN ? '<span class="badd">⚠️ เกินเกณฑ์ ' + overN + ' คน</span>' : '<span class="okk">✅ ทุกคนอยู่ในเกณฑ์</span>') +
       (incompN ? ' · <span class="tag">📝 ไม่มีรหัสกะใน ROSTER ' + incompN + ' คน</span>' : '') +
       ' <span class="muted">· (นับกะที่เป็นวันทำงาน · ไม่รวม OT จริง)</span></div>';
