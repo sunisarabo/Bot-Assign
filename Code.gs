@@ -5620,7 +5620,7 @@ function whIsoWeek_(iso) {
 
 /** อ่าน roster เดือนของ iso → { ym, byId:{ id:{name, days:[{iso,code,hours,work}]} } } · cache 6 ชม. */
 function whLoadMonth_(iso) {
-  var ym = String(iso).slice(0, 7), ck = 'whroster_' + ym;
+  var ym = String(iso).slice(0, 7), ck = 'whroster3_' + ym;   // bump คีย์ → ทิ้ง cache เก่าที่เก็บข้อมูลเดือนผิดไว้
   var hit = rbCacheGetBig_(ck); if (hit) { try { return JSON.parse(hit); } catch (e) {} }
   var id = whRosterIdFor_(iso); if (!id) return null;
   var ss; try { ss = SpreadsheetApp.openById(id); } catch (e2) { return null; }
@@ -5643,11 +5643,19 @@ function whLoadMonth_(iso) {
     var idd = String(row[0] == null ? '' : row[0]).replace(/\.0+$/, '').replace(/\D/g, '');
     var nm = String(row[1] == null ? '' : row[1]).trim();
     if (idd.length < 6 || idd.length > 8 || !nm) continue;
+    // จับคู่ (รหัสกะ, สถานะ) จาก "เซลล์สถานะ" (ขึ้นต้น NN-วัน... / มีคำว่า วันทำงาน|วันหยุด) แล้วรหัสกะ = เซลล์ก่อนหน้า
+    // → ทนต่อคอลัมน์ ID/ชื่อ ที่แทรกซ้ำกลางแถว (ไฟล์ ROSTER บางเดือน) ที่ทำให้อ่านตามตำแหน่งเพี้ยน
+    var pairs = [];
+    for (var c = 2; c < row.length; c++) {
+      var ss = String(row[c] == null ? '' : row[c]);
+      if (/\d\d\s*-\s*วัน|วันทำงาน|วันหยุด/.test(ss)) pairs.push({ code: row[c - 1], stat: ss });
+    }
     var days = [];
-    dateCols.forEach(function (d) {
-      var code = row[d.col], stat = row[d.col + 1];
-      days.push({ iso: d.iso, code: String(code == null ? '' : code).trim(), hours: whShiftHours_(code), work: whIsWork_(stat) });
-    });
+    if (pairs.length === dateCols.length) {                 // จำนวนสถานะตรงกับจำนวนวันในหัว → ใช้การจับคู่ (ทนคอลัมน์แทรก)
+      dateCols.forEach(function (d, i) { var p = pairs[i]; days.push({ iso: d.iso, code: String(p.code == null ? '' : p.code).trim(), hours: whShiftHours_(p.code), work: whIsWork_(p.stat) }); });
+    } else {                                                // ไม่ตรง → กลับไปอ่านตามตำแหน่งคอลัมน์เดิม
+      dateCols.forEach(function (d) { var code = row[d.col], stat = row[d.col + 1]; days.push({ iso: d.iso, code: String(code == null ? '' : code).trim(), hours: whShiftHours_(code), work: whIsWork_(stat) }); });
+    }
     byId[idd] = { name: nm, days: days };
   }
   var fileYm = (dateCols[0] && String(dateCols[0].iso).slice(0, 7)) || ym;   // เดือนจริงของไฟล์ที่โหลดมา (กันไฟล์คนละเดือน)
