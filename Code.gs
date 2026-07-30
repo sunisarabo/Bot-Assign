@@ -5584,13 +5584,19 @@ if(document.readyState!=='loading')otInit();else window.addEventListener('load',
  * รองรับเดือนถัดๆไป: ตั้ง Script Property 'PWMS_ROSTER_IDS' = {"2026-06":"<id>","2026-07":"<id>"}
  * (ไม่ตั้ง → ใช้ PWMS_ROSTER_ID ค่าเริ่มต้น)
  */
-var PWMS_ROSTER_ID = '1varvj0xmFPbyB7zMYCisTDOwmYGcWAoKHPVkIuC_9I0';   // ROSTER เดือนปัจจุบัน (Google Sheet)
+var PWMS_ROSTER_ID = '1varvj0xmFPbyB7zMYCisTDOwmYGcWAoKHPVkIuC_9I0';   // ROSTER default (Google Sheet) — มิ.ย. 2026
+// map เดือน→ไฟล์ ROSTER (ฝังในโค้ด · เพิ่มเดือนใหม่ที่นี่ได้เลย ไม่ต้องตั้ง Script Property) · Script Property 'PWMS_ROSTER_IDS' override ได้
+var PWMS_ROSTER_MAP = {
+  '2026-06': '1varvj0xmFPbyB7zMYCisTDOwmYGcWAoKHPVkIuC_9I0',   // 6. ROSTER JUNE 2026
+  '2026-07': '1t6PSv0IdDRPvoTjAdYygtC4iC-OkHNkM0WkX9IKsTGs'    // 7. ROSTER JULY 2026
+};
 var WH_WEEK_MAXHR = 48, WH_WEEK_MAXDAY = 6;                            // เพดานรายสัปดาห์
 
-/** ไฟล์ roster ของเดือนที่มี iso นั้น (จาก map เดือน→ไฟล์ ถ้ามี ไม่งั้นใช้ค่าเริ่มต้น) */
+/** ไฟล์ roster ของเดือนที่มี iso นั้น: Script Property map → map ในโค้ด → default */
 function whRosterIdFor_(iso) {
   var ym = String(iso).slice(0, 7);
   try { var m = JSON.parse(PropertiesService.getScriptProperties().getProperty('PWMS_ROSTER_IDS') || '{}'); if (m[ym]) return m[ym]; } catch (e) {}
+  if (PWMS_ROSTER_MAP[ym]) return PWMS_ROSTER_MAP[ym];
   try { return PropertiesService.getScriptProperties().getProperty('PWMS_ROSTER_ID') || PWMS_ROSTER_ID; } catch (e2) { return PWMS_ROSTER_ID; }
 }
 /** รหัสกะ → ชั่วโมง (ตัวเลขท้ายรหัส เช่น H12=12, F9=9 · OPS=8 · OFF/ว่าง=0) */
@@ -5644,7 +5650,8 @@ function whLoadMonth_(iso) {
     });
     byId[idd] = { name: nm, days: days };
   }
-  var out = { ym: ym, byId: byId };
+  var fileYm = (dateCols[0] && String(dateCols[0].iso).slice(0, 7)) || ym;   // เดือนจริงของไฟล์ที่โหลดมา (กันไฟล์คนละเดือน)
+  var out = { ym: ym, fileYm: fileYm, byId: byId };
   try { rbCachePutBig_(ck, JSON.stringify(out), 21600); } catch (e3) {}
   return out;
 }
@@ -5673,6 +5680,11 @@ function rbWeekHoursHtml(iso) {
   try {
     var R = whLoadMonth_(iso);
     if (!R) return '<div class="panel">ยังเชื่อมไฟล์ ROSTER เดือนไม่ได้ — ตั้ง <code>PWMS_ROSTER_ID</code> (หรือ <code>PWMS_ROSTER_IDS</code>) ใน Script Properties</div>';
+    var ymReq = String(iso).slice(0, 7);
+    if (R.fileYm && R.fileYm !== ymReq)   // ไฟล์ ROSTER ที่โหลดมาเป็นคนละเดือนกับวันที่เลือก → เตือน (กันขึ้น 0/0 หลอกตา)
+      return '<div class="panel" style="padding:20px"><b>⚠️ ยังไม่ได้ตั้งไฟล์ ROSTER ของเดือน ' + rbEsc_(ymReq) + '</b>' +
+        '<div class="muted" style="margin-top:8px;line-height:1.7">ไฟล์ที่ระบบมีตอนนี้เป็นของเดือน <b>' + rbEsc_(R.fileYm) + '</b> — เพิ่ม ID ไฟล์ ROSTER เดือน ' + rbEsc_(ymReq) +
+        ' ใน <code>PWMS_ROSTER_MAP</code> (WorkHours.gs) หรือ Script Property <code>PWMS_ROSTER_IDS</code> เช่น <code>{"' + rbEsc_(ymReq) + '":"&lt;file id&gt;"}</code> แล้วรีเฟรช</div></div>';
     var wk = whIsoWeek_(iso);
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var rows = [], overN = 0, incompN = 0, seen = {};
