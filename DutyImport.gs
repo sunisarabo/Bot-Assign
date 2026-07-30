@@ -366,7 +366,7 @@ function rqFindSupport(iso, showAlt) {
     var d, noRoster = false;
     try { d = rbLoadResLL_(date); }                            // roster วันนั้นเปิดไม่ได้ (วันอนาคต/ยังไม่แชร์) → ยังโชว์คำร้องได้ แค่ไม่จับคู่คนว่าง
     catch (eR) { noRoster = true; d = { res: { teams: {} }, ll: { totals: { staff: 0 }, sections: {} } }; }
-    var rows = slaManualSupportRows_(d.res, d.ll, reqs);
+    var rows = slaManualSupportRows_(d.res, d.ll, reqs, showAlt);
     var nOpen = 0, nCov = 0;
     var body = rows.map(function (r) {
       var who;

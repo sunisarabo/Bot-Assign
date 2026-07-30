@@ -2748,12 +2748,13 @@ function slaCandView_(c) {
            shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
 }
 /** สร้าง 1 แถวซัพพอร์ต: ไฟลท์ f · phase ph · ขาด n คน · จาก pool · winOverride = ช่วงเวลาที่ Duty ระบุ (ถ้ามี) */
-function slaSupRow_(f, ph, n, pool, winOverride, ignoreElig) {
+function slaSupRow_(f, ph, n, pool, winOverride, ignoreElig, reserveN) {
   var elig = ignoreElig ? { ok: true, reason: '' }             // RQ = ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA (เช่น "รับซัพเฉพาะ ARR/GATE")
     : ((typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' });
   var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND, winOverride) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
   var rwin = winOverride || slaPhaseWindow_(f, ph);
-  if (rwin) cands.slice(0, n).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
+  var resN = (reserveN == null) ? n : reserveN;               // จำนวนที่ "จอง" (โหมดทางเลือกจองคนที่โชว์ ให้แถวถัดไปแนะคนอื่น ไม่ซ้ำ)
+  if (rwin) cands.slice(0, resN).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
   var winTxt = winOverride ? (rrFmtMin_(((winOverride[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((winOverride[1] % 1440) + 1440) % 1440)) : slaWinTxt_(f, ph);
   return {
     flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList || '',
@@ -2773,7 +2774,7 @@ function slaParseWin_(s) {
   return [lo, hi];
 }
 /** คำขอซัพแบบเพิ่มเอง (Duty) — [{flight, phase, n}] → แถวเหมือน slaSupportRows_ (คิดคนให้ แม้ไฟลท์ไม่ขาดตาม SLA) */
-function slaManualSupportRows_(res, ll, requests) {
+function slaManualSupportRows_(res, ll, requests, showAlt) {
   requests = (requests || []).filter(function (r) { return r && r.flight && r.phase; });
   if (!requests.length) return [];
   var fmap = {}; slaCollectFlights_(res, ll).forEach(function (f) { fmap[slaFlightKey_(f.flight)] = f; });
@@ -2788,7 +2789,9 @@ function slaManualSupportRows_(res, ll, requests) {
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
-    var row = slaSupRow_(f, ph, openN, pool, winOv, true);    // ignoreElig: RQ ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA · openN=0 (จัดแล้ว) → ไม่จองคนจาก pool แต่ยังคิด cands ไว้เป็นทางเลือก
+    // โหมดทางเลือก (แถวจัดแล้ว): จอง 2 คนที่โชว์เป็นทางเลือก → แถวถัดไปแนะคนอื่น ไม่ซ้ำ กระจายให้เห็นหลายคน/หลายทีม
+    var reserveN = (openN <= 0 && showAlt) ? 2 : undefined;
+    var row = slaSupRow_(f, ph, openN, pool, winOv, true, reserveN);    // ignoreElig: RQ ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA
     row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
     row.reqN = reqN; row.openN = openN; row.assigned = rq.assigned || '';   // จัดแล้วกี่คน/เหลือกี่คน + ชื่อที่จัดไว้
     if (openN <= 0) { row.covered = true; row.shortN = 0; }   // ทุกสล็อตมีคนแล้ว → ไม่ต้องแนะนำ
@@ -6099,7 +6102,7 @@ function rqFindSupport(iso, showAlt) {
     var d, noRoster = false;
     try { d = rbLoadResLL_(date); }                            // roster วันนั้นเปิดไม่ได้ (วันอนาคต/ยังไม่แชร์) → ยังโชว์คำร้องได้ แค่ไม่จับคู่คนว่าง
     catch (eR) { noRoster = true; d = { res: { teams: {} }, ll: { totals: { staff: 0 }, sections: {} } }; }
-    var rows = slaManualSupportRows_(d.res, d.ll, reqs);
+    var rows = slaManualSupportRows_(d.res, d.ll, reqs, showAlt);
     var nOpen = 0, nCov = 0;
     var body = rows.map(function (r) {
       var who;
