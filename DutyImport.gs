@@ -352,6 +352,16 @@ function rqReadGmail_(date) {
   } catch (e) {}
   return out.join('\n\n———\n\n');
 }
+/** เลือกทางเลือก k คน + บังคับมีคน "นอก PVT/LP" อย่างน้อย 1 (ถ้ามี) — เห็น charter/ทีมอื่นชัดขึ้น */
+function rqAltPick_(cands, k) {
+  var isLP = function (c) { return /PVT\s*\/?\s*LP|PVTLP/i.test(String(c.team || '')); };
+  var out = cands.slice(0, k);
+  if (out.length && out.every(isLP)) {                         // ทางเลือกบน ๆ เป็น PVT/LP ล้วน → สลับคนสุดท้ายเป็นคนนอก LP คนแรกที่หาเจอ
+    var nonLP = cands.filter(function (c) { return !isLP(c); })[0];
+    if (nonLP && out.indexOf(nonLP) < 0) out[out.length - 1] = nonLP;
+  }
+  return out;
+}
 /** Lazy view: 🆘 หาซัพจากคำร้องจริง (ไฟล์ RQ + Gmail) — แยกจาก SLA */
 function rqFindSupport(iso, showAlt) {
   try {
@@ -372,8 +382,8 @@ function rqFindSupport(iso, showAlt) {
       var who;
       if (r.covered) {
         nCov++; who = '<span class="okk">✅ จัดแล้ว' + (r.assigned ? ': <b>' + rbEsc_(r.assigned) + '</b>' : '') + '</span>';
-        if (showAlt && r.cands && r.cands.length)                 // โหมดเสนอทางเลือก: โชว์ตัวสำรองเผื่อคนที่จัดไว้ติด OFF/เวลาไม่ครอบ
-          who += '<br><span class="muted">↳ ทางเลือก: ' + r.cands.slice(0, 2).map(function (c) { return rbEsc_(c.name) + ' <span class="muted">' + rbEsc_(c.team) + (c.off ? ' ⛱️OFF' : (c.rest ? ' 😴' : '')) + ' · ' + (c.n || 0) + ' ไฟลท์</span>'; }).join(' · ') + '</span>';
+        if (showAlt && r.cands && r.cands.length)                 // โหมดเสนอทางเลือก: โชว์ตัวสำรอง 3 คน (บังคับมีคนนอก PVT/LP ≥1) เผื่อคนที่จัดไว้ติด OFF/เวลาไม่ครอบ
+          who += '<br><span class="muted">↳ ทางเลือก: ' + rqAltPick_(r.cands, 3).map(function (c) { return rbEsc_(c.name) + ' <span class="muted">' + rbEsc_(c.team) + (c.off ? ' ⛱️OFF' : (c.rest ? ' 😴' : '')) + ' · ' + (c.n || 0) + ' ไฟลท์</span>'; }).join(' · ') + '</span>';
       }
       else {
         nOpen++;

@@ -991,8 +991,8 @@ function slaManualSupportRows_(res, ll, requests, showAlt) {
     var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
                            STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
     var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
-    // โหมดทางเลือก (แถวจัดแล้ว): จอง 2 คนที่โชว์เป็นทางเลือก → แถวถัดไปแนะคนอื่น ไม่ซ้ำ กระจายให้เห็นหลายคน/หลายทีม
-    var reserveN = (openN <= 0 && showAlt) ? 2 : undefined;
+    // โหมดทางเลือก (แถวจัดแล้ว): จอง 3 คนที่โชว์เป็นทางเลือก → แถวถัดไปแนะคนอื่น ไม่ซ้ำ กระจายให้เห็นหลายคน/หลายทีม
+    var reserveN = (openN <= 0 && showAlt) ? 3 : undefined;
     var row = slaSupRow_(f, ph, openN, pool, winOv, true, reserveN);    // ignoreElig: RQ ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA
     row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
     row.reqN = reqN; row.openN = openN; row.assigned = rq.assigned || '';   // จัดแล้วกี่คน/เหลือกี่คน + ชื่อที่จัดไว้
