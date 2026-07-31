@@ -6647,6 +6647,7 @@ function rbGetDay_(date) {
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   } catch (e) { res = null; }
   if (res && CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  if (res && typeof rbDedupeTeams_ === 'function') { try { rbDedupeTeams_(res, ll); } catch (eD) {} }   // รหัสซ้ำหลายทีม → ไม่นับซ้ำ (ให้ตรงกับเว็บ)
   var out = { res: res, ll: ll };
   RB_DAY_CACHE_[iso] = out;
   return out;
@@ -7340,6 +7341,7 @@ function rbLoadResLLraw_(date) {
   // เติมเวลาเปิด-ปิดเคาน์เตอร์จริงจากท่า ลง assignment (ถ้าชีตเวรไม่ได้กรอก OP/CL)
   //  → coverage คิดจากเวลาเปิดจริง (เช่น เปิด 09:50 คนเข้า 09:00 = ครอบคลุม) ไม่ใช่ประมาณ STD−180
   if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
+  try { rbDedupeTeams_(res, ll); } catch (eD) {}           // รหัสซ้ำหลายทีม (คนไปช่วย) → เก็บที่ต้นสังกัด ไม่นับซ้ำ
   try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
   // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD · (ง) cache ต่อวัน TTL 1 ชม. (ไม่เปิดไฟล์ซ้ำ)
   if (typeof wfFileId_ === 'function' && wfFileId_()) {
@@ -7397,6 +7399,61 @@ function rbResolveSupportTeams_(res, ll) {
       if (ovr) { u.r.supportTeam = ovr; u.r.supportTeamAuto = true; u.r.supportTeamSrc = 'map'; }
     });
   }
+}
+/** คำนวณ agg รายทีม/ตำแหน่ง/รวม ใหม่จาก records (ข้ามแถว support) — ใช้หลังมาร์ค support เพิ่ม */
+function rbRecomputeAgg_(res) {
+  var totals = rrNewAgg_(), positions = {};
+  Object.keys(res.teams).forEach(function (t) {
+    var tm = res.teams[t], recs = tm.records || [], sd = tm.sheetDate;
+    var a = rrNewAgg_(); a.records = recs; if (sd != null) a.sheetDate = sd;
+    recs.forEach(function (r) {
+      var isHol = !!r.isHoliday, pg = r.posGroup || 'PSA';
+      rrAddBucket_(a, r, isHol);
+      if (!positions[pg]) positions[pg] = rrNewAgg_();
+      rrAddBucket_(positions[pg], r, isHol);
+      rrAddBucket_(totals, r, isHol);
+    });
+    rrRoundAgg_(a); res.teams[t] = a;
+  });
+  Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
+  rrRoundAgg_(totals); delete totals.records;
+  res.positions = positions; res.totals = totals;
+}
+/** เลือก "ทีมต้นสังกัด" ของรหัสที่โผล่หลายทีม: master (ชื่อ→ทีม) ก่อน · ไม่งั้นแถวที่ "เป็นตัวจริงกว่า" (ทำงาน+มีกะ+OT+งาน) */
+function rbPickHome_(arr, midx) {
+  var teams = arr.map(function (x) { return x.team; });
+  for (var i = 0; i < arr.length; i++) {
+    var k = rbNameKey_(arr[i].r.name), mt = k ? Object.keys(midx[k] || {}) : [];
+    if (mt.length === 1 && teams.indexOf(mt[0]) >= 0) return mt[0];   // master ชี้ทีมเดียวที่ตรง → ทีมนั้นคือ home
+  }
+  function score(x) { var r = x.r, s = 0; if (r.bucket === 'working') s += 4; else if (r.bucket === 'ot_off') s += 3; if (r.shiftStart != null) s += 2; if (r.ot > 0) s += 1; s += (r.assignments ? r.assignments.length : 0) * 0.1; return s; }
+  var best = arr[0]; arr.forEach(function (x) { if (score(x) > score(best)) best = x; });
+  return best.team;
+}
+/** รหัสเดียวโผล่หลายทีม (คนไปช่วยทีมอื่นแต่ถูกใส่เป็นแถวเต็ม) → เก็บที่ทีมต้นสังกัด · ทีมที่เหลือมาร์คเป็น support (ไม่นับซ้ำ) แล้วคิดยอดใหม่ */
+function rbDedupeTeams_(res, ll) {
+  var idMap = {};
+  function collect(teamKey, r) {
+    if (r.support) return;
+    var id = String(r.id || '').replace(/\D/g, '');
+    if (!/^\d{6,8}$/.test(id)) return;
+    (idMap[id] = idMap[id] || []).push({ team: teamKey, r: r });
+  }
+  Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { collect(t, r); }); });
+  if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { collect('LL·' + s, r); }); });
+  var midx = null, changed = 0;
+  Object.keys(idMap).forEach(function (id) {
+    var arr = idMap[id], tset = {}; arr.forEach(function (x) { tset[x.team] = 1; });
+    if (Object.keys(tset).length < 2) return;
+    if (midx === null) { midx = {}; if (typeof MASTER_FILE_ID_RB !== 'undefined' && MASTER_FILE_ID_RB && typeof rbMasterNameTeam_ === 'function') { try { midx = rbMasterNameTeam_(MASTER_FILE_ID_RB); } catch (e) { midx = {}; } } }
+    var home = rbPickHome_(arr, midx);
+    arr.forEach(function (x) {
+      if (x.team === home) return;
+      x.r.support = true; x.r.supportTeam = home; x.r.supportTeamAuto = true; x.r.supportTeamSrc = 'dup'; changed++;
+    });
+  });
+  if (changed) rbRecomputeAgg_(res);
+  return changed;
 }
 /** เติม a.OP/a.CL จากเวลาเปิด-ปิดเคาน์เตอร์ของท่า (เฉพาะที่ชีตเวรไม่ได้กรอกไว้) */
 function rbApplyCounterTimes_(res) {

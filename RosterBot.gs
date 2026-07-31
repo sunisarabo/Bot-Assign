@@ -242,6 +242,7 @@ function rbGetDay_(date) {
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   } catch (e) { res = null; }
   if (res && CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  if (res && typeof rbDedupeTeams_ === 'function') { try { rbDedupeTeams_(res, ll); } catch (eD) {} }   // รหัสซ้ำหลายทีม → ไม่นับซ้ำ (ให้ตรงกับเว็บ)
   var out = { res: res, ll: ll };
   RB_DAY_CACHE_[iso] = out;
   return out;
