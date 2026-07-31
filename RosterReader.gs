@@ -78,12 +78,12 @@ function rrClassify_(shift, remark) {
 
   if (core.indexOf('SICK') === 0 || core === 'SL' || core === 'MC'
       || sh === 'SICK' || sh === 'SL' || sh === 'MC') return 'sick';
-  if (core.indexOf('VAC') === 0 || core === 'BL' || core === 'AL' || core === 'VACATION') return 'vac';
+  if (core.indexOf('VAC') === 0 || core === 'BL' || core === 'AL' || core === 'VL' || core === 'ML' || core === 'PL' || core === 'VACATION') return 'vac';
   if (core.indexOf('OT OFF') === 0 || core.indexOf('OT-OFF') === 0) return 'ot_off';
   if (core.indexOf('ONDUTY') === 0 || core.indexOf('ON DUTY') === 0) return 'working';
   if (core.indexOf('OFF') === 0 || core === 'X') return 'off';
   if (core === '') {                                       // no REMARK -> use shift
-    if (sh.indexOf('VAC') >= 0 || sh === 'BL') return 'vac';
+    if (sh.indexOf('VAC') >= 0 || sh === 'BL' || sh === 'VL' || sh === 'ML' || sh === 'PL' || sh === 'AL') return 'vac';
     if (sh === 'SL' || sh === 'SICK' || sh === 'MC') return 'sick';
     if (sh === '' || sh === 'X' || sh === 'XX' || sh === 'OFF' || sh === '-'
         || sh.indexOf('OFF') === 0) return 'off';
@@ -570,7 +570,7 @@ function rrParseStandard_(rows, team, meta) {
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
       shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
-      bucket: bkt, ot: oth, otType: otType, otSpans: otSpans,
+      bucket: bkt, remark: remark, ot: oth, otType: otType, otSpans: otSpans,
       otTime: oth > 0 ? otSpans.map(function (s) { return rrFmtRange_([s.a, s.b]); }).filter(String).join(', ') : '',
       // แถวว่างเปล่าจริง (ไม่มีกะ/เวลา/สถานะ/งานเลย) = ชีตยังไม่กรอก → เติมจาก ROSTER เดือนได้
       // (ถ้ามี REMARK เช่น "Off"/"SL" = ตั้งใจให้หยุด → ไม่เติม เคารพชีตรายวัน)

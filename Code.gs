@@ -86,12 +86,12 @@ function rrClassify_(shift, remark) {
 
   if (core.indexOf('SICK') === 0 || core === 'SL' || core === 'MC'
       || sh === 'SICK' || sh === 'SL' || sh === 'MC') return 'sick';
-  if (core.indexOf('VAC') === 0 || core === 'BL' || core === 'AL' || core === 'VACATION') return 'vac';
+  if (core.indexOf('VAC') === 0 || core === 'BL' || core === 'AL' || core === 'VL' || core === 'ML' || core === 'PL' || core === 'VACATION') return 'vac';
   if (core.indexOf('OT OFF') === 0 || core.indexOf('OT-OFF') === 0) return 'ot_off';
   if (core.indexOf('ONDUTY') === 0 || core.indexOf('ON DUTY') === 0) return 'working';
   if (core.indexOf('OFF') === 0 || core === 'X') return 'off';
   if (core === '') {                                       // no REMARK -> use shift
-    if (sh.indexOf('VAC') >= 0 || sh === 'BL') return 'vac';
+    if (sh.indexOf('VAC') >= 0 || sh === 'BL' || sh === 'VL' || sh === 'ML' || sh === 'PL' || sh === 'AL') return 'vac';
     if (sh === 'SL' || sh === 'SICK' || sh === 'MC') return 'sick';
     if (sh === '' || sh === 'X' || sh === 'XX' || sh === 'OFF' || sh === '-'
         || sh.indexOf('OFF') === 0) return 'off';
@@ -578,7 +578,7 @@ function rrParseStandard_(rows, team, meta) {
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
       shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
-      bucket: bkt, ot: oth, otType: otType, otSpans: otSpans,
+      bucket: bkt, remark: remark, ot: oth, otType: otType, otSpans: otSpans,
       otTime: oth > 0 ? otSpans.map(function (s) { return rrFmtRange_([s.a, s.b]); }).filter(String).join(', ') : '',
       // แถวว่างเปล่าจริง (ไม่มีกะ/เวลา/สถานะ/งานเลย) = ชีตยังไม่กรอก → เติมจาก ROSTER เดือนได้
       // (ถ้ามี REMARK เช่น "Off"/"SL" = ตั้งใจให้หยุด → ไม่เติม เคารพชีตรายวัน)
@@ -6455,6 +6455,43 @@ function runRosterPrevMonth() {
   var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
   runRosterForMonth(d.getFullYear(), d.getMonth() + 1);
 }
+
+/** สรุปรายสัปดาห์ (จ.–อา. ของวันที่ระบุ) — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT ต่อวัน + รวม → log ให้อ่านได้ทันที
+ *  ใช้ cache ไฟล์รายวัน (เร็ว) · ไม่ใส่ค่า = สัปดาห์ปัจจุบัน · runWeekSummaryPrev() = สัปดาห์ก่อน */
+function rbWeekSummary(y, m, d) {
+  var now = new Date(), date = (y && m && d) ? new Date(y, m - 1, d) : now;
+  var wr = rbWeekRange_(date), perDay = [];
+  wr.days.forEach(function (dt, idx) {
+    if (dt.getTime() > now.getTime() + 43200000) return;          // วันอนาคต → ยังไม่มีไฟล์
+    var dc = rbGetDay_(dt); if (!dc.res) return;
+    var seen = {}, day = { lbl: wr.dayNums[idx] + ' ' + MON_RB[dt.getMonth()], work: 0, sick: 0, vac: 0, personal: 0, otP: 0, otH: 0 };
+    function acc(r) {
+      var id = String(r.id || '').replace(/\D/g, '') || ('N:' + String(r.name).toUpperCase());
+      if (seen[id]) return; seen[id] = 1;
+      if (r.bucket === 'working' || r.bucket === 'ot_off') day.work++;
+      else if (r.bucket === 'sick') day.sick++;
+      else if (r.bucket === 'vac') { if (/\bBL\b|\bML\b|\bPL\b|กิจ|PERSONAL|BUSINESS|MATERN/i.test(String(r.remark || r.shift || ''))) day.personal++; else day.vac++; }  // BL/ML/PL = ลากิจ/อื่นๆ · ที่เหลือ (VL/VAC/AL) = ลาแวค
+      if (r.ot > 0) { day.otP++; day.otH += r.ot; }
+    }
+    Object.keys(dc.res.teams).forEach(function (t) { dc.res.teams[t].records.forEach(acc); });
+    if (dc.ll && dc.ll.totals && dc.ll.totals.staff > 0) Object.keys(dc.ll.sections).forEach(function (s) { dc.ll.sections[s].records.forEach(acc); });
+    day.otH = Math.round(day.otH * 10) / 10;
+    perDay.push(day);
+  });
+  var tot = { work: 0, sick: 0, vac: 0, personal: 0, otP: 0, otH: 0 };
+  var lines = ['📊 สรุปสัปดาห์ ' + wr.label + '  (มาทำงาน · ป่วย · แวค · กิจ · OT)'];
+  perDay.forEach(function (p) {
+    ['work', 'sick', 'vac', 'personal', 'otP', 'otH'].forEach(function (k) { tot[k] += p[k]; });
+    lines.push('  ' + p.lbl + ' → มาทำงาน ' + p.work + ' · ป่วย ' + p.sick + ' · แวค ' + p.vac + ' · กิจ ' + p.personal + ' · OT ' + p.otP + ' คน (' + p.otH + ' ชม.)');
+  });
+  tot.otH = Math.round(tot.otH * 10) / 10;
+  lines.push('  ── รวม ' + perDay.length + ' วัน (person-days) → มาทำงาน ' + tot.work + ' · ป่วย ' + tot.sick + ' · แวค ' + tot.vac + ' · กิจ ' + tot.personal + ' · OT รวม ' + tot.otH + ' ชม. (' + tot.otP + ' คน-วัน)');
+  var txt = lines.join('\n');
+  Logger.log(txt);
+  return txt;
+}
+function runWeekSummary() { return rbWeekSummary(); }               // สัปดาห์ปัจจุบัน (กด Run)
+function runWeekSummaryPrev() { var d = new Date(); d.setDate(d.getDate() - 7); return rbWeekSummary(d.getFullYear(), d.getMonth() + 1, d.getDate()); }  // สัปดาห์ก่อน
 
 /**
  * รันครั้งเดียวเพื่อตั้ง trigger ให้รายงานออกอัตโนมัติทุกวัน 08:00 และ 14:00
