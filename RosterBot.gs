@@ -159,22 +159,34 @@ function testRosterFromId(ssId, llId, y, m, d) {
   return out.getUrl();
 }
 
+// ─── CACHE ต่อ 1 การรัน: อ่าน/แปลงไฟล์รายวัน + master ครั้งเดียว (เจนทั้งเดือนเร็วขึ้นมาก — OT รายสัปดาห์ reuse ไฟล์ที่อ่านแล้ว) ───
+var RB_DAY_CACHE_ = {}, RB_MASTER_CACHE_;
+function rbDayIso_(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function rbGetDay_(date) {
+  var iso = rbDayIso_(date);
+  if (RB_DAY_CACHE_[iso] !== undefined) return RB_DAY_CACHE_[iso];   // อ่าน/แปลงไฟล์วันนี้ครั้งเดียวต่อการรัน
+  var res = null, ll = null;
+  try {
+    var roster = rbOpenTodayRoster_(date);
+    res = readRosterFromSpreadsheet(roster.ss, date);
+    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
+  } catch (e) { res = null; }
+  if (res && CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  var out = { res: res, ll: ll };
+  RB_DAY_CACHE_[iso] = out;
+  return out;
+}
+function rbGetMaster_() {
+  if (RB_MASTER_CACHE_ !== undefined) return RB_MASTER_CACHE_;
+  var m = null; if (MASTER_FILE_ID_RB) { try { m = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) {} }
+  RB_MASTER_CACHE_ = m; return m;
+}
+
 // ─── MAIN PIPELINE ──────────────────────────────────────────────────────────
 function rbRunForDate_(date) {
-  var roster = rbOpenTodayRoster_(date);
-  var res = readRosterFromSpreadsheet(roster.ss, date);
-
-  var ll = null;
-  if (CONFIG_RB.LL_FILE_ID) {
-    try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); }
-    catch (e) { Logger.log('⚠️ LL: ' + e.message); }
-  }
-
-  var master = null;
-  if (MASTER_FILE_ID_RB) {
-    try { master = readMasterHeadcount(MASTER_FILE_ID_RB); }
-    catch (e) { Logger.log('⚠️ Master: ' + e.message); }
-  }
+  var day = rbGetDay_(date), res = day.res, ll = day.ll;
+  if (!res) throw new Error('อ่านไฟล์เวรของวันที่ ' + rbDayIso_(date) + ' ไม่ได้ (ไม่มีไฟล์/เปิดไม่ได้)');
+  var master = rbGetMaster_();
 
   var be = date.getFullYear() + 543;
   var mon = MON_RB[date.getMonth()];
@@ -198,7 +210,6 @@ function rbRunForDate_(date) {
   ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
     var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
   });
-  if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
 
   rbPostChat_(res, dateStr, out.getUrl(), ll, master);
   Logger.log('✅ Done: %s', out.getUrl());
@@ -476,15 +487,9 @@ function rbWeeklyOT_(date) {
   wr.days.forEach(function (dt, idx) {
     if (dt.getTime() > today.getTime() + 43200000) return;   // วันอนาคต → ยังไม่มีไฟล์เวร
     var day = wr.dayNums[idx];
-    var roster;
-    try { roster = rbOpenTodayRoster_(dt); } catch (e) { return; }
-    var res;
-    try { res = readRosterFromSpreadsheet(roster.ss, dt); } catch (e2) { res = null; }
-    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
+    var dc = rbGetDay_(dt), res = dc.res, ll = dc.ll;         // ใช้ cache (ไฟล์ที่เจนวันนั้นอ่านไปแล้ว ไม่ต้องแปลงซ้ำ)
     if (!res) return;
     daysRead.push(day);
-    var ll = null;
-    if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, dt); } catch (e4) {} }
 
     function tally(team, r) {
       if ((r.bucket !== 'working' && r.bucket !== 'ot_off') || !(r.ot > 0)) return;
