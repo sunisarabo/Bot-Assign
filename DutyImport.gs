@@ -367,10 +367,23 @@ function rqFindSupport(iso, showAlt) {
   try {
     showAlt = (showAlt === true || showAlt === 1 || showAlt === '1' || showAlt === 'true');
     var date = iso ? rbDateFromIso_(iso) : new Date();
-    var text = '', srcs = [];
-    if (rqSheetId_()) { try { var t = rqReadText_(SpreadsheetApp.openById(rqSheetId_()), date); if (t) { text += t + '\n'; srcs.push('ไฟล์ RQ'); } } catch (eS) {} }
+    var text = '', srcs = [], rqSet = !!rqSheetId_(), rqOpened = false, rqHasTab = false;
+    if (rqSet) {
+      try {
+        var ss = SpreadsheetApp.openById(rqSheetId_()); rqOpened = true;
+        if (typeof rqFindDateTab_ === 'function' && rqFindDateTab_(ss, date)) rqHasTab = true;
+        var t = rqReadText_(ss, date); if (t) { text += t + '\n'; srcs.push('ไฟล์ RQ'); }
+      } catch (eS) {}
+    }
     var gm = rqReadGmail_(date); if (gm) { text += '\n' + gm; srcs.push('Gmail'); }
-    if (!text.trim()) return '<div class="panel" style="padding:22px"><b>ยังไม่มีแหล่งคำร้อง</b><br><span class="muted">ตั้ง Script Property <b>RQ_SHEET_ID</b> (ไฟล์รวมคำร้อง) หรือ <b>RQ_GMAIL_QUERY</b> (คำค้น Gmail) อย่างใดอย่างหนึ่ง</span></div>';
+    if (!text.trim()) {
+      var ddmon = ('0' + date.getDate()).slice(-2) + ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][date.getMonth()];
+      var msg = !rqSet ? 'ยังไม่ได้ตั้งไฟล์รวมคำร้อง — ตั้ง <b>RQ_SHEET_ID</b> หรือ <b>RQ_GMAIL_QUERY</b>'
+        : !rqOpened ? 'เปิดไฟล์ RQ ไม่ได้ — แชร์ไฟล์ให้บัญชีที่รันสคริปต์ (<b>hktadminpsa@aotga.com</b>)'
+        : !rqHasTab ? ('ยังไม่มีแท็บวันที่ <b>' + ddmon + '</b> ในไฟล์ RQ — ยังไม่มีคำร้องของวันนี้ (หรือชื่อแท็บไม่ตรง · ต้องเป็น DDMON เช่น ' + ddmon + ')')
+        : ('แท็บวันที่ <b>' + ddmon + '</b> มีอยู่ แต่ยังไม่มีข้อความคำร้อง');
+      return '<div class="panel" style="padding:22px"><b>ยังไม่มีคำร้องของวันนี้</b><br><span class="muted">' + msg + '</span></div>';
+    }
     var reqs = dutyParseRequests_(text);
     if (!reqs.length) return '<div class="panel muted" style="padding:22px">มีข้อความจาก ' + rbEsc_(srcs.join('+')) + ' แต่แตกเป็นคำร้องไม่ได้ (ตรวจรูปแบบ)</div>';
     var d, noRoster = false;
