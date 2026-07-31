@@ -6566,7 +6566,7 @@ function rbRunForDate_(date) {
   // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
   try {
     var wr = rbWeekRange_(date);
-    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
+    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
   } catch (e) { Logger.log('⚠️ Weekly OT: ' + e.message); }
   ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
     var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
@@ -6829,28 +6829,32 @@ var OT_WEEK_LIMIT = 36;
  *  ตั้งแต่ มิ.ย. 2026 เป็นต้นไป: สัปดาห์สุดท้าย = 22 ถึงสิ้นเดือน (รวมวัน 29-31 เข้าสัปดาห์เดียว)
  *  ก่อน มิ.ย. 2026: คงเดิม (1-7, 8-14, 15-21, 22-28, 29-สิ้นเดือน) */
 function rbWeekRange_(date) {
-  var d = date.getDate();
-  var daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
-  var endDay = Math.min(startDay + 6, daysInMonth);
-  var fromJun2026 = (date.getFullYear() > 2026) || (date.getFullYear() === 2026 && date.getMonth() >= 5);  // มิ.ย. = month index 5
-  if (fromJun2026 && d >= 22) { startDay = 22; endDay = daysInMonth; }   // สัปดาห์สุดท้าย 22-สิ้นเดือน (รวมทั้งสัปดาห์)
-  return { startDay: startDay, endDay: endDay };
+  // รอบสัปดาห์ = จันทร์–อาทิตย์ (ISO) ต่อเนื่อง (ข้ามเดือนได้) — ให้ตรงกับหน้า ชม./สัปดาห์
+  var d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  var dow = (d.getDay() + 6) % 7;                          // 0 = จันทร์
+  var start = new Date(d); start.setDate(d.getDate() - dow);
+  var days = [], dayNums = [];
+  for (var i = 0; i < 7; i++) { var x = new Date(start); x.setDate(start.getDate() + i); days.push(x); dayNums.push(x.getDate()); }
+  var end = days[6];
+  var label = (start.getMonth() === end.getMonth())
+    ? (start.getDate() + '-' + end.getDate() + ' ' + MON_RB[start.getMonth()])           // 27-31 JUL
+    : (start.getDate() + MON_RB[start.getMonth()] + '-' + end.getDate() + MON_RB[end.getMonth()]);  // 27JUL-2AUG
+  return { start: start, end: end, days: days, dayNums: dayNums, startDay: start.getDate(), endDay: end.getDate(), label: label };
 }
 
 /** Accumulate OT hours per employee across the week (week-to-date up to `date`). */
 function rbWeeklyOT_(date) {
   var wr = rbWeekRange_(date);
-  var upto = Math.min(date.getDate(), wr.endDay);
-  var people = {}, daysRead = [];
-  for (var day = wr.startDay; day <= upto; day++) {
-    var dt = new Date(date.getFullYear(), date.getMonth(), day);
+  var today = new Date(), people = {}, daysRead = [];
+  wr.days.forEach(function (dt, idx) {
+    if (dt.getTime() > today.getTime() + 43200000) return;   // วันอนาคต → ยังไม่มีไฟล์เวร
+    var day = wr.dayNums[idx];
     var roster;
-    try { roster = rbOpenTodayRoster_(dt); } catch (e) { continue; }
+    try { roster = rbOpenTodayRoster_(dt); } catch (e) { return; }
     var res;
     try { res = readRosterFromSpreadsheet(roster.ss, dt); } catch (e2) { res = null; }
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
-    if (!res) continue;
+    if (!res) return;
     daysRead.push(day);
     var ll = null;
     if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, dt); } catch (e4) {} }
@@ -6866,10 +6870,10 @@ function rbWeeklyOT_(date) {
     if (ll && ll.totals.staff > 0) {
       Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tally('LL·' + s, r); }); });
     }
-  }
+  });
   var list = Object.keys(people).map(function (k) { people[k].total = Math.round(people[k].total * 10) / 10; return people[k]; })
     .sort(function (a, b) { return b.total - a.total; });
-  return { startDay: wr.startDay, endDay: wr.endDay, daysRead: daysRead, people: list,
+  return { label: wr.label, dayNums: wr.dayNums, daysRead: daysRead, people: list,
            over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
 }
 
@@ -6880,12 +6884,11 @@ function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
   var wk = rbWeeklyOT_(date);
-  var dayCols = [];
-  for (var d = wk.startDay; d <= wk.endDay; d++) dayCols.push(d);
+  var dayCols = wk.dayNums;                                // จันทร์–อาทิตย์ (เลขวันจริง เช่น 27,28,29,30,31,1,2)
   var W = 3 + dayCols.length + 2;
 
   sh.getRange(1, 1, 1, W).merge()
-    .setValue('⏱️ OT รายสัปดาห์ (' + wk.startDay + '-' + wk.endDay + ' ' + mon + ')  •  เกิน ' + OT_WEEK_LIMIT +
+    .setValue('⏱️ OT รายสัปดาห์ (' + wk.label + ')  •  เกิน ' + OT_WEEK_LIMIT +
               ' ชม./สัปดาห์: ' + wk.over.length + ' คน  •  อ่าน ' + wk.daysRead.length + ' วัน')
     .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
   sh.setRowHeight(1, 26);
@@ -6920,7 +6923,7 @@ function runWeeklyOTReport(y, m, d) {
   var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
   var out = rbGetMonthlyOutput_(mon, be);
   var wr = rbWeekRange_(date);
-  rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
+  rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
   Logger.log('✅ Weekly OT: %s', out.getUrl());
   return out.getUrl();
 }
