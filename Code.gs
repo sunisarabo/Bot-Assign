@@ -5695,68 +5695,67 @@ function whWeekDates_(iso) {
   var out = []; for (var i = 0; i < 7; i++) { var x = new Date(mon); x.setDate(mon.getDate() + i); out.push(x); }
   return out;
 }
-/** รวมชั่วโมง OT จริงรายคน จากไฟล์รายวันของสัปดาห์นั้น → { id: otHours } · cache 1 ชม. (ข้ามวันอนาคต/ไฟล์ที่เปิดไม่ได้) */
-function whWeekOtMap_(iso) {
-  var wk = whIsoWeek_(iso), ck = 'whot_' + wk;
+/** สถิติรายสัปดาห์รายคน จาก "ไฟล์ Assignment รายวัน" ของสัปดาห์นั้น → { nDays, byId:{ id:{hours,days,ot} } }
+ *  ชม.กะ+วัน+OT ทั้งหมดมาจากไฟล์เวรจริง (ไม่ต้องพึ่งไฟล์ ROSTER รายเดือน) · cache 1 ชม. · ข้ามวันอนาคต/ไฟล์ที่เปิดไม่ได้ */
+function whWeekStatsFromAssign_(iso) {
+  var wk = whIsoWeek_(iso), ck = 'whwk2_' + wk;
   var hit = rbCacheGetBig_(ck); if (hit) { try { return JSON.parse(hit); } catch (e) {} }
-  var map = {}, now = new Date();
+  var map = {}, now = new Date(), nDays = 0;
   whWeekDates_(iso).forEach(function (dt) {
-    if (dt.getTime() > now.getTime() + 43200000) return;              // วันอนาคต (เกินวันนี้ครึ่งวัน) → ยังไม่มี OT
+    if (dt.getTime() > now.getTime() + 43200000) return;              // วันอนาคต → ยังไม่มีไฟล์เวร
     var dd; try { dd = rbLoadResLL_(dt); } catch (e) { return; }
-    function add(rec) { var id = String(rec.id || '').replace(/\D/g, ''); if (id.length < 6) return; var ot = +rec.ot || 0; if (ot > 0) map[id] = Math.round(((map[id] || 0) + ot) * 10) / 10; }
+    nDays++;
+    var seenDay = {};
+    function add(rec) {
+      var id = String(rec.id || '').replace(/\D/g, ''); if (id.length < 6 || seenDay[id]) return; seenDay[id] = 1;
+      var m = map[id] || (map[id] = { hours: 0, days: 0, ot: 0 });
+      if (rec.bucket === 'working' || rec.bucket === 'ot_off') { m.days++; m.hours += (+rec.shiftHrs || 0); }   // มาทำงานจริงวันนั้น
+      var ot = +rec.ot || 0; if (ot > 0) m.ot += ot;
+    }
     try { Object.keys(dd.res.teams).forEach(function (t) { dd.res.teams[t].records.forEach(add); }); } catch (e2) {}
     try { if (dd.ll && dd.ll.totals && dd.ll.totals.staff > 0) Object.keys(dd.ll.sections).forEach(function (s) { dd.ll.sections[s].records.forEach(add); }); } catch (e3) {}
   });
-  try { rbCachePutBig_(ck, JSON.stringify(map), 3600); } catch (e4) {}
-  return map;
+  Object.keys(map).forEach(function (id) { var m = map[id]; m.hours = Math.round(m.hours * 10) / 10; m.ot = Math.round(m.ot * 10) / 10; });
+  var out = { nDays: nDays, byId: map };
+  try { rbCachePutBig_(ck, JSON.stringify(out), 3600); } catch (e4) {}
+  return out;
 }
 /** Lazy tab: ⏱️ ชั่วโมง/สัปดาห์ — รายคน (สัปดาห์ของวันที่เลือก) + เตือนเกิน 48ช/7วัน + OT เกิน 36ช */
 function rbWeekHoursHtml(iso) {
   try {
-    var R = whLoadMonth_(iso);
-    if (!R) return '<div class="panel">ยังเชื่อมไฟล์ ROSTER เดือนไม่ได้ — ตั้ง <code>PWMS_ROSTER_ID</code> (หรือ <code>PWMS_ROSTER_IDS</code>) ใน Script Properties</div>';
-    var ymReq = String(iso).slice(0, 7);
-    if (R.fileYm && R.fileYm !== ymReq)   // ไฟล์ ROSTER ที่โหลดมาเป็นคนละเดือนกับวันที่เลือก → เตือน (กันขึ้น 0/0 หลอกตา)
-      return '<div class="panel" style="padding:20px"><b>⚠️ ยังไม่ได้ตั้งไฟล์ ROSTER ของเดือน ' + rbEsc_(ymReq) + '</b>' +
-        '<div class="muted" style="margin-top:8px;line-height:1.7">ไฟล์ที่ระบบมีตอนนี้เป็นของเดือน <b>' + rbEsc_(R.fileYm) + '</b> — เพิ่ม ID ไฟล์ ROSTER เดือน ' + rbEsc_(ymReq) +
-        ' ใน <code>PWMS_ROSTER_MAP</code> (WorkHours.gs) หรือ Script Property <code>PWMS_ROSTER_IDS</code> เช่น <code>{"' + rbEsc_(ymReq) + '":"&lt;file id&gt;"}</code> แล้วรีเฟรช</div></div>';
     var wk = whIsoWeek_(iso);
     var d = rbLoadResLL_(rbDateFromIso_(iso));
-    var otMap = {}; try { otMap = whWeekOtMap_(iso); } catch (eOt) {}   // OT รายคนของสัปดาห์ (จากไฟล์รายวัน · cache)
-    var rows = [], overN = 0, incompN = 0, otOverN = 0, seen = {};
-    Object.keys(d.res.teams).forEach(function (t) {
-      d.res.teams[t].records.forEach(function (r) {
-        var idd = String(r.id || '').replace(/\D/g, ''); if (!idd || seen[idd]) return; seen[idd] = 1;
-        var w = whWeekStat_(iso, idd, r.shiftHrs || 0); if (!w) return;   // ใช้ชม.กะวันนี้ประมาณวันที่ ROSTER ไม่มีรหัส
-        var ot = otMap[idd] || 0, otOver = ot > WH_WEEK_MAXOT;
-        if (w.level === 'over') overN++; else if (w.incomplete) incompN++;
-        if (otOver) otOverN++;
-        rows.push({ team: t, id: idd, name: r.name, pos: r.pos || '', w: w, ot: ot, otOver: otOver });
-      });
-    });
-    // เรียง: เกินเกณฑ์ (ชม./OT) → ไม่มีรหัสกะ → ชั่วโมง+OT มากก่อน
-    rows.sort(function (a, b) { return ((b.w.over48 || b.w.over6 || b.otOver) ? 1 : 0) - ((a.w.over48 || a.w.over6 || a.otOver) ? 1 : 0) || (b.w.incomplete ? 1 : 0) - (a.w.incomplete ? 1 : 0) || (b.w.hours + b.ot) - (a.w.hours + a.ot); });
+    var W = whWeekStatsFromAssign_(iso), stats = W.byId || {};          // ชม.กะ+วัน+OT จากไฟล์เวรรายวันของสัปดาห์
+    var rows = [], overN = 0, otOverN = 0, seen = {};
+    function collect(team, r) {
+      var idd = String(r.id || '').replace(/\D/g, ''); if (idd.length < 6 || seen[idd]) return; seen[idd] = 1;
+      var s = stats[idd] || { hours: 0, days: 0, ot: 0 };
+      var over48 = s.hours > WH_WEEK_MAXHR, over7 = s.days > WH_WEEK_MAXDAY, otOver = s.ot > WH_WEEK_MAXOT;
+      if (over48 || over7) overN++; if (otOver) otOverN++;
+      rows.push({ team: team, id: idd, name: r.name, pos: r.pos || '', hours: s.hours, days: s.days, ot: s.ot, over48: over48, over7: over7, otOver: otOver });
+    }
+    Object.keys(d.res.teams).forEach(function (t) { d.res.teams[t].records.forEach(function (r) { collect(t, r); }); });
+    if (d.ll && d.ll.totals && d.ll.totals.staff > 0) Object.keys(d.ll.sections).forEach(function (s) { d.ll.sections[s].records.forEach(function (r) { collect('LL·' + s, r); }); });
+    // เรียง: เกินเกณฑ์ (ชม.กะ/วัน/OT) ก่อน → ชม.กะ+OT มากก่อน
+    rows.sort(function (a, b) { return ((b.over48 || b.over7 || b.otOver) ? 1 : 0) - ((a.over48 || a.over7 || a.otOver) ? 1 : 0) || (b.hours + b.ot) - (a.hours + a.ot); });
     var body = rows.map(function (x) {
-      var w = x.w, warn = [];
-      if (w.over48) warn.push((w.incomplete ? 'อาจเกิน' : 'เกิน') + ' 48ช (' + (w.incomplete ? '≈' : '') + w.total + ')');
-      if (w.over6) warn.push('เกิน 7 วัน (' + w.days + ')');
+      var warn = [];
+      if (x.over48) warn.push('ชม.กะเกิน 48ช (' + x.hours + ')');
+      if (x.over7) warn.push('เกิน 7 วัน (' + x.days + ')');
       if (x.otOver) warn.push('OT เกิน ' + WH_WEEK_MAXOT + 'ช (' + x.ot + ')');
       var cls = warn.length ? 'rowbad' : '', st;
-      if (warn.length) st = '<span class="badd">⚠️ ' + rbEsc_(warn.join(' · ')) + '</span>' +
-        (w.incomplete ? ' <span class="tag">📝 ROSTER ไม่มีรหัส ' + w.nocode + ' วัน (ประมาณจากกะวันนี้)</span>' : '');
-      else if (w.incomplete) st = '<span class="tag">📝 ≈ ' + w.total + 'ช — ประมาณจากกะวันนี้ · ROSTER ไม่มีรหัส ' + w.nocode + '/' + w.days + ' วัน (เติมให้ครบ)</span>';
-      else st = '<span class="okk">✅ ' + w.hours + 'ช / ' + w.days + 'วัน' + (x.ot > 0 ? ' · OT ' + x.ot + 'ช' : '') + '</span>';
-      var hdisp = w.incomplete ? ('<span class="muted">≈</span>' + w.total) : ('<b>' + w.hours + '</b>');
+      if (warn.length) st = '<span class="badd">⚠️ ' + rbEsc_(warn.join(' · ')) + '</span>';
+      else st = '<span class="okk">✅ ' + x.hours + 'ช / ' + x.days + 'วัน' + (x.ot > 0 ? ' · OT ' + x.ot + 'ช' : '') + '</span>';
       var otdisp = x.ot > 0 ? ('<span class="' + (x.otOver ? 'badd' : '') + '">' + x.ot + '</span>') : '<span class="muted">–</span>';
       return '<tr class="' + cls + '" data-team="' + rbEsc_(x.team) + '"><td class="b">' + rbEsc_(x.team) + '</td><td class="tnum">' + rbEsc_(x.id) +
-        '</td><td>' + rbEsc_(x.name) + '</td><td>' + rbEsc_(x.pos) + '</td><td class="tnum">' + hdisp + '</td><td class="tnum">' + w.days + '</td><td class="tnum">' + otdisp + '</td><td>' + st + '</td></tr>';
+        '</td><td>' + rbEsc_(x.name) + '</td><td>' + rbEsc_(x.pos) + '</td><td class="tnum"><b>' + x.hours + '</b></td><td class="tnum">' + x.days + '</td><td class="tnum">' + otdisp + '</td><td>' + st + '</td></tr>';
     }).join('') || '<tr><td colspan="8" class="muted" style="text-align:center;padding:18px">— ไม่มีข้อมูล —</td></tr>';
+    var partial = W.nDays < 7 ? (' <span class="muted">· นับถึงวันที่มีไฟล์ ' + W.nDays + '/7 วัน (สัปดาห์ยังไม่ครบ)</span>') : '';
     var hd = '<div class="sectionlabel" style="background:#fff7e6;border-left:4px solid #fec909;padding:8px 12px;border-radius:8px">' +
       '⏱️ <b>ชั่วโมงทำงานรายสัปดาห์</b> (' + rbEsc_(wk) + ') ตามระเบียบ — เพดาน <b>48 ชม. / 7 วัน · OT ' + WH_WEEK_MAXOT + ' ชม.</b> ต่อสัปดาห์ · ' +
-      (overN ? '<span class="badd">⚠️ ชม.กะเกิน ' + overN + ' คน</span>' : '<span class="okk">✅ ชม.กะอยู่ในเกณฑ์</span>') +
+      (overN ? '<span class="badd">⚠️ ชม.กะ/วันเกิน ' + overN + ' คน</span>' : '<span class="okk">✅ ชม.กะอยู่ในเกณฑ์</span>') +
       (otOverN ? ' · <span class="badd">⚠️ OT เกิน ' + otOverN + ' คน</span>' : '') +
-      (incompN ? ' · <span class="tag">📝 ไม่มีรหัสกะใน ROSTER ' + incompN + ' คน</span>' : '') +
-      ' <span class="muted">· (ชม.กะจาก ROSTER · OT จริงจากไฟล์รายวันของสัปดาห์)</span></div>';
+      ' <span class="muted">· (นับจากไฟล์ Assignment รายวัน — ชม.กะ+วัน+OT จริง)</span>' + partial + '</div>';
     return hd + rbTblCard_('⏱️ ชั่วโมง/สัปดาห์ รายคน', '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>ชม.กะ/สัปดาห์</th><th>วัน</th><th>OT/สัปดาห์</th><th>สถานะ</th></tr>', body, rbCtrls_('view-wh', true));
   } catch (e) { return '<div class="panel">โหลดชั่วโมง/สัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
