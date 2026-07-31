@@ -45,6 +45,24 @@ function runRosterForDate(y, m, d) {
   catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
 }
 
+/** เจนรายงานทั้งเดือน (regenerate ทุกวันด้วยโค้ดล่าสุด) — มี time-budget กันชน limit 6 นาที · resume ได้
+ *  ใช้: runRosterForMonth(2026, 7)  ·  ถ้าใกล้หมดเวลาจะหยุดแล้วบอกวันถัดไปให้รันต่อ เช่น runRosterForMonth(2026, 7, 18) */
+function runRosterForMonth(y, m, fromDay) {
+  var start = new Date().getTime(), BUDGET = 5 * 60 * 1000;   // ~5 นาที (เผื่อ 1 นาทีเขียนไฟล์ก่อนชน limit 6 นาที)
+  var today = new Date();
+  var lastDay = new Date(y, m, 0).getDate();                  // วันสุดท้ายของเดือน
+  var isCur = (today.getFullYear() === y && today.getMonth() === m - 1);
+  var endDay = isCur ? today.getDate() : lastDay;             // เดือนปัจจุบัน → ถึงวันนี้ · เดือนที่ผ่านมา → ทั้งเดือน
+  var d0 = Math.max(1, fromDay || 1), done = 0, fail = 0, stopAt = 0;
+  for (var d = d0; d <= endDay; d++) {
+    if (new Date().getTime() - start > BUDGET) { stopAt = d; break; }
+    try { rbRunForDate_(new Date(y, m - 1, d)); done++; }
+    catch (e) { fail++; Logger.log('⚠️ วันที่ ' + d + '/' + m + ': ' + e.message); }
+  }
+  if (stopAt) Logger.log('⏸️ เจนถึงวันที่ ' + (stopAt - 1) + ' แล้ว (ใกล้หมดเวลา) · สำเร็จ ' + done + ' วัน · รันต่อ: runRosterForMonth(' + y + ', ' + m + ', ' + stopAt + ')');
+  else Logger.log('✅ เจนรายงานเดือน ' + m + '/' + y + ' ครบ (วันที่ ' + d0 + '–' + endDay + ') · สำเร็จ ' + done + ' วัน' + (fail ? ' · พลาด ' + fail + ' วัน (ดู log)' : ''));
+}
+
 /**
  * รันครั้งเดียวเพื่อตั้ง trigger ให้รายงานออกอัตโนมัติทุกวัน 08:00 และ 14:00
  * (เวลาอิงตาม Time zone ของโปรเจกต์ — ตั้งเป็น Asia/Bangkok ใน Project Settings)
