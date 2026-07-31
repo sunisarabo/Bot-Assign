@@ -683,7 +683,7 @@ var RB_NAV_ = [
   ['ac','🧭','ตรวจ Assign','loadAC()','a'],
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
   ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'], ['rq','📨','RQ ซัพ (คำร้อง)','loadRq()'],
-  ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
+  ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
 function rbRail_(shortCount, acCount) {
   var logo = ''; try { logo = rbLogoDataUri_(); } catch (e) {}
@@ -794,6 +794,7 @@ function rbTabs_(shortCount, acCount) {
     '<button class="tab" id="tab-adv" onclick="showView(\'adv\');loadAdv()">📅 จัดล่วงหน้า</button>' +
     '<button class="tab" id="tab-ot" onclick="showView(\'ot\')">⏱️ OT Dashboard</button>' +
     '<button class="tab" id="tab-wh" onclick="showView(\'wh\');loadWh()">⏱️ ชม./สัปดาห์</button>' +
+    '<button class="tab" id="tab-wsum" onclick="showView(\'wsum\');loadWsum()">📊 สรุปสัปดาห์</button>' +
     '<button class="tab" id="tab-dc" onclick="showView(\'dc\');loadDc()">🩺 ตรวจข้อมูล</button>' +
     '<button class="tab" onclick="rbRefresh(this)" title="ล้างแคช ดึงข้อมูลล่าสุดจากชีต" style="margin-left:auto">🔄 รีเฟรช</button></div>';
 }
@@ -1365,6 +1366,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-week" style="display:none"><div id="weekbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตารางบินสัปดาห์…</div></div></div>' +
     '<div id="view-rq" style="display:none"><div id="rqbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังอ่านคำร้อง RQ…</div></div></div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
+    '<div id="view-wsum" style="display:none"><div id="wsumbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังสรุปสัปดาห์…</div></div></div>' +
     '<div id="view-dc" style="display:none"><div id="dcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจข้อมูล…</div></div></div>' +
     '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
     '</div></main></div>' +
@@ -1373,8 +1375,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","week","rq","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","week","rq","ot","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
+    'function loadWsum(){lazy("wsumbox","rbWeekSummaryHtml","wsum");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
     'function loadRq(){lazy("rqbox","rqFindSupport","rq");}' +
     'function rqReload(alt){var b=document.getElementById("rqbox");if(!b||!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังคิดทางเลือก…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";}).rqFindSupport(ISO,alt);}' +

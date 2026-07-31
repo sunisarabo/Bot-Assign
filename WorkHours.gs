@@ -178,3 +178,25 @@ function rbWeekHoursHtml(iso) {
     return hd + rbTblCard_('⏱️ ชั่วโมง/สัปดาห์ รายคน', '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>ชม.กะ/สัปดาห์</th><th>วัน</th><th>OT/สัปดาห์</th><th>สถานะ</th></tr>', body, rbCtrls_('view-wh', true));
   } catch (e) { return '<div class="panel">โหลดชั่วโมง/สัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
+
+/** Lazy tab: 📊 สรุปสัปดาห์ — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT ต่อวัน (จ.–อา.) + รวม (สด จากไฟล์รายวัน) */
+function rbWeekSummaryHtml(iso) {
+  try {
+    var date = iso ? rbDateFromIso_(iso) : new Date();
+    var A = rbWeekAgg_(date, function (dt) { return rbLoadResLL_(dt); });   // ใช้ตัวรวมกลาง + web loader (cache)
+    var t = A.total;
+    var rows = A.days.map(function (p) {
+      if (p.future) return '<tr class="muted"><td class="b">' + rbEsc_(p.lbl) + '</td><td colspan="6" style="text-align:center">— ยังไม่ถึง —</td></tr>';
+      if (p.nofile) return '<tr class="muted"><td class="b">' + rbEsc_(p.lbl) + '</td><td colspan="6" style="text-align:center">— ไม่มีไฟล์เวร —</td></tr>';
+      return '<tr><td class="b">' + rbEsc_(p.lbl) + '</td><td class="tnum">' + p.work + '</td><td class="tnum">' + p.sick +
+        '</td><td class="tnum">' + p.vac + '</td><td class="tnum">' + p.personal + '</td><td class="tnum">' + p.otP + '</td><td class="tnum b">' + p.otH + '</td></tr>';
+    }).join('');
+    rows += '<tr style="font-weight:700;background:#eef6ff"><td class="b">รวมสัปดาห์</td><td class="tnum">' + t.work + '</td><td class="tnum">' + t.sick +
+      '</td><td class="tnum">' + t.vac + '</td><td class="tnum">' + t.personal + '</td><td class="tnum">' + t.otP + '</td><td class="tnum">' + t.otH + '</td></tr>';
+    var hd = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">' +
+      '📊 <b>สรุปสัปดาห์ ' + rbEsc_(A.label) + '</b> — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT ' +
+      '<span class="muted">· (รอบ จ.–อา. · นับจากไฟล์รายวัน · แวค = VL/VAC/AL · กิจ = BL/ML/PL)</span></div>';
+    return hd + rbTblCard_('📊 สรุปสัปดาห์ (ราย วัน + รวม)',
+      '<tr><th>วันที่</th><th>มาทำงาน</th><th>ลาป่วย</th><th>ลาแวค</th><th>ลากิจ</th><th>OT (คน)</th><th>OT (ชม.)</th></tr>', rows, '');
+  } catch (e) { return '<div class="panel">โหลดสรุปสัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}

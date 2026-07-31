@@ -5760,6 +5760,28 @@ function rbWeekHoursHtml(iso) {
   } catch (e) { return '<div class="panel">โหลดชั่วโมง/สัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
+/** Lazy tab: 📊 สรุปสัปดาห์ — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT ต่อวัน (จ.–อา.) + รวม (สด จากไฟล์รายวัน) */
+function rbWeekSummaryHtml(iso) {
+  try {
+    var date = iso ? rbDateFromIso_(iso) : new Date();
+    var A = rbWeekAgg_(date, function (dt) { return rbLoadResLL_(dt); });   // ใช้ตัวรวมกลาง + web loader (cache)
+    var t = A.total;
+    var rows = A.days.map(function (p) {
+      if (p.future) return '<tr class="muted"><td class="b">' + rbEsc_(p.lbl) + '</td><td colspan="6" style="text-align:center">— ยังไม่ถึง —</td></tr>';
+      if (p.nofile) return '<tr class="muted"><td class="b">' + rbEsc_(p.lbl) + '</td><td colspan="6" style="text-align:center">— ไม่มีไฟล์เวร —</td></tr>';
+      return '<tr><td class="b">' + rbEsc_(p.lbl) + '</td><td class="tnum">' + p.work + '</td><td class="tnum">' + p.sick +
+        '</td><td class="tnum">' + p.vac + '</td><td class="tnum">' + p.personal + '</td><td class="tnum">' + p.otP + '</td><td class="tnum b">' + p.otH + '</td></tr>';
+    }).join('');
+    rows += '<tr style="font-weight:700;background:#eef6ff"><td class="b">รวมสัปดาห์</td><td class="tnum">' + t.work + '</td><td class="tnum">' + t.sick +
+      '</td><td class="tnum">' + t.vac + '</td><td class="tnum">' + t.personal + '</td><td class="tnum">' + t.otP + '</td><td class="tnum">' + t.otH + '</td></tr>';
+    var hd = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">' +
+      '📊 <b>สรุปสัปดาห์ ' + rbEsc_(A.label) + '</b> — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT ' +
+      '<span class="muted">· (รอบ จ.–อา. · นับจากไฟล์รายวัน · แวค = VL/VAC/AL · กิจ = BL/ML/PL)</span></div>';
+    return hd + rbTblCard_('📊 สรุปสัปดาห์ (ราย วัน + รวม)',
+      '<tr><th>วันที่</th><th>มาทำงาน</th><th>ลาป่วย</th><th>ลาแวค</th><th>ลากิจ</th><th>OT (คน)</th><th>OT (ชม.)</th></tr>', rows, '');
+  } catch (e) { return '<div class="panel">โหลดสรุปสัปดาห์ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+
 
 // ===== DutyImport.gs =====
 
@@ -6456,42 +6478,75 @@ function runRosterPrevMonth() {
   runRosterForMonth(d.getFullYear(), d.getMonth() + 1);
 }
 
-/** สรุปรายสัปดาห์ (จ.–อา. ของวันที่ระบุ) — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT ต่อวัน + รวม → log ให้อ่านได้ทันที
- *  ใช้ cache ไฟล์รายวัน (เร็ว) · ไม่ใส่ค่า = สัปดาห์ปัจจุบัน · runWeekSummaryPrev() = สัปดาห์ก่อน */
-function rbWeekSummary(y, m, d) {
-  var now = new Date(), date = (y && m && d) ? new Date(y, m - 1, d) : now;
-  var wr = rbWeekRange_(date), perDay = [];
-  wr.days.forEach(function (dt, idx) {
-    if (dt.getTime() > now.getTime() + 43200000) return;          // วันอนาคต → ยังไม่มีไฟล์
-    var dc = rbGetDay_(dt); if (!dc.res) return;
-    var seen = {}, day = { lbl: wr.dayNums[idx] + ' ' + MON_RB[dt.getMonth()], work: 0, sick: 0, vac: 0, personal: 0, otP: 0, otH: 0 };
-    function acc(r) {
-      var id = String(r.id || '').replace(/\D/g, '') || ('N:' + String(r.name).toUpperCase());
-      if (seen[id]) return; seen[id] = 1;
-      if (r.bucket === 'working' || r.bucket === 'ot_off') day.work++;
-      else if (r.bucket === 'sick') day.sick++;
-      else if (r.bucket === 'vac') { if (/\bBL\b|\bML\b|\bPL\b|กิจ|PERSONAL|BUSINESS|MATERN/i.test(String(r.remark || r.shift || ''))) day.personal++; else day.vac++; }  // BL/ML/PL = ลากิจ/อื่นๆ · ที่เหลือ (VL/VAC/AL) = ลาแวค
-      if (r.ot > 0) { day.otP++; day.otH += r.ot; }
-    }
-    Object.keys(dc.res.teams).forEach(function (t) { dc.res.teams[t].records.forEach(acc); });
-    if (dc.ll && dc.ll.totals && dc.ll.totals.staff > 0) Object.keys(dc.ll.sections).forEach(function (s) { dc.ll.sections[s].records.forEach(acc); });
-    day.otH = Math.round(day.otH * 10) / 10;
-    perDay.push(day);
-  });
+/** นับสถานะ 1 คนเข้า day (dedupe ต่อวัน) — มาทำงาน/ป่วย/แวค/กิจ/OT · แยก VL/VAC/AL=แวค · BL/ML/PL=กิจ */
+function rbWkAcc_(day, seen, r) {
+  var id = String(r.id || '').replace(/\D/g, '') || ('N:' + String(r.name).toUpperCase());
+  if (seen[id]) return; seen[id] = 1;
+  if (r.bucket === 'working' || r.bucket === 'ot_off') day.work++;
+  else if (r.bucket === 'sick') day.sick++;
+  else if (r.bucket === 'vac') { if (/\bBL\b|\bML\b|\bPL\b|กิจ|PERSONAL|BUSINESS|MATERN/i.test(String(r.remark || r.shift || ''))) day.personal++; else day.vac++; }
+  if (r.ot > 0) { day.otP++; day.otH += r.ot; }
+}
+/** ตัวรวมข้อมูลสรุปสัปดาห์ (จ.–อา.) — ใช้ร่วมกันทั้ง log/ชีต/เว็บ · loadFn(dt) → {res, ll}
+ *  คืน { label, days:[{lbl,iso,future,nofile,work,sick,vac,personal,otP,otH}], total } */
+function rbWeekAgg_(date, loadFn) {
+  var wr = rbWeekRange_(date), now = new Date(), days = [];
   var tot = { work: 0, sick: 0, vac: 0, personal: 0, otP: 0, otH: 0 };
-  var lines = ['📊 สรุปสัปดาห์ ' + wr.label + '  (มาทำงาน · ป่วย · แวค · กิจ · OT)'];
-  perDay.forEach(function (p) {
-    ['work', 'sick', 'vac', 'personal', 'otP', 'otH'].forEach(function (k) { tot[k] += p[k]; });
-    lines.push('  ' + p.lbl + ' → มาทำงาน ' + p.work + ' · ป่วย ' + p.sick + ' · แวค ' + p.vac + ' · กิจ ' + p.personal + ' · OT ' + p.otP + ' คน (' + p.otH + ' ชม.)');
+  wr.days.forEach(function (dt, idx) {
+    var day = { lbl: wr.dayNums[idx] + ' ' + MON_RB[dt.getMonth()], iso: rbDayIso_(dt), future: false, nofile: false, work: 0, sick: 0, vac: 0, personal: 0, otP: 0, otH: 0 };
+    if (dt.getTime() > now.getTime() + 43200000) { day.future = true; days.push(day); return; }
+    var dc; try { dc = loadFn(dt); } catch (e) { dc = null; }
+    if (!dc || !dc.res) { day.nofile = true; days.push(day); return; }
+    var seen = {};
+    Object.keys(dc.res.teams).forEach(function (t) { dc.res.teams[t].records.forEach(function (r) { rbWkAcc_(day, seen, r); }); });
+    if (dc.ll && dc.ll.totals && dc.ll.totals.staff > 0) Object.keys(dc.ll.sections).forEach(function (s) { dc.ll.sections[s].records.forEach(function (r) { rbWkAcc_(day, seen, r); }); });
+    day.otH = Math.round(day.otH * 10) / 10;
+    ['work', 'sick', 'vac', 'personal', 'otP', 'otH'].forEach(function (k) { tot[k] += day[k]; });
+    days.push(day);
   });
   tot.otH = Math.round(tot.otH * 10) / 10;
-  lines.push('  ── รวม ' + perDay.length + ' วัน (person-days) → มาทำงาน ' + tot.work + ' · ป่วย ' + tot.sick + ' · แวค ' + tot.vac + ' · กิจ ' + tot.personal + ' · OT รวม ' + tot.otH + ' ชม. (' + tot.otP + ' คน-วัน)');
-  var txt = lines.join('\n');
-  Logger.log(txt);
-  return txt;
+  return { label: wr.label, days: days, total: tot };
+}
+/** สรุปรายสัปดาห์ → log (กด Run อ่านในบันทึกได้) · ไม่ใส่ค่า = สัปดาห์ปัจจุบัน · runWeekSummaryPrev() = สัปดาห์ก่อน */
+function rbWeekSummary(y, m, d) {
+  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+  var A = rbWeekAgg_(date, rbGetDay_);
+  var lines = ['📊 สรุปสัปดาห์ ' + A.label + '  (มาทำงาน · ป่วย · แวค · กิจ · OT)'];
+  A.days.forEach(function (p) {
+    lines.push('  ' + p.lbl + ' → ' + (p.future ? '(ยังไม่ถึง)' : p.nofile ? '(ไม่มีไฟล์)' :
+      'มาทำงาน ' + p.work + ' · ป่วย ' + p.sick + ' · แวค ' + p.vac + ' · กิจ ' + p.personal + ' · OT ' + p.otP + ' คน (' + p.otH + ' ชม.)'));
+  });
+  var t = A.total;
+  lines.push('  ── รวม → มาทำงาน ' + t.work + ' · ป่วย ' + t.sick + ' · แวค ' + t.vac + ' · กิจ ' + t.personal + ' · OT รวม ' + t.otH + ' ชม. (person-days)');
+  var txt = lines.join('\n'); Logger.log(txt); return txt;
 }
 function runWeekSummary() { return rbWeekSummary(); }               // สัปดาห์ปัจจุบัน (กด Run)
 function runWeekSummaryPrev() { var d = new Date(); d.setDate(d.getDate() - 7); return rbWeekSummary(d.getFullYear(), d.getMonth() + 1, d.getDate()); }  // สัปดาห์ก่อน
+
+/** เขียนตารางสรุปสัปดาห์ลงชีต (แท็บในไฟล์รายงานเดือน) */
+function rbWriteWeekSummary_(ss, date, tabName) {
+  tabName = tabName || '📊 สรุปสัปดาห์';
+  var old = ss.getSheetByName(tabName); if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+  rbCleanWeekTabs_(ss, date, '📊 สรุปสัปดาห์ ', tabName);   // ลบแท็บสรุปสัปดาห์ชื่อเก่า
+  var A = rbWeekAgg_(date, rbGetDay_), W = 7;
+  sh.getRange(1, 1, 1, W).merge().setValue('📊 สรุปสัปดาห์ ' + A.label + ' — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT')
+    .setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 26);
+  var head = ['วันที่', 'มาทำงาน', 'ลาป่วย', 'ลาแวค', 'ลากิจ', 'OT (คน)', 'OT (ชม.)'];
+  sh.getRange(2, 1, 1, W).setValues([head]).setBackground('#2e75b6').setFontColor('#fff').setFontWeight('bold').setHorizontalAlignment('center');
+  var body = A.days.map(function (p) {
+    if (p.future) return [p.lbl, '—', '—', '—', '—', '—', '—'];
+    if (p.nofile) return [p.lbl, 'ไม่มีไฟล์', '', '', '', '', ''];
+    return [p.lbl, p.work, p.sick, p.vac, p.personal, p.otP, p.otH];
+  });
+  var t = A.total;
+  body.push(['รวมสัปดาห์', t.work, t.sick, t.vac, t.personal, t.otP, t.otH]);
+  sh.getRange(3, 1, body.length, W).setValues(body);
+  sh.getRange(3 + body.length - 1, 1, 1, W).setFontWeight('bold').setBackground('#eef3f9');
+  sh.setFrozenRows(2); sh.setColumnWidth(1, 90);
+  return sh;
+}
 
 /**
  * รันครั้งเดียวเพื่อตั้ง trigger ให้รายงานออกอัตโนมัติทุกวัน 08:00 และ 14:00
@@ -6626,7 +6681,8 @@ function rbRunForDate_(date) {
   try {
     var wr = rbWeekRange_(date);
     rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
-  } catch (e) { Logger.log('⚠️ Weekly OT: ' + e.message); }
+    rbWriteWeekSummary_(out, date, '📊 สรุปสัปดาห์ ' + wr.label);   // ตารางสรุป มาทำงาน/ป่วย/แวค/กิจ/OT
+  } catch (e) { Logger.log('⚠️ Weekly summary: ' + e.message); }
   ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
     var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
   });
@@ -6929,18 +6985,27 @@ function rbWeeklyOT_(date) {
            over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
 }
 
-/** ชื่อแท็บ OT ที่ "ถูกต้อง" (รอบ จ.–อา.) ของทุกสัปดาห์ที่คาบเกี่ยวเดือนของ date — ใช้กรองลบแท็บ OT ชื่อเก่า */
-function rbValidOtTabs_(date) {
+/** ชื่อแท็บรายสัปดาห์ที่ "ถูกต้อง" (รอบ จ.–อา.) ของทุกสัปดาห์ที่คาบเกี่ยวเดือนของ date · prefix เช่น "⏱️ OT " / "📊 สรุปสัปดาห์ " */
+function rbValidWeekTabs_(date, prefix) {
   var y = date.getFullYear(), m = date.getMonth();
   var lastDay = new Date(y, m + 1, 0).getDate();
   var first = new Date(y, m, 1), dow = (first.getDay() + 6) % 7;
   var monday = new Date(first); monday.setDate(1 - dow);          // จันทร์ของสัปดาห์ที่มีวันที่ 1
   var monthEnd = new Date(y, m, lastDay).getTime(), set = {};
   while (monday.getTime() <= monthEnd) {
-    set['⏱️ OT ' + rbWeekRange_(monday).label] = 1;
+    set[prefix + rbWeekRange_(monday).label] = 1;
     monday = new Date(monday); monday.setDate(monday.getDate() + 7);
   }
   return set;
+}
+function rbValidOtTabs_(date) { return rbValidWeekTabs_(date, '⏱️ OT '); }
+/** ลบแท็บรายสัปดาห์ชื่อเก่า (prefix เดียวกัน) ที่ไม่ใช่รอบ จ.–อา. ของเดือนนี้ · keep = ชื่อแท็บที่กำลังเขียน (อย่าลบ) */
+function rbCleanWeekTabs_(ss, date, prefix, keep) {
+  var valid = rbValidWeekTabs_(date, prefix);
+  ss.getSheets().forEach(function (s) {
+    var n = s.getName();
+    if (n.indexOf(prefix) === 0 && n !== keep && !valid[n]) { try { ss.deleteSheet(s); } catch (e) {} }
+  });
 }
 /** Sheet tab: ⏱️ OT รายสัปดาห์ — per-person weekly OT + >36h flag. */
 function rbWriteWeeklyOT_(ss, date, mon, tabName) {
@@ -6948,12 +7013,7 @@ function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
-  // ลบแท็บ OT ชื่อเก่า (รอบแบบเดิม เช่น "OT 1-7 JUL"/"OT 22-31 JUL") ที่ไม่ใช่รอบ จ.–อา. ของเดือนนี้
-  var validOt = rbValidOtTabs_(date);
-  ss.getSheets().forEach(function (s) {
-    var n = s.getName();
-    if (n.indexOf('⏱️ OT ') === 0 && n !== tabName && !validOt[n]) { try { ss.deleteSheet(s); } catch (e) {} }
-  });
+  rbCleanWeekTabs_(ss, date, '⏱️ OT ', tabName);   // ลบแท็บ OT ชื่อเก่า (รอบแบบเดิม 1-7/22-31) ที่ไม่ใช่รอบ จ.–อา.
   var wk = rbWeeklyOT_(date);
   var dayCols = wk.dayNums;                                // จันทร์–อาทิตย์ (เลขวันจริง เช่น 27,28,29,30,31,1,2)
   var W = 3 + dayCols.length + 2;
@@ -7815,7 +7875,7 @@ var RB_NAV_ = [
   ['ac','🧭','ตรวจ Assign','loadAC()','a'],
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
   ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'], ['rq','📨','RQ ซัพ (คำร้อง)','loadRq()'],
-  ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
+  ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
 function rbRail_(shortCount, acCount) {
   var logo = ''; try { logo = rbLogoDataUri_(); } catch (e) {}
@@ -7926,6 +7986,7 @@ function rbTabs_(shortCount, acCount) {
     '<button class="tab" id="tab-adv" onclick="showView(\'adv\');loadAdv()">📅 จัดล่วงหน้า</button>' +
     '<button class="tab" id="tab-ot" onclick="showView(\'ot\')">⏱️ OT Dashboard</button>' +
     '<button class="tab" id="tab-wh" onclick="showView(\'wh\');loadWh()">⏱️ ชม./สัปดาห์</button>' +
+    '<button class="tab" id="tab-wsum" onclick="showView(\'wsum\');loadWsum()">📊 สรุปสัปดาห์</button>' +
     '<button class="tab" id="tab-dc" onclick="showView(\'dc\');loadDc()">🩺 ตรวจข้อมูล</button>' +
     '<button class="tab" onclick="rbRefresh(this)" title="ล้างแคช ดึงข้อมูลล่าสุดจากชีต" style="margin-left:auto">🔄 รีเฟรช</button></div>';
 }
@@ -8497,6 +8558,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-week" style="display:none"><div id="weekbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตารางบินสัปดาห์…</div></div></div>' +
     '<div id="view-rq" style="display:none"><div id="rqbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังอ่านคำร้อง RQ…</div></div></div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
+    '<div id="view-wsum" style="display:none"><div id="wsumbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังสรุปสัปดาห์…</div></div></div>' +
     '<div id="view-dc" style="display:none"><div id="dcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจข้อมูล…</div></div></div>' +
     '<div class="foot">' + (logo ? '<img class="foot__logo" src="' + logo + '" alt="AOTGA">' : '') + '<span>แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)</span></div>' +
     '</div></main></div>' +
@@ -8505,8 +8567,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","week","rq","ot","wh","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","week","rq","ot","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
+    'function loadWsum(){lazy("wsumbox","rbWeekSummaryHtml","wsum");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
     'function loadRq(){lazy("rqbox","rqFindSupport","rq");}' +
     'function rqReload(alt){var b=document.getElementById("rqbox");if(!b||!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังคิดทางเลือก…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";}).rqFindSupport(ISO,alt);}' +
