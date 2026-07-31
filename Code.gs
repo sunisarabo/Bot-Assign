@@ -6877,12 +6877,31 @@ function rbWeeklyOT_(date) {
            over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
 }
 
+/** ชื่อแท็บ OT ที่ "ถูกต้อง" (รอบ จ.–อา.) ของทุกสัปดาห์ที่คาบเกี่ยวเดือนของ date — ใช้กรองลบแท็บ OT ชื่อเก่า */
+function rbValidOtTabs_(date) {
+  var y = date.getFullYear(), m = date.getMonth();
+  var lastDay = new Date(y, m + 1, 0).getDate();
+  var first = new Date(y, m, 1), dow = (first.getDay() + 6) % 7;
+  var monday = new Date(first); monday.setDate(1 - dow);          // จันทร์ของสัปดาห์ที่มีวันที่ 1
+  var monthEnd = new Date(y, m, lastDay).getTime(), set = {};
+  while (monday.getTime() <= monthEnd) {
+    set['⏱️ OT ' + rbWeekRange_(monday).label] = 1;
+    monday = new Date(monday); monday.setDate(monday.getDate() + 7);
+  }
+  return set;
+}
 /** Sheet tab: ⏱️ OT รายสัปดาห์ — per-person weekly OT + >36h flag. */
 function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   tabName = tabName || '⏱️ OT สัปดาห์';
   var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
+  // ลบแท็บ OT ชื่อเก่า (รอบแบบเดิม เช่น "OT 1-7 JUL"/"OT 22-31 JUL") ที่ไม่ใช่รอบ จ.–อา. ของเดือนนี้
+  var validOt = rbValidOtTabs_(date);
+  ss.getSheets().forEach(function (s) {
+    var n = s.getName();
+    if (n.indexOf('⏱️ OT ') === 0 && n !== tabName && !validOt[n]) { try { ss.deleteSheet(s); } catch (e) {} }
+  });
   var wk = rbWeeklyOT_(date);
   var dayCols = wk.dayNums;                                // จันทร์–อาทิตย์ (เลขวันจริง เช่น 27,28,29,30,31,1,2)
   var W = 3 + dayCols.length + 2;
