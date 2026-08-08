@@ -1170,10 +1170,16 @@ function rbGanttCss_() {
 }
 /** เฟสของไฟลท์จากรหัสงาน → สีป้าย (ci/gate/arr/na) */
 function rbFltPhase_(task) {
-  var u = String(task || '').toUpperCase();
-  if (/\bGATE\b|\bGTE\b|\bGA\b|\bGC\b|\bGD\b|\bGI\b|BOARD/.test(u)) return 'gate';
-  if (/\bARR\b|ARRIVAL|\bCIQ\b|\bIB\b|MEET|TRANSFER|T\/F|\bTF\b|\bT\/S\b/.test(u)) return 'arr';
-  if (/CHK|CHECK|\bCI\b|\bCT\d|\bCS\b|\bY\d?\b|\bJ\d?\b|PSC|IPAD|PRIO|\bFC\b|\bF\d/.test(u)) return 'ci';
+  // ใช้ตัวจำแนกเฟสตัวเดียวกับ SLA/ตรวจ Assign (slaPhasesOf_) เพื่อไม่ให้ตีความต่างกัน
+  // — รวมรหัสเกททั้งตระกูล (G/GA/GB/GC/GK/GM/D/I/PFD/BOARD) ที่ regex เดิมจับไม่ครบ
+  var phs = (typeof slaPhasesOf_ === 'function') ? slaPhasesOf_(task) : null;
+  if (phs && phs.length) {
+    if (phs.indexOf('GATE') >= 0) return 'gate';                 // มีเกท → ทำถึงเครื่องออก (STD)
+    if (phs.indexOf('ARR') >= 0 && phs.indexOf('CI') < 0) return 'arr';   // ขาเข้าล้วน → รับเครื่องรอบ STA
+    if (phs.indexOf('CI') >= 0) return 'ci';
+    if (phs.indexOf('ARR') >= 0) return 'arr';
+    if (phs.indexOf('SUP') >= 0) return 'ci';                    // หัวหน้า/FC ไม่มีเฟสอื่น → ถือเป็นช่วงเคาน์เตอร์
+  }
   return 'na';
 }
 /** มุมมอง Gantt: 1 คน = 1 แถบเวลา 24 ชม. (กะ=น้ำเงิน · OT=ส้ม · ไฟลท์=สีตามเฟส) · nowMin>=0 → เส้นเวลาปัจจุบัน */
@@ -1225,14 +1231,32 @@ function rbTtGantt_(res, ll, nowMin) {
     var flts = [];
     (r.assignments || []).forEach(function (a) {
       if (!acIsFlight_(a.flight)) return;
-      var lo = pmin(a.OP); if (lo == null) lo = pmin(a.STA); if (lo == null) lo = pmin(a.STD); if (lo == null) return;
-      var hi = pmin(a.CL); if (hi == null) hi = pmin(a.STD); if (hi == null) hi = lo + 35;
+      var op = pmin(a.OP), cl = pmin(a.CL), sta = pmin(a.STA), std = pmin(a.STD);
+      var ph = rbFltPhase_(a.task);
+      var hasCI = /\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|CHECK|CKIN|\bCS\b|\bFR\b|COUNTER|IPAD/.test(String(a.task || '').toUpperCase());
+      // วางแถบตาม "ตำแหน่งงาน" (department) ไม่ใช่ปิดเคาน์เตอร์เสมอ:
+      //   · เช็คอิน → เปิด–ปิดเคาน์เตอร์ (OP–CL) · เกท/ขึ้นเครื่อง → จนเครื่องออก STD · ขาเข้า → รับเครื่องรอบ STA
+      var lo, hi;
+      if (ph === 'gate') {                                      // เกท → จบที่ STD (เครื่องออก) ไม่ใช่ปิดเคาน์เตอร์
+        lo = hasCI ? (op != null ? op : (cl != null ? cl : (std != null ? std - 90 : sta)))   // เช็คอิน+เกท = เปิดเคาน์เตอร์
+                   : (cl != null ? cl : (op != null ? op : (std != null ? std - 75 : sta)));   // เกทล้วน = เริ่มช่วงขึ้นเครื่อง (ปิดเคาน์เตอร์)
+        hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 60 : null));
+      } else if (ph === 'arr') {                                // ขาเข้า → รับเครื่องรอบ STA
+        lo = (sta != null) ? sta - 15 : (op != null ? op : std);
+        hi = (sta != null) ? sta + 50 : (cl != null ? cl : std);
+      } else {                                                  // เช็คอิน/อื่นๆ → เปิด–ปิดเคาน์เตอร์
+        lo = (op != null) ? op : (sta != null ? sta : std);
+        hi = (cl != null) ? cl : (std != null ? std : null);
+      }
+      if (lo == null) { lo = (op != null ? op : (sta != null ? sta : std)); if (lo == null) return; }
+      if (hi == null) hi = (std != null ? std : lo + 35);
       if (hi < lo) hi += 1440; if (hi - lo < 35) hi = lo + 35;   // เวลาจริง (ไม่ realign) · min 35 นาที ให้ป้ายพออ่าน
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
-      var ph = rbFltPhase_(a.task), phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', na: 'งาน' }[ph];
-      var win = (a.OP && a.CL) ? ('เคาน์เตอร์ ' + a.OP + '-' + a.CL) : ((a.STA || a.STD) ? ('ไฟลท์ ' + (a.STA || '–') + '/' + (a.STD || '–')) : '');
-      var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + (win ? '¦' + win : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
+      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', na: 'งาน' }[ph];
+      var barTx = rrFmtMin_(((lo % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((hi % 1440) + 1440) % 1440);
+      var raw = (a.STD ? ('STD ' + a.STD) : '') + ((a.OP || a.CL) ? ((a.STD ? ' · ' : '') + 'เคาน์เตอร์ ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
+      var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
       flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: rbEsc_(leg1) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
     });
     // จัดเลนกันทับ: เรียงตามเวลาเริ่ม แล้ววางเลนแรกที่ว่าง
