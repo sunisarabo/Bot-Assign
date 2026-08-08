@@ -238,7 +238,11 @@ function rbGetDay_(date) {
   var res = null, ll = null;
   try {
     var roster = rbOpenTodayRoster_(date);
-    res = readRosterFromSpreadsheet(roster.ss, date);
+    var ss = roster.ss;
+    // อ่านทั้งไฟล์ครั้งเดียวผ่าน Advanced Sheets API (เร็วกว่าอ่านทีละแท็บ ~10 เท่า) — เจนรายงาน/OT รายสัปดาห์เร็วขึ้นมาก
+    // (ใช้ตัวเดียวกับหน้าเว็บ · พังเมื่อไหร่ fallback อ่านปกติ)
+    try { if (typeof rbFastSheets_ === 'function' && typeof Sheets !== 'undefined' && Sheets.Spreadsheets) ss = rbFastSheets_(roster.ss.getId()); } catch (eFast) { ss = roster.ss; }
+    res = readRosterFromSpreadsheet(ss, date);
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   } catch (e) { res = null; }
   if (res && CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }

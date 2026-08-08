@@ -6643,7 +6643,11 @@ function rbGetDay_(date) {
   var res = null, ll = null;
   try {
     var roster = rbOpenTodayRoster_(date);
-    res = readRosterFromSpreadsheet(roster.ss, date);
+    var ss = roster.ss;
+    // อ่านทั้งไฟล์ครั้งเดียวผ่าน Advanced Sheets API (เร็วกว่าอ่านทีละแท็บ ~10 เท่า) — เจนรายงาน/OT รายสัปดาห์เร็วขึ้นมาก
+    // (ใช้ตัวเดียวกับหน้าเว็บ · พังเมื่อไหร่ fallback อ่านปกติ)
+    try { if (typeof rbFastSheets_ === 'function' && typeof Sheets !== 'undefined' && Sheets.Spreadsheets) ss = rbFastSheets_(roster.ss.getId()); } catch (eFast) { ss = roster.ss; }
+    res = readRosterFromSpreadsheet(ss, date);
     if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
   } catch (e) { res = null; }
   if (res && CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
@@ -7254,11 +7258,18 @@ function rbLoadResLL_(date) {
     if (hit2) { try { lock.releaseLock(); return JSON.parse(hit2); } catch (e) {} }
   }
   var out = rbLoadResLLraw_(date);
-  try { rbCachePutBig_('resll_' + iso, JSON.stringify(out), RB_RESLL_TTL); } catch (e2) {}
+  try { rbCachePutBig_('resll_' + iso, JSON.stringify(out), rbResllTtl_(iso)); } catch (e2) {}
   if (got) { try { lock.releaseLock(); } catch (e3) {} }
   return out;
 }
+/** อายุ cache: วันที่ผ่านมา (ข้อมูลไม่เปลี่ยนแล้ว) เก็บยาว 6 ชม. · วันนี้/อนาคต 30 นาที (ยังแก้ได้)
+ *  → เปิดหน้าวันเก่า/สรุปสัปดาห์ (อ่าน 7 วัน) เร็วขึ้นมาก ครั้งแรกอ่าน ครั้งต่อไปดึงจาก cache */
+function rbResllTtl_(iso) {
+  var today = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
+  return (iso < today) ? RB_RESLL_TTL_PAST : RB_RESLL_TTL;
+}
 var RB_RESLL_TTL = 1800;  // (ก) อายุ cache ข้อมูลรายวัน — 30 นาที (trigger อุ่นทุก 5 นาที · กด 🔄 เมื่ออยากเห็นสด)
+var RB_RESLL_TTL_PAST = 21600; // วันที่ผ่านมา — 6 ชม. (สูงสุดของ CacheService · ข้อมูลอดีตไม่เปลี่ยน)
 var RB_MASTER_TTL = 3600; // (ง) ไฟล์รายชื่อ (master) — 1 ชม. · RB_SCHED_TTL = ตารางบิน
 var RB_SCHED_TTL = 3600;  // (ง) ตารางบินสัปดาห์ต่อวัน — 1 ชม. (เปลี่ยนไม่บ่อย ไม่ต้องเปิดไฟล์ซ้ำ)
 
@@ -7271,6 +7282,12 @@ function rbWarmCache() {
     var iso = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
     var out = rbLoadResLLraw_(now);                       // อ่านสด (ข้าม cache) แล้วเขียนทับให้สด
     rbCachePutBig_('resll_' + iso, JSON.stringify(out), RB_RESLL_TTL);
+    // อุ่น "เมื่อวาน" ด้วย ถ้า cache เย็น (อ่านครั้งเดียวต่อ 6 ชม.) — หน้าเมื่อวาน + สรุปสัปดาห์เร็วขึ้น
+    try {
+      var yst = new Date(now.getTime() - 86400000);
+      var yiso = Utilities.formatDate(yst, tz, 'yyyy-MM-dd');
+      if (!rbCacheGetBig_('resll_' + yiso)) rbCachePutBig_('resll_' + yiso, JSON.stringify(rbLoadResLLraw_(yst)), RB_RESLL_TTL_PAST);
+    } catch (ey) {}
     return 'warmed ' + iso;
   } catch (e) { return 'warm error: ' + e; }
 }
