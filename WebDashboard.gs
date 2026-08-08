@@ -1268,7 +1268,9 @@ function rbTtGantt_(res, ll, nowMin) {
         hi = (sta != null) ? sta + 50 : (cl != null ? cl : std);
       } else {                                                  // เช็คอิน/อื่นๆ → เปิด–ปิดเคาน์เตอร์
         lo = (op != null) ? op : (sta != null ? sta : std);
-        hi = (cl != null) ? cl : (std != null ? std : null);
+        var hasRelEndG = /\bFR\b|\bGK\b|FLIGHT\s*RELEASE/.test(uTask);   // Flight Release → อยู่ถึงเครื่องถอย STD
+        hi = hasRelEndG ? (std != null ? std : (cl != null ? cl : null))
+                        : ((cl != null) ? cl : (std != null ? std : null));
       }
       if (lo == null) { lo = (op != null ? op : (sta != null ? sta : std)); if (lo == null) return; }
       if (hi == null) hi = (std != null ? std : lo + 35);

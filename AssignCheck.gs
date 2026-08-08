@@ -91,7 +91,8 @@ function acFlightWin_(a) {
   //  → เริ่มนับเวลา "หลังเปิดเคาน์เตอร์ไปแล้ว ~2 ชม." (เซ็นรับลูกเรือ/เคลียร์ไฟลท์ = งานช่วงท้ายก่อนเครื่องออก
   //    ไม่ต้องมาตั้งแต่เปิดเคาน์เตอร์ · กันแจ้ง "ไฟลท์นอกเวลางาน" ผิดสำหรับคนที่กะเริ่มสายกว่าเปิดเคาน์เตอร์)
   var tsk = String(a.task || '');
-  var isRelease = /\bCS\b|CREW\s*SIGN|\bCRW\b|\bGK\b|FLIGHT\s*RELEASE/i.test(tsk);
+  var isRelease = /\bCS\b|CREW\s*SIGN|\bCRW\b|\bGK\b|\bFR\b|FLIGHT\s*RELEASE/i.test(tsk);
+  var hasRelEnd = /\bGK\b|\bFR\b|FLIGHT\s*RELEASE/i.test(tsk);          // Flight Release → อยู่ถึง "เครื่องถอย" (STD) ไม่จบที่ปิดเคาน์เตอร์
   var hasSeat = /\bCF\b|\bCT\d|\bCT\b|\bC\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|\bPRIO\b|COUNTER|WEL\s*G/i.test(tsk);
   var hasBoard = /\bGATE\b|\bG[ABCM]\b|\bG\b|BOARD|\bGM\b/i.test(tsk);   // เกท/ขึ้นเครื่อง (GK=release ไม่ใช่เกท regex ไม่จับ)
   if (isRelease && !hasSeat && !hasBoard && (op != null || std != null || sta != null)) {
@@ -126,8 +127,9 @@ function acFlightWin_(a) {
   // งานเช็คอินล้วน (ไม่มีเกท/ขาเข้า/SUP · เช่น "Y3 NO GATE") → ไม่คิดครอบคลุมถึงเกท/post-flight
   var ciOnly = phs && phs.length && phs.every(function (x) { return x === 'CI'; });
   var lo = null, hi;
-  if (ciOnly && std != null) {
+  if (ciOnly && std != null && !hasRelEnd) {
     // จบที่ "ปิดเคาน์เตอร์": C (ถ้ามี) · ไม่งั้น STD+cc (เวลาเคาน์เตอร์ปิดตาม SLA) — ไม่บวก post-flight
+    // (ยกเว้นงาน Flight Release FR/GK → ต้องอยู่ถึงเครื่องถอย STD ด้านล่าง)
     hi = (cl != null) ? cl : (std + ((db && db.cc != null) ? db.cc : -60));
   } else {
     hi = (std != null) ? std + post : null;                   // hi = STD + post (รวมงาน post-flight)
@@ -135,7 +137,7 @@ function acFlightWin_(a) {
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
   if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ
   // งานเช็คอินที่มีเฟสอื่นปน แต่ไม่มีเกท → จบที่ "ปิดเคาน์เตอร์ (C)" ถ้ามี ไม่ลากถึง STD+post (กัน turnaround ยาว เช่น EK378 ปิด 18:55 แต่ออก 19:55)
-  if (!ciOnly && cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && !(phs && phs.indexOf('GATE') >= 0)) hi = cl + post;
+  if (!ciOnly && cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && !(phs && phs.indexOf('GATE') >= 0) && !hasRelEnd) hi = cl + post;
   if (hi == null && sta != null) { lo = sta - brief; hi = sta + post; }   // ขาเข้าล้วน → รอบ STA
   if (lo == null || hi == null) {                             // fallback: min-max ของเวลาที่มี
     var ts = [sta, op, cl, std].filter(function (x) { return x; });
