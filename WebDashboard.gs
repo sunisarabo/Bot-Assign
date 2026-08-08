@@ -1246,11 +1246,20 @@ function rbTtGantt_(res, ll, nowMin) {
       if (!acIsFlight_(a.flight)) return;
       var op = pmin(a.OP), cl = pmin(a.CL), sta = pmin(a.STA), std = pmin(a.STD);
       var ph = rbFltPhase_(a.task);
-      var hasCI = /\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|CHECK|CKIN|\bCS\b|\bFR\b|COUNTER|IPAD/.test(String(a.task || '').toUpperCase());
+      var uTask = String(a.task || '').toUpperCase();
+      var hasCI = /\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|CHECK|CKIN|\bCS\b|\bFR\b|COUNTER|IPAD/.test(uTask);
       // วางแถบตาม "ตำแหน่งงาน" (department) ไม่ใช่ปิดเคาน์เตอร์เสมอ:
       //   · เช็คอิน → เปิด–ปิดเคาน์เตอร์ (OP–CL) · เกท/ขึ้นเครื่อง → จนเครื่องออก STD · ขาเข้า → รับเครื่องรอบ STA
+      //   · Crew Sign (CS) / Flight Release (GK) ล้วน → เริ่มหลังเปิดเคาน์เตอร์ 2 ชม.
+      var isRel = /\bCS\b|CREW\s*SIGN|\bCRW\b|\bGK\b|FLIGHT\s*RELEASE/.test(uTask);
+      var hasSeatG = /\bCF\b|\bCT\d|\bCT\b|\bC\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|COUNTER|WEL\s*G/.test(uTask);
+      var hasBoardG = /\bGATE\b|\bG[ABCM]\b|\bG\b|BOARD|\bGM\b/.test(uTask);
       var lo, hi;
-      if (ph === 'gate') {                                      // เกท → จบที่ STD (เครื่องออก) ไม่ใช่ปิดเคาน์เตอร์
+      if (isRel && !hasSeatG && !hasBoardG && (op != null || std != null || sta != null)) {
+        var opG = (op != null) ? op : (std != null ? std - 180 : sta);   // เปิดเคาน์เตอร์ (ไม่มี OP → เดา STD−3ชม.)
+        lo = opG + 120;                                                   // เริ่มงาน = เปิดเคาน์เตอร์ + 2 ชม.
+        hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 40 : lo + 40));
+      } else if (ph === 'gate') {                               // เกท → จบที่ STD (เครื่องออก) ไม่ใช่ปิดเคาน์เตอร์
         lo = hasCI ? (op != null ? op : (cl != null ? cl : (std != null ? std - 90 : sta)))   // เช็คอิน+เกท = เปิดเคาน์เตอร์
                    : (cl != null ? cl : (op != null ? op : (std != null ? std - 75 : sta)));   // เกทล้วน = เริ่มช่วงขึ้นเครื่อง (ปิดเคาน์เตอร์)
         hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 60 : null));
