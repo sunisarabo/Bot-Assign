@@ -1250,15 +1250,19 @@ function rbTtGantt_(res, ll, nowMin) {
       var hasCI = /\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|CHECK|CKIN|\bCS\b|\bFR\b|COUNTER|IPAD/.test(uTask);
       // วางแถบตาม "ตำแหน่งงาน" (department) ไม่ใช่ปิดเคาน์เตอร์เสมอ:
       //   · เช็คอิน → เปิด–ปิดเคาน์เตอร์ (OP–CL) · เกท/ขึ้นเครื่อง → จนเครื่องออก STD · ขาเข้า → รับเครื่องรอบ STA
-      //   · Crew Sign (CS) / Flight Release (GK) ล้วน → เริ่มหลังเปิดเคาน์เตอร์ 2 ชม.
-      var isRel = /\bCS\b|CREW\s*SIGN|\bCRW\b|\bGK\b|FLIGHT\s*RELEASE/.test(uTask);
+      //   · CS (เซ็นลูกเรือ) ล้วน → เริ่มหลังเปิดเคาน์เตอร์ 2 ชม. · FR/GK (เดินเอกสาร) → เปิดเคาน์เตอร์ถึง STD
+      var hasRelEndG = /\bGK\b|\bFR\b|FLIGHT\s*RELEASE/.test(uTask);
+      var isCrewSignG = /\bCS\b|CREW\s*SIGN|\bCRW\b/.test(uTask);
       var hasSeatG = /\bCF\b|\bCT\d|\bCT\b|\bC\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|COUNTER|WEL\s*G/.test(uTask);
       var hasBoardG = /\bGATE\b|\bG[ABCM]\b|\bG\b|BOARD|\bGM\b/.test(uTask);
       var lo, hi;
-      if (isRel && !hasSeatG && !hasBoardG && (op != null || std != null || sta != null)) {
+      if (isCrewSignG && !hasRelEndG && !hasSeatG && !hasBoardG && (op != null || std != null || sta != null)) {
         var opG = (op != null) ? op : (std != null ? std - 180 : sta);   // เปิดเคาน์เตอร์ (ไม่มี OP → เดา STD−3ชม.)
-        lo = opG + 120;                                                   // เริ่มงาน = เปิดเคาน์เตอร์ + 2 ชม.
+        lo = opG + 120;                                                   // Crew Sign ล้วน: เริ่ม = เปิดเคาน์เตอร์ + 2 ชม.
         hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 40 : lo + 40));
+      } else if (hasRelEndG && (op != null || std != null || sta != null)) {
+        lo = (op != null) ? op : (std != null ? std - 180 : sta);        // Flight Release: เปิดเคาน์เตอร์ …
+        hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 40 : lo + 40));   // … ถึง STD
       } else if (ph === 'gate') {                               // เกท → จบที่ STD (เครื่องออก) ไม่ใช่ปิดเคาน์เตอร์
         lo = hasCI ? (op != null ? op : (cl != null ? cl : (std != null ? std - 90 : sta)))   // เช็คอิน+เกท = เปิดเคาน์เตอร์
                    : (cl != null ? cl : (op != null ? op : (std != null ? std - 75 : sta)));   // เกทล้วน = เริ่มช่วงขึ้นเครื่อง (ปิดเคาน์เตอร์)
@@ -1268,9 +1272,7 @@ function rbTtGantt_(res, ll, nowMin) {
         hi = (sta != null) ? sta + 50 : (cl != null ? cl : std);
       } else {                                                  // เช็คอิน/อื่นๆ → เปิด–ปิดเคาน์เตอร์
         lo = (op != null) ? op : (sta != null ? sta : std);
-        var hasRelEndG = /\bFR\b|\bGK\b|FLIGHT\s*RELEASE/.test(uTask);   // Flight Release → อยู่ถึงเครื่องถอย STD
-        hi = hasRelEndG ? (std != null ? std : (cl != null ? cl : null))
-                        : ((cl != null) ? cl : (std != null ? std : null));
+        hi = (cl != null) ? cl : (std != null ? std : null);
       }
       if (lo == null) { lo = (op != null ? op : (sta != null ? sta : std)); if (lo == null) return; }
       if (hi == null) hi = (std != null ? std : lo + 35);

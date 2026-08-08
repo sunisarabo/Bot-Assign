@@ -91,17 +91,26 @@ function acFlightWin_(a) {
   //  → เริ่มนับเวลา "หลังเปิดเคาน์เตอร์ไปแล้ว ~2 ชม." (เซ็นรับลูกเรือ/เคลียร์ไฟลท์ = งานช่วงท้ายก่อนเครื่องออก
   //    ไม่ต้องมาตั้งแต่เปิดเคาน์เตอร์ · กันแจ้ง "ไฟลท์นอกเวลางาน" ผิดสำหรับคนที่กะเริ่มสายกว่าเปิดเคาน์เตอร์)
   var tsk = String(a.task || '');
-  var isRelease = /\bCS\b|CREW\s*SIGN|\bCRW\b|\bGK\b|\bFR\b|FLIGHT\s*RELEASE/i.test(tsk);
-  var hasRelEnd = /\bGK\b|\bFR\b|FLIGHT\s*RELEASE/i.test(tsk);          // Flight Release → อยู่ถึง "เครื่องถอย" (STD) ไม่จบที่ปิดเคาน์เตอร์
+  var hasRelEnd = /\bGK\b|\bFR\b|FLIGHT\s*RELEASE/i.test(tsk);          // Flight Release = เดินเอกสารช่วงเช็คอินเปิด → เปิดเคาน์เตอร์ถึง STD
+  var isCrewSign = /\bCS\b|CREW\s*SIGN|\bCRW\b/i.test(tsk);             // Crew Sign = เซ็นรับ-ส่งลูกเรือ (งานช่วงท้าย)
   var hasSeat = /\bCF\b|\bCT\d|\bCT\b|\bC\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|\bPRIO\b|COUNTER|WEL\s*G/i.test(tsk);
   var hasBoard = /\bGATE\b|\bG[ABCM]\b|\bG\b|BOARD|\bGM\b/i.test(tsk);   // เกท/ขึ้นเครื่อง (GK=release ไม่ใช่เกท regex ไม่จับ)
-  if (isRelease && !hasSeat && !hasBoard && (op != null || std != null || sta != null)) {
+  // Crew Sign ล้วน (ไม่มี flight release / เช็คอิน / เกท) → เริ่มหลังเปิดเคาน์เตอร์ 2 ชม. ถึง STD (มาเซ็นลูกเรือช่วงท้าย)
+  if (isCrewSign && !hasRelEnd && !hasSeat && !hasBoard && (op != null || std != null || sta != null)) {
     var opR = (op != null) ? op : (std != null ? std + ci : sta);       // เวลาเปิดเคาน์เตอร์ (จากไฟล์ หรือ STD+ci)
     var rlo = opR + 120;                                                // เริ่มงาน = เปิดเคาน์เตอร์ + 2 ชม.
     var rhi = (std != null) ? std + post : (sta != null ? sta + post : rlo + 60);
     if (rhi <= rlo) rhi += 1440;
     if (rhi - rlo < 30) rhi = rlo + 30;
     return [rlo, rhi];
+  }
+  // Flight Release (FR/GK) → busy ตั้งแต่ "เปิดเคาน์เตอร์" ถึงเครื่องออก STD (เดินเอกสารช่วงเช็คอินเปิด · มี/ไม่มีเช็คอินก็นับ)
+  if (hasRelEnd && (op != null || std != null || sta != null)) {
+    var fo = (op != null) ? op : (std != null ? std + ci : sta);        // เวลาเปิดเคาน์เตอร์
+    var fhi = (std != null) ? std + post : (sta != null ? sta + post : fo + 60);
+    if (fhi <= fo) fhi += 1440;
+    if (fhi - fo < 30) fhi = fo + 30;
+    return [fo, fhi];
   }
   // task เป็น Gate/Arrival ล้วน (ไม่มีเช็คอิน/SUP) → ใช้ช่วงตามตำแหน่ง (รอบ STA/STD) ไม่ใช่ช่วงเช็คอินเปิด
   // (กันเตือน "นอกเวลางาน" ผิด สำหรับคนที่ทำเฉพาะเกท/ขาเข้า ซึ่งไม่ได้นั่งเคาน์เตอร์ตั้งแต่เปิด)
