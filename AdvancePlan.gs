@@ -852,6 +852,102 @@ function rbAdvanceHtml(iso, commonsJson) {
   }
 }
 
+/** วางแผนล่วงหน้าหลายวัน: รัน advPlan_ ต่อวัน nDays วันจาก startIso → สรุปต่อวัน (ไม่เขียนไฟล์) */
+function advWeekPlan_(startIso, nDays) {
+  nDays = Math.min(Math.max(+nDays || 7, 1), 14);
+  var d0 = rbDateFromIso_(startIso);
+  var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  var out = [];
+  for (var i = 0; i < nDays; i++) {
+    var d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + i);
+    var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+    var row = { iso: iso, label: ('0' + d.getDate()).slice(-2) + MON[d.getMonth()] + ' (' + TH[d.getDay()] + ')', ok: false, err: '' };
+    try {
+      var R = advPlan_({ y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() });
+      var shortF = 0, shortP = 0, hrN = {};
+      (R.plan || []).forEach(function (p) {
+        var ks = Object.keys(p.shortx || {});
+        if (ks.length) { shortF++; ks.forEach(function (k) { shortP += (p.shortx[k] || 0); }); }
+        var hr = String(p.std || p.sta || '').slice(0, 2); if (/^\d\d$/.test(hr)) hrN[hr] = (hrN[hr] || 0) + 1;
+      });
+      var peakHr = '', peakN = 0; Object.keys(hrN).forEach(function (h) { if (hrN[h] > peakN) { peakN = hrN[h]; peakHr = h; } });
+      row.ok = true; row.nFlights = R.nFlights; row.nPeople = R.nPeople; row.nAssigned = R.nAssigned;
+      row.bench = R.bench.length; row.shortF = shortF; row.shortP = shortP; row.peakHr = peakHr; row.peakN = peakN;
+    } catch (e) { row.err = String((e && e.message) || e); }
+    out.push(row);
+  }
+  return out;
+}
+
+/** จอ "วางแผนล่วงหน้าหลายวัน" — สรุปคนพอ/ขาด/พีค ต่อวัน + ปุ่ม export ทั้งช่วง (lazy view: advw) */
+function rbAdvanceWeekHtml(iso, nDaysArg) {
+  try {
+    var start = iso || advIsoOf_({ y: new Date().getFullYear(), m: new Date().getMonth() + 1, d: new Date().getDate() });
+    var nDays = Math.min(Math.max(+nDaysArg || 7, 1), 14);
+    var week = advWeekPlan_(start, nDays);
+    var bar = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">' +
+      '🗓️ <b>วางแผนล่วงหน้าหลายวัน</b> — เริ่ม: ' +
+      '<input type="date" value="' + start + '" onchange="advwGo(this.value,advwDays())" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
+      ' จำนวนวัน <select onchange="advwGo(advwStart(),this.value)" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
+      [3, 5, 7, 10, 14].map(function (n) { return '<option value="' + n + '"' + (n === nDays ? ' selected' : '') + '>' + n + ' วัน</option>'; }).join('') + '</select>' +
+      ' <button class="btn btn--accent" onclick="advwExport()" style="margin-left:8px">📤 สร้างไฟล์ทั้งช่วง</button>' +
+      ' <span id="advwexpmsg" class="okk" style="margin-left:6px"></span>' +
+      ' <span class="muted">· คลิก “จัด/แก้” เพื่อดูรายละเอียดรายวัน</span></div>';
+    var tF = 0, tShortF = 0, tShortP = 0, nWithFlt = 0;
+    week.forEach(function (w) { if (w.ok && w.nFlights) { nWithFlt++; tF += w.nFlights; tShortF += w.shortF; tShortP += w.shortP; } });
+    var sumHd = '<div class="sectionlabel">ช่วง <b>' + rbEsc_(week[0].label) + ' – ' + rbEsc_(week[week.length - 1].label) + '</b> · วันมีไฟลท์ ' + nWithFlt + '/' + week.length +
+      ' · รวมไฟลท์ <b>' + tF + '</b> · ' + (tShortP ? '<b class="badd">ขาดรวม ' + tShortP + ' คน (' + tShortF + ' ไฟลท์)</b>' : 'คนพอทุกวัน ✅') + '</div>';
+    var body = week.map(function (w) {
+      if (w.err) return '<tr class="rowbad"><td class="b">' + rbEsc_(w.label) + '</td><td colspan="6" class="badd">โหลดไม่ได้: ' + rbEsc_(w.err) + '</td><td></td></tr>';
+      if (!w.ok || !w.nFlights) return '<tr class="muted"><td class="b">' + rbEsc_(w.label) + '</td><td colspan="6" style="text-align:center">— ไม่มีไฟลท์/แท็บวันนี้ —</td></tr>';
+      var short = w.shortP > 0;
+      return '<tr class="' + (short ? 'rowbad' : '') + '"><td class="b">' + rbEsc_(w.label) + '</td>' +
+        '<td class="tnum">' + w.nFlights + '</td><td class="tnum">' + w.nPeople + '</td><td class="tnum">' + w.nAssigned + '</td>' +
+        '<td class="tnum">' + w.bench + '</td>' +
+        '<td class="tnum">' + (short ? '<b class="badd">⚠️ ' + w.shortP + ' คน (' + w.shortF + ' ไฟลท์)</b>' : '<span class="okk">✓ ครบ</span>') + '</td>' +
+        '<td class="tnum">' + (w.peakHr ? rbEsc_(w.peakHr) + ':00 <span class="muted">(' + w.peakN + ')</span>' : '-') + '</td>' +
+        '<td><button class="supteam" onclick="advwDay(\'' + w.iso + '\')">จัด/แก้</button></td></tr>';
+    }).join('');
+    var tbl = rbTblCard_('🗓️ วางแผนล่วงหน้า ' + nDays + ' วัน (ตาม SLA จากลิงก์ ROSTER/FLIGHT)',
+      '<tr><th>วันที่</th><th>ไฟลท์</th><th>คนขึ้นเวร</th><th>จัดแล้ว</th><th>พัก</th><th>คนขาด</th><th>พีค (ชม.)</th><th></th></tr>', body);
+    return bar + sumHd + tbl;
+  } catch (e) {
+    if (/สิทธิ|permission|access|denied|You do not have/i.test(String(e && e.message)) && typeof rbNoAccessCard_ === 'function') {
+      var fid = (typeof wfFileId_ === 'function' && wfFileId_()) || advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID) || '';
+      return rbNoAccessCard_('ตารางบิน/ชีตล่วงหน้า', fid);
+    }
+    return '<div class="panel">โหลด "วางแผนสัปดาห์" ไม่ได้: ' + rbEsc_(e.message) + ' <div class="muted">— ตรวจสิทธิ์เข้าถึง 3 ชีต (ROSTER/FLIGHT/Total)</div></div>';
+  }
+}
+
+/** Export แผนทั้งช่วง → ไฟล์ชีตเดียว (1 แท็บ/วัน/ทีม ชื่อ "09AUG·CHN") — ไม่เขียนทับไฟล์จริง. คืน URL */
+function advExportWeek(startIso, nDays) {
+  nDays = Math.min(Math.max(+nDays || 7, 1), 14);
+  var d0 = rbDateFromIso_(startIso);
+  var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+  var ss = rbCreateSheet_('Assignment Week ' + startIso + ' (' + nDays + 'd)');
+  var first = true, used = {}, anyTab = false;
+  for (var i = 0; i < nDays; i++) {
+    var d = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate() + i);
+    var tgt = { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
+    var dstr = tgt.d + '/' + tgt.m + '/' + tgt.y, ddmon = ('0' + d.getDate()).slice(-2) + MON[d.getMonth()];
+    var R; try { R = advPlan_(tgt); } catch (e) { continue; }
+    if (!R || !R.nFlights) continue;
+    var teams = advPivotTeams_(R), names = Object.keys(teams).sort();
+    if (!names.length) continue;
+    names.forEach(function (tn) {
+      var nm = (ddmon + '·' + tn).replace(/[\/\\?*\[\]:]/g, '-').slice(0, 26);
+      var n = nm, k = 2; while (used[n]) n = (nm.slice(0, 22) + ' ' + (k++)); used[n] = 1;
+      var sh = first ? ss.getSheets()[0] : ss.insertSheet(); first = false; anyTab = true;
+      sh.setName(n);
+      advWriteTeamSheet_(sh, tn, dstr, teams[tn]);
+    });
+  }
+  if (!anyTab) throw new Error('ช่วง ' + nDays + ' วันจาก ' + startIso + ' ยังไม่มีไฟลท์/การจัดคน (ตรวจว่าตารางบินมีแท็บวันเหล่านี้)');
+  return ss.getUrl();
+}
+
 /** ทดสอบการอ่านลิงก์สด (รันใน Apps Script editor เพื่อตรวจสิทธิ์/โครงสร้าง) — ไม่มี _ ท้าย จะได้ขึ้นใน Run */
 function advTest() {
   var d = new Date(); d.setMonth(d.getMonth()); var tgt = { y: 2026, m: 6, d: 1 };
