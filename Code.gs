@@ -6497,6 +6497,27 @@ function runRosterPrevMonth() {
   runRosterForMonth(d.getFullYear(), d.getMonth() + 1);
 }
 
+/** เจนใหม่เฉพาะวันที่ 8 ส.ค. 2026 (กด Run) */
+function regenDay8() { runRosterForMonth(2026, 8, 8); }
+
+/** ✅ ตรวจว่าโค้ดที่ "บันทึกไว้จริง" มีกฎเวลาล่าสุดไหม — กด Run แล้วดู Execution log
+ *  ถ้าค่าตรงกับ "ใหม่" ทุกบรรทัด = โค้ดล่าสุด · ถ้าตรง "เก่า" = ยังไม่ได้บันทึก/วางโค้ดใหม่ทับ */
+function rbVerifyRules() {
+  function W(task, STA, OP, CL, STD) {
+    var w = acFlightWin_({ flight: 'X', task: task, STA: STA, OP: OP, CL: CL, STD: STD });
+    return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : 'null';
+  }
+  var L = [
+    'FR ถึง STD:        ' + W('J1 PRIO/FR', '19:15', '17:10', '19:30', '20:10') + '   [ใหม่ 17:10-20:40 · เก่า 16:10-19:30]',
+    'ไม่มี OP/CL→STA:   ' + W('SOD', '12:00', '', '', '13:00') + '   [ใหม่ 12:00-13:20 · เก่า ~09:00-13:20]',
+    'CS ล้วน OP+2h:     ' + W('CS/PFD', '', '07:10', '', '11:10') + '   [ใหม่ 09:10-11:30]',
+    'GK→เปิดเคาน์เตอร์:  ' + W('CS/GK/PFD', '', '05:00', '', '09:00') + '   [ใหม่ 05:00-09:20]',
+  ];
+  var msg = '🔎 ตรวจกฎเวลา (โค้ดที่รันอยู่):\n  ' + L.join('\n  ');
+  Logger.log(msg);
+  return msg;
+}
+
 /** นับสถานะ 1 คนเข้า day (dedupe ต่อวัน) — มาทำงาน/ป่วย/แวค/กิจ/OT · แยก VL/VAC/AL=แวค · BL/ML/PL=กิจ */
 function rbWkAcc_(day, seen, r) {
   var id = String(r.id || '').replace(/\D/g, '') || ('N:' + String(r.name).toUpperCase());
