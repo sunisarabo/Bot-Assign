@@ -3099,12 +3099,25 @@ function acIsActivity_(s) {
   return /TRAINING|RECURRENT|WORKSHOP|ORIENTATION|SEMINAR|MEETING|E-?LEARNING|\bLMS\b|\bEXAM\b|อบรม|เทรน|ประชุม|สัมมนา|กิจกรรม|สอนงาน|ทดสอบ|\bสอบ\b/.test(u);
 }
 
+/** ชื่อ "ไฟลท์" ที่จริงเป็นค่าขยะหลุดจากช่องอื่น — ค่าเวลา (A:/D:/O:/C: หรือ HH:MM) หรือวันที่ (07 AUG 26)
+ *  (เจอในชีต PVT/LP ที่ช่องซัพ/ตารางเวลาของ N-reg เอกชนไม่เป็นมาตรฐาน) — ไม่ใช่ไฟลท์/พูล ต้องตัดทิ้ง */
+function acIsJunkFlight_(name) {
+  var s = String(name || '').trim();
+  if (!s) return true;
+  if (/^[ADOC]\s*:\s*\d/i.test(s)) return true;                 // "A : 11:25", "D:1500", "O:0700"
+  if (/^\d{1,2}[:.]\d{2}$/.test(s)) return true;                 // "11:25"
+  if (/^\d{1,2}\s+[A-Z]{3}\s*\d{0,4}$/i.test(s)) return true;    // "07 AUG 26"
+  return false;
+}
+var AC_WIN_MAX = 14 * 60;   // หน้าต่างไฟลท์ยาวเกินนี้ (ชม.) = ข้อมูลเวลาเพี้ยน (เช่น N898S) → ทิ้ง ไม่คิดครอบคลุม
+
 /** [lo,hi] นาทีที่พนักงาน "cover" ไฟลท์ = ตั้งแต่ "เวลาบรีฟ" จนถึง STD
  *  · เวลาบรีฟ = เวลาเปิดเคาน์เตอร์ (OP จากไฟล์ หรือ STD+ci) ลบเวลาบรีฟของสายการบิน
  *  · จบที่ STD (เครื่องออก)
  *  · ไฟลท์ขาเข้าล้วน (ไม่มี STD) → รอบ STA (บรีฟ→STA+post)
  *  00:00 เป็น placeholder ตัดทิ้ง. คืน null ถ้าไม่มีเวลา. */
 function acFlightWin_(a) {
+  if (acIsJunkFlight_(a.flight)) return null;                   // ชื่อไฟลท์เป็นค่าขยะ (เวลา/วันที่หลุดช่อง) → ไม่มีหน้าต่าง
   // อบรม/เทรน/ประชุม ที่ระบุช่วงเวลาในข้อความ (เช่น "TRAINING ... 08-17") → ใช้ช่วงนั้นเป็นเวลางาน (busy/gap ถูกต้อง)
   var atxt = String((a.task || '') + ' ' + (a.flight || ''));
   if (acIsActivity_(atxt)) {
@@ -3210,6 +3223,7 @@ function acFlightWin_(a) {
 function acFlightWins_(a) {
   var base = acFlightWin_(a);
   if (!base) return [];
+  if (base[1] - base[0] > AC_WIN_MAX) return [];               // หน้าต่างยาวผิดปกติ (เวลาต้นทางเพี้ยน) → ไม่คิด
   var phs = (typeof slaPhasesOf_ === 'function') ? slaPhasesOf_(a.task) : null;
   if (!phs || phs.length < 2 || phs.indexOf('ARR') < 0 || (phs.indexOf('CI') < 0 && phs.indexOf('GATE') < 0))
     return [{ lo: base[0], hi: base[1], sub: false }];
@@ -3429,9 +3443,10 @@ function acAnalyze_(res, ll) {
     sum.checked++;
     // ไฟลท์ที่ทำ + ตั้ง flag ไฟลท์ "ซัพพอร์ตข้ามทีม" (สายการบินที่ทีมอื่นเป็นเจ้าของ)
     var nSupport = 0, skipT = slaSkipTeam_(team);
-    var jobList = (r.assignments || []).filter(function (x) { return x.flight; })   // รวมเคาน์เตอร์/งานของ SU ด้วย
+    var jobList = (r.assignments || []).filter(function (x) { return x.flight && !acIsJunkFlight_(x.flight); })   // ตัดค่าขยะ (เวลา/วันที่หลุดช่อง) · รวมเคาน์เตอร์/งานของ SU
       .map(function (x) {
         var w = acFlightWin_(x);                          // ช่วงเวลา cover (บรีฟ→STD / เคาน์เตอร์)
+        if (w && w[1] - w[0] > AC_WIN_MAX) w = null;      // หน้าต่างยาวผิดปกติ (เวลาต้นทางเพี้ยน) → ไม่โชว์เวลา
         var tm = w ? ' ' + rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '–' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440) : ' (ไม่มีเวลา)';
         var jb = x.task ? ' [' + String(x.task).replace(/\s+/g, ' ').trim() + ']' : '';   // งาน/ตำแหน่งในไฟลท์นั้น
         var ow = acIsFlight_(x.flight) ? owner[slaAirlineOf_(x.flight)] : '';
