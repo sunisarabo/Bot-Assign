@@ -8496,39 +8496,14 @@ function rbTtGantt_(res, ll, nowMin) {
     var flts = [];
     (r.assignments || []).forEach(function (a) {
       if (!acIsFlight_(a.flight)) return;
-      var op = pmin(a.OP), cl = pmin(a.CL), sta = pmin(a.STA), std = pmin(a.STD);
+      // วางแถบตาม "เวลาของ JOB ที่ได้รับ assign" — ใช้ acFlightWin_ ตัวเดียวกับหน้า ตรวจ Assign
+      //   (เช็คอิน OP–CL · เกท→STD · CS OP+2h · FR/GK→STD · ไม่มีเคาน์เตอร์→STA/STD · ตัดค่าขยะ/หน้าต่างเพี้ยน)
+      var win = (typeof acFlightWin_ === 'function') ? acFlightWin_(a) : null;
+      var capMax = (typeof AC_WIN_MAX !== 'undefined') ? AC_WIN_MAX : 840;
+      if (!win || (win[1] - win[0]) > capMax) return;           // ไม่มีเวลา/หน้าต่างเพี้ยน → ไม่วางแถบ
+      var lo = win[0], hi = win[1];
+      if (hi - lo < 35) hi = lo + 35;                           // min 35 นาที ให้ป้ายพออ่าน
       var ph = rbFltPhase_(a.task);
-      var uTask = String(a.task || '').toUpperCase();
-      var hasCI = /\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|CHECK|CKIN|\bCS\b|\bFR\b|COUNTER|IPAD/.test(uTask);
-      // วางแถบตาม "ตำแหน่งงาน" (department) ไม่ใช่ปิดเคาน์เตอร์เสมอ:
-      //   · เช็คอิน → เปิด–ปิดเคาน์เตอร์ (OP–CL) · เกท/ขึ้นเครื่อง → จนเครื่องออก STD · ขาเข้า → รับเครื่องรอบ STA
-      //   · CS (เซ็นลูกเรือ) ล้วน → เริ่มหลังเปิดเคาน์เตอร์ 2 ชม. · FR/GK (เดินเอกสาร) → เปิดเคาน์เตอร์ถึง STD
-      var hasRelEndG = /\bGK\b|\bFR\b|FLIGHT\s*RELEASE/.test(uTask);
-      var isCrewSignG = /\bCS\b|CREW\s*SIGN|\bCRW\b/.test(uTask);
-      var hasSeatG = /\bCF\b|\bCT\d|\bCT\b|\bC\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|COUNTER|WEL\s*G/.test(uTask);
-      var hasBoardG = /\bGATE\b|\bG[ABCM]\b|\bG\b|BOARD|\bGM\b/.test(uTask);
-      var lo, hi;
-      if (isCrewSignG && !hasRelEndG && !hasSeatG && !hasBoardG && (op != null || std != null || sta != null)) {
-        var opG = (op != null) ? op : (std != null ? std - 180 : sta);   // เปิดเคาน์เตอร์ (ไม่มี OP → เดา STD−3ชม.)
-        lo = opG + 120;                                                   // Crew Sign ล้วน: เริ่ม = เปิดเคาน์เตอร์ + 2 ชม.
-        hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 40 : lo + 40));
-      } else if (hasRelEndG && (op != null || std != null || sta != null)) {
-        lo = (op != null) ? op : (std != null ? std - 180 : sta);        // Flight Release: เปิดเคาน์เตอร์ …
-        hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 40 : lo + 40));   // … ถึง STD
-      } else if (ph === 'gate') {                               // เกท → จบที่ STD (เครื่องออก) ไม่ใช่ปิดเคาน์เตอร์
-        lo = hasCI ? (op != null ? op : (cl != null ? cl : (std != null ? std - 90 : sta)))   // เช็คอิน+เกท = เปิดเคาน์เตอร์
-                   : (cl != null ? cl : (op != null ? op : (std != null ? std - 75 : sta)));   // เกทล้วน = เริ่มช่วงขึ้นเครื่อง (ปิดเคาน์เตอร์)
-        hi = (std != null) ? std : (cl != null ? cl : (sta != null ? sta + 60 : null));
-      } else if (ph === 'arr') {                                // ขาเข้า → รับเครื่องรอบ STA
-        lo = (sta != null) ? sta - 15 : (op != null ? op : std);
-        hi = (sta != null) ? sta + 50 : (cl != null ? cl : std);
-      } else {                                                  // เช็คอิน/อื่นๆ → เปิด–ปิดเคาน์เตอร์
-        lo = (op != null) ? op : (sta != null ? sta : std);
-        hi = (cl != null) ? cl : (std != null ? std : null);
-      }
-      if (lo == null) { lo = (op != null ? op : (sta != null ? sta : std)); if (lo == null) return; }
-      if (hi == null) hi = (std != null ? std : lo + 35);
-      if (hi < lo) hi += 1440; if (hi - lo < 35) hi = lo + 35;   // เวลาจริง (ไม่ realign) · min 35 นาที ให้ป้ายพออ่าน
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
       var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', na: 'งาน' }[ph];
