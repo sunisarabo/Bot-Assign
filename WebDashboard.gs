@@ -1022,7 +1022,12 @@ function rbWeekFlightsHtml(iso) {
     if (week && week._noAccess) return rbNoAccessCard_('ตารางบิน (Weekly Flight)', week._noAccess);
     if (!week) return '<div class="panel muted" style="padding:22px">เปิดไฟล์ตารางบินไม่ได้ (ตรวจสิทธิ์เข้าถึง / ID) หรือไม่มีข้อมูล</div>';
     var anyFound = week.some(function (d) { return d.found; });
-    if (!anyFound) return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ของสัปดาห์นี้ในไฟล์ตารางบิน (ชื่อแท็บต้องเป็น DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>)</div>';
+    if (!anyFound) {
+      var pres = (week._tabsPresent && week._tabsPresent.length)
+        ? '<br><span class="muted">แท็บที่มีในไฟล์ตอนนี้: <b>' + rbEsc_(week._tabsPresent.join(', ')) + '</b> — เปลี่ยนชื่อให้ตรงรูปแบบ หรืออัปโหลดตารางของสัปดาห์นี้</span>'
+        : '<br><span class="muted">ไฟล์ยังไม่มีแท็บที่หน้าตาเป็นวันที่เลย — อัปโหลดตารางบินของสัปดาห์นี้ก่อน</span>';
+      return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ของสัปดาห์นี้ในไฟล์ตารางบิน (ชื่อแท็บต้องเป็น DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>)' + pres + '</div>';
+    }
     var wSum = { SUP: 0, CI: 0, GATE: 0, ARR: 0, bodies: 0, nFlt: 0 };
     var rows = week.map(function (d) {
       if (!d.found) return '<tr class="muted"><td class="b">' + rbEsc_(d.label) + '</td><td colspan="7" style="text-align:center">— ไม่มีแท็บวันนี้ —</td></tr>';

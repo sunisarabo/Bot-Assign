@@ -56,8 +56,9 @@ function wfTime_(s) {
 function wfDateTabs_(date) {
   var mon = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'][date.getMonth()];
   var dd = ('0' + date.getDate()).slice(-2), d1 = String(date.getDate());
-  var yy = String(date.getFullYear()).slice(-2);
-  return [dd + mon, d1 + mon, dd + ' ' + mon, d1 + ' ' + mon, dd + mon + yy, dd + '-' + mon].map(function (x) { return x.toUpperCase(); });
+  var yy = String(date.getFullYear()).slice(-2), yyyy = String(date.getFullYear());
+  return [dd + mon, d1 + mon, dd + ' ' + mon, d1 + ' ' + mon, dd + mon + yy, dd + mon + yyyy,
+          dd + '-' + mon, dd + '.' + mon, mon + dd, mon + d1, mon + ' ' + dd].map(function (x) { return x.toUpperCase(); });
 }
 
 /** map หัวคอลัมน์ → ตำแหน่ง (หา Airlines/Flt/STA/STD/A/C TYPE/Remarks แบบยืดหยุ่น) */
@@ -159,7 +160,7 @@ function wfWeekSummary_(fileId, date) {
   var ss; try { ss = SpreadsheetApp.openById(id); } catch (ePerm) { return { _noAccess: id }; }   // เปิดไฟล์ไม่ได้ (สิทธิ์/ID) → คืน sentinel ให้หน้าแสดงวิธีแก้
   var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-  return wfWeekDates_(date).map(function (d) {
+  var out = wfWeekDates_(date).map(function (d) {
     var sched = null; try { sched = wfLoadScheduleFromSs_(ss, d); } catch (e) {}
     var label = ('0' + d.getDate()).slice(-2) + MON[d.getMonth()] + ' (' + TH[d.getDay()] + ')';
     var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
@@ -180,6 +181,9 @@ function wfWeekSummary_(fileId, date) {
     return { date: iso, label: label, found: true, flights: flights, tot: tot, bodies: bodies, peakHr: peakHr, peakN: peakN,
       nFlt: flights.filter(function (f) { return !f.cancelled; }).length, nCancel: flights.filter(function (f) { return f.cancelled; }).length };
   });
+  try { out._tabsPresent = ss.getSheets().map(function (sh) { return sh.getName(); })   // แท็บที่มีจริงในไฟล์ (ไว้ diag ตอนหาแท็บวันไม่เจอ)
+      .filter(function (n) { return /\d/.test(n) && /[A-Za-z]/.test(n); }).slice(0, 24); } catch (e) {}
+  return out;
 }
 
 /** เติม A/C TYPE + STA/STD จากตารางบินให้ไฟลท์ที่ยังไม่มี (เรียกใน slaCollectFlights_) — คืนจำนวนที่เติม */
