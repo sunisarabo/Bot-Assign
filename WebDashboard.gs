@@ -1164,6 +1164,7 @@ function rbGanttCss_() {
   '.gt-flt.ci{background:#dcebfa;border-color:#a8c6e6}.gt-flt.ci span{color:#1f4e79}'+
   '.gt-flt.gate{background:#dcf2e4;border-color:#96d1ab}.gt-flt.gate span{color:#1c7a4f}'+
   '.gt-flt.arr{background:#ece8fb;border-color:#c1b9e8}.gt-flt.arr span{color:#584fb0}'+
+  '.gt-flt.sod{background:#d6efee;border-color:#5cb8b6}.gt-flt.sod span{color:#0f6f6d}'+   /* หัวหน้า/SOD */
   '.gt-flt.na{background:#eef1f5;border-color:#d3ddea}.gt-flt.na span{color:#5b7189}'+
   '.gt-flt.sup{border-color:#e39a10;border-width:1.5px}'+
   '.gt-now{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:2;pointer-events:none}'+
@@ -1191,7 +1192,7 @@ function rbFltPhase_(task) {
     if (phs.indexOf('ARR') >= 0 && phs.indexOf('CI') < 0) return 'arr';   // ขาเข้าล้วน → รับเครื่องรอบ STA
     if (phs.indexOf('CI') >= 0) return 'ci';
     if (phs.indexOf('ARR') >= 0) return 'arr';
-    if (phs.indexOf('SUP') >= 0) return 'ci';                    // หัวหน้า/FC ไม่มีเฟสอื่น → ถือเป็นช่วงเคาน์เตอร์
+    if (phs.indexOf('SUP') >= 0) return 'sod';                   // หัวหน้า/FC/SOD ล้วน (คุมงาน) → สีแยก
   }
   return 'na';
 }
@@ -1254,7 +1255,7 @@ function rbTtGantt_(res, ll, nowMin) {
       var ph = rbFltPhase_(a.task);
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
-      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', na: 'งาน' }[ph];
+      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', na: 'งาน' }[ph];
       var barTx = rrFmtMin_(((lo % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((hi % 1440) + 1440) % 1440);
       var raw = (a.STD ? ('STD ' + a.STD) : '') + ((a.OP || a.CL) ? ((a.STD ? ' · ' : '') + 'เคาน์เตอร์ ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
       var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
@@ -1286,6 +1287,7 @@ function rbTtGantt_(res, ll, nowMin) {
     '<span class="gt-lg"><i style="background:#dcebfa;border-color:#a8c6e6"></i>เช็คอิน</span>' +
     '<span class="gt-lg"><i style="background:#dcf2e4;border-color:#96d1ab"></i>เกท</span>' +
     '<span class="gt-lg"><i style="background:#ece8fb;border-color:#c1b9e8"></i>ขาเข้า</span>' +
+    '<span class="gt-lg"><i style="background:#d6efee;border-color:#5cb8b6"></i>หัวหน้า/SOD</span>' +
     '<span class="gt-lg"><i style="background:#eef1f5;border-color:#d3ddea"></i>อื่น ๆ</span>' +
     '<span class="gt-lg"><i style="background:#e5484d;border-color:#e5484d;width:3px"></i>เวลาปัจจุบัน</span>' +
     '<span class="gt-lg">🔁 ซัพข้ามทีม (ขอบส้ม)</span>' +
