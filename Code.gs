@@ -3179,8 +3179,9 @@ function acFlightWin_(a) {
   }
   // งานเช็คอินล้วน (ไม่มีเกท/ขาเข้า/SUP · เช่น "Y3 NO GATE") → ไม่คิดครอบคลุมถึงเกท/post-flight
   var ciOnly = phs && phs.length && phs.every(function (x) { return x === 'CI'; });
+  var noCounter = (op == null && cl == null);                 // ไม่มีเวลาเปิด/ปิดเคาน์เตอร์ในฟอร์ม = ไฟลท์ไม่มีเช็คอิน
   var lo = null, hi;
-  if (ciOnly && std != null && !hasRelEnd) {
+  if (ciOnly && std != null && !hasRelEnd && !noCounter) {
     // จบที่ "ปิดเคาน์เตอร์": C (ถ้ามี) · ไม่งั้น STD+cc (เวลาเคาน์เตอร์ปิดตาม SLA) — ไม่บวก post-flight
     // (ยกเว้นงาน Flight Release FR/GK → ต้องอยู่ถึงเครื่องถอย STD ด้านล่าง)
     hi = (cl != null) ? cl : (std + ((db && db.cc != null) ? db.cc : -60));
@@ -3188,7 +3189,9 @@ function acFlightWin_(a) {
     hi = (std != null) ? std + post : null;                   // hi = STD + post (รวมงาน post-flight)
   }
   var ciOpen = (op != null) ? op : (std != null ? std + ci : null);   // เวลาเปิดเคาน์เตอร์
-  if (ciOpen != null) lo = ciOpen - brief;                    // เวลาบรีฟ
+  if (op != null) lo = op - brief;                            // มีเวลาเปิดเคาน์เตอร์ → บรีฟก่อนเปิด
+  else if (noCounter && sta != null) lo = sta;               // ไฟลท์ไม่มีเช็คอิน (มีแค่ STA/STD) → จับจาก STA (เครื่องลง) ถึง STD
+  else if (ciOpen != null) lo = ciOpen - brief;               // มีแค่ STD → เดาเปิดเคาน์เตอร์
   // งานเช็คอินที่มีเฟสอื่นปน แต่ไม่มีเกท → จบที่ "ปิดเคาน์เตอร์ (C)" ถ้ามี ไม่ลากถึง STD+post (กัน turnaround ยาว เช่น EK378 ปิด 18:55 แต่ออก 19:55)
   if (!ciOnly && cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && !(phs && phs.indexOf('GATE') >= 0) && !hasRelEnd) hi = cl + post;
   if (hi == null && sta != null) { lo = sta - brief; hi = sta + post; }   // ขาเข้าล้วน → รอบ STA
