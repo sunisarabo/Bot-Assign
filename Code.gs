@@ -1680,15 +1680,35 @@ function wfWeekDates_(date) {
   return out;
 }
 
-/** สรุปตารางบิน 7 วัน (สัปดาห์ที่มี date) → [{date,label,found,flights:[{flight,airline,ac,sta,std,req,cancelled}],tot,bodies,peakHr,peakN}] */
+/** สร้าง sched-map (เหมือน wfParseDaySheet_) จากไฟล์ assignment ของวันนั้น — fallback เมื่อตารางบินไม่มีแท็บวันนี้ */
+function wfSchedFromAssignment_(date) {
+  try {
+    if (typeof rbLoadResLL_ !== 'function' || typeof slaCollectFlights_ !== 'function') return null;
+    var dd = rbLoadResLL_(date);
+    if (!dd || !dd.res) return null;
+    var out = {};
+    (slaCollectFlights_(dd.res, dd.ll) || []).forEach(function (f) {   // slaCollectFlights_ คืน array
+      if (f.fragment || (typeof acIsFlight_ === 'function' && !acIsFlight_(f.flight))) return;
+      var key = (typeof slaFlightKey_ === 'function') ? slaFlightKey_(f.flight) : f.flight;
+      if (!key || out[key]) return;
+      var flt = (f.airline && String(f.flight).indexOf(f.airline) === 0) ? String(f.flight).slice(f.airline.length) : String(f.flight);
+      out[key] = { airline: f.airline, flt: flt, ac: f.AC || '', sta: f.STA || '', std: f.STD || '', routing: '', remark: '', cancelled: false, _fromAsg: true };
+    });
+    return Object.keys(out).length ? out : null;
+  } catch (e) { return null; }
+}
+
+/** สรุปตารางบิน 7 วัน (สัปดาห์ที่มี date) → [{date,label,found,flights:[{flight,airline,ac,sta,std,req,cancelled}],tot,bodies,peakHr,peakN}]
+ *  แหล่ง: ไฟล์ตารางบิน (ถ้ามีแท็บวันนั้น) · ไม่มี → fallback ไฟลท์จากไฟล์ assignment ของวันนั้น */
 function wfWeekSummary_(fileId, date) {
   var id = fileId || wfFileId_();
-  if (!id) return null;
-  var ss; try { ss = SpreadsheetApp.openById(id); } catch (ePerm) { return { _noAccess: id }; }   // เปิดไฟล์ไม่ได้ (สิทธิ์/ID) → คืน sentinel ให้หน้าแสดงวิธีแก้
+  var ss = null;
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (ePerm) { return { _noAccess: id }; } }   // เปิดไฟล์ไม่ได้ (สิทธิ์/ID) → คืน sentinel
   var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   var out = wfWeekDates_(date).map(function (d) {
-    var sched = null; try { sched = wfLoadScheduleFromSs_(ss, d); } catch (e) {}
+    var sched = null, usedAsg = false; if (ss) { try { sched = wfLoadScheduleFromSs_(ss, d); } catch (e) {} }
+    if (!sched || !Object.keys(sched).length) { var asg = wfSchedFromAssignment_(d); if (asg) { sched = asg; usedAsg = true; } }   // ตารางบินไม่มี → ใช้ assignment
     var label = ('0' + d.getDate()).slice(-2) + MON[d.getMonth()] + ' (' + TH[d.getDay()] + ')';
     var iso = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
     if (!sched) return { date: iso, label: label, found: false, flights: [], tot: { SUP: 0, CI: 0, GATE: 0, ARR: 0 }, bodies: 0 };
@@ -1705,10 +1725,10 @@ function wfWeekSummary_(fileId, date) {
     });
     flights.sort(function (a, b) { return String(a.std || a.sta || 'zz').localeCompare(String(b.std || b.sta || 'zz')); });
     var peakHr = '', peakN = 0; Object.keys(hrN).forEach(function (h) { if (hrN[h] > peakN) { peakN = hrN[h]; peakHr = h; } });
-    return { date: iso, label: label, found: true, flights: flights, tot: tot, bodies: bodies, peakHr: peakHr, peakN: peakN,
+    return { date: iso, label: label, found: true, fromAsg: usedAsg, flights: flights, tot: tot, bodies: bodies, peakHr: peakHr, peakN: peakN,
       nFlt: flights.filter(function (f) { return !f.cancelled; }).length, nCancel: flights.filter(function (f) { return f.cancelled; }).length };
   });
-  try { out._tabsPresent = ss.getSheets().map(function (sh) { return sh.getName(); })   // แท็บที่มีจริงในไฟล์ (ไว้ diag ตอนหาแท็บวันไม่เจอ)
+  try { if (ss) out._tabsPresent = ss.getSheets().map(function (sh) { return sh.getName(); })   // แท็บที่มีจริงในไฟล์ (ไว้ diag ตอนหาแท็บวันไม่เจอ)
       .filter(function (n) { return /\d/.test(n) && /[A-Za-z]/.test(n); }).slice(0, 24); } catch (e) {}
   return out;
 }
@@ -8400,24 +8420,22 @@ function rbTeamRows_(teams, order){ return order.map(function(t){ return rbAggRo
 /** Lazy view: 📆 ภาพรวมไฟลท์ทั้งสัปดาห์ (7 วัน) — ไฟลท์/เวลา/เครื่อง/จำนวนคนที่ต้องใช้ ตาม SLA จากตารางบิน */
 function rbWeekFlightsHtml(iso) {
   try {
-    if (typeof wfFileId_ !== 'function' || !wfFileId_())
-      return '<div class="panel" style="padding:22px"><b>ยังไม่ได้ตั้งไฟล์ตารางบิน</b><br><span class="muted">ตั้ง ID ไฟล์ Summary Weekly Flight ที่ <b>Project Settings → Script Properties</b> คีย์ <b>WF_FILE_ID</b> (หรือตัวแปร WF_FILE_ID ใน WeeklyFlight.gs) · แท็บชื่อวันที่ DDMON เช่น 17JUL แล้วรีเฟรช</span></div>';
     var date = iso ? rbDateFromIso_(iso) : new Date();
-    var week = wfWeekSummary_(wfFileId_(), date);
+    var week = wfWeekSummary_((typeof wfFileId_ === 'function' ? wfFileId_() : ''), date);   // ไม่มีไฟล์ตารางบิน → wfWeekSummary_ ใช้ assignment แทน
     if (week && week._noAccess) return rbNoAccessCard_('ตารางบิน (Weekly Flight)', week._noAccess);
-    if (!week) return '<div class="panel muted" style="padding:22px">เปิดไฟล์ตารางบินไม่ได้ (ตรวจสิทธิ์เข้าถึง / ID) หรือไม่มีข้อมูล</div>';
+    if (!week) return '<div class="panel muted" style="padding:22px">ไม่มีข้อมูลไฟลท์ (ทั้งตารางบินและ assignment)</div>';
     var anyFound = week.some(function (d) { return d.found; });
     if (!anyFound) {
       var pres = (week._tabsPresent && week._tabsPresent.length)
-        ? '<br><span class="muted">แท็บที่มีในไฟล์ตอนนี้: <b>' + rbEsc_(week._tabsPresent.join(', ')) + '</b> — เปลี่ยนชื่อให้ตรงรูปแบบ หรืออัปโหลดตารางของสัปดาห์นี้</span>'
-        : '<br><span class="muted">ไฟล์ยังไม่มีแท็บที่หน้าตาเป็นวันที่เลย — อัปโหลดตารางบินของสัปดาห์นี้ก่อน</span>';
-      return '<div class="panel muted" style="padding:22px">ไม่พบแท็บวันที่ของสัปดาห์นี้ในไฟล์ตารางบิน (ชื่อแท็บต้องเป็น DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>)' + pres + '</div>';
+        ? '<br><span class="muted">แท็บที่มีในไฟล์ตารางบินตอนนี้: <b>' + rbEsc_(week._tabsPresent.join(', ')) + '</b></span>'
+        : '';
+      return '<div class="panel muted" style="padding:22px">สัปดาห์นี้ยังไม่มีไฟลท์ — ทั้งในไฟล์ตารางบิน (แท็บ DDMON เช่น <b>' + rbEsc_(week[0] ? week[0].label.split(' ')[0] : '13JUL') + '</b>) และในไฟล์ assignment รายวัน' + pres + '</div>';
     }
     var wSum = { SUP: 0, CI: 0, GATE: 0, ARR: 0, bodies: 0, nFlt: 0 };
     var rows = week.map(function (d) {
       if (!d.found) return '<tr class="muted"><td class="b">' + rbEsc_(d.label) + '</td><td colspan="7" style="text-align:center">— ไม่มีแท็บวันนี้ —</td></tr>';
       var t = d.tot; ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (p) { wSum[p] += t[p]; }); wSum.bodies += d.bodies; wSum.nFlt += d.nFlt;
-      return '<tr><td class="b">' + rbEsc_(d.label) + '</td><td class="tnum">' + d.nFlt + (d.nCancel ? ' <span class="badd">ยก' + d.nCancel + '</span>' : '') +
+      return '<tr><td class="b">' + rbEsc_(d.label) + (d.fromAsg ? ' <span class="okk" style="font-size:9px" title="ดึงจากไฟล์ assignment (ไม่มีในตารางบิน)">·asg</span>' : '') + '</td><td class="tnum">' + d.nFlt + (d.nCancel ? ' <span class="badd">ยก' + d.nCancel + '</span>' : '') +
         '</td><td class="tnum">' + t.SUP + '</td><td class="tnum">' + t.CI + '</td><td class="tnum">' + t.GATE + '</td><td class="tnum">' + t.ARR +
         '</td><td class="tnum b" style="background:#eef6ff">' + d.bodies + '</td><td class="tnum">' + (d.peakHr ? (d.peakHr + ':00·' + d.peakN) : '-') + '</td></tr>';
     }).join('');
