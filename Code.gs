@@ -4293,6 +4293,7 @@ function advFlightSs_() {
   return ADV_FLT_SS_MEMO_.ss;
 }
 function advReadFlights_(tgt) {
+  try {
   var ss = advFlightSs_();
   // ── ฟอร์แมต "Summary Weekly Flight" (แท็บ = วันที่ เช่น 17JUL · มี A/C TYPE) — ไฟล์เดียวกับ SLA รายวัน ──
   if (typeof wfDateTabs_ === 'function' && typeof wfParseDaySheet_ === 'function') {
@@ -4337,7 +4338,24 @@ function advReadFlights_(tgt) {
     return !drop;
   });
   dedup.forEach(function (f) { delete f._nums; });
-  return dedup;
+  if (dedup.length) return dedup;
+  } catch (eSched) {}
+  return advFlightsFromAssignment_(tgt);              // ไม่มีในไฟล์ตารางบิน (หรือเปิดไม่ได้) → ดึงไฟลท์จากไฟล์ assignment ของวันนั้น
+}
+
+/** ดึงไฟลท์จากไฟล์ assignment ของวันนั้น (fallback: ใช้ไฟลท์ที่กรอกจริงในฟอร์ม เมื่อไฟล์ตารางบินไม่มีแท็บวันนี้) */
+function advFlightsFromAssignment_(tgt) {
+  try {
+    var dd = rbLoadResLL_(rbDateFromIso_(advIsoOf_(tgt)));
+    if (!dd || !dd.res) return [];
+    var fl = slaCollectFlights_(dd.res, dd.ll), out = [];
+    Object.keys(fl).forEach(function (k) {
+      var f = fl[k];
+      if (!acIsFlight_(f.flight)) return;
+      out.push({ flight: f.flight, airline: f.airline, STA: f.STA || '', STD: f.STD || '', AC: f.AC || '', gate: '', OP: f.OP || '', CL: f.CL || '' });
+    });
+    return out;
+  } catch (e) { return []; }
 }
 
 var ADV_EN_MON = { JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12 };
