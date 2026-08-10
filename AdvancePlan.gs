@@ -104,7 +104,11 @@ function advHHMM_(v) {
 }
 
 /** อ่านรายชื่อพนักงานจริง (ชีต Total) → { id: {id,team,pos,name,active} } */
+// ── memo อ่าน 3 ไฟล์ต้นทางครั้งเดียวต่อการรัน (reset ทุก execution) ─────────────
+//    "วางแผนสัปดาห์" รัน advPlan_ ×N วัน → เดิมเปิด+อ่านไฟล์ซ้ำทุกวัน · memo นี้ตัดเหลืออ่านครั้งเดียว
+var ADV_EMP_MEMO_, ADV_ROS_RAW_MEMO_, ADV_FLT_SS_MEMO_;
 function advReadEmployees_() {
+  if (ADV_EMP_MEMO_) return ADV_EMP_MEMO_;
   var ss = SpreadsheetApp.openById(advCfg_('ADV_EMP_ID', ADV_EMP_ID));
   var sh = ss.getSheetByName('Total') || ss.getSheets()[0];
   var data = sh.getDataRange().getValues();
@@ -125,6 +129,7 @@ function advReadEmployees_() {
     emp[id] = { id: id, team: col.team >= 0 ? c[col.team] : '', pos: col.pos >= 0 ? c[col.pos] : '',
                 name: nm || id, active: !/resign|terminat|inactive|พ้น|ลาออก/i.test(status) };
   });
+  ADV_EMP_MEMO_ = emp;
   return emp;
 }
 
@@ -157,10 +162,14 @@ function advReadRoster_(tgt) {
 }
 
 /** อ่านตารางบิน FLIGHT สำหรับวันที่ tgt (อ่านทุกแท็บ) → [{flight,airline,STA,STD,OP,CL}] */
-function advReadFlights_(tgt) {
-  // ตั้งค่าที่เดียว: ถ้ากำหนด WF_FILE_ID (ไฟล์ Summary รายวัน) → จัดล่วงหน้าใช้ไฟล์เดียวกัน · ไม่งั้นใช้ ADV_FLIGHT_ID เดิม
+/** เปิดไฟล์ตารางบินครั้งเดียว/การรัน (memo) — ใช้ร่วม advReadFlights_ / advFlightDates_ */
+function advFlightSs_() {
   var fid = (typeof wfFileId_ === 'function' && wfFileId_()) ? wfFileId_() : advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID);
-  var ss = SpreadsheetApp.openById(fid);
+  if (!ADV_FLT_SS_MEMO_ || ADV_FLT_SS_MEMO_.fid !== fid) ADV_FLT_SS_MEMO_ = { fid: fid, ss: SpreadsheetApp.openById(fid) };
+  return ADV_FLT_SS_MEMO_.ss;
+}
+function advReadFlights_(tgt) {
+  var ss = advFlightSs_();
   // ── ฟอร์แมต "Summary Weekly Flight" (แท็บ = วันที่ เช่น 17JUL · มี A/C TYPE) — ไฟล์เดียวกับ SLA รายวัน ──
   if (typeof wfDateTabs_ === 'function' && typeof wfParseDaySheet_ === 'function') {
     var dObj = new Date(tgt.y, tgt.m - 1, tgt.d);
@@ -221,13 +230,12 @@ function advBlockAirlines_(s) {
 /** อ่าน ROSTER แบบ "บล็อกหน้างาน" (No|Pos|ID|Name|Sur| ต่อวัน [TIME|CODE|HR|OT|OTHR|REMARK])
  *  คืนพนักงานหน้างานที่ขึ้นเวรวันที่ tgt → [{id,name,pos,team,airlines,range,off}] */
 function advReadRosterFrontline_(tgt) {
-  var ss = SpreadsheetApp.openById(advCfg_('ADV_ROSTER_ID', ADV_ROSTER_ID));
-  var sheets = ss.getSheets();
+  if (!ADV_ROS_RAW_MEMO_) {                                   // อ่านค่าทุกชีตครั้งเดียว/การรัน (ค่าดิบไม่ขึ้นกับวัน · สแกนต่อวันจาก cache)
+    var ss = SpreadsheetApp.openById(advCfg_('ADV_ROSTER_ID', ADV_ROSTER_ID));
+    ADV_ROS_RAW_MEMO_ = ss.getSheets().map(function (sh) { return sh.getDataRange().getValues(); });
+  }
   var out = [];
-  sheets.forEach(function (sh) {
-    var data = sh.getDataRange().getValues();
-    advScanFrontlineRows_(data, tgt, out);
-  });
+  ADV_ROS_RAW_MEMO_.forEach(function (data) { advScanFrontlineRows_(data, tgt, out); });
   return out;
 }
 /** สแกน rows (1 ชีต) หาบล็อกหน้างาน + คนที่ขึ้นเวรวัน tgt — แยกไว้เพื่อทดสอบ offline ได้ */
@@ -269,7 +277,7 @@ function advScanFrontlineRows_(data, tgt, out) {
 
 /** วันที่ทั้งหมดที่มีในตารางบิน (ISO เรียง, อ่านทุกแท็บ) */
 function advFlightDates_() {
-  var ss = SpreadsheetApp.openById(advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID));
+  var ss = advFlightSs_();
   var set = {}, out = [];
   ss.getSheets().forEach(function (sh) {
     sh.getDataRange().getValues().forEach(function (row) {
@@ -885,7 +893,9 @@ function rbAdvanceWeekHtml(iso, nDaysArg) {
   try {
     var start = iso || advIsoOf_({ y: new Date().getFullYear(), m: new Date().getMonth() + 1, d: new Date().getDate() });
     var nDays = Math.min(Math.max(+nDaysArg || 7, 1), 14);
-    var week = advWeekPlan_(start, nDays);
+    var ckey = 'advweek_' + start + '_' + nDays, week = null;      // cache ผลสรุป 15 นาที → เปิดแท็บซ้ำเร็ว (ข้อมูลล่วงหน้าเปลี่ยนไม่บ่อย)
+    try { var cc = CacheService.getScriptCache().get(ckey); if (cc) week = JSON.parse(cc); } catch (ec) {}
+    if (!week) { week = advWeekPlan_(start, nDays); try { CacheService.getScriptCache().put(ckey, JSON.stringify(week), 900); } catch (ep) {} }
     var bar = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px">' +
       '🗓️ <b>วางแผนล่วงหน้าหลายวัน</b> — เริ่ม: ' +
       '<input type="date" value="' + start + '" onchange="advwGo(this.value,advwDays())" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
