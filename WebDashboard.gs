@@ -751,7 +751,7 @@ var RB_NAV_ = [
   ['flt','✈','Flights & SLA','loadFlt()','s'], ['sup','🆘','Support / เติมคน','loadSup()','s'],
   ['ac','🧭','ตรวจ Assign','loadAC()','a'],
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
-  ['advw','🗂️','วางแผนสัปดาห์','loadAdvW()'],
+  ['advw','🗂️','ภาพรวมสัปดาห์','loadAdvW()'],
   ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'], ['rq','📨','RQ ซัพ (คำร้อง)','loadRq()'],
   ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
@@ -1502,8 +1502,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function advwStart(){var di=document.querySelector("#view-advw input[type=date]");return di?di.value:ISO;}' +
     'function advwDays(){var s=document.querySelector("#view-advw select");return s?+s.value:7;}' +
     'function advwGo(v,n){var b=document.getElementById("advwbox");if(!b||!(window.google&&google.script))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังวางแผน…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">"+e.message+"</div>";}).rbAdvanceWeekHtml(v,n||7);}' +
-    'function advwDay(iso){showView("adv");advGo(iso);}' +
-    'function advwExport(){var s=advwStart(),n=advwDays();if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=document.getElementById("advwexpmsg");if(m)m.innerHTML="⏳ กำลังสร้างไฟล์ทั้งช่วง…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดไฟล์แผนทั้งช่วง</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างไฟล์ไม่ได้: "+e.message);}).advExportWeek(s,n);}' +
+    'function advwDay(iso){location.href="?date="+encodeURIComponent(iso);}' +
+    'function advwExport(){var s=advwStart(),n=advwDays();if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=document.getElementById("advwexpmsg");if(m)m.innerHTML="⏳ กำลังสร้างรายงาน…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดรายงานครบ/ขาด</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างรายงานไม่ได้: "+e.message);}).advExportWeek(s,n);}' +
     'function hm2m(s){var m=String(s).match(/(\\d{1,2}):(\\d{2})/);return m?(+m[1]*60+ +m[2]):null;}' +
     'function gapOverlap(raw,f,t){if(!raw)return false;return raw.split(",").some(function(seg){var p=seg.split("~");if(p.length<2)return false;var a=+p[0],b=+p[1];if(isNaN(a)||isNaN(b))return false;function ov(x,y){return x<t&&y>f;}a=((a%1440)+1440)%1440;b=((b%1440)+1440)%1440;if(b===0)b=1440;return a<=b?ov(a,b):(ov(a,1440)||ov(0,b));});}' +
     'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");var gfrom=gf&&gf.value?hm2m(gf.value):null,gto=gt&&gt.value?hm2m(gt.value):null;var gOn=(gfrom!=null||gto!=null),gLo=gfrom!=null?gfrom:0,gHi=gto!=null?gto:1440,visN=0;[].forEach.call(v.querySelectorAll("tbody tr, .fltcard"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;var okG=!gOn||gapOverlap(r.getAttribute("data-gaps")||"",gLo,gHi);var show=okT&&okQ&&okG;if(show&&r.getAttribute("data-gaps")!=null&&r.cells.length>1)visN++;r.style.display=show?"":"none";});var gc=v.querySelector(".gapcount");if(gc)gc.textContent=gOn?("· พบ "+visN+" คนว่างช่วงนี้"):"";if(document.getElementById("gtWrap"))gtSync();}' +
