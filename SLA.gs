@@ -819,6 +819,19 @@ function slaPhaseWindow_(f, ph) {
   if (ph === 'SUP') return std != null ? [std + db.ci, std + post] : (sta != null ? [sta - 20, sta + post] : null);
   return null;
 }
+/** หน้าต่างเวลาของ phase + fallback: คำนวณตรงไม่ได้ (ขาด STD/STA บางส่วน เช่นไม่กรอก OP/CL/STD) → ประเมินจากเวลาไฟลท์ที่มี
+ *  คืน { win:[lo,hi]|null, fb:true=ใช้ fallback, noTime:true=ไม่มีเวลาไฟลท์เลย (ต้องเติมก่อน) } */
+function slaPhaseWinFb_(f, ph) {
+  var w = slaPhaseWindow_(f, ph);
+  if (w) return { win: w, fb: false, noTime: false };
+  var mm = function (x) { var v = acMin_(x); return v ? v : null; };
+  var std = mm(f.STD), sta = mm(f.STA), lo = null, hi = null;
+  if (std != null && sta != null) { lo = Math.min(sta, std) - 30; hi = Math.max(sta, std) + 30; }
+  else if (std != null) { lo = std - 180; hi = std + 30; }          // มีแต่ STD → ประเมินช่วงเช็คอิน→ออก
+  else if (sta != null) { lo = sta - 30; hi = sta + 120; }          // มีแต่ STA → ประเมินรอบขาเข้า
+  if (lo != null && hi != null) return { win: [lo, hi], fb: true, noTime: false };
+  return { win: null, fb: false, noTime: true };                    // ไม่มีเวลาไฟลท์เลย
+}
 /** ช่องว่างที่ต้องมีก่อนรับไฟลท์ใหม่ (นาที) — ปกติ 30 นาที แต่ถ้าทำ "2 ไฟลท์ติด" มาแล้ว → ต้องพัก ≥ 60 นาที
  *  ติด = ไฟลท์ก่อนหน้าที่ห่างกัน ≤ SLA_REST_MIN (ไม่ได้พักจริงระหว่างกัน) เรียงต่อเนื่องมาถึงก่อน winStart */
 function slaTransitBuf_(busy, winStart) {
@@ -953,14 +966,15 @@ function slaCandView_(c) {
 function slaSupRow_(f, ph, n, pool, winOverride, ignoreElig, reserveN) {
   var elig = ignoreElig ? { ok: true, reason: '' }             // RQ = ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA (เช่น "รับซัพเฉพาะ ARR/GATE")
     : ((typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' });
-  var cands = elig.ok ? slaCandidates_(f, ph, pool, SLA_MAX_CAND, winOverride) : [];   // สายไม่รับซัพพอร์ตเฟสนี้ → ไม่แนะคน
-  var rwin = winOverride || slaPhaseWindow_(f, ph);
+  var fbw = winOverride ? { win: winOverride, fb: false, noTime: false } : slaPhaseWinFb_(f, ph);   // #1 fallback: ขาด OP/CL/STD → ประเมินจากเวลาไฟลท์
+  var rwin = fbw.win;
+  var cands = (elig.ok && rwin) ? slaCandidates_(f, ph, pool, SLA_MAX_CAND, rwin) : [];   // สายไม่รับซัพเฟสนี้/ไม่มีเวลาไฟลท์ → ไม่แนะคน
   var resN = (reserveN == null) ? n : reserveN;               // จำนวนที่ "จอง" (โหมดทางเลือกจองคนที่โชว์ ให้แถวถัดไปแนะคนอื่น ไม่ซ้ำ)
   if (rwin) cands.slice(0, resN).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
-  var winTxt = winOverride ? (rrFmtMin_(((winOverride[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((winOverride[1] % 1440) + 1440) % 1440)) : slaWinTxt_(f, ph);
+  var winTxt = rwin ? (rrFmtMin_(((rwin[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((rwin[1] % 1440) + 1440) % 1440)) : slaWinTxt_(f, ph);
   return {
     flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList || '',
-    STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: n, win: winTxt,
+    STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: n, win: winTxt, winFb: fbw.fb, noFlightTime: fbw.noTime,   // #2 ธงบอกสาเหตุ
     needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
     cands: cands.map(slaCandView_),
     others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; }), winOverride) : []).map(slaCandView_),

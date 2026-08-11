@@ -590,7 +590,9 @@ function rbSupportHtml(iso, addJson) {
         who = '<div class="pickwrap">' + slots.join('') + '</div>' +
           (!r.cands.length ? '<div class="muted" style="font-size:11px">ไม่มีคนตรงระบบ — เลือกจาก "อื่นๆ" ที่ว่างช่วงนี้ได้</div>' : '');
       } else {
-        who = '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
+        who = '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block)
+          : (r.noFlightTime ? '⚠️ ยังไม่กรอกเวลาไฟลท์ (STA/STD)'
+          : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง'))) + '</span>';
       }
       var mtag = r.manual ? '<span class="tag" style="background:#fff3cd;color:#8a6d00">➕ Duty</span> ' : '';
       return '<tr class="' + (r.cands.length || others.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) +

@@ -402,13 +402,16 @@ function rqFindSupport(iso, showAlt) {
         nOpen++;
         who = r.cands && r.cands.length
           ? r.cands.slice(0, Math.max(1, r.shortN)).map(function (c) { return '<b>' + rbEsc_(c.name) + '</b> <span class="muted">' + rbEsc_(c.team) + (c.off ? ' ⛱️OFF' : (c.rest ? ' 😴' : '')) + ' · ' + rbEsc_(c.shift || '') + ' · ' + (c.n || 0) + ' ไฟลท์</span>'; }).join('<br>')
-          : '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block) : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง')) + '</span>';
+          : '<span class="badd">' + (r.block ? '🚫 ' + rbEsc_(r.block)
+              : (r.noFlightTime ? '⚠️ ยังไม่กรอกเวลาไฟลท์ (STA/STD) — เติมก่อนจึงหาคนได้'
+              : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง'))) + '</span>';
         if (r.assigned) who = '<span class="muted">จัดแล้ว: ' + rbEsc_(r.assigned) + ' · ขออีก ' + r.shortN + '</span><br>' + who;   // จัดบางส่วน
       }
       var ask = r.covered ? ('มี ' + (r.reqN || 1) + ' คน') : ('ขออีก ' + r.shortN + (r.reqN > r.shortN ? '/' + r.reqN : ''));
+      var winCell = rbEsc_(r.win || '-') + (r.winFb ? ' <span class="muted" title="ประเมินจากเวลาไฟลท์ (OP/CL หรือ STD ไม่ครบ)">≈</span>' : '');
       return '<tr' + (r.covered ? ' style="opacity:.62"' : '') + '><td class="b">' + rbEsc_(r.flight) + '</td><td>' + rbEsc_(r.airline) + '</td><td>' + rbEsc_(r.system || '-') +
         '</td><td>' + rbEsc_(r.phase) + (r.gtype ? ' <b>' + rbEsc_(r.gtype) + '</b>' : '') + ' ' + ask +
-        (r.label ? ' <span class="muted">(' + rbEsc_(r.label) + ')</span>' : '') + '</td><td class="tnum">' + rbEsc_(r.win || '-') + '</td><td>' + who + '</td></tr>';
+        (r.label ? ' <span class="muted">(' + rbEsc_(r.label) + ')</span>' : '') + '</td><td class="tnum">' + winCell + '</td><td>' + who + '</td></tr>';
     }).join('');
     var warn = noRoster ? '<div class="panel" style="padding:10px 14px;background:#fff7e6;border-left:4px solid #fec909;margin-bottom:8px">⚠️ เปิด roster ของวันนี้ไม่ได้ (วันอนาคต หรือยังไม่แชร์ไฟล์) — แสดง<b>คำร้อง</b>ได้ แต่ยัง<b>ไม่ได้จับคู่คนว่าง</b></div>' : '';
     var altBtn = '<div style="margin:6px 0"><button class="btn" onclick="rqReload(' + (showAlt ? '0' : '1') + ')">' +
