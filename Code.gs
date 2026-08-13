@@ -8166,7 +8166,7 @@ function rbAppbar_(date) {
     '<div class="livedot"><i></i>Live</div>' +
     '<div style="display:flex;gap:8px">' +
     '<button class="btn" onclick="pwmsHelp(1)" title="คู่มือการใช้งาน">ℹ️ ช่วยเหลือ</button>' +
-    '<button class="btn btn--accent" onclick="window.print()">⬇ Export PDF</button></div></div></div></div></div>';
+    '<button class="btn btn--accent" onclick="exportPdf()">⬇ Export PDF</button></div></div></div></div></div>';
 }
 
 /** AOTGA Manpower — แถบเมนูซ้าย (Phase 4): brand + เมนู + Live */
@@ -8203,7 +8203,7 @@ function rbTopbar_(date) {
     '<div class="topbar-sub">Daily Manpower · ตารางกำลังพลรายวัน</div></div>' +
     '<div class="topbar-actions"><div class="datepill"><div class="d tnum">' + date.getDate() + ' ' + MONW[date.getMonth()] + ' ' + be + '</div></div>' +
     '<button class="btn" onclick="pwmsHelp(1)" title="คู่มือการใช้งาน">ℹ️ ช่วยเหลือ</button>' +
-    '<button class="btn btn--accent" onclick="window.print()">⬇ Export PDF</button></div></div>';
+    '<button class="btn btn--accent" onclick="exportPdf()">⬇ Export PDF</button></div></div>';
 }
 /** หน้าต่างคู่มือการใช้งาน (เปิดด้วยปุ่ม ℹ️ ช่วยเหลือ) */
 function rbHelpModal_() {
@@ -8887,6 +8887,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
     'function showView(v){["dash","tt","flt","sup","ac","auto","adv","advw","week","rq","ot","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function exportPdf(){var pt=document.getElementById("pageTitle");var nm=(pt&&pt.textContent.trim())||"PAS";var old=document.title;document.title=nm+" "+ISO;window.print();setTimeout(function(){document.title=old;},600);}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadWsum(){lazy("wsumbox","rbWeekSummaryHtml","wsum");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
@@ -9681,6 +9682,15 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 /* ระยะห่าง/จังหวะ */
 .tablecard{ margin-bottom:16px; }
 @media (max-width:860px){ .tabs{ border-radius:13px; padding:5px; } }
-@media print{.weeknav,.tabs,.btn,.ttbar{display:none}#view-tt,#view-flt,#view-dash{display:block!important}}
+@media print{
+  .weeknav,.tabs,.btn,.ttbar,.foot,.app-rail,.psnpop{display:none!important}
+  /* พิมพ์เฉพาะแท็บที่เปิดอยู่ — แท็บที่ไม่ active ยังเป็น display:none (inline) จาก showView → ไม่ต้องบังคับโชว์ */
+  .app-shell{display:block!important;height:auto!important;overflow:visible!important}
+  .app-main{height:auto!important;overflow:visible!important;background:#fff!important}
+  .app-pad{padding:0!important}
+  .gt,.gt-scroll,.tablecard,.panel{overflow:visible!important}
+  .gt-row,.panel,.tablecard,tr{break-inside:avoid}
+}
+@page{size:A4 landscape;margin:8mm}
 `;
 
