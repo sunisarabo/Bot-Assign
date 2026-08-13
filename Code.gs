@@ -7740,6 +7740,66 @@ function rbClearCache(iso) {
 }
 function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
 
+/** Sheet → PDF blob (server-side · ผ่าน export URL + OAuth) — landscape/fit-width ให้เต็มหน้า */
+function rbSheetToPdfBlob_(ssId, gid, name) {
+  var url = 'https://docs.google.com/spreadsheets/d/' + ssId + '/export?format=pdf'
+    + '&size=A4&portrait=false&fitw=true&scale=2&gridlines=false&printtitle=false&sheetnames=false'
+    + '&pagenumbers=true&fzr=true&top_margin=0.4&bottom_margin=0.4&left_margin=0.4&right_margin=0.4'
+    + (gid != null ? '&gid=' + gid : '');
+  var resp = UrlFetchApp.fetch(url, { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+  if (resp.getResponseCode() >= 300) throw new Error('export PDF ไม่สำเร็จ (' + resp.getResponseCode() + ')');
+  return resp.getBlob().setName((name || 'export') + '.pdf');
+}
+
+/** สร้าง PDF ตารางกำลังพล/มอบหมายงานรายวัน จากไฟล์ assignment จริง → บันทึกไฟล์บน Drive · คืน URL
+ *  (server-side: ไม่ต้องผ่านกล่องพิมพ์ browser · เหมาะกับแนบส่ง/เก็บอัตโนมัติ) */
+function rbExportDayPdf(iso) {
+  var date = iso ? rbDateFromIso_(iso) : new Date();
+  var dd = rbLoadResLL_(date);
+  if (!dd || !dd.res) throw new Error('ไม่มีข้อมูล assignment ของวันที่ ' + iso);
+  var owner = acOwnerTeams_(dd.res, dd.ll);
+  var WMAX = (typeof AC_WIN_MAX !== 'undefined') ? AC_WIN_MAX : 840;
+  var head = ['ทีม', 'ชื่อ', 'ตำแหน่ง', 'กะ (เข้า-ออก)', 'OT', 'ไฟลท์ / งานที่ได้รับมอบหมาย'];
+  var rows = [head], nWork = 0;
+  function jobsOf(r) {
+    return (r.assignments || []).filter(function (x) { return x.flight && !(typeof acIsJunkFlight_ === 'function' && acIsJunkFlight_(x.flight)); })
+      .map(function (x) {
+        var w = (typeof acFlightWin_ === 'function') ? acFlightWin_(x) : null; if (w && w[1] - w[0] > WMAX) w = null;
+        var tm = w ? ' ' + rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440) : '';
+        var jb = x.task ? ' [' + String(x.task).replace(/\s+/g, ' ').trim() + ']' : '';
+        var ow = (typeof acIsFlight_ === 'function' && acIsFlight_(x.flight)) ? owner[slaAirlineOf_(x.flight)] : '';
+        var sup = (ow && ow !== r._team) ? ' ⟵ซัพ' : '';
+        return x.flight + jb + tm + sup;
+      }).join('   ·   ');
+  }
+  function addRec(team, r) {
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    nWork++; r._team = team;
+    var ot = r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-';
+    rows.push([team, r.name || '', slaPosShort_(r.posGroup || r.pos || ''), (r.shiftTime || r.shift || '-'), ot, jobsOf(r) || '—']);
+  }
+  Object.keys(dd.res.teams).sort().forEach(function (t) {
+    dd.res.teams[t].records.slice().sort(function (a, b) { return (a.shiftStart == null ? 99999 : a.shiftStart) - (b.shiftStart == null ? 99999 : b.shiftStart); })
+      .forEach(function (r) { addRec(t, r); });
+  });
+  if (dd.ll && dd.ll.totals && dd.ll.totals.staff > 0) Object.keys(dd.ll.sections).forEach(function (s) { dd.ll.sections[s].records.forEach(function (r) { addRec('LL·' + s, r); }); });
+  if (rows.length === 1) throw new Error('วันที่ ' + iso + ' ไม่มีคนขึ้นงานในไฟล์ assignment');
+
+  var ss = rbCreateSheet_('PAS Assignment ' + iso);
+  var sh = ss.getSheets()[0]; sh.setName('Assignment');
+  sh.getRange(1, 1, 1, head.length).merge().setValue('PAS · ตารางมอบหมายงานรายวัน — ' + iso + ' · คนขึ้นงาน ' + nWork + ' คน')
+    .setFontSize(13).setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('left');
+  sh.getRange(2, 1, rows.length, head.length).setValues(rows).setVerticalAlignment('top').setFontSize(9).setWrap(true);
+  sh.getRange(2, 1, 1, head.length).setFontWeight('bold').setBackground('#dce9f7').setFontColor('#1f4e79');
+  [70, 150, 70, 95, 130, 620].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(2);
+  SpreadsheetApp.flush();
+  var blob = rbSheetToPdfBlob_(ss.getId(), sh.getSheetId(), 'PAS_Assignment_' + iso);
+  var pdf = DriveApp.createFile(blob);
+  try { DriveApp.getFileById(ss.getId()).setTrashed(true); } catch (e) {}   // ลบชีตชั่วคราว เหลือแต่ PDF
+  return pdf.getUrl();
+}
+
 /** โลโก้: ใช้ AOTGA_LOGO_URL (URL/data-URI) ก่อน · ไม่งั้นอ่านจาก Google Drive (PWMS_LOGO_ID / Script Property)
  *  แปลงเป็น base64 data-URI แล้ว cache 6 ชม. (สคริปต์มีสิทธิ์ Drive อยู่แล้ว) */
 function rbLogoDataUri_() {
@@ -8166,6 +8226,7 @@ function rbAppbar_(date) {
     '<div class="livedot"><i></i>Live</div>' +
     '<div style="display:flex;gap:8px">' +
     '<button class="btn" onclick="pwmsHelp(1)" title="คู่มือการใช้งาน">ℹ️ ช่วยเหลือ</button>' +
+    '<button class="btn" onclick="exportServerPdf(this)">📄 บันทึกไฟล์ PDF</button>' +
     '<button class="btn btn--accent" onclick="exportPdf()">⬇ Export PDF</button></div></div></div></div></div>';
 }
 
@@ -8888,6 +8949,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
     'function showView(v){["dash","tt","flt","sup","ac","auto","adv","advw","week","rq","ot","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function exportPdf(){var pt=document.getElementById("pageTitle");var nm=(pt&&pt.textContent.trim())||"PAS";var old=document.title;document.title=nm+" "+ISO;window.print();setTimeout(function(){document.title=old;},600);}' +
+    'function exportServerPdf(b){if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน Web App URL (/exec) เพื่อสร้างไฟล์");return;}var old=b?b.textContent:"";if(b){b.textContent="⏳ กำลังสร้างไฟล์ PDF…";b.disabled=true;}google.script.run.withSuccessHandler(function(url){if(b){b.textContent=old;b.disabled=false;}window.open(url,"_blank");}).withFailureHandler(function(e){if(b){b.textContent=old;b.disabled=false;}alert("สร้าง PDF ไม่ได้: "+e.message);}).rbExportDayPdf(ISO);}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadWsum(){lazy("wsumbox","rbWeekSummaryHtml","wsum");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
