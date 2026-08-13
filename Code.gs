@@ -3292,17 +3292,17 @@ function acDuty_(r) {
     if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType || null });
   }
 
-  var ds = ss, de = se;
+  var ds = ss, de = se, otSegs = [];                        // otSegs = ช่วง OT ที่จัด timeline แล้ว (ให้ Gantt วางแท่งตรงตำแหน่ง)
   if (r.bucket === 'ot_off') {
     // OT OFF = วันหยุดมาทำ OT — เวลางานจริง = ช่วง OT เท่านั้น (ไม่ใช่กะปกติที่ค้างอยู่)
-    if (spans.length) { var s0 = spans[0], a0 = s0.a, b0 = s0.b; if (a0 != null && b0 != null && b0 <= a0) b0 += 1440; ds = a0; de = b0; }
+    if (spans.length) { var s0 = spans[0], a0 = s0.a, b0 = s0.b; if (a0 != null && b0 != null && b0 <= a0) b0 += 1440; ds = a0; de = b0; if (ds != null && de != null) otSegs.push([ds, de]); }
     else { ds = null; de = null; }
   } else if (spans.length) {
     spans.forEach(function (sp) {
       var oi = sp.a, oo = sp.b; if (oi == null) return;
       if (oo == null) oo = oi;
       var a = oi, b = oo; if (b <= a) b += 1440;             // ช่วงข้ามคืนภายในตัว
-      var t = sp.type || rrOtType_([ss, se], [oi, oo], false);
+      var t = rrOtType_([ss, se], [oi, oo], false);          // B: จำแนกก่อน/หลังกะจาก "เวลาจริง" เทียบกะ — ไม่เชื่อป้ายที่กรอก (กันกรอกผิดคอลัมน์)
       if (t === 'PRE') {                                     // OT ก่อนกะ → ปลาย OT แตะต้นกะ, ขยาย ds
         while (ss != null && b - ss > 720) { a -= 1440; b -= 1440; }
         while (ss != null && ss - b > 720) { a += 1440; b += 1440; }
@@ -3310,14 +3310,15 @@ function acDuty_(r) {
         while (se != null && a - se > 720) { a -= 1440; b -= 1440; }
         while (se != null && se - a > 720 && b <= ss) { a += 1440; b += 1440; }   // เลื่อนเป็นวันถัดไปเฉพาะ OT หลังเที่ยงคืน (จบก่อนต้นกะ) — กัน OT เช้าที่ติดป้าย "หลังกะ" ถูกดันข้ามวัน → ช่วงว่างเพี้ยน 24 ชม.
       }
+      otSegs.push([a, b]);
       ds = (ds == null) ? a : Math.min(ds, a);
       de = (de == null) ? b : Math.max(de, b);
     });
   } else if (r.ot > 0 && ss != null) {
-    if (r.otType === 'PRE') ds = ss - Math.round(r.ot * 60);
-    else de = se + Math.round(r.ot * 60);
+    if (r.otType === 'PRE') { ds = ss - Math.round(r.ot * 60); otSegs.push([ds, ss]); }
+    else { de = se + Math.round(r.ot * 60); otSegs.push([se, de]); }
   }
-  return { ss: ss, se: se, ds: ds, de: de };
+  return { ss: ss, se: se, ds: ds, de: de, otSegs: otSegs };
 }
 
 /** ทีมเอกสาร/ธุรการ (ADMIN DOC) — งานเอกสาร ไม่ผูกเวลาไฟลท์ จึงไม่ flag "ไฟลท์นอกเวลางาน"
@@ -8637,6 +8638,7 @@ function rbTtGantt_(res, ll, nowMin) {
   function seg(lo, hi, cls, label, tip) {
     var out = '';
     function one(a, b) { if (b <= a) return; out += '<div class="gt-seg ' + cls + '" style="left:' + pct(a) + '%;width:' + pct(b - a) + '%" data-tip="' + rbAttr_(tip || label) + '"><span>' + rbEsc_(label) + '</span></div>'; }
+    while (lo >= 1440) { lo -= 1440; hi -= 1440; }            // ช่วงที่เริ่มหลัง 24:00 (OT หลังเที่ยงคืนที่จัด timeline แล้ว) → ดึงกลับเข้าวันก่อนวาด
     if (hi > 1440) { one(lo, 1440); one(0, hi - 1440); } else one(lo, hi);
     return out;
   }
@@ -8659,13 +8661,11 @@ function rbTtGantt_(res, ll, nowMin) {
         r.name + '¦' + (isOtOff ? 'มาทำ OT (วันหยุด)' : ('กะ ' + shTxt)) + '¦' + r.team + (r.pos ? ' · ' + r.pos : ''));
     }
     if (r.bucket !== 'ot_off') {
-      var spans = [];
-      if (r.otSpans && r.otSpans.length) r.otSpans.forEach(function (sp) { if (sp && sp.a != null) spans.push(sp); });
-      else { var orr = rrRangeStr_(r.otTime || ''); if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType }); }
-      spans.forEach(function (sp) {
-        var a = sp.a, b = (sp.b == null ? sp.a : sp.b); if (b <= a) b += 1440;   // ข้ามคืน → seg() ตัดเป็น 2 ท่อนเอง · ค่าเป็นเวลาจริง ไม่ต้อง realign
+      (du.otSegs || []).forEach(function (sg) {                // ใช้ช่วง OT ที่ acDuty_ จัด timeline แล้ว (PRE/POST จากเวลาจริง) → วางตรงตำแหน่ง ไม่หล่นซ้าย/ข้ามวัน
+        var a = sg[0], b = sg[1];
+        var pre = (du.ss != null && a < du.ss);
         track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''),
-          r.name + '¦OT' + (r.ot ? ' ' + r.ot + ' ชม.' : '') + (r.otType === 'PRE' ? ' (ก่อนกะ)' : ' (หลังกะ)') + '¦เวลา ' + rrFmtMin_(a) + '-' + rrFmtMin_(b % 1440));
+          r.name + '¦OT' + (r.ot ? ' ' + r.ot + ' ชม.' : '') + (pre ? ' (ก่อนกะ)' : ' (หลังกะ)') + '¦เวลา ' + rrFmtMin_(((a % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((b % 1440) + 1440) % 1440));
       });
     }
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)

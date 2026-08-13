@@ -210,17 +210,17 @@ function acDuty_(r) {
     if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType || null });
   }
 
-  var ds = ss, de = se;
+  var ds = ss, de = se, otSegs = [];                        // otSegs = ช่วง OT ที่จัด timeline แล้ว (ให้ Gantt วางแท่งตรงตำแหน่ง)
   if (r.bucket === 'ot_off') {
     // OT OFF = วันหยุดมาทำ OT — เวลางานจริง = ช่วง OT เท่านั้น (ไม่ใช่กะปกติที่ค้างอยู่)
-    if (spans.length) { var s0 = spans[0], a0 = s0.a, b0 = s0.b; if (a0 != null && b0 != null && b0 <= a0) b0 += 1440; ds = a0; de = b0; }
+    if (spans.length) { var s0 = spans[0], a0 = s0.a, b0 = s0.b; if (a0 != null && b0 != null && b0 <= a0) b0 += 1440; ds = a0; de = b0; if (ds != null && de != null) otSegs.push([ds, de]); }
     else { ds = null; de = null; }
   } else if (spans.length) {
     spans.forEach(function (sp) {
       var oi = sp.a, oo = sp.b; if (oi == null) return;
       if (oo == null) oo = oi;
       var a = oi, b = oo; if (b <= a) b += 1440;             // ช่วงข้ามคืนภายในตัว
-      var t = sp.type || rrOtType_([ss, se], [oi, oo], false);
+      var t = rrOtType_([ss, se], [oi, oo], false);          // B: จำแนกก่อน/หลังกะจาก "เวลาจริง" เทียบกะ — ไม่เชื่อป้ายที่กรอก (กันกรอกผิดคอลัมน์)
       if (t === 'PRE') {                                     // OT ก่อนกะ → ปลาย OT แตะต้นกะ, ขยาย ds
         while (ss != null && b - ss > 720) { a -= 1440; b -= 1440; }
         while (ss != null && ss - b > 720) { a += 1440; b += 1440; }
@@ -228,14 +228,15 @@ function acDuty_(r) {
         while (se != null && a - se > 720) { a -= 1440; b -= 1440; }
         while (se != null && se - a > 720 && b <= ss) { a += 1440; b += 1440; }   // เลื่อนเป็นวันถัดไปเฉพาะ OT หลังเที่ยงคืน (จบก่อนต้นกะ) — กัน OT เช้าที่ติดป้าย "หลังกะ" ถูกดันข้ามวัน → ช่วงว่างเพี้ยน 24 ชม.
       }
+      otSegs.push([a, b]);
       ds = (ds == null) ? a : Math.min(ds, a);
       de = (de == null) ? b : Math.max(de, b);
     });
   } else if (r.ot > 0 && ss != null) {
-    if (r.otType === 'PRE') ds = ss - Math.round(r.ot * 60);
-    else de = se + Math.round(r.ot * 60);
+    if (r.otType === 'PRE') { ds = ss - Math.round(r.ot * 60); otSegs.push([ds, ss]); }
+    else { de = se + Math.round(r.ot * 60); otSegs.push([se, de]); }
   }
-  return { ss: ss, se: se, ds: ds, de: de };
+  return { ss: ss, se: se, ds: ds, de: de, otSegs: otSegs };
 }
 
 /** ทีมเอกสาร/ธุรการ (ADMIN DOC) — งานเอกสาร ไม่ผูกเวลาไฟลท์ จึงไม่ flag "ไฟลท์นอกเวลางาน"

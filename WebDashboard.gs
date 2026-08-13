@@ -1216,6 +1216,7 @@ function rbTtGantt_(res, ll, nowMin) {
   function seg(lo, hi, cls, label, tip) {
     var out = '';
     function one(a, b) { if (b <= a) return; out += '<div class="gt-seg ' + cls + '" style="left:' + pct(a) + '%;width:' + pct(b - a) + '%" data-tip="' + rbAttr_(tip || label) + '"><span>' + rbEsc_(label) + '</span></div>'; }
+    while (lo >= 1440) { lo -= 1440; hi -= 1440; }            // ช่วงที่เริ่มหลัง 24:00 (OT หลังเที่ยงคืนที่จัด timeline แล้ว) → ดึงกลับเข้าวันก่อนวาด
     if (hi > 1440) { one(lo, 1440); one(0, hi - 1440); } else one(lo, hi);
     return out;
   }
@@ -1238,13 +1239,11 @@ function rbTtGantt_(res, ll, nowMin) {
         r.name + '¦' + (isOtOff ? 'มาทำ OT (วันหยุด)' : ('กะ ' + shTxt)) + '¦' + r.team + (r.pos ? ' · ' + r.pos : ''));
     }
     if (r.bucket !== 'ot_off') {
-      var spans = [];
-      if (r.otSpans && r.otSpans.length) r.otSpans.forEach(function (sp) { if (sp && sp.a != null) spans.push(sp); });
-      else { var orr = rrRangeStr_(r.otTime || ''); if (orr[0] != null) spans.push({ a: orr[0], b: orr[1], type: r.otType }); }
-      spans.forEach(function (sp) {
-        var a = sp.a, b = (sp.b == null ? sp.a : sp.b); if (b <= a) b += 1440;   // ข้ามคืน → seg() ตัดเป็น 2 ท่อนเอง · ค่าเป็นเวลาจริง ไม่ต้อง realign
+      (du.otSegs || []).forEach(function (sg) {                // ใช้ช่วง OT ที่ acDuty_ จัด timeline แล้ว (PRE/POST จากเวลาจริง) → วางตรงตำแหน่ง ไม่หล่นซ้าย/ข้ามวัน
+        var a = sg[0], b = sg[1];
+        var pre = (du.ss != null && a < du.ss);
         track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''),
-          r.name + '¦OT' + (r.ot ? ' ' + r.ot + ' ชม.' : '') + (r.otType === 'PRE' ? ' (ก่อนกะ)' : ' (หลังกะ)') + '¦เวลา ' + rrFmtMin_(a) + '-' + rrFmtMin_(b % 1440));
+          r.name + '¦OT' + (r.ot ? ' ' + r.ot + ' ชม.' : '') + (pre ? ' (ก่อนกะ)' : ' (หลังกะ)') + '¦เวลา ' + rrFmtMin_(((a % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((b % 1440) + 1440) % 1440));
       });
     }
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
