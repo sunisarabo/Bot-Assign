@@ -3434,10 +3434,12 @@ function acAnalyzeRecord_(r, team) {
     if (!w.coverable) return;
     out.flightN++;
     if (d.ds != null && d.de != null) {
-      if (w.lo >= d.ds - AC_COVER_TOL && w.hi <= d.de + AC_COVER_TOL) out.coveredN++;
-      else if (w.zone && w.hi > d.ds && w.lo < d.de) out.coveredN++;   // โซน/เคาน์เตอร์ (LP/SU Counter) = ช่วงนามธรรม → อยู่เวรคาบก็นับครอบคลุม (ไม่บังคับครอบเต็ม)
-      else if (w.sov && sovMulti) out.coveredN++;          // SOD คุมหลายไฟลท์ → ถือว่าคุมได้ (ไม่ขึ้นแดงรายไฟลท์)
-      else out.uncovered.push(w.flight + ' (' + rrFmtMin_(w.lo) + '–' + rrFmtMin_(w.hi) + ')');
+      var overlaps = (w.hi > d.ds && w.lo < d.de);          // เวลางานคาบช่วงไฟลท์ (ทำบางส่วน = ส่งต่อกะ handover: เช้าเช็คอิน→บ่ายเกท)
+      if (w.lo >= d.ds - AC_COVER_TOL && w.hi <= d.de + AC_COVER_TOL) out.coveredN++;   // ครอบเต็ม
+      else if (w.zone && overlaps) out.coveredN++;          // โซน/เคาน์เตอร์ (LP/SU Counter) = ช่วงนามธรรม → อยู่เวรคาบก็นับครอบคลุม
+      else if (w.sov && sovMulti) out.coveredN++;           // SOD คุมหลายไฟลท์ → ถือว่าคุมได้ (ไม่ขึ้นแดงรายไฟลท์)
+      else if (overlaps) { out.coveredN++; out.handoverN = (out.handoverN || 0) + 1; }   // คาบบางส่วน = ทำหน้าที่ช่วงกะตัวเอง (เช็คอิน/เกท) แล้วส่งต่อ → ไม่ใช่ไฟลท์นอกเวลา
+      else out.uncovered.push(w.flight + ' (' + rrFmtMin_(w.lo) + '–' + rrFmtMin_(w.hi) + ')');   // ไม่คาบเลย = นอกเวลากะจริง (assign ไฟลท์นอกกะ)
     }
   });
 
