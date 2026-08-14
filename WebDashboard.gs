@@ -1315,7 +1315,7 @@ function rbTtGantt_(res, ll, nowMin) {
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
     var flts = [];
     (r.assignments || []).forEach(function (a) {
-      if (!acIsFlight_(a.flight)) return;
+      if (!acIsFlight_(a.flight) && !(typeof acIsCoverWork_ === 'function' && acIsCoverWork_(a.flight))) return;   // ไฟลท์จริง + งานโซน/เคาน์เตอร์ (LP MORNING/AFTERNOON · Counter Gx · CHECK-IN COMMON) → วางแท่งด้วย
       // วางแถบตาม "เวลาของ JOB ที่ได้รับ assign" — ใช้ acFlightWin_ ตัวเดียวกับหน้า ตรวจ Assign
       //   (เช็คอิน OP–CL · เกท→STD · CS OP+2h · FR/GK→STD · ไม่มีเคาน์เตอร์→STA/STD · ตัดค่าขยะ/หน้าต่างเพี้ยน)
       var win = (typeof acFlightWin_ === 'function') ? acFlightWin_(a) : null;
