@@ -114,6 +114,38 @@ function rrTimePair_(s) {
 }
 /** "0820" / "925" → "08:20" / "09:25" */
 function rrHHMM_(s) { var m = String(s || '').match(/(\d{1,2})(\d{2})$/); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
+/** ทีม PRIVATE/LP รูปแบบใหม่: บล็อก "LP MORNING (A:0500 D:1500)" / "LP AFTERNOON (A:1400 D:2400)"
+ *  อยู่แถวเหนือหัว ID · หัวคอลัมน์เป็น "Job 1-4" (ซ้ำ 2 ชุด) → จับช่วงคอลัมน์ + เวลาของแต่ละโซน
+ *  คืน [{c0,c1,label,sta,std}] (ว่าง = ไม่ใช่ layout LP) */
+function rrLpZones_(rows, hi, fltStart) {
+  var zones = [];
+  for (var up = 1; up <= 4 && hi - up >= 0; up++) {
+    var hr = rows[hi - up]; if (!hr) continue;
+    var found = [];
+    for (var c = fltStart; c < hr.length; c++) {
+      var lbl = rrClean_(hr[c]); if (!lbl) continue;
+      var m = lbl.toUpperCase().match(/(MORNING|AFTERNOON|EVENING|NIGHT)/);
+      if (m) found.push({ c: c, label: (/\bLP\b/i.test(lbl) ? 'LP ' : '') + m[1] });
+    }
+    if (!found.length) continue;
+    for (var i = 0; i < found.length; i++) {
+      var c0 = found[i].c, c1 = (i + 1 < found.length) ? found[i + 1].c : hr.length;
+      var sta = '', std = '';
+      for (var dr = hi - up; dr < hi; dr++) {                 // หา A:/D: ในแถวป้ายและแถวใต้ลงมา ช่วง c0..c1
+        var drow = rows[dr] || [];
+        for (var cc = c0; cc < c1 && cc < drow.length; cc++) {
+          var sc = rrClean_(drow[cc]);
+          var mA = sc.match(/A\s*:?\s*(\d{1,2})[:.]?(\d{2})/i); if (mA && !sta) sta = ('0' + mA[1]).slice(-2) + ':' + mA[2];
+          var mD = sc.match(/D\s*:?\s*(\d{1,2})[:.]?(\d{2})/i); if (mD && !std) std = ('0' + mD[1]).slice(-2) + ':' + mD[2];
+        }
+      }
+      zones.push({ c0: c0, c1: c1, label: found[i].label, sta: sta, std: std });
+    }
+    break;                                                   // เจอแถวป้ายโซนแล้ว หยุด
+  }
+  return zones;
+}
+
 /** แปลงข้อความจ็อบของทีม LP เป็น assignment list
  *  เช่น "GATE SU660/661 0925/1055 STBY0930, ARR AK822/823 1530/1600"
  *  → [{flight:'SU660/661',task:'GATE',STA:'09:25',STD:'10:55'}, {flight:'AK822/823',task:'ARR',STA:'15:30',STD:'16:00'}] */
@@ -373,7 +405,7 @@ function rrParseStandard_(rows, team, meta) {
     if (bestN >= 2) cm.jobtext = bestC;     // ใช้ช่องนี้เป็น "งานซัพพอร์ต" → parse ด้วย rrParseJobText_ (โค้ดเดิม)
   }
 
-  var flights = {}, fltcols = [];
+  var flights = {}, fltcols = [], lpZones = [];
   if (cm.flt >= 0) {
     var hdr = rows[hi];
     for (var c = cm.flt; c < hdr.length; c++) {
@@ -416,6 +448,7 @@ function rrParseStandard_(rows, team, meta) {
       flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV, AC: acV };
     }
     fltcols = fltcols.filter(function (f) { return !f.cancelled; });   // ตัดไฟลท์ที่ยกเลิกออก (ไม่บันทึก assignment)
+    lpZones = rrLpZones_(rows, hi, cm.flt);                            // LP: บล็อก MORNING/AFTERNOON + เวลา อยู่แถวเหนือหัว ID
   }
 
   var recs = [], seen = {}, recByIdd = {};
@@ -484,6 +517,12 @@ function rrParseStandard_(rows, team, meta) {
         if (codes && codes.length) {
           codes.forEach(function (a) { assigns.push(a); });
         } else {
+          var lpz = null;                                     // LP: คอลัมน์นี้อยู่ในโซน MORNING/AFTERNOON ที่มีเวลาไหม
+          for (var zi = 0; zi < lpZones.length; zi++) { if (fc.col >= lpZones[zi].c0 && fc.col < lpZones[zi].c1) { lpz = lpZones[zi]; break; } }
+          if (lpz && (lpz.sta || lpz.std) && !acIsFlight_(fc.name)) {   // งาน LP ในโซน → ใช้เวลาโซนเป็นช่วงงาน (05:00–15:00 / 14:00–24:00)
+            assigns.push({ flight: lpz.label, task: tasks.join('/'), STA: info.STA || lpz.sta, STD: info.STD || lpz.std, OP: op, CL: cl });
+            return;
+          }
           assigns.push({ flight: fc.name, task: tasks.join('/'),
                          STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl, AC: info.AC || '' });
           // common check-in (SU): โค้ดเคาน์เตอร์ที่ระบุเลขไฟลท์ เช่น "FC661" = FC ของ SU661
