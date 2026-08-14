@@ -459,7 +459,7 @@ function rrParseStandard_(rows, team, meta) {
     lpZones = rrLpZones_(rows, hi, cm.flt);                            // LP: บล็อก MORNING/AFTERNOON + เวลา อยู่แถวเหนือหัว ID
   }
 
-  var recs = [], seen = {}, recByIdd = {};
+  var recs = [], seen = {}, recByIdd = {}, dupSkip = 0;
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
     var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
@@ -626,9 +626,14 @@ function rrParseStandard_(rows, team, meta) {
     };
     // ID ซ้ำ: ถ้าบล็อกแรกที่เก็บไว้ "ว่างเปล่า" แต่บล็อกนี้มีข้อมูล (กะ/สถานะ/งาน) → ใช้บล็อกนี้แทน
     // (แท็บ SU มี CHECK IN บนสุด (กะว่าง) + GATE ASSIGN ล่าง (กะครบ) ID เดียวกัน)
-    if (dupOf) { if (dupOf.blankRow && !rec.blankRow) { for (var k in rec) dupOf[k] = rec[k]; } continue; }
+    if (dupOf) {
+      if (dupOf.blankRow && !rec.blankRow) { for (var k in rec) dupOf[k] = rec[k]; }   // บล็อกแรกว่าง (เช่น SU CHECK-IN) → ใช้บล็อกนี้แทน
+      else if (!rec.blankRow) dupSkip++;                                                // ทั้งคู่มีข้อมูล = บล็อกซ้อนซ้ำ (เช่น CHARTER) → ข้ามบล็อก 2 (นับไว้เตือน)
+      continue;
+    }
     seen[idd] = true; recByIdd[idd] = rec; recs.push(rec);
   }
+  recs._dupSkip = dupSkip;   // จำนวนแถวที่ข้ามเพราะ ID ซ้ำ (บล็อกซ้อนซ้ำในแท็บ) — ไว้เตือนให้ลบบล็อกซ้ำ
   // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
   // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
   rrApplyTrainingNotes_(rows, recs);
@@ -1038,7 +1043,7 @@ function readRosterFromSpreadsheet(ss, date) {
       r.fromShiftDB = true;
     } catch (e) {}
   }
-  var droppedTabs = [];
+  var droppedTabs = [], dupBlockTabs = [];
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
     if (!recs || !recs.length) {
@@ -1051,6 +1056,7 @@ function readRosterFromSpreadsheet(ss, date) {
       } catch (eDT) {}
       return;
     }
+    if (recs._dupSkip >= 3) dupBlockTabs.push(ws.getName().trim());   // บล็อกซ้อนซ้ำ (≥3 แถว ID ซ้ำ ที่มีข้อมูลทั้งคู่) → เตือนให้ลบบล็อกซ้ำ
     var t = rrNewAgg_();
     t.records = recs;
     recs.forEach(function (r) {
@@ -1070,7 +1076,7 @@ function readRosterFromSpreadsheet(ss, date) {
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
   rrRoundAgg_(totals);
   delete totals.records;
-  return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs };
+  return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs, dupBlockTabs: dupBlockTabs };
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────
@@ -8407,9 +8413,12 @@ function rbDataCheckHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var res = d.res, ll = d.ll;
-    var cats = { droptab: [], staledate: [], offflt: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
+    var cats = { droptab: [], dupblock: [], staledate: [], offflt: [], noshift: [], flttime: [], dupteam: [], dupname: [], supnoteam: [] };
     (res.droppedTabs || []).forEach(function (nm) {
       cats.droptab.push({ team: nm, who: 'อ่านไม่ได้ทั้งแท็บ', detail: 'แท็บนี้มีข้อมูลแต่ระบบอ่านไม่ออก (เช่น ไม่มีคอลัมน์ ID/หัวตารางไม่ตรงแบบมาตรฐาน) — ทั้งทีมหายจากยอด/ไฟลท์' });
+    });
+    (res.dupBlockTabs || []).forEach(function (nm) {
+      cats.dupblock.push({ team: nm, who: 'บล็อกซ้อนซ้ำในแท็บ', detail: 'แท็บนี้มีตารางคน 2 บล็อกซ้อนกัน (ID ซ้ำ) — ระบบใช้บล็อกแรก ข้ามบล็อกซ้ำ · ถ้าบล็อกล่างมี assignment ต่างจากบล็อกบน จะตกหล่น → ควรลบบล็อกซ้ำออกจากชีต' });
     });
     var idMap = {};
     function scan(t, recs) {
@@ -8451,6 +8460,7 @@ function rbDataCheckHtml(iso) {
     }
     var defs = [
       { k: 'droptab', t: '🛑 แท็บอ่านไม่ได้ (หายทั้งทีม)', hint: 'แท็บมีข้อมูลแต่ parser อ่านไม่ออก (ไม่มีคอลัมน์ ID/เลย์เอาต์ไม่มาตรฐาน) — ทั้งทีมหายจากยอดและ SLA' },
+      { k: 'dupblock', t: '👥 บล็อกซ้อนซ้ำในแท็บ (ใช้บล็อกแรก)', hint: 'แท็บมีตารางคนซ้ำ 2 บล็อก (ID ซ้ำ) — ระบบอ่านบล็อกแรก ทิ้งบล็อกซ้ำ · ลบบล็อกซ้ำเพื่อกันข้อมูลตกหล่น' },
       { k: 'staledate', t: '📅 แท็บวันที่ไม่ตรงกัน', hint: 'ทีมนี้พิมพ์วันที่ต่างจากทีมอื่น — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)' },
       { k: 'offflt', t: '🚫 เขียน OFF แต่มีไฟลท์', hint: 'คนที่ชีตเขียนหยุด (OFF/XX) แต่ถูกจัดลงไฟลท์ — นับเป็นไม่มาทำงานทั้งที่นั่งไฟลท์อยู่' },
       { k: 'noshift', t: '⏰ มาทำงานแต่อ่านเวลากะไม่ได้', hint: 'รหัสกะไม่อยู่ใน ShiftDB/ลืมกรอกเวลา → ชั่วโมง+ครอบคลุมไฟลท์เพี้ยน' },

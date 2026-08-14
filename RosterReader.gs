@@ -451,7 +451,7 @@ function rrParseStandard_(rows, team, meta) {
     lpZones = rrLpZones_(rows, hi, cm.flt);                            // LP: บล็อก MORNING/AFTERNOON + เวลา อยู่แถวเหนือหัว ID
   }
 
-  var recs = [], seen = {}, recByIdd = {};
+  var recs = [], seen = {}, recByIdd = {}, dupSkip = 0;
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
     var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
@@ -618,9 +618,14 @@ function rrParseStandard_(rows, team, meta) {
     };
     // ID ซ้ำ: ถ้าบล็อกแรกที่เก็บไว้ "ว่างเปล่า" แต่บล็อกนี้มีข้อมูล (กะ/สถานะ/งาน) → ใช้บล็อกนี้แทน
     // (แท็บ SU มี CHECK IN บนสุด (กะว่าง) + GATE ASSIGN ล่าง (กะครบ) ID เดียวกัน)
-    if (dupOf) { if (dupOf.blankRow && !rec.blankRow) { for (var k in rec) dupOf[k] = rec[k]; } continue; }
+    if (dupOf) {
+      if (dupOf.blankRow && !rec.blankRow) { for (var k in rec) dupOf[k] = rec[k]; }   // บล็อกแรกว่าง (เช่น SU CHECK-IN) → ใช้บล็อกนี้แทน
+      else if (!rec.blankRow) dupSkip++;                                                // ทั้งคู่มีข้อมูล = บล็อกซ้อนซ้ำ (เช่น CHARTER) → ข้ามบล็อก 2 (นับไว้เตือน)
+      continue;
+    }
     seen[idd] = true; recByIdd[idd] = rec; recs.push(rec);
   }
+  recs._dupSkip = dupSkip;   // จำนวนแถวที่ข้ามเพราะ ID ซ้ำ (บล็อกซ้อนซ้ำในแท็บ) — ไว้เตือนให้ลบบล็อกซ้ำ
   // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
   // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
   rrApplyTrainingNotes_(rows, recs);
@@ -1030,7 +1035,7 @@ function readRosterFromSpreadsheet(ss, date) {
       r.fromShiftDB = true;
     } catch (e) {}
   }
-  var droppedTabs = [];
+  var droppedTabs = [], dupBlockTabs = [];
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
     if (!recs || !recs.length) {
@@ -1043,6 +1048,7 @@ function readRosterFromSpreadsheet(ss, date) {
       } catch (eDT) {}
       return;
     }
+    if (recs._dupSkip >= 3) dupBlockTabs.push(ws.getName().trim());   // บล็อกซ้อนซ้ำ (≥3 แถว ID ซ้ำ ที่มีข้อมูลทั้งคู่) → เตือนให้ลบบล็อกซ้ำ
     var t = rrNewAgg_();
     t.records = recs;
     recs.forEach(function (r) {
@@ -1062,7 +1068,7 @@ function readRosterFromSpreadsheet(ss, date) {
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
   rrRoundAgg_(totals);
   delete totals.records;
-  return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs };
+  return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs, dupBlockTabs: dupBlockTabs };
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────
