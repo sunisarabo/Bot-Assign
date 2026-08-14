@@ -3180,6 +3180,11 @@ function acIsActivity_(s) {
  *  (เจอในชีต PVT/LP ที่ช่องซัพ/ตารางเวลาของ N-reg เอกชนไม่เป็นมาตรฐาน) — ไม่ใช่ไฟลท์/พูล ต้องตัดทิ้ง */
 /** งานโซน LP (PRIVATE/LP): "LP MORNING/AFTERNOON/EVENING/NIGHT" — ไม่ใช่ไฟลท์ แต่ให้นับเข้า coverage */
 function acIsLpZone_(name) { return /^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)\b/i.test(String(name || '')); }
+/** งาน "โซน/เคาน์เตอร์" ที่ไม่ใช่ไฟลท์ แต่เป็นงานจริงมีช่วงเวลา → นับเข้า coverage (LP zone · SU Counter Gx/Hx · CHECK-IN COMMON) */
+function acIsCoverWork_(name) {
+  var s = String(name || '');
+  return acIsLpZone_(s) || /^Counter\s+[GH]?\d/i.test(s) || /CHECK[- ]?IN\s*COMMON/i.test(s);
+}
 function acIsJunkFlight_(name) {
   var s = String(name || '').trim();
   if (!s) return true;
@@ -3398,9 +3403,9 @@ function acAnalyzeRecord_(r, team) {
       var lo = wn.lo, hi = wn.hi;
       if (d.ds != null && d.de != null) { var fa = rrAlignTo_(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }  // จัดไฟลท์ให้อยู่ timeline เดียวกับเวลางาน (ข้ามเที่ยงคืน)
       else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
-      var isLp = acIsLpZone_(a.flight);
-      out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: (acIsFlight_(a.flight) || isLp) && !isAct && !wn.sub && !isDoc, activity: isAct, lp: isLp,
-                      sov: /\bSOD\b|SPVR|SUPERVIS|\bSOV\b/i.test(String(a.task || '')) });   // งานคุมหัวหน้า (SOD/Supervisor Onduty) · LP zone → นับ coverage
+      var isZone = acIsCoverWork_(a.flight);   // LP zone · SU Counter · CHECK-IN COMMON → งานจริงที่นับ coverage
+      out.wins.push({ flight: a.flight, lo: lo, hi: hi, coverable: (acIsFlight_(a.flight) || isZone) && !isAct && !wn.sub && !isDoc, activity: isAct, zone: isZone,
+                      sov: /\bSOD\b|SPVR|SUPERVIS|\bSOV\b/i.test(String(a.task || '')) });   // งานคุมหัวหน้า (SOD/Supervisor Onduty)
     });
   });
 
@@ -3424,7 +3429,7 @@ function acAnalyzeRecord_(r, team) {
     out.flightN++;
     if (d.ds != null && d.de != null) {
       if (w.lo >= d.ds - AC_COVER_TOL && w.hi <= d.de + AC_COVER_TOL) out.coveredN++;
-      else if (w.lp && w.hi > d.ds && w.lo < d.de) out.coveredN++;   // LP zone = ช่วงนามธรรม → อยู่เวรคาบโซนก็นับครอบคลุม (ไม่บังคับครอบเต็ม)
+      else if (w.zone && w.hi > d.ds && w.lo < d.de) out.coveredN++;   // โซน/เคาน์เตอร์ (LP/SU Counter) = ช่วงนามธรรม → อยู่เวรคาบก็นับครอบคลุม (ไม่บังคับครอบเต็ม)
       else if (w.sov && sovMulti) out.coveredN++;          // SOD คุมหลายไฟลท์ → ถือว่าคุมได้ (ไม่ขึ้นแดงรายไฟลท์)
       else out.uncovered.push(w.flight + ' (' + rrFmtMin_(w.lo) + '–' + rrFmtMin_(w.hi) + ')');
     }
