@@ -8713,6 +8713,7 @@ function rbGanttCss_() {
   '.gt-flt.arr{background:#ece8fb;border-color:#c1b9e8}.gt-flt.arr span{color:#584fb0}'+
   '.gt-flt.sod{background:#d6efee;border-color:#5cb8b6}.gt-flt.sod span{color:#0f6f6d}'+   /* หัวหน้า/SOD */
   '.gt-flt.lp{background:#fbe3ee;border-color:#e2a3c6}.gt-flt.lp span{color:#a33272}'+   /* โซน LP (Private/LP) */
+  '.gt-flt.stby{background:repeating-linear-gradient(45deg,#f2f4f7,#f2f4f7 6px,#e7ebf1 6px,#e7ebf1 12px);border:1px dashed #aab6c4}.gt-flt.stby span{color:#6b7b8e}'+   /* STBY รอจัดไฟลท์ */
   '.gt-flt.na{background:#eef1f5;border-color:#d3ddea}.gt-flt.na span{color:#5b7189}'+
   '.gt-flt.sup{border-color:#e39a10;border-width:1.5px}'+
   '.gt-now{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:2;pointer-events:none}'+
@@ -8802,12 +8803,17 @@ function rbTtGantt_(res, ll, nowMin) {
       var ph = /^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? 'lp' : rbFltPhase_(a.task);   // โซน LP → สีแยก
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
-      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', lp: 'โซน LP', na: 'งาน' }[ph];
+      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', lp: 'โซน LP', stby: 'STBY (รอจัดไฟลท์)', na: 'งาน' }[ph];
       var barTx = rrFmtMin_(((lo % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((hi % 1440) + 1440) % 1440);
       var raw = (a.STD ? ('STD ' + a.STD) : '') + ((a.OP || a.CL) ? ((a.STD ? ' · ' : '') + 'เคาน์เตอร์ ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
       var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
       flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: rbEsc_(leg1) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
     });
+    // ทีมพูล/สแตนด์บาย (PVT/LP · CHARTER/ZF) ที่มาทำงานแต่ยังไม่มีงาน = STBY รอจัดไฟลท์ → แสดงแท่ง standby คลุมกะ (ไม่ปล่อยว่างเหมือนไม่มีงาน)
+    if (!flts.length && r.bucket === 'working' && du.ss != null && du.se != null && typeof slaIsFloatTeam_ === 'function' && slaIsFloatTeam_(r.team)) {
+      flts.push({ lo: du.ss, hi: du.se, ph: 'stby', sup: false, lab: 'STBY · รอ assign',
+        tip: rbAttr_(r.name + '¦STBY (พูลสแตนด์บาย) — รอจัดไฟลท์¦' + r.team + (r.shiftTime ? ' · กะ ' + r.shiftTime : '')) });
+    }
     // จัดเลนกันทับ: เรียงตามเวลาเริ่ม แล้ววางเลนแรกที่ว่าง
     flts.sort(function (x, y) { return x.lo - y.lo; });
     var laneEnd = [];
@@ -8836,6 +8842,7 @@ function rbTtGantt_(res, ll, nowMin) {
     '<span class="gt-lg"><i style="background:#ece8fb;border-color:#c1b9e8"></i>ขาเข้า</span>' +
     '<span class="gt-lg"><i style="background:#d6efee;border-color:#5cb8b6"></i>หัวหน้า/SOD</span>' +
     '<span class="gt-lg"><i style="background:#fbe3ee;border-color:#e2a3c6"></i>โซน LP</span>' +
+    '<span class="gt-lg"><i style="background:#e7ebf1;border:1px dashed #aab6c4"></i>STBY (รอจัดไฟลท์)</span>' +
     '<span class="gt-lg"><i style="background:#eef1f5;border-color:#d3ddea"></i>อื่น ๆ</span>' +
     '<span class="gt-lg"><i style="background:#e5484d;border-color:#e5484d;width:3px"></i>เวลาปัจจุบัน</span>' +
     '<span class="gt-lg">🔁 ซัพข้ามทีม (ขอบส้ม)</span>' +
