@@ -33,7 +33,9 @@
  * can call readRosterFromSpreadsheet() in place of detectAndParse().
  */
 
-var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
+var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE', 'SUPPORT REQUEST', 'แม่แบบ', '_CODES'];
+/** ทีม "ภายนอก" (ไม่ใช่ HC ของ HKT): พนักงาน BKK มาช่วยชั่วคราว · Outsource — นับรวมหัว/ชม. แต่ติดป้ายแยก */
+function rrIsExternalTeam_(team) { return /\bBKK\b|OUTSOURCE|\bOUT\s?SRC\b|\bOS\b/i.test(String(team || '')); }
 
 /** วันหยุดประเพณี/นักขัตฤกษ์ ปี 2569 (2026) ตามประกาศ AOTGA 403/2568
  *  ทำงานในวันเหล่านี้ = ได้ OT นักขัต X1 (1 เท่า) จากชั่วโมงทำงานในกะวันนั้น */
@@ -8552,7 +8554,8 @@ function rbAggRowHtml_(label, b) {
   var work = b.working + b.ot_off, tr = b.training || 0, avail = Math.max(0, work - tr);
   var pct = b.staff>0 ? Math.round(work/b.staff*100) : 0;
   var trCell = tr ? ('<b class="badd">' + tr + '</b> <span class="muted">→ว่าง ' + avail + '</span>') : '<span class="muted">—</span>';
-  return '<tr><td class="b">' + rbEsc_(label) + '</td><td class="tnum">' + b.staff + '</td><td class="tnum"><b>' + work +
+  var ext = (typeof rrIsExternalTeam_ === 'function' && rrIsExternalTeam_(label)) ? ' <span class="tag" style="background:#eef2ff;color:#3b5bdb;font-size:9px">คนนอก</span>' : '';   // BKK/Outsource — นับรวมแต่ติดป้าย
+  return '<tr><td class="b">' + rbEsc_(label) + ext + '</td><td class="tnum">' + b.staff + '</td><td class="tnum"><b>' + work +
     '</b></td><td class="tnum">' + trCell + '</td><td class="tnum">' + b.off + '</td><td class="tnum">' + b.sick + '</td><td class="tnum">' + b.leave + '</td><td class="tnum">' + rbOtTxt_(b.ot_off, b.otOffHrs) +
     '</td><td class="tnum">' + rbOtTxt_(b.otPre, b.otPreHrs) + '</td><td class="tnum">' + rbOtTxt_(b.otPost, b.otPostHrs) +
     '</td><td style="min-width:90px">' + rbBarMini_(pct) + '</td></tr>';

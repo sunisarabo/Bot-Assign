@@ -25,7 +25,9 @@
  * can call readRosterFromSpreadsheet() in place of detectAndParse().
  */
 
-var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
+var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE', 'SUPPORT REQUEST', 'แม่แบบ', '_CODES'];
+/** ทีม "ภายนอก" (ไม่ใช่ HC ของ HKT): พนักงาน BKK มาช่วยชั่วคราว · Outsource — นับรวมหัว/ชม. แต่ติดป้ายแยก */
+function rrIsExternalTeam_(team) { return /\bBKK\b|OUTSOURCE|\bOUT\s?SRC\b|\bOS\b/i.test(String(team || '')); }
 
 /** วันหยุดประเพณี/นักขัตฤกษ์ ปี 2569 (2026) ตามประกาศ AOTGA 403/2568
  *  ทำงานในวันเหล่านี้ = ได้ OT นักขัต X1 (1 เท่า) จากชั่วโมงทำงานในกะวันนั้น */
