@@ -457,6 +457,7 @@ function rrParseStandard_(rows, team, meta) {
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
     var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
+    var isBkk = /^B\s*\d{6,7}\b/i.test(idRaw);                // รหัสขึ้นต้น "B" (เช่น B2607384) = พนักงาน BKK มาช่วย (Batch)
     var idd = idRaw.replace(/\D/g, '');
     if (idd.length < 6 && cm.id + 1 < row.length) {          // WY leading seq column
       var rawNext = rrClean_(row[cm.id + 1]).replace(/\.0+$/, '');
@@ -603,7 +604,7 @@ function rrParseStandard_(rows, team, meta) {
     var primarySpan = otSpans.length ? [otSpans[otSpans.length - 1].a, otSpans[otSpans.length - 1].b] : [null, null];
     var otType = oth > 0 ? (twoSided ? (otG2 ? 'POST' : 'PRE') : rrOtType_(srng, primarySpan, bkt === 'ot_off')) : null;
     var rec = {
-      team: team, id: idd, name: name,
+      team: team, id: idd, name: name, bkk: isBkk,
       support: isSup, supportTeam: supTeam,                  // มาช่วยจากทีมไหน (แถวซัพพอร์ต)
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
       re: reTime || ((cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : ''),

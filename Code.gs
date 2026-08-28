@@ -465,6 +465,7 @@ function rrParseStandard_(rows, team, meta) {
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
     var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
+    var isBkk = /^B\s*\d{6,7}\b/i.test(idRaw);                // รหัสขึ้นต้น "B" (เช่น B2607384) = พนักงาน BKK มาช่วย (Batch)
     var idd = idRaw.replace(/\D/g, '');
     if (idd.length < 6 && cm.id + 1 < row.length) {          // WY leading seq column
       var rawNext = rrClean_(row[cm.id + 1]).replace(/\.0+$/, '');
@@ -611,7 +612,7 @@ function rrParseStandard_(rows, team, meta) {
     var primarySpan = otSpans.length ? [otSpans[otSpans.length - 1].a, otSpans[otSpans.length - 1].b] : [null, null];
     var otType = oth > 0 ? (twoSided ? (otG2 ? 'POST' : 'PRE') : rrOtType_(srng, primarySpan, bkt === 'ot_off')) : null;
     var rec = {
-      team: team, id: idd, name: name,
+      team: team, id: idd, name: name, bkk: isBkk,
       support: isSup, supportTeam: supTeam,                  // มาช่วยจากทีมไหน (แถวซัพพอร์ต)
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
       re: reTime || ((cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : ''),
@@ -8773,7 +8774,8 @@ function rbTtGantt_(res, ll, nowMin) {
   var ruler = '<div class="gt-row gt-ruler"><div class="gt-lbl">คน (' + rows.length + ')</div><div class="gt-axis">' + ticks + '</div></div>';
   var body = rows.map(function (r) {
     var dn = rbAttr_(String(r.name + ' ' + r.team + ' ' + (r.id || '')).toLowerCase());
-    var head = '<div class="gt-lbl"><b>' + rbEsc_(r.name) + '</b><small>' + rbEsc_(r.team) + (r.pos ? ' · ' + rbEsc_(r.pos) : '') + '</small></div>';
+    var bkkTag = r.bkk ? ' <span style="font:600 8.5px/1 monospace;background:#eef2ff;color:#3b5bdb;padding:1px 4px;border-radius:4px;vertical-align:1px">BKK</span>' : '';   // พนักงาน BKK มาช่วย (ID ขึ้นต้น B)
+    var head = '<div class="gt-lbl"><b>' + rbEsc_(r.name) + bkkTag + '</b><small>' + rbEsc_(r.team) + (r.pos ? ' · ' + rbEsc_(r.pos) : '') + '</small></div>';
     var stl = STLB[r.bucket];
     if (stl) return '<div class="gt-row gt-dim" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track"><div class="gt-status ' + STCLS[r.bucket] + '">' + stl + '</div>' + (nowMin >= 0 ? '<div class="gt-now" style="left:' + pct(nowMin) + '%"></div>' : '') + '</div></div>';
     var du = acDuty_(r), track = '';
