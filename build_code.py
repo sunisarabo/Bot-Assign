@@ -4,7 +4,7 @@ copy-paste bundle). clasp pushes the modules separately; Code.gs is only the
 all-in-one for pasting into the Apps Script editor by hand."""
 import io, os
 
-ORDER = ['RosterReader', 'MasterReader', 'LLReader', 'WeeklyFlight', 'SLA', 'AirlineSupport',
+ORDER = ['RosterReader', 'MasterReader', 'LLReader', 'WeeklyFlight', 'SLA', 'ManningRules', 'AirlineSupport',
          'AssignCheck', 'AutoPlan', 'AdvancePlan', 'OTDashboard', 'WorkHours', 'DutyImport', 'FormSetup', 'RosterBot', 'WebDashboard']
 HEADER = ('/**\n'
           ' * SmartShift Roster Bot — All-in-One (AOTGA design web app)\n'

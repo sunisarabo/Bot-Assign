@@ -2328,6 +2328,10 @@ function slaReq_(airline, acType) {
     var pk = slaAcPick_(SLA_AC[c], acType);
     if (pk) return { SUP: 1, CI: pk[1], ARR: pk[2], GATE: pk[3], total: pk[4], ac: pk[0] };
   }
+  // กฎจากชีต STANDARD MANNING (ops แก้เองได้) มาก่อน → ไม่งั้น fallback SLA_RQ (ค่า default เดิม)
+  var ovr = (typeof manOverride_ === 'function') ? manOverride_() : null;
+  var ro = ovr && (ovr[c] || (SLA_ALIAS[c] && ovr[SLA_ALIAS[c]]));
+  if (ro) return { SUP: ro[0] || 1, CI: ro[1], ARR: ro[2], GATE: ro[3], total: ro[4] };
   var rq = SLA_RQ[c] || (SLA_ALIAS[c] && SLA_RQ[SLA_ALIAS[c]]);
   if (rq) return { SUP: 1, CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   var db = slaGet_(airline);
@@ -3023,6 +3027,115 @@ function rbWriteSupport_(ss, res, dateStr, ll, tabName) {
   }
   [95, 70, 95, 90, 55, 150, 95, 360].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   sh.setFrozenRows(2);
+}
+
+
+// ===== ManningRules.gs =====
+
+/**
+ * ManningRules.gs — กฎกำลังพลมาตรฐานต่อไฟลท์ (STANDARD MANNING) แบบ "แก้ในชีตได้"
+ * =============================================================================
+ * เดิมกฎว่า "ไฟลท์สายไหนใช้คนกี่คน / เฟสไหน" ฝังใน SLA_RQ (SLA.gs) แก้ต้องแตะโค้ด
+ * โมดูลนี้ย้ายกฎออกมาเป็น "ตารางในชีต" ให้ ops แก้เองได้ แล้วต่อกลับเข้า slaReq_
+ *
+ *   คอลัมน์:  AIRLINE | ชื่อสายการบิน | SUP | CI | ARR | GATE | TOTAL
+ *   - slaReq_ จะเลือกค่าจากชีตก่อน (ถ้ามี) → ไม่งั้น fallback SLA_RQ (ค่า default เดิม)
+ *   - เก็บใน spreadsheet แยก (id ใน Script Property 'MANNING_SHEET_ID')
+ *   - cache 6 ชม. (CacheService) + memo ต่อ execution กัน openById ซ้ำ
+ *
+ * Entry:
+ *   apSetupManning()  → สร้าง/รีเฟรชชีตกฎจากค่า default (เก็บ edit เดิมไว้) คืน URL
+ *   manClearCache()   → ล้าง cache หลังแก้ตัวเลขในชีต (ให้ระบบอ่านค่าใหม่)
+ *   manOverride_()    → { code: [SUP,CI,ARR,GATE,TOTAL] } (ภายใน — slaReq_ เรียกใช้)
+ */
+
+var MAN_SHEET_TAB = 'STANDARD MANNING';
+var MAN_PROP_ID   = 'MANNING_SHEET_ID';
+var MAN_CACHE_KEY = 'man_override_v1';
+var MAN_CACHE_TTL = 21600;          // 6 ชม. (สูงสุดของ CacheService)
+var MAN_MEMO = null;                // memo ต่อ execution (reset ทุกครั้งที่รันสคริปต์ใหม่)
+
+function manSheetId_() {
+  try { return String(PropertiesService.getScriptProperties().getProperty(MAN_PROP_ID) || '').trim(); }
+  catch (e) { return ''; }
+}
+
+/** อ่านตารางกฎจากชีต → { CODE: [SUP,CI,ARR,GATE,TOTAL] } · ไม่มีชีต/อ่านไม่ได้ = {} (ใช้ default) */
+function manOverride_() {
+  if (MAN_MEMO) return MAN_MEMO;
+  var map = {};
+  try { var cc = CacheService.getScriptCache().get(MAN_CACHE_KEY); if (cc) { MAN_MEMO = JSON.parse(cc); return MAN_MEMO; } } catch (e0) {}
+  var id = manSheetId_();
+  if (!id) { MAN_MEMO = map; return map; }
+  try {
+    var ss = SpreadsheetApp.openById(id), sh = ss.getSheetByName(MAN_SHEET_TAB);
+    if (!sh) { MAN_MEMO = map; return map; }
+    var vals = sh.getDataRange().getValues();
+    var hi = -1, col = {};
+    for (var r = 0; r < Math.min(8, vals.length); r++) {
+      var up = vals[r].map(function (x) { return String(x == null ? '' : x).trim().toUpperCase(); });
+      if (up.indexOf('AIRLINE') >= 0 && up.indexOf('CI') >= 0) {
+        hi = r; ['AIRLINE', 'SUP', 'CI', 'ARR', 'GATE', 'TOTAL'].forEach(function (k) { col[k] = up.indexOf(k); });
+        break;
+      }
+    }
+    if (hi < 0) { MAN_MEMO = map; return map; }
+    for (var i = hi + 1; i < vals.length; i++) {
+      var row = vals[i];
+      var code = String(row[col.AIRLINE] == null ? '' : row[col.AIRLINE]).trim().toUpperCase();
+      if (!/^[0-9A-Z]{2,3}$/.test(code)) continue;                        // ข้ามแถวว่าง/หมายเหตุ
+      var num = function (k) {
+        if (col[k] == null || col[k] < 0) return 0;
+        var v = parseInt(String(row[col[k]]).replace(/[^0-9-]/g, ''), 10);
+        return isNaN(v) ? 0 : v;
+      };
+      var sup = col.SUP >= 0 ? (num('SUP') || 1) : 1, ci = num('CI'), arr = num('ARR'), gate = num('GATE');
+      var tot = col.TOTAL >= 0 ? num('TOTAL') : 0; if (!tot) tot = sup + ci + arr + gate;
+      map[code] = [sup, ci, arr, gate, tot];
+    }
+  } catch (e) { MAN_MEMO = {}; return MAN_MEMO; }                          // อ่านพลาด → ใช้ default เงียบ ๆ
+  try { CacheService.getScriptCache().put(MAN_CACHE_KEY, JSON.stringify(map), MAN_CACHE_TTL); } catch (e2) {}
+  MAN_MEMO = map;
+  return map;
+}
+
+/** ล้าง cache หลังแก้ตัวเลขในชีต — เรียกจากปุ่มในเว็บ หรือรันมือ */
+function manClearCache() {
+  MAN_MEMO = null;
+  try { CacheService.getScriptCache().remove(MAN_CACHE_KEY); } catch (e) {}
+  return 'ล้าง cache กฎ manning แล้ว — ระบบจะอ่านค่าใหม่จากชีตในการคำนวณครั้งต่อไป';
+}
+
+/** สร้าง/รีเฟรชชีตกฎ manning จากค่า default (SLA_RQ) — เก็บ edit เดิมไว้ · คืน URL ให้เปิดแก้ */
+function apSetupManning() {
+  var id = manSheetId_(), ss = null;
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; } }
+  if (!ss) {
+    ss = rbCreateSheet_('PAS — STANDARD MANNING (กฎกำลังพลต่อไฟลท์)');
+    try { PropertiesService.getScriptProperties().setProperty(MAN_PROP_ID, ss.getId()); } catch (e1) {}
+  }
+  var ovr = manOverride_();                                                // อ่าน edit เดิมก่อน (ถ้ามี) เพื่อไม่ทับค่าที่ ops ปรับไว้
+  var sh = ss.getSheetByName(MAN_SHEET_TAB) || ss.insertSheet(MAN_SHEET_TAB);
+  sh.clear();
+  var rows = [
+    ['กฎกำลังพลมาตรฐานต่อไฟลท์ — แก้ตัวเลขคอลัมน์ SUP/CI/ARR/GATE/TOTAL ได้ แล้วกดปุ่ม "ล้าง cache กฎ" ในเว็บ', '', '', '', '', '', ''],
+    ['SUP=หัวหน้า/คุมงาน · CI=เช็คอิน · ARR=ขาเข้า · GATE=เกท/บอร์ดดิ้ง · TOTAL=รวมทั้งไฟลท์ (เว้นว่าง=รวมอัตโนมัติ)', '', '', '', '', '', ''],
+    ['AIRLINE', 'ชื่อสายการบิน', 'SUP', 'CI', 'ARR', 'GATE', 'TOTAL']
+  ];
+  var codes = Object.keys(SLA_RQ).sort();
+  codes.forEach(function (c) {
+    var b = ovr[c] || SLA_RQ[c];
+    rows.push([c, (typeof slaAirName_ === 'function' ? slaAirName_(c) : c), b[0], b[1], b[2], b[3], b[4]]);
+  });
+  sh.getRange(1, 1, rows.length, 7).setValues(rows).setVerticalAlignment('middle');
+  sh.getRange(1, 1, 1, 7).merge().setFontWeight('bold').setBackground('#1f4e79').setFontColor('#fff').setHorizontalAlignment('left');
+  sh.getRange(2, 1, 1, 7).merge().setFontStyle('italic').setFontColor('#5b7189').setHorizontalAlignment('left');
+  sh.getRange(3, 1, 1, 7).setFontWeight('bold').setBackground('#dce9f7').setFontColor('#1f4e79').setHorizontalAlignment('center');
+  sh.getRange(4, 3, codes.length, 5).setHorizontalAlignment('center');
+  [70, 230, 55, 55, 55, 65, 70].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.setFrozenRows(3); sh.setFrozenColumns(1);
+  manClearCache();
+  return ss.getUrl();
 }
 
 
@@ -7885,6 +7998,8 @@ function rbTimetableHtml(iso) {
       '<div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<input id="gtSearch" class="gt-search" placeholder="🔍 ค้นหาชื่อ/ทีม…" oninput="gtFilter()">' +
       '<button class="btn" id="gtOffBtn" onclick="gtOff()">🙈 ซ่อนคนหยุด</button>' +
+      '<button class="btn" id="gtPropBtn" onclick="gtPropose()" title="เลือกทีมจาก dropdown ด้านล่างก่อน แล้วให้ระบบเสนอการจัดเวรตามไฟลท์ (อ่านอย่างเดียว)">🤖 เสนอจัดเวร (ทีมที่เลือก)</button>' +
+      '<button class="btn" id="gtManBtn" onclick="gtManning()" title="สร้าง/เปิดชีตกฎกำลังพลต่อไฟลท์ (SUP/CI/ARR/GATE ต่อสายการบิน) ให้ ops แก้ตัวเลขเองได้">⚙️ กฎกำลังพล (แก้ในชีต)</button>' +
       '<button class="btn" id="gtToggle" onclick="gtView()">📋 มุมมองตาราง</button></div></div>';
     // เส้นเวลาปัจจุบัน — เฉพาะเมื่อดูวันที่ = วันนี้ (ตามเขต Asia/Bangkok)
     var nowMin = -1;
@@ -8854,6 +8969,82 @@ function rbTtGantt_(res, ll, nowMin) {
     '<span class="gt-lg">🔁 ซัพข้ามทีม (ขอบส้ม)</span>' +
     '<span class="muted" style="font-size:11px">· ไฟลท์วางตามเวลาเคาน์เตอร์/งานจริง · ทับกันแยกเป็นเลน</span></div>';
 }
+/** POC — Gantt "ข้อเสนอจัดเวรอัตโนมัติ" ราย 1 ทีม 1 วัน (อ่านอย่างเดียว ไม่แตะ assignment จริง)
+ *  รัน apReplan_ → เอาเฉพาะคนของทีมที่เลือก มาวางแท่งงานที่ "ระบบเสนอ" ลง timeline รายคน
+ *  ใช้หน้าต่างเวลาเดียวกับ ตรวจ Assign (slaPhaseWindow_/acFlightWin_) → ตำแหน่งตรงของจริง */
+function rbProposeGanttHtml(iso, team) {
+  try {
+    var d = rbLoadResLL_(rbDateFromIso_(iso)), res = d.res, ll = d.ll;
+    if (!res.teams[team]) return '<div class="panel">ไม่พบทีม ' + rbEsc_(team) + ' ในไฟล์วันนี้</div>';
+    var rp = apReplan_(res, ll);
+    var fIdx = {}; slaCollectFlights_(res, ll).forEach(function (f) { fIdx[f.flight] = f; });
+    var PHT = { SUP: 'sod', CI: 'ci', ARR: 'arr', GATE: 'gate' };
+    var byName = {};                                                       // ชื่อ → [ {flight, ph, win:[lo,hi], std} ] เฉพาะคนทีมนี้
+    (rp.plan || []).forEach(function (pf) {
+      var fobj = fIdx[pf.flight];
+      ['SUP', 'CI', 'ARR', 'GATE'].forEach(function (ph) {
+        (pf.assign[ph] || []).forEach(function (pv) {
+          if (pv.team !== team) return;
+          var win = fobj ? (slaPhaseWindow_(fobj, ph) || (typeof acFlightWin_ === 'function' ? acFlightWin_(fobj) : null)) : null;
+          (byName[pv.name] = byName[pv.name] || []).push({ flight: pf.flight, ph: PHT[ph], win: win, std: pf.std });
+        });
+      });
+    });
+    function pct(m) { return (m / 1440 * 100); }
+    var ticks = '';
+    for (var h = 0; h <= 24; h += 2) ticks += '<span class="gt-tick" style="left:' + pct(h * 60) + '%">' + ('0' + h).slice(-2) + '</span>';
+    var recs = res.teams[team].records.slice().sort(function (a, b) {
+      return ((a.shiftStart == null ? 99999 : a.shiftStart) - (b.shiftStart == null ? 99999 : b.shiftStart)) || String(a.name).localeCompare(String(b.name));
+    });
+    var STLB = { off: 'OFF', sick: 'SL (ป่วย)', vac: 'ลา' }, STCLS = { off: 'off', sick: 'sl', vac: 'vac' };
+    var nWork = 0, nAssigned = 0;
+    var body = recs.map(function (r) {
+      var head = '<div class="gt-lbl"><b>' + rbEsc_(r.name) + '</b><small>' + rbEsc_(r.pos || r.team) + '</small></div>';
+      var stl = STLB[r.bucket];
+      if (stl) return '<div class="gt-row gt-dim">' + head + '<div class="gt-track"><div class="gt-status ' + STCLS[r.bucket] + '">' + stl + '</div></div></div>';
+      nWork++;
+      var du = acDuty_(r), track = '';
+      if (du.ss != null && du.se != null) {
+        var seHi = (du.se % 1440 === 0 ? 1440 : du.se);
+        track += '<div class="gt-seg gt-shift" style="left:' + pct(du.ss) + '%;width:' + pct(seHi - du.ss) + '%"><span>' +
+          rbEsc_(((r.shift || '') + ' ' + (r.shiftTime || (rrFmtMin_(du.ss) + '-' + rrFmtMin_(du.se % 1440)))).trim()) + '</span></div>';
+      }
+      var flts = (byName[r.name] || []).filter(function (x) { return x.win && (x.win[1] - x.win[0]) < 840; }).map(function (x) {
+        var lo = x.win[0], hi = x.win[1]; if (hi - lo < 35) hi = lo + 35;
+        var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน' }[x.ph] || 'งาน';
+        var tip = '🤖 เสนอ · ' + x.flight + '¦' + phL + '¦' + rrFmtMin_(((lo % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((hi % 1440) + 1440) % 1440) + (x.std ? '¦STD ' + x.std : '');
+        return { lo: lo, hi: hi, ph: x.ph, lab: rbEsc_(String(x.flight).split('/')[0].trim()), tip: rbAttr_(tip) };
+      });
+      if (flts.length) nAssigned++;
+      flts.sort(function (a, b) { return a.lo - b.lo; });
+      var laneEnd = [];
+      flts.forEach(function (f) {
+        var ln = -1; for (var i = 0; i < laneEnd.length; i++) { if (f.lo >= laneEnd[i] - 1) { ln = i; break; } }
+        if (ln < 0) { ln = laneEnd.length; laneEnd.push(0); } laneEnd[ln] = f.hi; f.lane = ln;
+      });
+      flts.forEach(function (f) {
+        var top = 30 + f.lane * 18;
+        function fone(x, y) { if (y <= x) return; track += '<div class="gt-flt ' + f.ph + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%;top:' + top + 'px" data-tip="' + f.tip + '"><span>' + f.lab + '</span></div>'; }
+        if (f.hi > 1440) { fone(f.lo, 1440); fone(0, f.hi - 1440); } else fone(f.lo < 0 ? 0 : f.lo, f.hi);
+      });
+      var nLanes = laneEnd.length, H = nLanes ? (30 + nLanes * 18 + 6) : 44;
+      return '<div class="gt-row">' + head + '<div class="gt-track" style="height:' + H + 'px">' + track + '</div></div>';
+    }).join('');
+    var ruler = '<div class="gt-row gt-ruler"><div class="gt-lbl">คน (' + recs.length + ')</div><div class="gt-axis">' + ticks + '</div></div>';
+    var banner = '<div class="panel" style="background:#eef6ff;border:1px solid #b6d4f0;padding:10px 12px;margin-bottom:8px;border-radius:10px">' +
+      '🤖 <b>ข้อเสนอจัดเวรอัตโนมัติ — ทีม ' + rbEsc_(team) + '</b> · <span class="muted">อ่านอย่างเดียว ไม่แตะ assignment จริง</span> · ขึ้นเวร ' + nWork + ' คน · เสนองานให้ ' + nAssigned + ' คน</div>';
+    return banner + rbGanttCss_() + '<div class="gt"><div class="gt-scroll">' + ruler + body + '</div></div>' +
+      '<div style="margin-top:8px">' +
+      '<span class="gt-lg"><i style="background:#2f74ad;border-color:#245d8f"></i>กะ</span>' +
+      '<span class="gt-lg"><i style="background:#dcebfa;border-color:#a8c6e6"></i>เช็คอิน</span>' +
+      '<span class="gt-lg"><i style="background:#dcf2e4;border-color:#96d1ab"></i>เกท</span>' +
+      '<span class="gt-lg"><i style="background:#ece8fb;border-color:#c1b9e8"></i>ขาเข้า</span>' +
+      '<span class="gt-lg"><i style="background:#d6efee;border-color:#5cb8b6"></i>หัวหน้า/SOD</span>' +
+      '<span class="muted" style="font-size:11px">· แท่ง = งานที่ระบบเสนอตามไฟลท์ · วางตามเวลาเคาน์เตอร์/งานจริง</span></div>';
+  } catch (e) {
+    return '<div class="panel">เสนอจัดเวรไม่ได้: ' + rbEsc_(e && e.message) + '</div>';
+  }
+}
 function rbFltRows_(res, ll) {
   return slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); }).map(function (f) {   // ซ่อนเศษขา (ขาที่สองซ้ำของไฟลท์ที่มีอยู่แล้ว)
     try {
@@ -9036,6 +9227,9 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function loadTT(){lazy("ttbox","rbTimetableHtml","tt");}function loadFlt(){lazy("fltbox","rbFlightsHtml","flt");}function loadOT(){}function loadAC(){lazy("acbox","rbAssignHtml","ac");}function loadSup(){lazy("supbox","rbSupportHtml","sup");}' +
     'function gtView(){var w=document.getElementById("gtWrap"),t=document.getElementById("gtTable"),b=document.getElementById("gtToggle");if(!w||!t)return;var g=w.style.display!=="none";w.style.display=g?"none":"";t.style.display=g?"":"none";if(b)b.textContent=g?"📊 มุมมอง Gantt":"📋 มุมมองตาราง";}' +
     'function gtSync(){var v=document.getElementById("view-tt");if(!v)return;var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";var sb=document.getElementById("gtSearch"),q=sb?sb.value.toLowerCase().trim():"";[].forEach.call(document.querySelectorAll("#gtWrap .gt-row"),function(r){if(r.classList.contains("gt-ruler"))return;var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||(r.getAttribute("data-name")||"").indexOf(q)>=0;r.style.display=(okT&&okQ)?"":"none";});}function gtFilter(){gtSync();}' +
+    'function gtPropose(){var v=document.getElementById("view-tt");if(!v)return;var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";if(!team){alert("เลือกทีมจาก dropdown ก่อน แล้วกด เสนอจัดเวร อีกครั้ง");return;}if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อใช้เสนอจัดเวร");return;}var w=document.getElementById("gtWrap");if(!w)return;w.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">🤖 กำลังเสนอการจัดเวรทีม "+team+"…</div>";google.script.run.withSuccessHandler(function(h){w.innerHTML="<div style=\\"text-align:right;margin:-2px 0 6px\\"><button class=\\"btn\\" onclick=\\"gtRestore()\\">↩︎ กลับไปดู Assignment จริง</button></div>"+h;}).withFailureHandler(function(e){w.innerHTML="<div class=\\"panel\\">เสนอไม่ได้: "+e.message+"</div>";}).rbProposeGanttHtml(ISO,team);}' +
+    'function gtManning(){if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec เพื่อใช้เมนูนี้");return;}var b=document.getElementById("gtManBtn");if(b){b.disabled=true;b.textContent="⏳ กำลังเตรียมชีต…";}google.script.run.withSuccessHandler(function(url){if(b){b.disabled=false;b.textContent="⚙️ กฎกำลังพล (แก้ในชีต)";}if(url){window.open(url,"_blank");if(confirm("เปิดชีตกฎกำลังพลแล้ว — แก้ตัวเลขเสร็จ กด OK เพื่อล้าง cache ให้ระบบอ่านค่าใหม่"))google.script.run.withSuccessHandler(function(m){alert(m);}).manClearCache();}}).withFailureHandler(function(e){if(b){b.disabled=false;b.textContent="⚙️ กฎกำลังพล (แก้ในชีต)";}alert("เปิดชีตไม่ได้: "+e.message);}).apSetupManning();}' +
+    'function gtRestore(){var b=document.getElementById("ttbox");if(!b||!(window.google&&google.script&&google.script.run))return;b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังโหลด Timetable…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();buildTeamSels();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";}).rbTimetableHtml(ISO);}' +
     'function gtOff(){var w=document.getElementById("gtWrap"),b=document.getElementById("gtOffBtn");if(!w)return;var h=w.classList.toggle("gt-hideoff");if(b)b.textContent=h?"👁️ แสดงคนหยุด":"🙈 ซ่อนคนหยุด";}' +
     '(function(){var tp;function hide(){if(tp)tp.style.display="none";}document.addEventListener("mouseover",function(e){var el=e.target.closest&&e.target.closest("[data-tip]");if(!el)return;if(!tp){tp=document.createElement("div");tp.className="gt-tip";document.body.appendChild(tp);}var ps=(el.getAttribute("data-tip")||"").split("¦");tp.innerHTML="<div class=\\"gt-tip-h\\">"+ps[0]+"</div>"+ps.slice(1).map(function(p){return "<div>"+p+"</div>";}).join("");tp.style.display="block";});document.addEventListener("mousemove",function(e){if(!tp||tp.style.display!=="block")return;var x=e.clientX+14,y=e.clientY+18,w=tp.offsetWidth,h=tp.offsetHeight;if(x+w>window.innerWidth-8)x=e.clientX-w-14;if(y+h>window.innerHeight-8)y=e.clientY-h-18;tp.style.left=x+"px";tp.style.top=y+"px";});document.addEventListener("mouseout",function(e){if(e.target.closest&&e.target.closest("[data-tip]"))hide();});})();' +
     'window.__supAdd=window.__supAdd||[];' +

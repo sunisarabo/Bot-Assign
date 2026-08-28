@@ -458,6 +458,10 @@ function slaReq_(airline, acType) {
     var pk = slaAcPick_(SLA_AC[c], acType);
     if (pk) return { SUP: 1, CI: pk[1], ARR: pk[2], GATE: pk[3], total: pk[4], ac: pk[0] };
   }
+  // กฎจากชีต STANDARD MANNING (ops แก้เองได้) มาก่อน → ไม่งั้น fallback SLA_RQ (ค่า default เดิม)
+  var ovr = (typeof manOverride_ === 'function') ? manOverride_() : null;
+  var ro = ovr && (ovr[c] || (SLA_ALIAS[c] && ovr[SLA_ALIAS[c]]));
+  if (ro) return { SUP: ro[0] || 1, CI: ro[1], ARR: ro[2], GATE: ro[3], total: ro[4] };
   var rq = SLA_RQ[c] || (SLA_ALIAS[c] && SLA_RQ[SLA_ALIAS[c]]);
   if (rq) return { SUP: 1, CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   var db = slaGet_(airline);
