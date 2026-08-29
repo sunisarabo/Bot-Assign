@@ -353,7 +353,7 @@ function rrFindHeader_(rows) {
       // บางวันชีต (เช่น WY) ไม่มีหัว "FLIGHT" — รหัสไฟลท์อยู่ในหัวตารางตรง ๆ
       var after = Math.max(cm.remark, cm.ot, cm.ottot, cm.time, cm.shift, cm.name, cm.id);
       for (var fc = after + 1; fc < u.length; fc++) {
-        if (rrIsFlightHdr_(u[fc])) { cm.flt = fc; break; }
+        if (rrIsFlightHdr_(u[fc]) || rrIsCounterHdr_(u[fc])) { cm.flt = fc; break; }   // SU/SQ: หัวบล็อก "Counter G2".."Counter H6" (เลขเดียว rrIsFlightHdr_ จับไม่ได้)
       }
     }
     return cm;
@@ -364,6 +364,18 @@ function rrFindHeader_(rows) {
 /** หัวคอลัมน์ที่เป็น 'รหัสไฟลท์' (G9687/688, WY831/832, CA413, 6E1077, SQ726). */
 function rrIsFlightHdr_(h) {
   return /(?:^|[\s\/])(?:[A-Z]{1,3}\s?\d{2,4}|\d[A-Z]\d{2,4})/.test(String(h || ''));
+}
+/** หัวบล็อกเคาน์เตอร์เช็คอินรวม (SU/SQ): "Counter G2".."Counter G12" / "Counter H2".."Counter H6"
+ *  (เลขเดียวก็ต้องจับ — rrIsFlightHdr_ ต้องการ ≥2 หลัก เลยพลาด G2/H3) */
+function rrIsCounterHdr_(h) { return /^\s*COUNTER\s+[A-Z]{0,2}\d{1,3}\b/i.test(String(h || '')); }
+/** ค่าในเซลล์เป็น "เวลา" ไหม → คืน "HH:MM" (รองรับ 07:35 · 0735 · 955) · ไม่ใช่เวลา = '' (ตรวจช่วงถูกต้อง กันเลขไฟลท์เช่น 8665) */
+function rrCellTimeVal_(v) {
+  var s = String(v == null ? '' : v).trim();
+  var m = s.match(/^(\d{1,2})[:.](\d{2})/);
+  if (m) { return (+m[1] < 24 && +m[2] < 60) ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
+  var m2 = s.match(/^(\d{1,2})(\d{2})$/);                    // HHMM ไม่มีตัวคั่น (เคาน์เตอร์ SU: 0735 / 0955)
+  if (m2 && +m2[1] < 24 && +m2[2] < 60) return ('0' + m2[1]).slice(-2) + ':' + m2[2];
+  return '';
 }
 
 // ─── parsers ────────────────────────────────────────────────────────────────
@@ -511,7 +523,8 @@ function rrParseStandard_(rows, team, meta) {
       for (var cc = fc.col; cc < (fc.end || fc.col + 1); cc++) {
         var v = cc < row.length ? rrClean_(row[cc]) : '';
         if (!v) continue;
-        if (/^\d{1,2}[:.]\d{2}/.test(v)) times.push(v); else tasks.push(v);   // SU: เวลาในเซลล์เคาน์เตอร์
+        var tv = rrCellTimeVal_(v);
+        if (tv) times.push(tv); else tasks.push(v);   // SU: เวลา IN/OUT ในเซลล์เคาน์เตอร์ (07:35 หรือ 0735)
       }
       if (tasks.length || times.length) {
         var info = flights[fc.name] || {};
@@ -879,7 +892,7 @@ function rrParseSheet_(ws) {
   for (var i = 0; i < SKIP_SHEETS_RR.length; i++) if (n.indexOf(SKIP_SHEETS_RR[i]) >= 0) return null;
   var last = ws.getLastRow();
   if (last < 3) return null;
-  var rng = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 60));
+  var rng = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 130));   // เดิม 60 → 130: ทีม SU/SQ วางบล็อกเคาน์เตอร์ (Counter G2..H6 + IN/OUT/Job) เลยคอลัมน์ 60 (ถึง ~110)
   var rows = rng.getValues();
   // อ่านสีพื้น + ขีดฆ่า เพื่อตรวจไฟลท์ที่ยกเลิก (ระบายเทาทั้งบล็อก / ขีดฆ่า)
   var meta = null;
