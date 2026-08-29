@@ -396,6 +396,58 @@ function rrFlightCancelled_(name, col, c1, hi, meta) {
   return false;
 }
 
+/** สร้างตารางไฟลท์ (fltcols + flights{STA/STD/OP/CL/AC} + lpZones) จากหัวตารางที่แถว hi
+ *  แยกเป็นฟังก์ชันเพื่อใช้ซ้ำกับ "หัวตารางที่สอง" ในแท็บเดียวกัน (SU: CHECK IN + GATE ASSIGNMENT) */
+function rrBuildFltcols_(rows, hi, fltStart, meta) {
+  var flights = {}, fltcols = [], lpZones = [];
+  if (fltStart == null || fltStart < 0 || !rows[hi]) return { flights: flights, fltcols: fltcols, lpZones: lpZones };
+  var hdr = rows[hi];
+  for (var c = fltStart; c < hdr.length; c++) {
+    var nm = rrClean_(hdr[c]);
+    var nu = nm.toUpperCase();
+    if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
+        && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
+        && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
+      fltcols.push({ col: c, name: nm });
+    }
+  }
+  var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
+  var acRow = null;
+  for (var ar = hi + 1; ar <= hi + 5 && ar < rows.length; ar++) {
+    var albl = (fltStart - 1 >= 0 && fltStart - 1 < (rows[ar] || []).length) ? rrClean_(rows[ar][fltStart - 1]) : '';
+    if (/A\/?C\s*TYPE|AIRCRAFT/i.test(albl)) { acRow = rows[ar]; break; }
+  }
+  for (var fi = 0; fi < fltcols.length; fi++) {
+    var c0 = fltcols[fi].col;
+    var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
+    fltcols[fi].end = c1;
+    fltcols[fi].cancelled = rrFlightCancelled_(fltcols[fi].name, c0, c1, hi, meta);
+    var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
+    for (var cc = c0; cc < c1; cc++) {
+      var sc = rrClean_(sta[cc]), tv = rrTimePair_(sc);
+      if (tv && tv !== '00:00') { if (/^\s*D/i.test(sc)) { if (!stdV) stdV = tv; } else if (/^\s*A/i.test(sc)) { if (!staV) staV = tv; } else posS.push(tv); }
+      var ocs = rrClean_(opn[cc]), ov = rrTimePair_(ocs);
+      if (ov && ov !== '00:00') { if (/^\s*C/i.test(ocs)) { if (!clV) clV = ov; } else if (/^\s*O/i.test(ocs)) { if (!opV) opV = ov; } else posO.push(ov); }
+    }
+    if (!staV && posS.length) staV = posS.shift();
+    if (!stdV && posS.length) stdV = posS.shift();
+    if (!opV && posO.length) opV = posO.shift();
+    if (!clV && posO.length) clV = posO.shift();
+    var acV = '';
+    if (acRow) { for (var ac = c0; ac < c1; ac++) { var av = rrClean_(acRow[ac]); if (av) { acV = av; break; } } }
+    flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV, AC: acV };
+  }
+  fltcols = fltcols.filter(function (f) { return !f.cancelled; });
+  lpZones = rrLpZones_(rows, hi, fltStart);
+  return { flights: flights, fltcols: fltcols, lpZones: lpZones };
+}
+/** รวม assignment ชุดใหม่เข้ากับ record เดิม (dedup ตาม flight+task) — ใช้ตอนคนเดิมโผล่ 2 บล็อก */
+function rrMergeAssigns_(rec, more) {
+  if (!more || !more.length) return;
+  rec.assignments = rec.assignments || [];
+  var key = {}; rec.assignments.forEach(function (a) { key[(a.flight || '') + '|' + (a.task || '')] = 1; });
+  more.forEach(function (a) { var k = (a.flight || '') + '|' + (a.task || ''); if (!key[k]) { rec.assignments.push(a); key[k] = 1; } });
+}
 function rrParseStandard_(rows, team, meta) {
   var cm = rrFindHeader_(rows);
   if (!cm) return null;
@@ -419,55 +471,28 @@ function rrParseStandard_(rows, team, meta) {
     if (bestN >= 2) cm.jobtext = bestC;     // ใช้ช่องนี้เป็น "งานซัพพอร์ต" → parse ด้วย rrParseJobText_ (โค้ดเดิม)
   }
 
-  var flights = {}, fltcols = [], lpZones = [];
-  if (cm.flt >= 0) {
-    var hdr = rows[hi];
-    for (var c = cm.flt; c < hdr.length; c++) {
-      var nm = rrClean_(hdr[c]);
-      var nu = nm.toUpperCase();
-      if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
-          && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
-          && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
-        fltcols.push({ col: c, name: nm });
-      }
-    }
-    var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
-    // หาแถว "A/C TYPE - CFG" (บางทีมเพิ่มมาระบุชนิดเครื่อง → เลือก SLA ตามเครื่องจริง เช่น TR A320=8, B787=10)
-    var acRow = null;
-    for (var ar = hi + 1; ar <= hi + 5 && ar < rows.length; ar++) {
-      var albl = (cm.flt - 1 >= 0 && cm.flt - 1 < (rows[ar] || []).length) ? rrClean_(rows[ar][cm.flt - 1]) : '';
-      if (/A\/?C\s*TYPE|AIRCRAFT/i.test(albl)) { acRow = rows[ar]; break; }
-    }
-    for (var fi = 0; fi < fltcols.length; fi++) {
-      var c0 = fltcols[fi].col;
-      var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
-      fltcols[fi].end = c1;                                  // flight occupies cols c0..c1-1
-      fltcols[fi].cancelled = rrFlightCancelled_(fltcols[fi].name, c0, c1, hi, meta);   // ไฟลท์ยกเลิก (เทา/ขีดฆ่า/CXL)
-      // ใช้ป้าย A:/D: (STA/STD) และ O:/C: (OP/CL) ถ้ามี (กัน STA ว่างแล้ว STD เลื่อนมาผิดช่อง)
-      var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
-      for (var cc = c0; cc < c1; cc++) {
-        // ข้าม placeholder 00:00 (สล็อตไฟลท์ว่างในเทมเพลต) + ไม่เขียนทับค่าที่อ่านได้แล้ว
-        // (กันไฟลท์สุดท้ายที่ span ยาวถึงท้ายแถว ไปดูดเวลา 00:00 ของสล็อตว่างมาทับเวลาจริง — เช่น KE677/678)
-        var sc = rrClean_(sta[cc]), tv = rrTimePair_(sc);
-        if (tv && tv !== '00:00') { if (/^\s*D/i.test(sc)) { if (!stdV) stdV = tv; } else if (/^\s*A/i.test(sc)) { if (!staV) staV = tv; } else posS.push(tv); }
-        var ocs = rrClean_(opn[cc]), ov = rrTimePair_(ocs);
-        if (ov && ov !== '00:00') { if (/^\s*C/i.test(ocs)) { if (!clV) clV = ov; } else if (/^\s*O/i.test(ocs)) { if (!opV) opV = ov; } else posO.push(ov); }
-      }
-      if (!staV && posS.length) staV = posS.shift();
-      if (!stdV && posS.length) stdV = posS.shift();
-      if (!opV && posO.length) opV = posO.shift();
-      if (!clV && posO.length) clV = posO.shift();
-      var acV = '';
-      if (acRow) { for (var ac = c0; ac < c1; ac++) { var av = rrClean_(acRow[ac]); if (av) { acV = av; break; } } }
-      flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV, AC: acV };
-    }
-    fltcols = fltcols.filter(function (f) { return !f.cancelled; });   // ตัดไฟลท์ที่ยกเลิกออก (ไม่บันทึก assignment)
-    lpZones = rrLpZones_(rows, hi, cm.flt);                            // LP: บล็อก MORNING/AFTERNOON + เวลา อยู่แถวเหนือหัว ID
+  var b1 = rrBuildFltcols_(rows, hi, cm.flt, meta);
+  var flights = b1.flights, fltcols = b1.fltcols, lpZones = b1.lpZones;
+  // ── หัวตารางที่สองในแท็บเดียวกัน (SU/SQ: "CHECK IN" ด้านบน + "GATE ASSIGNMENT" ด้านล่าง · คนชุดเดิม) ──
+  //    บล็อก 2 มีคอลัมน์ไฟลท์คนละชุด (เช่น SU284/285 · Job1-4) → parse แยก แล้วรวม assignment เข้าคนเดิม
+  var hi2 = -1;
+  for (var hr = hi + 4; hr < rows.length; hr++) {
+    var hrow = rows[hr]; if (!hrow) continue;
+    if (rrUp_(hrow[cm.id]) === 'ID' && rrUp_(hrow[cm.name]) === 'NAME') { hi2 = hr; break; }
+  }
+  var fltcols2 = [], flights2 = {}, cm2flt = -1, sect2Differs = false;
+  if (hi2 >= 0) {
+    var u2 = rows[hi2].map(rrUp_);
+    cm2flt = u2.indexOf('FLIGHT') >= 0 ? u2.indexOf('FLIGHT') + 1 : cm.flt;
+    var b2 = rrBuildFltcols_(rows, hi2, cm2flt, meta);
+    fltcols2 = b2.fltcols; flights2 = b2.flights;
+    sect2Differs = fltcols2.some(function (f) { return !fltcols.some(function (g) { return g.name === f.name; }); });   // บล็อก 2 มีไฟลท์ที่บล็อก 1 ไม่มี = คนละชุดงาน (ไม่ใช่สำเนาซ้ำ)
   }
 
-  var recs = [], seen = {}, recByIdd = {}, dupSkip = 0;
+  var recs = [], seen = {}, recByIdd = {}, dupSkip = 0, inSect2 = false;
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
+    if (hi2 >= 0 && rr === hi2) { fltcols = fltcols2; flights = flights2; lpZones = []; cm.flt = cm2flt; inSect2 = true; }   // ข้ามเข้าโซนบล็อก 2 → สลับตารางไฟลท์
     var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
     var isBkk = /^B\s*\d{6,7}\b/i.test(idRaw);                // รหัสขึ้นต้น "B" (เช่น B2607384) = พนักงาน BKK มาช่วย (Batch)
     var idd = idRaw.replace(/\D/g, '');
@@ -635,6 +660,19 @@ function rrParseStandard_(rows, team, meta) {
     // ID ซ้ำ: ถ้าบล็อกแรกที่เก็บไว้ "ว่างเปล่า" แต่บล็อกนี้มีข้อมูล (กะ/สถานะ/งาน) → ใช้บล็อกนี้แทน
     // (แท็บ SU มี CHECK IN บนสุด (กะว่าง) + GATE ASSIGN ล่าง (กะครบ) ID เดียวกัน)
     if (dupOf) {
+      if (inSect2 && sect2Differs) {
+        // บล็อก 2 = งานคนละชุด (เช่น SU GATE ASSIGNMENT) → รวม assignment เข้าคนเดิม (ไม่นับหัวซ้ำ)
+        rrMergeAssigns_(dupOf, rec.assignments);
+        if (dupOf.blankRow && !rec.blankRow) {                                          // บล็อก 1 มีแต่รายชื่อ (กะว่าง) → เอากะ/สถานะ/OT จากบล็อก 2
+          ['shift', 'shiftTime', 'shiftStart', 'shiftHrs', 'bucket', 'remark', 'ot', 'otType', 'otSpans', 'otTime', 'pos', 're'].forEach(function (k) { dupOf[k] = rec[k]; });
+          dupOf.blankRow = false;
+        }
+        // เดิมหยุด/ไม่ระบุ แต่บล็อก 2 มีไฟลท์จริง และไม่ได้กรอก OFF/VAC ชัด → ถือว่ามาทำงาน
+        if (dupOf.bucket !== 'working' && dupOf.bucket !== 'ot_off'
+            && !/^(OFF|VAC|SICK|SL|BL)\b/i.test(rrUp_(dupOf.remark))
+            && (rec.assignments || []).some(function (a) { return acIsFlight_(a.flight); })) dupOf.bucket = 'working';
+        continue;
+      }
       if (dupOf.blankRow && !rec.blankRow) { for (var k in rec) dupOf[k] = rec[k]; }   // บล็อกแรกว่าง (เช่น SU CHECK-IN) → ใช้บล็อกนี้แทน
       else if (!rec.blankRow) dupSkip++;                                                // ทั้งคู่มีข้อมูล = บล็อกซ้อนซ้ำ (เช่น CHARTER) → ข้ามบล็อก 2 (นับไว้เตือน)
       continue;
