@@ -794,6 +794,17 @@ function rbAdvanceHtml(iso, commonsJson) {
     var hd = '<div class="sectionlabel">วันที่ ' + dstr + ' · ไฟลท์ <b>' + plan.nFlights + '</b> · คนขึ้นเวร <b>' + plan.nPeople +
       '</b> · จัดแล้ว <b>' + plan.nAssigned + '</b> · พัก ' + plan.bench.length + ' · ' +
       (shortF ? '<b class="badd">' + shortF + ' ไฟลท์ยังขาด</b>' : 'ครบทุกไฟลท์ ✅') + '</div>';
+    // 🤖 เสนอจัดเวรอัตโนมัติ (Gantt รายคน) — เลือกทีมแล้วให้ระบบวางงานตามไฟลท์ลง timeline (อ่านอย่างเดียว)
+    var advTeams = {};
+    plan.plan.forEach(function (p) { if (p.team) advTeams[p.team] = 1; });
+    var teamOptsHtml = Object.keys(advTeams).sort().map(function (t) { return '<option value="' + rbAttr_(t) + '">' + rbEsc_(t) + '</option>'; }).join('');
+    var propBar = '<div class="sectionlabel" style="background:#eef6ff;border-left:4px solid #1f4e79;padding:8px 12px;border-radius:8px;margin-top:8px">' +
+      '🤖 <b>เสนอจัดเวรอัตโนมัติ (Gantt รายคน)</b> — เลือกทีม: ' +
+      '<select id="advPropTeam" class="teamsel" style="margin-left:4px">' + (teamOptsHtml || '<option value="">— ไม่มีทีม —</option>') + '</select>' +
+      ' <button class="btn btn--accent" onclick="advPropose()">แสดงข้อเสนอ</button>' +
+      ' <button class="btn" id="gtManBtn" onclick="gtManning()" title="สร้าง/เปิดชีตกฎกำลังพลต่อไฟลท์ ให้ ops แก้ตัวเลขเองได้">⚙️ กฎกำลังพล (แก้ในชีต)</button>' +
+      ' <span class="muted">· อ่านอย่างเดียว ไม่แตะ assignment จริง</span></div>' +
+      '<div id="advPropBox"></div>';
 
     function cell(arr, req, shortN, cands, home) {
       if (!req) return '<span class="muted">—</span>';
@@ -866,7 +877,7 @@ function rbAdvanceHtml(iso, commonsJson) {
         commonHtml += '</div>';
       }
     });
-    return datebar + cciBar + hd + tbl + commonHtml + benchHtml;
+    return datebar + cciBar + hd + propBar + tbl + commonHtml + benchHtml;
   } catch (e) {
     // เปิดไฟล์ไม่ได้เพราะสิทธิ์ (บัญชีที่รันสคริปต์ไม่ได้แชร์) → การ์ดบอกวิธีแชร์ พร้อมอีเมลที่ต้องแชร์ให้
     if (/สิทธิ|permission|access|denied|You do not have/i.test(String(e && e.message)) && typeof rbNoAccessCard_ === 'function') {
