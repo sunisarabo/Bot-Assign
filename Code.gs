@@ -7733,16 +7733,18 @@ function rbRgbToHex_(c) {
 /** อ่านทั้งไฟล์ (ทุกแท็บ + ค่า + สีพื้น + ขีดฆ่า) ด้วย Advanced Sheets API ครั้งเดียว → คืน ss จำลอง
  *  (แทน ~60 การอ่าน SpreadsheetApp ด้วย 1 API call · reader เดิมใช้งานได้เหมือน ss จริง) */
 var RB_FAST_CHUNK = 4;    // ดึงทีละ 4 ชีต/คำขอ
-var RB_FAST_ROWS = 400;   // อ่านสูงสุด 400 แถว/ชีต (ข้อมูลจริงต่อทีม < ~120 แถว · กันดูดแถวว่างที่ถูกจัดรูปแบบเป็นพัน)
+var RB_FAST_ROWS = 200;   // อ่านสูงสุด 200 แถว/ชีต (ข้อมูลจริงสุด SU=134 · CHN=130 · เกินพอ · กัน OOM จากแถวว่างที่ถูกจัดรูปแบบเป็นพัน)
+var RB_FAST_COLS = 'DZ';  // อ่านถึงคอลัมน์ DZ (=130) พอสำหรับบล็อกเคาน์เตอร์ SU (~111) และไฟลท์ CHN (~123)
 /** อ่านทั้งไฟล์ผ่าน Advanced Sheets API แบบ "แบ่งก้อน" — กัน includeGridData ก้อนเดียวใหญ่เกิน
  *  จน API ตัดชีตท้าย ๆ ทิ้งเงียบ ๆ (rowData ว่าง → getLastRow=0 → ทีมหายไปจากระบบ เช่น SU/ท้ายไฟล์)
- *  ครบทุกชีตค่อยคืน · ถ้าได้ไม่ครบ → throw ให้ rbLoadResLLraw_ fallback ไปอ่านแบบปกติ (SpreadsheetApp) */
+ *  ครบทุกชีตค่อยคืน · ถ้าได้ไม่ครบ → throw ให้ rbLoadResLLraw_ fallback ไปอ่านแบบปกติ (SpreadsheetApp)
+ *  ดึงเฉพาะ formattedValue (ไม่ดึงสีพื้น/ขีดฆ่า) เพื่อกัน OOM — การยกเลิกไฟลท์ยังจับจากข้อความ CXL/CANCEL ได้ */
 function rbFastSheets_(ssId) {
   var meta = Sheets.Spreadsheets.get(ssId, { fields: 'sheets(properties(title))' });
   var titles = ((meta && meta.sheets) || []).map(function (s) { return s.properties.title; });
   if (!titles.length) throw new Error('fast read: ไม่พบชีต');
-  var FLD = 'sheets(properties(title),data(rowData(values(formattedValue,effectiveFormat(backgroundColor,textFormat/strikethrough)))))';
-  function a1(t) { return "'" + String(t).replace(/'/g, "''") + "'!1:" + RB_FAST_ROWS; }   // ทั้งคอลัมน์ แถว 1..N
+  var FLD = 'sheets(properties(title),data(rowData(values(formattedValue))))';
+  function a1(t) { return "'" + String(t).replace(/'/g, "''") + "'!A1:" + RB_FAST_COLS + RB_FAST_ROWS; }   // แถว 1..N · คอลัมน์ A..DZ
   var raw = [];
   for (var i = 0; i < titles.length; i += RB_FAST_CHUNK) {
     var chunk = titles.slice(i, i + RB_FAST_CHUNK);
@@ -7766,8 +7768,9 @@ function rbFastSheets_(ssId) {
       getLastColumn: function () { return nCols || 1; },
       getRange: function (r, c, nr, nc) {
         nr = nr || 1; nc = nc || 1;
+        // ไม่ได้ดึงสีพื้น/ขีดฆ่า (กัน OOM) → คืน [] · rrFlightCancelled_ มี guard รองรับ (ยกเลิกไฟลท์ยังจับจากข้อความได้)
         return { getValues: function () { return blk(val, r, c, nr, nc); }, getValue: function () { return val(r, c); },
-          getBackgrounds: function () { return blk(bg, r, c, nr, nc); }, getFontLines: function () { return blk(ln, r, c, nr, nc); } };
+          getBackgrounds: function () { return []; }, getFontLines: function () { return []; } };
       },
       getDataRange: function () { return { getValues: function () { return blk(val, 1, 1, nRows || 1, nCols || 1); } }; }
     };
