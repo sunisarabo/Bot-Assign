@@ -407,7 +407,14 @@ function acAnalyze_(res, ll) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
     sum.working++;
     var a = acAnalyzeRecord_(r, team);
-    if (!a.hasWindow) { sum.noWin++; return; }              // ไม่มีเวลากะระบุ → ตรวจครอบคลุมไม่ได้
+    if (!a.hasWindow) {                                     // ไม่มีเวลากะระบุ → ตรวจครอบคลุมไม่ได้ (ยังใส่แถวไว้ให้เลือกทีมได้)
+      sum.noWin++;
+      rows.push({ team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
+        job: '', support: 0, shift: a.shiftStr || (r.shiftTime || ''), duty: '', ot: '-',
+        flights: 'ไม่มีเวลากะ', uncovered: '', gaps: '', gapsRaw: '', otVerdict: '',
+        issue: 'ไม่มีเวลากะระบุ — ตรวจครอบคลุมไม่ได้', status: 'nowin' });
+      return;
+    }
     sum.checked++;
     // ไฟลท์ที่ทำ + ตั้ง flag ไฟลท์ "ซัพพอร์ตข้ามทีม" (สายการบินที่ทีมอื่นเป็นเจ้าของ)
     var nSupport = 0, skipT = slaSkipTeam_(team);
@@ -428,23 +435,22 @@ function acAnalyze_(res, ll) {
     if (a.otVerdict.indexOf('เกินจำเป็น') >= 0) sum.otMuch++;
     if (a.gaps.length) sum.gap++;
     if (a.noFlight) sum.noFlt++;
-    if (a.status === 'bad' || a.status === 'warn') {
-      rows.push({
-        team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
-        job: jobList.join(', '),
-        support: nSupport,
-        shift: a.shiftStr, duty: a.dutyStr,
-        ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
-                        (r.otTime ? ' ' + r.otTime : '')) : '-',
-        flights: a.flightN ? (a.coveredN + '/' + a.flightN + ' ครอบคลุม') : (a.wins.length ? a.wins.length + ' เคาน์เตอร์/งาน' : 'ไม่มี'),
-        uncovered: a.uncovered.join('; '),
-        gaps: a.gaps.map(function (g) { return rrFmtMin_(g.a) + '–' + rrFmtMin_(g.b); }).join(', '),
-        gapsRaw: a.gaps.map(function (g) { return g.a + '~' + g.b; }).join(','),   // นาทีดิบ สำหรับกรองช่วงเวลา (~ กันค่าติดลบ)
-        otVerdict: a.otVerdict,
-        issue: a.issues.join(' · '),
-        status: a.status,
-      });
-    }
+    // ใส่ทุกคนที่ตรวจได้ (ok/warn/bad) — เพื่อให้เลือกดูได้ทุกทีม (ok ซ่อนโดยปริยาย เปิดดูได้ด้วยปุ่ม/เลือกทีม)
+    rows.push({
+      team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
+      job: jobList.join(', '),
+      support: nSupport,
+      shift: a.shiftStr, duty: a.dutyStr,
+      ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
+                      (r.otTime ? ' ' + r.otTime : '')) : '-',
+      flights: a.flightN ? (a.coveredN + '/' + a.flightN + ' ครอบคลุม') : (a.wins.length ? a.wins.length + ' เคาน์เตอร์/งาน' : 'ไม่มี'),
+      uncovered: a.uncovered.join('; '),
+      gaps: a.gaps.map(function (g) { return rrFmtMin_(g.a) + '–' + rrFmtMin_(g.b); }).join(', '),
+      gapsRaw: a.gaps.map(function (g) { return g.a + '~' + g.b; }).join(','),   // นาทีดิบ สำหรับกรองช่วงเวลา (~ กันค่าติดลบ)
+      otVerdict: a.otVerdict,
+      issue: a.issues.join(' · '),
+      status: a.status,   // 'ok' | 'warn' | 'bad'
+    });
   }
 
   Object.keys(res.teams).forEach(function (t) {
@@ -456,9 +462,10 @@ function acAnalyze_(res, ll) {
     });
   }
 
-  var order = { bad: 0, warn: 1 };
+  var order = { bad: 0, warn: 1, ok: 2, nowin: 3 };
   rows.sort(function (x, y) {
-    if (order[x.status] !== order[y.status]) return order[x.status] - order[y.status];
+    var ox = order[x.status] == null ? 2 : order[x.status], oy = order[y.status] == null ? 2 : order[y.status];
+    if (ox !== oy) return ox - oy;
     return String(x.team).localeCompare(String(y.team));
   });
   return { rows: rows, summary: sum };

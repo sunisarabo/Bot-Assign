@@ -3701,7 +3701,14 @@ function acAnalyze_(res, ll) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
     sum.working++;
     var a = acAnalyzeRecord_(r, team);
-    if (!a.hasWindow) { sum.noWin++; return; }              // ไม่มีเวลากะระบุ → ตรวจครอบคลุมไม่ได้
+    if (!a.hasWindow) {                                     // ไม่มีเวลากะระบุ → ตรวจครอบคลุมไม่ได้ (ยังใส่แถวไว้ให้เลือกทีมได้)
+      sum.noWin++;
+      rows.push({ team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
+        job: '', support: 0, shift: a.shiftStr || (r.shiftTime || ''), duty: '', ot: '-',
+        flights: 'ไม่มีเวลากะ', uncovered: '', gaps: '', gapsRaw: '', otVerdict: '',
+        issue: 'ไม่มีเวลากะระบุ — ตรวจครอบคลุมไม่ได้', status: 'nowin' });
+      return;
+    }
     sum.checked++;
     // ไฟลท์ที่ทำ + ตั้ง flag ไฟลท์ "ซัพพอร์ตข้ามทีม" (สายการบินที่ทีมอื่นเป็นเจ้าของ)
     var nSupport = 0, skipT = slaSkipTeam_(team);
@@ -3722,23 +3729,22 @@ function acAnalyze_(res, ll) {
     if (a.otVerdict.indexOf('เกินจำเป็น') >= 0) sum.otMuch++;
     if (a.gaps.length) sum.gap++;
     if (a.noFlight) sum.noFlt++;
-    if (a.status === 'bad' || a.status === 'warn') {
-      rows.push({
-        team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
-        job: jobList.join(', '),
-        support: nSupport,
-        shift: a.shiftStr, duty: a.dutyStr,
-        ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
-                        (r.otTime ? ' ' + r.otTime : '')) : '-',
-        flights: a.flightN ? (a.coveredN + '/' + a.flightN + ' ครอบคลุม') : (a.wins.length ? a.wins.length + ' เคาน์เตอร์/งาน' : 'ไม่มี'),
-        uncovered: a.uncovered.join('; '),
-        gaps: a.gaps.map(function (g) { return rrFmtMin_(g.a) + '–' + rrFmtMin_(g.b); }).join(', '),
-        gapsRaw: a.gaps.map(function (g) { return g.a + '~' + g.b; }).join(','),   // นาทีดิบ สำหรับกรองช่วงเวลา (~ กันค่าติดลบ)
-        otVerdict: a.otVerdict,
-        issue: a.issues.join(' · '),
-        status: a.status,
-      });
-    }
+    // ใส่ทุกคนที่ตรวจได้ (ok/warn/bad) — เพื่อให้เลือกดูได้ทุกทีม (ok ซ่อนโดยปริยาย เปิดดูได้ด้วยปุ่ม/เลือกทีม)
+    rows.push({
+      team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
+      job: jobList.join(', '),
+      support: nSupport,
+      shift: a.shiftStr, duty: a.dutyStr,
+      ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
+                      (r.otTime ? ' ' + r.otTime : '')) : '-',
+      flights: a.flightN ? (a.coveredN + '/' + a.flightN + ' ครอบคลุม') : (a.wins.length ? a.wins.length + ' เคาน์เตอร์/งาน' : 'ไม่มี'),
+      uncovered: a.uncovered.join('; '),
+      gaps: a.gaps.map(function (g) { return rrFmtMin_(g.a) + '–' + rrFmtMin_(g.b); }).join(', '),
+      gapsRaw: a.gaps.map(function (g) { return g.a + '~' + g.b; }).join(','),   // นาทีดิบ สำหรับกรองช่วงเวลา (~ กันค่าติดลบ)
+      otVerdict: a.otVerdict,
+      issue: a.issues.join(' · '),
+      status: a.status,   // 'ok' | 'warn' | 'bad'
+    });
   }
 
   Object.keys(res.teams).forEach(function (t) {
@@ -3750,9 +3756,10 @@ function acAnalyze_(res, ll) {
     });
   }
 
-  var order = { bad: 0, warn: 1 };
+  var order = { bad: 0, warn: 1, ok: 2, nowin: 3 };
   rows.sort(function (x, y) {
-    if (order[x.status] !== order[y.status]) return order[x.status] - order[y.status];
+    var ox = order[x.status] == null ? 2 : order[x.status], oy = order[y.status] == null ? 2 : order[y.status];
+    if (ox !== oy) return ox - oy;
     return String(x.team).localeCompare(String(y.team));
   });
   return { rows: rows, summary: sum };
@@ -8106,14 +8113,19 @@ function rbAssignHtml(iso) {
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var an = acAnalyze_(d.res, d.ll), s = an.summary;
-    var hd = '<div class="sectionlabel">ตรวจ <b>' + s.checked + '</b>/' + s.working +
+    var okN = (s.checked - s.bad - s.warn);
+    var hd = '<style>#view-ac .acok{display:none}</style>' +
+      '<div class="sectionlabel">ตรวจ <b>' + s.checked + '</b>/' + s.working +
       ' คนที่มาทำงาน · <b class="badd">🔴 ไฟลท์นอกเวลา/ขาด OT ' + s.bad + '</b> · 🟡 ควรตรวจ ' + s.warn +
-      ' · OT อาจเกิน ' + s.otMuch + ' · มีช่วงว่าง ' + s.gap +
+      ' · <span class="okk">✅ ครบ ' + (okN < 0 ? 0 : okN) + '</span> · OT อาจเกิน ' + s.otMuch + ' · มีช่วงว่าง ' + s.gap +
       ' · <span class="muted">ไม่มีไฟลท์ ' + s.noFlt + ' (bench/standby)</span>' +
-      (s.noWin ? ' · (ไม่มีเวลากะระบุ ' + s.noWin + ' — ข้าม)' : '') + '</div>';
+      (s.noWin ? ' · <span class="muted">ไม่มีเวลากะ ' + s.noWin + '</span>' : '') +
+      ' <label style="margin-left:8px;font-weight:600;cursor:pointer;white-space:nowrap"><input type="checkbox" class="acshowok" onchange="applyFilter(\'view-ac\')" style="vertical-align:-2px"> แสดงทีมที่ครบ (✅) ทุกคน</label>' +
+      '<div class="muted" style="font-size:11px;margin-top:2px">เลือกทีมจาก dropdown เพื่อดูทั้งทีม (รวมคนที่จัดครบ) · โดยปกติแสดงเฉพาะที่ต้องแก้</div></div>';
     var rows = an.rows.map(function (r) {
-      var emo = r.status === 'bad' ? '🔴' : '🟡';
-      return '<tr class="' + (r.status === 'bad' ? 'rowbad' : '') + '" data-team="' + rbEsc_(r.team) + '" data-gaps="' + rbEsc_(r.gapsRaw || '') + '"><td>' + emo + '</td><td class="b">' +
+      var emo = r.status === 'bad' ? '🔴' : (r.status === 'warn' ? '🟡' : (r.status === 'nowin' ? '⚪' : '✅'));
+      var okCls = (r.status === 'ok' || r.status === 'nowin') ? ' acok' : '';   // แถว "ครบ/ตรวจไม่ได้" — ซ่อนโดยปริยาย เปิดดูได้
+      return '<tr class="' + (r.status === 'bad' ? 'rowbad' : '') + okCls + '" data-status="' + r.status + '" data-team="' + rbEsc_(r.team) + '" data-gaps="' + rbEsc_(r.gapsRaw || '') + '"><td>' + emo + '</td><td class="b">' +
         rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.id || '') + '</td><td>' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.pos) + '</td><td class="tnum">' +
         rbEsc_(r.shift) + '</td><td>' + (r.ot && r.ot !== '-' ? rbEsc_(r.ot) : '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.flights) + '</td><td>' +
         (rbEsc_(r.job) || '<span class="muted">—</span>') + '</td><td class="' + (r.uncovered ? 'badd' : 'muted') + '">' +
@@ -9332,7 +9344,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function advwExport(){var s=advwStart(),n=advwDays();if(!(window.google&&google.script)){alert("เปิดผ่าน /exec เพื่อสร้างไฟล์");return;}var m=document.getElementById("advwexpmsg");if(m)m.innerHTML="⏳ กำลังสร้างรายงาน…";google.script.run.withSuccessHandler(function(url){if(m)m.innerHTML="📤 <a href=\\""+url+"\\" target=\\"_blank\\">เปิดรายงานครบ/ขาด</a>";}).withFailureHandler(function(e){if(m)m.innerHTML="";alert("สร้างรายงานไม่ได้: "+e.message);}).advExportWeek(s,n);}' +
     'function hm2m(s){var m=String(s).match(/(\\d{1,2}):(\\d{2})/);return m?(+m[1]*60+ +m[2]):null;}' +
     'function gapOverlap(raw,f,t){if(!raw)return false;return raw.split(",").some(function(seg){var p=seg.split("~");if(p.length<2)return false;var a=+p[0],b=+p[1];if(isNaN(a)||isNaN(b))return false;function ov(x,y){return x<t&&y>f;}a=((a%1440)+1440)%1440;b=((b%1440)+1440)%1440;if(b===0)b=1440;return a<=b?ov(a,b):(ov(a,1440)||ov(0,b));});}' +
-    'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");var gfrom=gf&&gf.value?hm2m(gf.value):null,gto=gt&&gt.value?hm2m(gt.value):null;var gOn=(gfrom!=null||gto!=null),gLo=gfrom!=null?gfrom:0,gHi=gto!=null?gto:1440,visN=0;[].forEach.call(v.querySelectorAll("tbody tr, .fltcard"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;var okG=!gOn||gapOverlap(r.getAttribute("data-gaps")||"",gLo,gHi);var show=okT&&okQ&&okG;if(show&&r.getAttribute("data-gaps")!=null&&r.cells.length>1)visN++;r.style.display=show?"":"none";});var gc=v.querySelector(".gapcount");if(gc)gc.textContent=gOn?("· พบ "+visN+" คนว่างช่วงนี้"):"";if(document.getElementById("gtWrap"))gtSync();}' +
+    'function applyFilter(viewId){var v=document.getElementById(viewId);if(!v)return;var sb=v.querySelector(".search"),q=sb?sb.value.toLowerCase():"";var ts=v.querySelector(".teamsel"),team=ts?ts.value:"";var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");var gfrom=gf&&gf.value?hm2m(gf.value):null,gto=gt&&gt.value?hm2m(gt.value):null;var gOn=(gfrom!=null||gto!=null),gLo=gfrom!=null?gfrom:0,gHi=gto!=null?gto:1440,visN=0;var okEl=v.querySelector(".acshowok"),showOk=okEl&&okEl.checked;[].forEach.call(v.querySelectorAll("tbody tr, .fltcard"),function(r){var dt=r.getAttribute("data-team")||"";var okT=!team||dt===team||dt.split(",").indexOf(team)>=0;var okQ=!q||r.textContent.toLowerCase().indexOf(q)>=0;var okG=!gOn||gapOverlap(r.getAttribute("data-gaps")||"",gLo,gHi);var st=r.getAttribute("data-status"),isOk=(st==="ok"||st==="nowin");var okS=!isOk||showOk||!!team;var show=okT&&okQ&&okG&&okS;if(show&&r.getAttribute("data-gaps")!=null&&r.cells.length>1)visN++;r.style.display=!show?"none":(isOk?"table-row":"");});var gc=v.querySelector(".gapcount");if(gc)gc.textContent=gOn?("· พบ "+visN+" คนว่างช่วงนี้"):"";if(document.getElementById("gtWrap"))gtSync();}' +
     'function clearGap(viewId){var v=document.getElementById(viewId);if(!v)return;var gf=v.querySelector(".gapfrom"),gt=v.querySelector(".gapto");if(gf)gf.value="";if(gt)gt.value="";applyFilter(viewId);}' +
     'function buildExpTeams(){[].forEach.call(document.querySelectorAll("select.expteam"),function(sel){if(sel.options.length>1)return;var v=sel.closest("div[id^=view-]");if(!v)return;var set={};[].forEach.call(v.querySelectorAll(".supchip[data-pteam]"),function(c){var t=c.getAttribute("data-pteam");if(t)set[t]=1;});Object.keys(set).sort().forEach(function(t){var o=document.createElement("option");o.text=t;o.value=t;sel.add(o);});});}' +
     'function fillExport(){expRun("fill","apExportFill");}function autoExport(){expRun("auto","apExportAuto");}' +
