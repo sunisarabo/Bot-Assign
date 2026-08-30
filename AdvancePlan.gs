@@ -828,7 +828,16 @@ function rbAdvanceHtml(iso, commonsJson) {
       ' <button class="btn btn--accent" onclick="advPropose()">แสดงข้อเสนอ</button>' +
       ' <button class="btn" id="gtManBtn" onclick="gtManning()" title="สร้าง/เปิดชีตกฎกำลังพลต่อไฟลท์ ให้ ops แก้ตัวเลขเองได้">⚙️ กฎกำลังพล (แก้ในชีต)</button>' +
       ' <span class="muted">· อ่านอย่างเดียว ไม่แตะ assignment จริง</span></div>' +
-      '<div id="advPropBox"></div>';
+      '<div id="advPropBox"></div>' +
+      // 🗓️ สร้างตารางกะ M/A/N/OFF ทั้งเดือน (auto)
+      '<div class="sectionlabel" style="background:#f3fbf5;border-left:4px solid #1c7a4f;padding:8px 12px;border-radius:8px;margin-top:8px">' +
+      '🗓️ <b>สร้างตารางกะทั้งเดือน (M/A/N/OFF)</b> — เดือน/ปี: ' +
+      '<input id="rosMonth" type="month" value="' + iso.slice(0, 7) + '" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
+      ' <button class="btn key g" onclick="rosGen()">สร้าง roster</button>' +
+      ' <button class="btn" onclick="rosCfg()" title="ตั้งค่ากฎ: min คนต่อกะ · เวลากะ · ทำติดสูงสุด">⚙️ ตั้งค่ากฎกะ</button>' +
+      ' <span id="rosMsg" class="muted"></span>' +
+      '<div class="muted" style="font-size:11px;margin-top:2px">Coverage-first + กระจาย OT/Night/OFF ยุติธรรม · ⚠️ ต้องตั้ง min คนต่อกะในชีตกฎให้ตรงจริงก่อน (v1 ยังไม่ดึงวันลา/เทรน)</div></div>' +
+      '<div id="rosBox"></div>';
 
     function cell(arr, req, shortN, cands, home, ots) {
       if (!req) return '<span class="muted">—</span>';

@@ -5,7 +5,7 @@ all-in-one for pasting into the Apps Script editor by hand."""
 import io, os
 
 ORDER = ['RosterReader', 'MasterReader', 'LLReader', 'WeeklyFlight', 'SLA', 'ManningRules', 'AirlineSupport',
-         'AssignCheck', 'AutoPlan', 'AdvancePlan', 'OTDashboard', 'WorkHours', 'DutyImport', 'FormSetup', 'RosterBot', 'WebDashboard']
+         'AssignCheck', 'AutoPlan', 'AdvancePlan', 'RosterGen', 'OTDashboard', 'WorkHours', 'DutyImport', 'FormSetup', 'RosterBot', 'WebDashboard']
 HEADER = ('/**\n'
           ' * SmartShift Roster Bot — All-in-One (AOTGA design web app)\n'
           ' * setupTriggers() = รันทุกวัน 08:00 และ 14:00 ส่งเข้า Google Chat\n'
