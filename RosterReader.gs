@@ -1134,6 +1134,46 @@ function readRosterFromSpreadsheet(ss, date) {
   return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs, dupBlockTabs: dupBlockTabs };
 }
 
+/** อ่านแท็บ "SUPPORT REQUEST" (ฟอร์มใหม่ ก.ย.) → คำขอซัพพอร์ตที่ดิวตี้กรอกแล้ว
+ *  หัวตาราง: NO. | ทีมที่ขอ | FLIGHT | หน้าที่ | เวลา/STBY | ชื่อผู้ไปซัพพอร์ต (ดิวตี้กรอก) | จากทีม | สถานะ
+ *  คืนเฉพาะแถวที่กรอกแล้ว (มี FLIGHT / หน้าที่ / ชื่อ) — แถว template ว่าง (มีแค่ NO.+ทีม) ข้าม
+ *  รับ ss ตัวจริง (SpreadsheetApp) เพื่ออ่านครบทุกแถว (ตารางนี้ ~306 แถว เกิน cap ของ fast-read) */
+function rrReadSupportReq_(ss) {
+  var out = [];
+  try {
+    var sh = ss.getSheetByName('SUPPORT REQUEST') || ss.getSheetByName('SUPPORT REQUESTS') || ss.getSheetByName('Support Request');
+    if (!sh) return out;
+    var vals = sh.getDataRange().getValues();
+    var hi = -1, C = {};
+    for (var r = 0; r < Math.min(6, vals.length); r++) {
+      var u = vals[r].map(function (x) { return String(x == null ? '' : x).trim(); });
+      var uu = u.map(function (x) { return x.toUpperCase(); });
+      if (uu.indexOf('FLIGHT') >= 0 && u.some(function (x) { return /ทีมที่ขอ|^TEAM$/i.test(x); })) {
+        hi = r;
+        var find = function (re) { for (var i = 0; i < u.length; i++) if (re.test(u[i])) return i; return -1; };
+        C.team = find(/ทีมที่ขอ|^TEAM$/i);
+        C.flight = uu.indexOf('FLIGHT');
+        C.duty = find(/หน้าที่|^DUTY$|^ROLE$/i);
+        C.time = find(/เวลา|STBY|^TIME$/i);
+        C.name = find(/ชื่อ|^NAME$/i);
+        C.from = find(/จากทีม|^FROM/i);
+        C.status = find(/สถานะ|^STATUS$/i);
+        break;
+      }
+    }
+    if (hi < 0) return out;
+    var g = function (row, i) { return (i != null && i >= 0 && i < row.length && row[i] != null) ? String(row[i]).trim() : ''; };
+    for (var ri = hi + 1; ri < vals.length; ri++) {
+      var row = vals[ri];
+      var flight = g(row, C.flight), name = g(row, C.name), duty = g(row, C.duty);
+      if (!flight && !name && !duty) continue;   // แถว template ยังไม่กรอก → ข้าม
+      out.push({ no: g(row, 0), team: g(row, C.team), flight: flight, duty: duty,
+        time: g(row, C.time), name: name, fromTeam: g(row, C.from), status: g(row, C.status) });
+    }
+  } catch (e) {}
+  return out;
+}
+
 // ─── debug ──────────────────────────────────────────────────────────────────
 function debugDumpRoster(ssId) {
   var ss = ssId ? SpreadsheetApp.openById(ssId) : SpreadsheetApp.getActiveSpreadsheet();

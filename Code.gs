@@ -1142,6 +1142,46 @@ function readRosterFromSpreadsheet(ss, date) {
   return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs, dupBlockTabs: dupBlockTabs };
 }
 
+/** อ่านแท็บ "SUPPORT REQUEST" (ฟอร์มใหม่ ก.ย.) → คำขอซัพพอร์ตที่ดิวตี้กรอกแล้ว
+ *  หัวตาราง: NO. | ทีมที่ขอ | FLIGHT | หน้าที่ | เวลา/STBY | ชื่อผู้ไปซัพพอร์ต (ดิวตี้กรอก) | จากทีม | สถานะ
+ *  คืนเฉพาะแถวที่กรอกแล้ว (มี FLIGHT / หน้าที่ / ชื่อ) — แถว template ว่าง (มีแค่ NO.+ทีม) ข้าม
+ *  รับ ss ตัวจริง (SpreadsheetApp) เพื่ออ่านครบทุกแถว (ตารางนี้ ~306 แถว เกิน cap ของ fast-read) */
+function rrReadSupportReq_(ss) {
+  var out = [];
+  try {
+    var sh = ss.getSheetByName('SUPPORT REQUEST') || ss.getSheetByName('SUPPORT REQUESTS') || ss.getSheetByName('Support Request');
+    if (!sh) return out;
+    var vals = sh.getDataRange().getValues();
+    var hi = -1, C = {};
+    for (var r = 0; r < Math.min(6, vals.length); r++) {
+      var u = vals[r].map(function (x) { return String(x == null ? '' : x).trim(); });
+      var uu = u.map(function (x) { return x.toUpperCase(); });
+      if (uu.indexOf('FLIGHT') >= 0 && u.some(function (x) { return /ทีมที่ขอ|^TEAM$/i.test(x); })) {
+        hi = r;
+        var find = function (re) { for (var i = 0; i < u.length; i++) if (re.test(u[i])) return i; return -1; };
+        C.team = find(/ทีมที่ขอ|^TEAM$/i);
+        C.flight = uu.indexOf('FLIGHT');
+        C.duty = find(/หน้าที่|^DUTY$|^ROLE$/i);
+        C.time = find(/เวลา|STBY|^TIME$/i);
+        C.name = find(/ชื่อ|^NAME$/i);
+        C.from = find(/จากทีม|^FROM/i);
+        C.status = find(/สถานะ|^STATUS$/i);
+        break;
+      }
+    }
+    if (hi < 0) return out;
+    var g = function (row, i) { return (i != null && i >= 0 && i < row.length && row[i] != null) ? String(row[i]).trim() : ''; };
+    for (var ri = hi + 1; ri < vals.length; ri++) {
+      var row = vals[ri];
+      var flight = g(row, C.flight), name = g(row, C.name), duty = g(row, C.duty);
+      if (!flight && !name && !duty) continue;   // แถว template ยังไม่กรอก → ข้าม
+      out.push({ no: g(row, 0), team: g(row, C.team), flight: flight, duty: duty,
+        time: g(row, C.time), name: name, fromTeam: g(row, C.from), status: g(row, C.status) });
+    }
+  } catch (e) {}
+  return out;
+}
+
 // ─── debug ──────────────────────────────────────────────────────────────────
 function debugDumpRoster(ssId) {
   var ss = ssId ? SpreadsheetApp.openById(ssId) : SpreadsheetApp.getActiveSpreadsheet();
@@ -7838,6 +7878,8 @@ function rbLoadResLLraw_(date) {
   // (ข) batch-read: ดึงทั้งไฟล์ครั้งเดียวผ่าน Advanced Sheets API (เร็วกว่ามากตอน cold) · พังเมื่อไหร่ fallback อ่านปกติ
   try { if (typeof Sheets !== 'undefined' && Sheets.Spreadsheets) ss = rbFastSheets_(roster.ss.getId()); } catch (eFast) { ss = roster.ss; }
   var res = readRosterFromSpreadsheet(ss, date);
+  // คำขอซัพพอร์ตจากแท็บ "SUPPORT REQUEST" (ฟอร์มใหม่ ก.ย.) — อ่านจาก ss ตัวจริง (ครบทุกแถว ไม่ติด cap fast-read)
+  try { res.supportReq = (typeof rrReadSupportReq_ === 'function') ? rrReadSupportReq_(roster.ss) : []; } catch (eSR) { res.supportReq = []; }
   // แท็บ "COUNTER" ในไฟล์ตารางเวรเอง (อ่านก่อนลบไฟล์ชั่วคราว) — วิธีที่ไม่ต้องแชร์ไฟล์ท่า
   res.counters = null;
   try { res.counters = counterReadFromRoster_(ss); } catch (e4) {}   // ใช้ ss ที่ดึงมาแล้ว (ไม่อ่านซ้ำ)
@@ -8370,7 +8412,22 @@ function rbSupportHtml(iso, addJson) {
       '<div class="muted" style="font-size:11.5px;margin-top:4px">📋 = ตารางสรุป แนะนำ/สำรอง (อ่าน+คัดลอกส่งไลน์) · ➕ = แตกเป็นแถวเลือกคนเองในตาราง Support</div>' +
       '<div id="supplanout" style="margin-top:8px"></div>' +
       '<div id="supimpout" style="margin-top:8px"></div></div></details>';
-    return hd + addBar + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+    // 📋 คำขอซัพพอร์ตจากไฟล์ assignment (แท็บ SUPPORT REQUEST · ดิวตี้กรอกเอง) — แสดงก่อน ถ้ามี
+    var fileReq = d.res.supportReq || [];
+    var reqHtml = '';
+    if (fileReq.length) {
+      var filled = fileReq.filter(function (q) { return q.name; }).length;
+      reqHtml = '<div class="tablecard" style="margin-bottom:12px"><div class="tablecard__hd"><h3>📋 คำขอซัพพอร์ตจากไฟล์ (SUPPORT REQUEST) — ' + fileReq.length + ' รายการ' +
+        (filled ? ' · <span class="okk">ระบุคนแล้ว ' + filled + '</span>' : '') + '</h3></div>' +
+        '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>ทีมที่ขอ</th><th>ไฟลท์</th><th>หน้าที่</th><th>เวลา/STBY</th><th>ผู้ไปซัพพอร์ต</th><th>จากทีม</th><th>สถานะ</th></tr></thead><tbody>' +
+        fileReq.map(function (q) {
+          return '<tr data-team="' + rbEsc_(q.team) + '"><td class="b">' + rbEsc_(q.team) + '</td><td>' + rbEsc_(q.flight) +
+            '</td><td>' + rbEsc_(q.duty) + '</td><td class="tnum">' + rbEsc_(q.time) + '</td><td>' +
+            (rbEsc_(q.name) || '<span class="muted">ยังไม่ระบุ</span>') + '</td><td>' + rbEsc_(q.fromTeam) +
+            '</td><td>' + (rbEsc_(q.status) || '<span class="muted">—</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>';
+    }
+    return reqHtml + hd + addBar + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }

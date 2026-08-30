@@ -166,6 +166,8 @@ function rbLoadResLLraw_(date) {
   // (ข) batch-read: ดึงทั้งไฟล์ครั้งเดียวผ่าน Advanced Sheets API (เร็วกว่ามากตอน cold) · พังเมื่อไหร่ fallback อ่านปกติ
   try { if (typeof Sheets !== 'undefined' && Sheets.Spreadsheets) ss = rbFastSheets_(roster.ss.getId()); } catch (eFast) { ss = roster.ss; }
   var res = readRosterFromSpreadsheet(ss, date);
+  // คำขอซัพพอร์ตจากแท็บ "SUPPORT REQUEST" (ฟอร์มใหม่ ก.ย.) — อ่านจาก ss ตัวจริง (ครบทุกแถว ไม่ติด cap fast-read)
+  try { res.supportReq = (typeof rrReadSupportReq_ === 'function') ? rrReadSupportReq_(roster.ss) : []; } catch (eSR) { res.supportReq = []; }
   // แท็บ "COUNTER" ในไฟล์ตารางเวรเอง (อ่านก่อนลบไฟล์ชั่วคราว) — วิธีที่ไม่ต้องแชร์ไฟล์ท่า
   res.counters = null;
   try { res.counters = counterReadFromRoster_(ss); } catch (e4) {}   // ใช้ ss ที่ดึงมาแล้ว (ไม่อ่านซ้ำ)
@@ -698,7 +700,22 @@ function rbSupportHtml(iso, addJson) {
       '<div class="muted" style="font-size:11.5px;margin-top:4px">📋 = ตารางสรุป แนะนำ/สำรอง (อ่าน+คัดลอกส่งไลน์) · ➕ = แตกเป็นแถวเลือกคนเองในตาราง Support</div>' +
       '<div id="supplanout" style="margin-top:8px"></div>' +
       '<div id="supimpout" style="margin-top:8px"></div></div></details>';
-    return hd + addBar + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
+    // 📋 คำขอซัพพอร์ตจากไฟล์ assignment (แท็บ SUPPORT REQUEST · ดิวตี้กรอกเอง) — แสดงก่อน ถ้ามี
+    var fileReq = d.res.supportReq || [];
+    var reqHtml = '';
+    if (fileReq.length) {
+      var filled = fileReq.filter(function (q) { return q.name; }).length;
+      reqHtml = '<div class="tablecard" style="margin-bottom:12px"><div class="tablecard__hd"><h3>📋 คำขอซัพพอร์ตจากไฟล์ (SUPPORT REQUEST) — ' + fileReq.length + ' รายการ' +
+        (filled ? ' · <span class="okk">ระบุคนแล้ว ' + filled + '</span>' : '') + '</h3></div>' +
+        '<div style="overflow-x:auto"><table class="tbl"><thead><tr><th>ทีมที่ขอ</th><th>ไฟลท์</th><th>หน้าที่</th><th>เวลา/STBY</th><th>ผู้ไปซัพพอร์ต</th><th>จากทีม</th><th>สถานะ</th></tr></thead><tbody>' +
+        fileReq.map(function (q) {
+          return '<tr data-team="' + rbEsc_(q.team) + '"><td class="b">' + rbEsc_(q.team) + '</td><td>' + rbEsc_(q.flight) +
+            '</td><td>' + rbEsc_(q.duty) + '</td><td class="tnum">' + rbEsc_(q.time) + '</td><td>' +
+            (rbEsc_(q.name) || '<span class="muted">ยังไม่ระบุ</span>') + '</td><td>' + rbEsc_(q.fromTeam) +
+            '</td><td>' + (rbEsc_(q.status) || '<span class="muted">—</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div></div>';
+    }
+    return reqHtml + hd + addBar + expBar + checkPanel + importPanel + sosBlock + rbTblCard_('🆘 ไฟลท์คนไม่ครบ + เลือกคนมาช่วย (แสดงกะ · จำนวนไฟลท์)',
       '<tr><th>Flight</th><th>สายการบิน</th><th>ระบบเช็คอิน</th><th>ทีม</th><th>STD</th><th>ตำแหน่งที่ขาด</th><th>ช่วงเวลา</th><th>เลือกคนมาช่วย (ทีมเจ้าของก่อน · กะ · จำนวนไฟลท์)</th></tr>',
       body, rbCtrls_('view-sup', true));
   } catch (e) { return '<div class="panel">โหลด Support ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
