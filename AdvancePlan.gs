@@ -836,7 +836,7 @@ function rbAdvanceHtml(iso, commonsJson) {
       ' <button class="btn key g" onclick="rosGen()">สร้าง roster</button>' +
       ' <button class="btn" onclick="rosCfg()" title="ตั้งค่ากฎ: min คนต่อกะ · เวลากะ · ทำติดสูงสุด">⚙️ ตั้งค่ากฎกะ</button>' +
       ' <span id="rosMsg" class="muted"></span>' +
-      '<div class="muted" style="font-size:11px;margin-top:2px">Coverage-first + กระจาย OT/Night/OFF ยุติธรรม · ⚠️ ต้องตั้ง min คนต่อกะในชีตกฎให้ตรงจริงก่อน (v1 ยังไม่ดึงวันลา/เทรน)</div></div>' +
+      '<div class="muted" style="font-size:11px;margin-top:2px">เวลากะ<b>สวิงตามไฟลท์</b> — demand คิดจากตารางบิน+SLA แล้วเลือกโค้ดกะจาก ShiftDB (F8/K12/D10…) มาคลุม peak · กระจายชั่วโมง/OFF ยุติธรรม · ⚠️ v1 ยังไม่ดึงวันลา/เทรน (กรอกเองก่อน publish)</div></div>' +
       '<div id="rosBox"></div>';
 
     function cell(arr, req, shortN, cands, home, ots) {
