@@ -5137,6 +5137,7 @@ function advPlan_(tgt) {
       if (!row.req[role.k]) return;
       row.assign[role.k] = row.assign[role.k].map(apPersonView_);
       row['cand' + role.k] = advSlotCandidates_(pool, row._f, role, row.win[role.k]);
+      if (row.shortx[role.k]) row['ot' + role.k] = advOtCandidates_(pool, row.win[role.k], row.shortx[role.k]);   // ขาดคน → เสนอคนที่ให้ OT คลุมได้
     });
     delete row._f; delete row.win;
   });
@@ -5145,6 +5146,29 @@ function advPlan_(tgt) {
     .map(function (p) { return { id: p.id, name: p.name, pos: slaPosShort_(p.posGroup), team: p.team, shift: p.shiftDisp }; });
   return { plan: plan, bench: bench, pool: pool, commons: commons,
     nPeople: pool.length, nAssigned: pool.filter(function (p) { return p.plan > 0; }).length, nFlights: plan.length };
+}
+
+var AP_OT_MAX = 240;   // OT สูงสุดที่จะเสนอ (นาที) = 4 ชม. — เกินกว่านี้ไม่แนะนำ (ควรเรียกคนกะอื่น/off)
+/** คนที่ "ให้ OT แล้วคลุมช่วงงานได้" (กะต่อเนื่องกับหน้าต่าง แต่ไม่ครอบเต็ม) → เสนอตอนขาดคน
+ *  - เข้าคลุมต้น เลิกก่อน  → OT ต่อหลังกะ (de < hi)
+ *  - เข้าสาย เลิกคลุมท้าย → OT เข้าก่อนกะ (ds > lo)
+ *  ตัดคนที่ครอบเต็มอยู่แล้ว / ชนงานที่จัดไว้ / ห่างกะเกิน AP_OT_MAX */
+function advOtCandidates_(pool, win, need) {
+  if (!win || win.length < 2) return [];
+  var lo = win[0], hi = win[1], out = [];
+  pool.forEach(function (p) {
+    if (p.ds == null || p.de == null) return;
+    if (p.ds <= lo + AP_TOL && p.de >= hi - AP_TOL) return;                 // ครอบเต็มอยู่แล้ว (ไม่ต้อง OT)
+    if ((p.busy || []).some(function (b) { return lo < b[1] && hi > b[0]; })) return;   // ติดงานอื่นช่วงนี้
+    var ot = 0, kind = '';
+    if (p.ds <= lo + AP_TOL && p.de < hi) { ot = hi - p.de; kind = 'ต่อหลังกะ'; }
+    else if (p.de >= hi - AP_TOL && p.ds > lo) { ot = p.ds - lo; kind = 'เข้าก่อนกะ'; }
+    else return;                                                            // กะไม่ต่อเนื่องกับช่วงงาน → ไม่เสนอ (เป็นเคสเรียกคน off)
+    if (ot > 0 && ot <= AP_OT_MAX) out.push({ name: p.name, pos: slaPosShort_(p.posGroup), team: p.team,
+      shift: p.shiftDisp, ot: Math.round(ot / 6) / 10, kind: kind, plan: p.plan || 0 });
+  });
+  out.sort(function (a, b) { return a.ot - b.ot || a.plan - b.plan; });     // OT น้อยก่อน + งานน้อยก่อน
+  return out.slice(0, Math.max((need || 1) * 2, 3));
 }
 
 /** รายชื่อพนักงาน Active ทั้งหมด (เรียง) — สำหรับ datalist เลือกข้ามได้ทุกคน */
@@ -5244,16 +5268,24 @@ function rbAdvanceHtml(iso, commonsJson) {
       ' <span class="muted">· อ่านอย่างเดียว ไม่แตะ assignment จริง</span></div>' +
       '<div id="advPropBox"></div>';
 
-    function cell(arr, req, shortN, cands, home) {
+    function cell(arr, req, shortN, cands, home, ots) {
       if (!req) return '<span class="muted">—</span>';
       var picks = (arr || []).map(function (v) { return advBuildSelect_(v, cands, home); }).join('');
+      var otHtml = '';
+      if (shortN && ots && ots.length) {                                    // ขาดคน → เสนอให้ OT (คนกะต่อเนื่อง)
+        otHtml = '<div class="otsug" style="margin-top:3px;font-size:10.5px;line-height:1.5;color:#9a6a12">💡 ให้ OT: ' +
+          ots.slice(0, 3).map(function (o) {
+            return '<span title="' + rbAttr_(o.team + ' · ' + o.pos + ' · กะ ' + o.shift) + '">' + rbEsc_(o.name) +
+              ' <b>+' + o.ot + 'h</b> ' + o.kind + '</span>';
+          }).join(' · ') + '</div>';
+      }
       return '<div><b>' + (arr ? arr.length : 0) + '/' + req + '</b> ' + (shortN ? '<span class="badd">⚠️-' + shortN + '</span>' : '<span class="okk">✓</span>') +
-        '</div>' + (arr && arr.length ? '<div class="pickwrap">' + picks + '</div>' : '');
+        '</div>' + (arr && arr.length ? '<div class="pickwrap">' + picks + '</div>' : '') + otHtml;
     }
     var body = plan.plan.map(function (p) {
       var ok = Object.keys(p.shortx).length === 0, hm = p.homeTeam || {};
       var roleCells = ADV_ROLES.map(function (role) {
-        return '<td>' + cell(p.assign[role.k], p.req[role.k], p.shortx[role.k], p['cand' + role.k], hm) + '</td>';
+        return '<td>' + cell(p.assign[role.k], p.req[role.k], p.shortx[role.k], p['cand' + role.k], hm, p['ot' + role.k]) + '</td>';
       }).join('');
       return '<tr class="' + (ok ? '' : 'rowbad') + '" data-team="' + rbEsc_(p.airline) + '"><td class="b">' + rbEsc_(p.flight) +
         '</td><td>' + rbEsc_(p.airline) + (p.team ? '<div class="muted" style="font-size:10px">ทีม ' + rbEsc_(p.team) + '</div>' : '<div class="badd" style="font-size:10px">ไม่มีทีม</div>') +
