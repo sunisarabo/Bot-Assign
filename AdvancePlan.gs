@@ -922,7 +922,7 @@ function rbAdvanceHtml(iso, commonsJson) {
 
 /** ภาพรวมหลายวันจาก "ไฟล์ assignment จริง": ต่อวันอ่าน res+LL → นับไฟลท์/คนทำงาน/ครบ-ขาด ตาม SLA (ไม่เขียนไฟล์) */
 function advWeekPlan_(startIso, nDays) {
-  nDays = Math.min(Math.max(+nDays || 7, 1), 14);
+  nDays = Math.min(Math.max(+nDays || 7, 1), 31);
   var d0 = rbDateFromIso_(startIso);
   var MON = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
   var TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
@@ -943,8 +943,20 @@ function advWeekPlan_(startIso, nDays) {
         var hr = String(f.STD || f.STA || '').slice(0, 2); if (/^\d\d$/.test(hr)) hrN[hr] = (hrN[hr] || 0) + 1;
       });
       var peakHr = '', peakN = 0; Object.keys(hrN).forEach(function (h) { if (hrN[h] > peakN) { peakN = hrN[h]; peakHr = h; } });
+      // OT รายวัน + สรุปรายทีม (คนทำงาน · ชม.OT · จำนวนคน OT)
+      var otHrs = 0, otPeople = 0, teamAgg = {};
+      Object.keys(dd.res.teams).forEach(function (t) {
+        (dd.res.teams[t].records || []).forEach(function (r) {
+          if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+          var ta = teamAgg[t] = teamAgg[t] || { work: 0, ot: 0, otp: 0 };
+          ta.work++;
+          if (r.ot > 0) { ta.ot += r.ot; ta.otp++; otHrs += r.ot; otPeople++; }
+        });
+      });
+      Object.keys(teamAgg).forEach(function (t) { teamAgg[t].ot = Math.round(teamAgg[t].ot * 10) / 10; });
       row.ok = true; row.nFlights = flights.length; row.onDuty = onDuty;
       row.shortF = shortF; row.shortP = shortP; row.peakHr = peakHr; row.peakN = peakN; row.shortList = shortList;
+      row.otHrs = Math.round(otHrs * 10) / 10; row.otPeople = otPeople; row.teamAgg = teamAgg;
     } catch (e) { row.err = String((e && e.message) || e); }
     out.push(row);
   }
@@ -955,7 +967,7 @@ function advWeekPlan_(startIso, nDays) {
 function rbAdvanceWeekHtml(iso, nDaysArg) {
   try {
     var start = iso || advIsoOf_({ y: new Date().getFullYear(), m: new Date().getMonth() + 1, d: new Date().getDate() });
-    var nDays = Math.min(Math.max(+nDaysArg || 7, 1), 14);
+    var nDays = Math.min(Math.max(+nDaysArg || 7, 1), 31);
     var ckey = 'advweek2_' + start + '_' + nDays, week = null;      // cache ผลสรุป 5 นาที → เปิดแท็บซ้ำเร็ว
     try { var cc = CacheService.getScriptCache().get(ckey); if (cc) week = JSON.parse(cc); } catch (ec) {}
     if (!week) { week = advWeekPlan_(start, nDays); try { CacheService.getScriptCache().put(ckey, JSON.stringify(week), 300); } catch (ep) {} }
@@ -963,7 +975,7 @@ function rbAdvanceWeekHtml(iso, nDaysArg) {
       '🗂️ <b>ภาพรวมหลายวัน (จากไฟล์ Assignment จริง)</b> — เริ่ม: ' +
       '<input type="date" value="' + start + '" onchange="advwGo(this.value,advwDays())" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
       ' จำนวนวัน <select onchange="advwGo(advwStart(),this.value)" style="font-family:inherit;padding:3px 6px;border-radius:6px;border:1px solid #b9c6da">' +
-      [3, 5, 7, 10, 14].map(function (n) { return '<option value="' + n + '"' + (n === nDays ? ' selected' : '') + '>' + n + ' วัน</option>'; }).join('') + '</select>' +
+      [3, 5, 7, 10, 14, 21, 30, 31].map(function (n) { return '<option value="' + n + '"' + (n === nDays ? ' selected' : '') + '>' + n + ' วัน</option>'; }).join('') + '</select>' +
       ' <button class="btn btn--accent" onclick="advwExport()" style="margin-left:8px">📤 สร้างรายงานครบ/ขาด</button>' +
       ' <span id="advwexpmsg" class="okk" style="margin-left:6px"></span>' +
       ' <span class="muted">· คลิก “เปิดวัน” เพื่อดู Flights &amp; SLA ของวันนั้น</span></div>';
@@ -972,19 +984,38 @@ function rbAdvanceWeekHtml(iso, nDaysArg) {
     var sumHd = '<div class="sectionlabel">ช่วง <b>' + rbEsc_(week[0].label) + ' – ' + rbEsc_(week[week.length - 1].label) + '</b> · วันมีไฟลท์ ' + nWithFlt + '/' + week.length +
       ' · รวมไฟลท์ <b>' + tF + '</b> · ' + (tShortP ? '<b class="badd">ขาดรวม ' + tShortP + ' คน (' + tShortF + ' ไฟลท์)</b>' : 'คนพอทุกวัน ✅') + '</div>';
     var body = week.map(function (w) {
-      if (w.err) return '<tr class="rowbad"><td class="b">' + rbEsc_(w.label) + '</td><td colspan="5" class="badd">โหลดไม่ได้: ' + rbEsc_(w.err) + '</td><td></td></tr>';
-      if (!w.ok || !w.nFlights) return '<tr class="muted"><td class="b">' + rbEsc_(w.label) + '</td><td colspan="5" style="text-align:center">— ไม่มีไฟล์ assignment / ไฟลท์วันนี้ —</td><td><button class="supteam" onclick="advwDay(\'' + w.iso + '\')">เปิดวัน</button></td></tr>';
+      if (w.err) return '<tr class="rowbad"><td class="b">' + rbEsc_(w.label) + '</td><td colspan="6" class="badd">โหลดไม่ได้: ' + rbEsc_(w.err) + '</td><td></td></tr>';
+      if (!w.ok || !w.nFlights) return '<tr class="muted"><td class="b">' + rbEsc_(w.label) + '</td><td colspan="6" style="text-align:center">— ไม่มีไฟล์ assignment / ไฟลท์วันนี้ —</td><td><button class="supteam" onclick="advwDay(\'' + w.iso + '\')">เปิดวัน</button></td></tr>';
       var short = w.shortP > 0;
       return '<tr class="' + (short ? 'rowbad' : '') + '"><td class="b">' + rbEsc_(w.label) + '</td>' +
         '<td class="tnum">' + w.nFlights + '</td><td class="tnum">' + w.onDuty + '</td>' +
         '<td class="tnum">' + (short ? '<span class="okk">' + (w.nFlights - w.shortF) + ' ครบ</span> · <b class="badd">' + w.shortF + ' ขาด</b>' : '<span class="okk">✓ ครบทุกไฟลท์</span>') + '</td>' +
         '<td class="tnum">' + (short ? '<b class="badd">⚠️ ' + w.shortP + '</b>' : '<span class="okk">0</span>') + '</td>' +
+        '<td class="tnum">' + (w.otHrs ? '<b>' + w.otHrs + '</b>h <span class="muted">(' + w.otPeople + ' คน)</span>' : '<span class="muted">0</span>') + '</td>' +
         '<td class="tnum">' + (w.peakHr ? rbEsc_(w.peakHr) + ':00 <span class="muted">(' + w.peakN + ')</span>' : '-') + '</td>' +
         '<td><button class="supteam" onclick="advwDay(\'' + w.iso + '\')">เปิดวัน</button></td></tr>';
     }).join('');
-    var tbl = rbTblCard_('🗂️ ภาพรวม ' + nDays + ' วัน — ครบ/ขาด ตามที่กรอกจริงในไฟล์ Assignment (SLA)',
-      '<tr><th>วันที่</th><th>ไฟลท์</th><th>คนทำงาน</th><th>ครบ/ขาด (ไฟลท์)</th><th>คนขาดรวม</th><th>พีค (ชม.)</th><th></th></tr>', body);
-    return bar + sumHd + tbl;
+    var tbl = rbTblCard_('🗂️ ภาพรวม ' + nDays + ' วัน — ครบ/ขาด + OT ตามที่กรอกจริงในไฟล์ Assignment (SLA)',
+      '<tr><th>วันที่</th><th>ไฟลท์</th><th>คนทำงาน</th><th>ครบ/ขาด (ไฟลท์)</th><th>คนขาดรวม</th><th>OT (ชม./คน)</th><th>พีค (ชม.)</th><th></th></tr>', body);
+    // สรุปรายทีมตลอดช่วง: วัน-คน (คน×วัน) · OT รวม · จำนวนครั้งที่ให้ OT
+    var teamSum = {};
+    week.forEach(function (w) {
+      if (!w.ok || !w.teamAgg) return;
+      Object.keys(w.teamAgg).forEach(function (t) {
+        var s = teamSum[t] = teamSum[t] || { manDays: 0, ot: 0, otp: 0 };
+        s.manDays += w.teamAgg[t].work; s.ot += w.teamAgg[t].ot; s.otp += w.teamAgg[t].otp;
+      });
+    });
+    var teamNames = Object.keys(teamSum).sort(function (a, b) { return teamSum[b].ot - teamSum[a].ot || a.localeCompare(b); });
+    var teamBody = teamNames.map(function (t) {
+      var s = teamSum[t];
+      return '<tr data-team="' + rbEsc_(t) + '"><td class="b">' + rbEsc_(t) + '</td><td class="tnum">' + s.manDays +
+        '</td><td class="tnum">' + (s.ot ? '<b>' + (Math.round(s.ot * 10) / 10) + '</b>h' : '<span class="muted">0</span>') +
+        '</td><td class="tnum">' + s.otp + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="muted" style="text-align:center;padding:14px">— ยังไม่มีข้อมูล —</td></tr>';
+    var teamTbl = rbTblCard_('👥 สรุปรายทีมตลอดช่วง (คน-วัน · OT รวม)',
+      '<tr><th>ทีม</th><th>คน-วัน (รวมคนทำงานทุกวัน)</th><th>OT รวม (ชม.)</th><th>ครั้งที่ให้ OT</th></tr>', teamBody);
+    return bar + sumHd + tbl + teamTbl;
   } catch (e) {
     if (/สิทธิ|permission|access|denied|You do not have/i.test(String(e && e.message)) && typeof rbNoAccessCard_ === 'function') {
       var fid = (typeof wfFileId_ === 'function' && wfFileId_()) || advCfg_('ADV_FLIGHT_ID', ADV_FLIGHT_ID) || '';
