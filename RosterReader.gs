@@ -402,9 +402,16 @@ function rrBuildFltcols_(rows, hi, fltStart, meta) {
   var flights = {}, fltcols = [], lpZones = [];
   if (fltStart == null || fltStart < 0 || !rows[hi]) return { flights: flights, fltcols: fltcols, lpZones: lpZones };
   var hdr = rows[hi];
+  var above = rows[hi - 1] || [];                          // LP: รหัสไฟลท์อยู่แถวเหนือหัว (หัว = STA/STD)
   for (var c = fltStart; c < hdr.length; c++) {
     var nm = rrClean_(hdr[c]);
     var nu = nm.toUpperCase();
+    // เลย์เอาต์ LP: เซลล์หัว = เวลา "A '09:15" / "D:10:35" (STA/STD) → รหัสไฟลท์จริงอยู่แถวเหนือ (WY833/834)
+    if (/^[AD]\s*['":]/.test(nm)) {
+      var av = rrClean_(above[c]);
+      if (av && rrIsFlightHdr_(av)) fltcols.push({ col: c, name: av, lpShift: true });   // ใช้รหัสจากแถวเหนือ · STA/STD เลื่อนขึ้น 1 แถว
+      continue;
+    }
     if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
         && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
         && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
@@ -422,11 +429,13 @@ function rrBuildFltcols_(rows, hi, fltStart, meta) {
     var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
     fltcols[fi].end = c1;
     fltcols[fi].cancelled = rrFlightCancelled_(fltcols[fi].name, c0, c1, hi, meta);
+    var staR = fltcols[fi].lpShift ? hdr : sta;             // LP: STA/STD อยู่แถวหัว (hi) · OP/CL อยู่แถว hi+1
+    var opnR = fltcols[fi].lpShift ? sta : opn;
     var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
     for (var cc = c0; cc < c1; cc++) {
-      var sc = rrClean_(sta[cc]), tv = rrTimePair_(sc);
+      var sc = rrClean_(staR[cc]), tv = rrTimePair_(sc);
       if (tv && tv !== '00:00') { if (/^\s*D/i.test(sc)) { if (!stdV) stdV = tv; } else if (/^\s*A/i.test(sc)) { if (!staV) staV = tv; } else posS.push(tv); }
-      var ocs = rrClean_(opn[cc]), ov = rrTimePair_(ocs);
+      var ocs = rrClean_(opnR[cc]), ov = rrTimePair_(ocs);
       if (ov && ov !== '00:00') { if (/^\s*C/i.test(ocs)) { if (!clV) clV = ov; } else if (/^\s*O/i.test(ocs)) { if (!opV) opV = ov; } else posO.push(ov); }
     }
     if (!staV && posS.length) staV = posS.shift();
