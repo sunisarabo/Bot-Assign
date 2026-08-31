@@ -5595,6 +5595,31 @@ function rosMin_(v) {
   if (Object.prototype.toString.call(v) === '[object Date]') return v.getHours() * 60 + v.getMinutes();
   var m = String(v).match(/(\d{1,2})[:.](\d{2})/); return m ? (+m[1] * 60 + +m[2]) : null;
 }
+/** หา ShiftDB จากหลายแหล่ง (โค้ดกะเหมือนกันทุกไฟล์ — ใช้ไฟล์ไหนก็ได้ที่มีแท็บนี้):
+ *  1) Script Property SHIFTDB_ID  2) ไฟล์ตารางบิน  3) ไฟล์รายชื่อ (Total)  4) ไฟล์ assignment รายวัน (ย้อนหา 14 วัน) */
+function rosLoadShiftCodes_(cfg, year, month) {
+  var codes = [], opened = [];
+  function tryss(fn) {
+    if (codes.length) return;
+    try { var ss = fn(); if (ss) { var c = rosShiftCodes_(ss, cfg); if (c.length) codes = c; } } catch (e) {}
+  }
+  var pid = ''; try { pid = String(PropertiesService.getScriptProperties().getProperty('SHIFTDB_ID') || '').trim(); } catch (e0) {}
+  if (pid) tryss(function () { return SpreadsheetApp.openById(pid); });
+  if (typeof advFlightSs_ === 'function') tryss(function () { return advFlightSs_(); });
+  tryss(function () { return SpreadsheetApp.openById(advCfg_('ADV_EMP_ID', ADV_EMP_ID)); });
+  // ไฟล์ assignment รายวัน — วันที่ 1 ของเดือนที่จัด แล้วย้อนจากวันนี้ (โค้ดกะไม่เปลี่ยนตามวัน)
+  if (!codes.length && typeof rbOpenTodayRoster_ === 'function') {
+    var probes = [new Date(year, month - 1, 1)];
+    var today = new Date();
+    for (var b = 0; b <= 14; b++) probes.push(new Date(today.getFullYear(), today.getMonth(), today.getDate() - b));
+    for (var i = 0; i < probes.length && !codes.length; i++) {
+      var ro = null; try { ro = rbOpenTodayRoster_(probes[i]); } catch (e1) { ro = null; }
+      if (ro && ro.ss) { try { var cc = rosShiftCodes_(ro.ss, cfg); if (cc.length) codes = cc; } catch (e2) {} }
+      if (ro && ro.tempId) { try { DriveApp.getFileById(ro.tempId).setTrashed(true); } catch (e3) {} }
+    }
+  }
+  return codes;
+}
 /** อ่าน ShiftDB → [{code,inMin,outMin,hrs}] (out<in = ข้ามคืน → +1440) · กรองตามช่วงชั่วโมงที่ตั้ง */
 function rosShiftCodes_(ss, cfg) {
   var out = [];
@@ -5647,11 +5672,8 @@ function rosGenerateMonth(year, month) {
   year = +year; month = +month;
   var days = new Date(year, month, 0).getDate();
   var cfg = rosConfig_();
-  var flightSs = (typeof advFlightSs_ === 'function') ? advFlightSs_() : null;
-  // ShiftDB: อ่านจากไฟล์ตารางบิน/assignment (มีแท็บ ShiftDB) · ไม่งั้นลองไฟล์รายชื่อ
-  var shSrc = flightSs;
-  var codes = shSrc ? rosShiftCodes_(shSrc, cfg) : [];
-  if (!codes.length) throw new Error('ไม่พบ ShiftDB (โค้ดกะ→เวลา) — ตรวจว่าไฟล์ตารางบินมีแท็บ ShiftDB');
+  var codes = rosLoadShiftCodes_(cfg, year, month);
+  if (!codes.length) throw new Error('ไม่พบ ShiftDB (โค้ดกะ→เวลา) — ตั้ง Script Property "SHIFTDB_ID" เป็นไฟล์ที่มีแท็บ ShiftDB หรือให้แน่ใจว่าไฟล์ assignment รายวันมีแท็บ ShiftDB');
   ROS_CODE_MEMO_ = {}; codes.forEach(function (c) { ROS_CODE_MEMO_[c.code] = c; });   // lookup โค้ด→เวลา (ใช้ตอนเช็คพักขั้นต่ำ)
 
   var empMap = (typeof advReadEmployees_ === 'function') ? advReadEmployees_() : {};
