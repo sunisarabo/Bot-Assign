@@ -939,7 +939,7 @@ function rrParseSheet_(ws) {
   for (var i = 0; i < SKIP_SHEETS_RR.length; i++) if (n.indexOf(SKIP_SHEETS_RR[i]) >= 0) return null;
   var last = ws.getLastRow();
   if (last < 3) return null;
-  var rng = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 130));   // เดิม 60 → 130: ทีม SU/SQ วางบล็อกเคาน์เตอร์ (Counter G2..H6 + IN/OUT/Job) เลยคอลัมน์ 60 (ถึง ~110)
+  var rng = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 210));   // ฟอร์ม ก.ย.: SU วาง FLIGHT+COUNTER+GATE เรียงแนวนอนถึง ~คอลัมน์ 198 (เดิม 130 ตัดบล็อก GATE ทิ้ง)
   var rows = rng.getValues();
   // อ่านสีพื้น + ขีดฆ่า เพื่อตรวจไฟลท์ที่ยกเลิก (ระบายเทาทั้งบล็อก / ขีดฆ่า)
   var meta = null;
@@ -8189,7 +8189,7 @@ function rbRgbToHex_(c) {
  *  (แทน ~60 การอ่าน SpreadsheetApp ด้วย 1 API call · reader เดิมใช้งานได้เหมือน ss จริง) */
 var RB_FAST_CHUNK = 4;    // ดึงทีละ 4 ชีต/คำขอ
 var RB_FAST_ROWS = 200;   // อ่านสูงสุด 200 แถว/ชีต (ข้อมูลจริงสุด SU=134 · CHN=130 · เกินพอ · กัน OOM จากแถวว่างที่ถูกจัดรูปแบบเป็นพัน)
-var RB_FAST_COLS = 'DZ';  // อ่านถึงคอลัมน์ DZ (=130) พอสำหรับบล็อกเคาน์เตอร์ SU (~111) และไฟลท์ CHN (~123)
+var RB_FAST_COLS = 'GZ';  // อ่านถึงคอลัมน์ GZ (=208) — ฟอร์ม ก.ย. SU กว้างถึง ~198 (FLIGHT+COUNTER+GATE เรียงแนวนอน)
 /** อ่านทั้งไฟล์ผ่าน Advanced Sheets API แบบ "แบ่งก้อน" — กัน includeGridData ก้อนเดียวใหญ่เกิน
  *  จน API ตัดชีตท้าย ๆ ทิ้งเงียบ ๆ (rowData ว่าง → getLastRow=0 → ทีมหายไปจากระบบ เช่น SU/ท้ายไฟล์)
  *  ครบทุกชีตค่อยคืน · ถ้าได้ไม่ครบ → throw ให้ rbLoadResLLraw_ fallback ไปอ่านแบบปกติ (SpreadsheetApp)
