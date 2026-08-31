@@ -767,6 +767,7 @@ function slaSupportPool_(res, ll, teamSys, includeOff) {
   function add(team, r) {
     var off = (r.bucket === 'off');
     if (!off && r.bucket !== 'working' && r.bucket !== 'ot_off') return;   // sick/leave/vac ไม่ดึง
+    if (r.training) return;                                                // อบรม — ไม่ดึงมาช่วยไฟลท์ (ไม่พร้อม)
     if (off && !includeOff) return;                                        // คน OFF เฉพาะตอนเปิด re-sked
     if (slaSkipTeam_(team)) return;                          // Porter / Crewsign / Admin Doc ไม่เป็นคนช่วย
     var d = acDuty_(r), ds = d.ds, de = d.de;

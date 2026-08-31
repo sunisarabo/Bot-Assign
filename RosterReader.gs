@@ -692,11 +692,15 @@ function rrParseStandard_(rows, team, meta) {
   // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
   // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
   rrApplyTrainingNotes_(rows, recs);
-  // ธง "เทรน/กิจกรรม" = มาทำงาน (working/ot_off) · มีงานที่เป็นอบรมล้วน · ไม่มีไฟลท์จริง (ไม่พร้อมลงไฟลท์)
+  // ธง "เทรน/กิจกรรม" = มาทำงานแต่ติดอบรม (ไม่พร้อมลงไฟลท์) — จาก 2 สัญญาณ:
+  //   (1) STATUS = TRN / TRAINING / อบรม  (2) มีงานที่เป็นอบรมล้วน ไม่มีไฟลท์จริง
+  //   → นับแยกออกจาก "คนทำงานจริง" (ตรงกับ MANPOWER: ทำงานจริง ไม่รวมอบรม)
   recs.forEach(function (r) {
-    r.training = (r.bucket === 'working' || r.bucket === 'ot_off') && (r.assignments || []).length > 0
+    var onDuty = (r.bucket === 'working' || r.bucket === 'ot_off');
+    var trnStatus = /\bTRN\b|TRAIN|อบรม/i.test(rrUp_(r.remark)) || /\bTRN\b/i.test(rrUp_(r.shift));
+    r.training = onDuty && (trnStatus || ((r.assignments || []).length > 0
       && !(r.assignments || []).some(function (a) { return acIsFlight_(a.flight); })
-      && (r.assignments || []).some(function (a) { return rrIsTrainingTask_(a.flight) || rrIsTrainingTask_(a.task); });
+      && (r.assignments || []).some(function (a) { return rrIsTrainingTask_(a.flight) || rrIsTrainingTask_(a.task); })));
   });
   return recs;
 }
@@ -1016,19 +1020,19 @@ function rrPosGroup_(pos, team) {
 
 function rrAddBucket_(agg, r, isHol) {
   if (r.support) return;                                       // แถวซัพพอร์ต (มาช่วยจากทีมอื่น) — ไม่นับ headcount/OT/ชั่วโมงของทีมรับ (นับที่ทีมต้นสังกัด)
-  if (r.bucket === 'working') agg.working++;
+  if (r.training) agg.training++;                              // อบรม — แยกออกจาก "คนทำงานจริง" (ตรงกับ MANPOWER)
+  else if (r.bucket === 'working') agg.working++;
   else if (r.bucket === 'ot_off') agg.ot_off++;
   else if (r.bucket === 'off') agg.off++;
   else if (r.bucket === 'sick') agg.sick++;
   else if (r.bucket === 'vac') agg.leave++;
-  if (r.training) agg.training++;                              // ซับเซ็ตของ working: อบรม/กิจกรรม (ไม่พร้อมลงไฟลท์)
   if (r.ot > 0) {
     agg.otPeople++; agg.otHours += r.ot;
     if (r.bucket === 'ot_off') { agg.otOffHrs += r.ot; }       // OT OFF hours (count = ot_off)
     else if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
     else { agg.otPost++; agg.otPostHrs += r.ot; }
   }
-  if (isHol && r.bucket === 'working' && r.shiftHrs > 0) {      // วันหยุดประเพณี: ทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ
+  if (isHol && !r.training && r.bucket === 'working' && r.shiftHrs > 0) {      // วันหยุดประเพณี: ทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ
     agg.otHol++; agg.otHolHrs += r.shiftHrs;
   }
   agg.flights += (r.assignments ? r.assignments.length : 0);

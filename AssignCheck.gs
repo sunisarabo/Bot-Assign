@@ -405,6 +405,7 @@ function acAnalyze_(res, ll) {
 
   function consider(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    if (r.training) return;                                 // อบรม — ไม่พร้อมลงไฟลท์ (ไม่นับใน coverage/ตรวจ Assign)
     sum.working++;
     var a = acAnalyzeRecord_(r, team);
     if (!a.hasWindow) {                                     // ไม่มีเวลากะระบุ → ตรวจครอบคลุมไม่ได้ (ยังใส่แถวไว้ให้เลือกทีมได้)
