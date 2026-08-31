@@ -62,7 +62,7 @@ function acIsLpZone_(name) { return /^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)\b/i
 /** งาน "โซน/เคาน์เตอร์" ที่ไม่ใช่ไฟลท์ แต่เป็นงานจริงมีช่วงเวลา → นับเข้า coverage (LP zone · SU Counter Gx/Hx · CHECK-IN COMMON) */
 function acIsCoverWork_(name) {
   var s = String(name || '');
-  return acIsLpZone_(s) || /^Counter\s+[GH]?\d/i.test(s) || /CHECK[- ]?IN\s*COMMON/i.test(s);
+  return acIsLpZone_(s) || /^Counter\s+[A-Z]{0,2}\d/i.test(s) || /CHECK[- ]?IN\s*COMMON/i.test(s);   // G/H/B-series counters (ฟอร์ม ก.ย. เพิ่ม Counter B6..B12)
 }
 function acIsJunkFlight_(name) {
   var s = String(name || '').trim();

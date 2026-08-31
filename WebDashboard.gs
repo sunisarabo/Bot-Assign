@@ -609,9 +609,23 @@ function rbAutoAssignHtml(iso, fcJson) {
 function rbSupDutyPhase_(duty) {
   var d = String(duty || '').toUpperCase();
   if (/\bARR\b|ARRIVAL|\bTF\b|CIQ|TRANSFER/.test(d)) return 'ARR';
-  if (/CHECK|\bCI\b|COUNTER|CREW\s*SIGN|\bCS\b|\bCF\b|\bGK\b|\bCT\b/.test(d)) return 'CI';
+  if (/CHECK|\bCI\b|COUNTER|\bCTR\b|CREW\s*SIGN|\bCS\b|\bCF\b|\bGK\b|\bCT\b/.test(d)) return 'CI';
   if (/\bSUP\b|SPVR|\bFC\b|CONTROL/.test(d)) return 'SUP';
   return 'GATE';                       // Gate Agent / GA / GM / Gate DOM / Boarding / ramp → GATE
+}
+/** เวลาในคำขอ (SUPPORT REQUEST) → ช่วงเวลา "HH:MM-HH:MM" ให้ตัวหาคน
+ *  - เป็นช่วงอยู่แล้ว → คืนเลย · เป็นเวลาเดียว → กางเป็นช่วงตาม phase · ว่าง → '' (ให้ fallback ใช้เวลาไฟลท์) */
+function rbSupReqWin_(t, phase) {
+  t = String(t == null ? '' : t).trim();
+  if (/[-–]/.test(t)) return t;                        // ช่วงอยู่แล้ว (19:20-21:10)
+  var m = t.match(/(\d{1,2})[:.](\d{2})/);
+  if (!m) return '';                                   // ไม่มีเวลา → ให้ finder ใช้หน้าต่างของไฟลท์
+  var mins = (+m[1]) * 60 + (+m[2]), lo, hi;
+  if (phase === 'CI') { lo = mins - 180; hi = mins + 15; }        // เช็คอิน: ก่อนออก ~3 ชม.
+  else if (phase === 'ARR') { lo = mins - 20; hi = mins + 70; }   // ขาเข้า: รอบเวลารับเครื่อง
+  else { lo = mins - 55; hi = mins + 25; }                        // เกท/บอร์ดดิ้ง: ก่อน STD ~1 ชม.
+  function f(x) { x = ((x % 1440) + 1440) % 1440; return ('0' + Math.floor(x / 60)).slice(-2) + ':' + ('0' + (x % 60)).slice(-2); }
+  return f(lo) + '-' + f(hi);
 }
 /** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
 function rbSupportHtml(iso, addJson) {
@@ -624,8 +638,10 @@ function rbSupportHtml(iso, addJson) {
     var reqRows = [];
     try {
       var reqs = (d.res.supportReq || []).map(function (q) {
-        return { flight: q.flight, phase: rbSupDutyPhase_(q.duty), n: 1, win: q.time,
-          open: q.name ? 0 : 1, assigned: q.name || '', label: (q.duty || '') + (q.team ? ' · ขอโดย ' + q.team : '') };
+        var ph = rbSupDutyPhase_(q.duty);
+        var covered = !!q.name || /จัดแล้ว|เสร็จ|assigned|done/i.test(String(q.status || ''));   // ระบุคน/สถานะจัดแล้ว → ไม่ต้องหา
+        return { flight: q.flight, phase: ph, n: 1, win: rbSupReqWin_(q.time, ph),               // เวลาเดียว/ว่าง → กางเป็นช่วงตาม phase
+          open: covered ? 0 : 1, assigned: q.name || '', label: (q.duty || '') + (q.team ? ' · ขอโดย ' + q.team : '') };
       }).filter(function (r) { return r.flight && acIsFlight_(r.flight); });
       if (reqs.length) { reqRows = slaManualSupportRows_(d.res, d.ll, reqs, true); reqRows.forEach(function (r) { r.fromReq = true; }); }
     } catch (er) { reqRows = []; }
@@ -870,7 +886,7 @@ var RB_NAV_ = [
   ['ac','🧭','ตรวจ Assign','loadAC()','a'],
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
   ['advw','🗂️','ภาพรวมสัปดาห์','loadAdvW()'],
-  ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'], ['rq','📨','RQ ซัพ (คำร้อง)','loadRq()'],
+  ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'],
   ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
 function rbRail_(shortCount, acCount) {
@@ -1659,7 +1675,6 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-advw" style="display:none"><div id="advwbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังวางแผนหลายวัน…</div></div></div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div id="view-week" style="display:none"><div id="weekbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตารางบินสัปดาห์…</div></div></div>' +
-    '<div id="view-rq" style="display:none"><div id="rqbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังอ่านคำร้อง RQ…</div></div></div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
     '<div id="view-wsum" style="display:none"><div id="wsumbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังสรุปสัปดาห์…</div></div></div>' +
     '<div id="view-dc" style="display:none"><div id="dcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังตรวจข้อมูล…</div></div></div>' +
@@ -1676,8 +1691,6 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadWsum(){lazy("wsumbox","rbWeekSummaryHtml","wsum");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
-    'function loadRq(){lazy("rqbox","rqFindSupport","rq");}' +
-    'function rqReload(alt){var b=document.getElementById("rqbox");if(!b||!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน /exec");return;}b.innerHTML="<div class=\\"panel muted\\" style=\\"padding:24px;text-align:center\\">⏳ กำลังคิดทางเลือก…</div>";google.script.run.withSuccessHandler(function(h){b.innerHTML=h;makeSortable();}).withFailureHandler(function(e){b.innerHTML="<div class=\\"panel\\">โหลดไม่ได้: "+e.message+"</div>";}).rqFindSupport(ISO,alt);}' +
     'function loadDc(){lazy("dcbox","rbDataCheckHtml","dc");}' +
     'function pwmsHelp(s){var o=document.getElementById("helpov");if(o){o.style.display=s?"flex":"none";document.body.style.overflow=s?"hidden":"";}}' +
     'document.addEventListener("keydown",function(e){if(e.key==="Escape")pwmsHelp(0);});' +
