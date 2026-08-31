@@ -396,6 +396,11 @@ function rrFlightCancelled_(name, col, c1, hi, meta) {
   return false;
 }
 
+/** ดึงรหัสไฟลท์สะอาดจากหัวคอลัมน์ที่มี prefix รก — SU ฟอร์ม ก.ย.: "GATE ___ / FLT SU643/637" → "SU643/637" */
+function rrCleanFltName_(nm) {
+  var m = String(nm || '').match(/\bFL[TG]?\.?\s+([A-Z0-9][A-Z0-9\/]*)/i);
+  return (m && /\d/.test(m[1])) ? m[1] : nm;
+}
 /** สร้างตารางไฟลท์ (fltcols + flights{STA/STD/OP/CL/AC} + lpZones) จากหัวตารางที่แถว hi
  *  แยกเป็นฟังก์ชันเพื่อใช้ซ้ำกับ "หัวตารางที่สอง" ในแท็บเดียวกัน (SU: CHECK IN + GATE ASSIGNMENT) */
 function rrBuildFltcols_(rows, hi, fltStart, meta) {
@@ -415,7 +420,7 @@ function rrBuildFltcols_(rows, hi, fltStart, meta) {
     if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
         && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
         && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
-      fltcols.push({ col: c, name: nm });
+      fltcols.push({ col: c, name: rrCleanFltName_(nm) });               // "GATE ___ / FLT SU643/637" → "SU643/637"
     }
   }
   var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
