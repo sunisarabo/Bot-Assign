@@ -322,15 +322,15 @@ function rrFindHeader_(rows) {
     cm.resked = u.indexOf('RE-SKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RESKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RE-SKED.');
-    // OT: รองรับทั้ง 'OT' ตรง ๆ และเลย์เอาต์ 2 ฝั่ง 'OT(BEFORE)' / 'OT(AFTER)' (เช่น EY มี OT ก่อนกะ + หลังกะ แยกคู่ IN/OUT)
+    // OT: รองรับ 'OT' ตรง ๆ · 'OT(BEFORE)'/'OT(AFTER)' · และฟอร์มใหม่ 'OT ก่อนกะ'/'OT หลังกะ' (ไทย · IN/OUT/Total แยกแถวล่าง)
     var otCols = [];
     for (var oc = 0; oc < u.length; oc++) {
       var oh = u[oc].replace(/[\s.]/g, '');
-      if (oh === 'OT' || oh.indexOf('OT(') === 0) otCols.push(oc);
+      if (oh === 'OT' || oh.indexOf('OT(') === 0 || /^OT(ก่อน|หลัง|BEFORE|AFTER|PRE|POST)/i.test(oh)) otCols.push(oc);
     }
     cm.ot  = otCols.length     ? otCols[0] : -1;
     cm.ot2 = otCols.length > 1 ? otCols[1] : -1;
-    function rrTotAfter(otc) {                                  // หา 'TOTAL HRS' ภายใน 3 คอลัมน์ถัดจากกลุ่ม OT
+    function rrTotAfter(otc) {                                  // หา 'TOTAL HRS' ภายใน 3 คอลัมน์ถัดจากกลุ่ม OT (หัวอยู่แถวเดียวกัน)
       if (otc < 0) return -1;
       for (var c = otc + 1; c < u.length; c++) {
         var h = u[c].replace(/\./g, '').replace(/\s+/g, ' ').trim();
@@ -340,6 +340,9 @@ function rrFindHeader_(rows) {
     }
     cm.ottot  = rrTotAfter(cm.ot);
     cm.ottot2 = rrTotAfter(cm.ot2);
+    // ฟอร์มใหม่: หัว OT อยู่ row3 แต่ IN/OUT/Total อยู่ sub-header row ล่าง → rrTotAfter หาไม่เจอ · Total = คอลัมน์ +2 (IN,OUT,Total)
+    if (cm.ottot  < 0 && cm.ot  >= 0) cm.ottot  = cm.ot  + 2;
+    if (cm.ottot2 < 0 && cm.ot2 >= 0) cm.ottot2 = cm.ot2 + 2;
     cm.flt = u.indexOf('FLIGHT') >= 0 ? u.indexOf('FLIGHT') + 1 : -1;
     if (cm.flt < 0) {
       // บางวันชีต (เช่น WY) ไม่มีหัว "FLIGHT" — รหัสไฟลท์อยู่ในหัวตารางตรง ๆ
