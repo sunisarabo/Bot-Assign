@@ -193,6 +193,23 @@ function rrIsTrainingTask_(task) {
   // ระวัง: ห้ามจับ MONITOR (= Gate Monitor เป็นงานไฟลท์จริง)
   return /\bTRAIN|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|ลาออก/i.test(String(task || ''));
 }
+/** ดึง "กิจกรรม/เทรน + ช่วงเวลา" จาก REMARK → [{name, STA, STD}] (busy ช่วงนั้น)
+ *  รองรับ: "TR PRODUCT TRAINING 0800-1700" · "EK391/อบรม 1100-1230/EK379" · "BRIEF LTU OFFICE 08:35 - 11:55"
+ *  ตัดด้วย / , ; ก่อน แล้วเก็บเฉพาะ segment ที่มี keyword + ช่วงเวลา (ไม่มีเวลา = มัก STATUS=TRN → จับแล้ว) */
+function rrRemarkActivity_(remark) {
+  var s = String(remark || '');
+  if (!s) return [];
+  var KW = /\bTRAIN|\bOJT\b|\bBRIEF\b|\bCOURSE\b|MEETING|SEMINAR|WORKSHOP|E-?LEARN|LOAD CONTROL|ACCESSOR|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ/i;
+  var out = [];
+  s.split(/[\/\n;]|,\s/).forEach(function (raw) {
+    var seg = rrClean_(raw);
+    if (!seg || !KW.test(seg)) return;
+    var m = seg.match(/(\d{1,2})[:.]?(\d{2})\s*[-–]\s*(\d{1,2})[:.]?(\d{2})/);
+    if (!m) return;
+    out.push({ name: seg.slice(0, 50), STA: ('0' + m[1]).slice(-2) + ':' + m[2], STD: ('0' + m[3]).slice(-2) + ':' + m[4] });
+  });
+  return out;
+}
 /** ดึงรหัสไฟลท์ทั้งหมดจากข้อความรกๆ (Admin Doc/Crewsign) — เก็บเฉพาะที่ผ่าน acIsFlight_, ตัดซ้ำด้วยเลขไฟลท์
  *  เช่น "EY414/415 CREWSIGN(0500), AK818-819 STA0805" → [{flight:'EY414/415'},{flight:'AK818-819'}] */
 function rrExtractFlights_(txt) {
@@ -628,6 +645,11 @@ function rrParseStandard_(rows, team, meta) {
         });
       }
     }
+    // REMARK บอกไปเทรน/อบรม/ประชุม + เวลา (เช่น "TR PRODUCT TRAINING 0800-1700", "EK391/อบรม 1100-1230/EK379")
+    //  → เพิ่มเป็น assignment กิจกรรม (busy ช่วงนั้น · acFlightWin_ ดึงช่วงเวลาจากข้อความเอง) กันถือว่าว่างกลางเทรน
+    rrRemarkActivity_(remark).forEach(function (ac) {
+      if (!assigns.some(function (a) { return a.flight === ac.name; })) assigns.push({ flight: ac.name, task: '', STA: ac.STA, STD: ac.STD, OP: '', CL: '', activity: true });
+    });
 
     // OT: รวมทุกกลุ่ม — ปกติ 1 กลุ่ม; EY มี ก่อนกะ(BEFORE) + หลังกะ(AFTER) แยกคู่ IN/OUT
     var twoSided = cm.ot2 >= 0;

@@ -201,6 +201,23 @@ function rrIsTrainingTask_(task) {
   // ระวัง: ห้ามจับ MONITOR (= Gate Monitor เป็นงานไฟลท์จริง)
   return /\bTRAIN|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|ลาออก/i.test(String(task || ''));
 }
+/** ดึง "กิจกรรม/เทรน + ช่วงเวลา" จาก REMARK → [{name, STA, STD}] (busy ช่วงนั้น)
+ *  รองรับ: "TR PRODUCT TRAINING 0800-1700" · "EK391/อบรม 1100-1230/EK379" · "BRIEF LTU OFFICE 08:35 - 11:55"
+ *  ตัดด้วย / , ; ก่อน แล้วเก็บเฉพาะ segment ที่มี keyword + ช่วงเวลา (ไม่มีเวลา = มัก STATUS=TRN → จับแล้ว) */
+function rrRemarkActivity_(remark) {
+  var s = String(remark || '');
+  if (!s) return [];
+  var KW = /\bTRAIN|\bOJT\b|\bBRIEF\b|\bCOURSE\b|MEETING|SEMINAR|WORKSHOP|E-?LEARN|LOAD CONTROL|ACCESSOR|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ/i;
+  var out = [];
+  s.split(/[\/\n;]|,\s/).forEach(function (raw) {
+    var seg = rrClean_(raw);
+    if (!seg || !KW.test(seg)) return;
+    var m = seg.match(/(\d{1,2})[:.]?(\d{2})\s*[-–]\s*(\d{1,2})[:.]?(\d{2})/);
+    if (!m) return;
+    out.push({ name: seg.slice(0, 50), STA: ('0' + m[1]).slice(-2) + ':' + m[2], STD: ('0' + m[3]).slice(-2) + ':' + m[4] });
+  });
+  return out;
+}
 /** ดึงรหัสไฟลท์ทั้งหมดจากข้อความรกๆ (Admin Doc/Crewsign) — เก็บเฉพาะที่ผ่าน acIsFlight_, ตัดซ้ำด้วยเลขไฟลท์
  *  เช่น "EY414/415 CREWSIGN(0500), AK818-819 STA0805" → [{flight:'EY414/415'},{flight:'AK818-819'}] */
 function rrExtractFlights_(txt) {
@@ -636,6 +653,11 @@ function rrParseStandard_(rows, team, meta) {
         });
       }
     }
+    // REMARK บอกไปเทรน/อบรม/ประชุม + เวลา (เช่น "TR PRODUCT TRAINING 0800-1700", "EK391/อบรม 1100-1230/EK379")
+    //  → เพิ่มเป็น assignment กิจกรรม (busy ช่วงนั้น · acFlightWin_ ดึงช่วงเวลาจากข้อความเอง) กันถือว่าว่างกลางเทรน
+    rrRemarkActivity_(remark).forEach(function (ac) {
+      if (!assigns.some(function (a) { return a.flight === ac.name; })) assigns.push({ flight: ac.name, task: '', STA: ac.STA, STD: ac.STD, OP: '', CL: '', activity: true });
+    });
 
     // OT: รวมทุกกลุ่ม — ปกติ 1 กลุ่ม; EY มี ก่อนกะ(BEFORE) + หลังกะ(AFTER) แยกคู่ IN/OUT
     var twoSided = cm.ot2 >= 0;
@@ -9430,6 +9452,7 @@ function rbGanttCss_() {
   '.gt-flt.lp{background:#fbe3ee;border-color:#e2a3c6}.gt-flt.lp span{color:#a33272}'+   /* โซน LP (Private/LP) */
   '.gt-flt.stby{background:repeating-linear-gradient(45deg,#f2f4f7,#f2f4f7 6px,#e7ebf1 6px,#e7ebf1 12px);border:1px dashed #aab6c4}.gt-flt.stby span{color:#6b7b8e}'+   /* STBY รอจัดไฟลท์ */
   '.gt-flt.na{background:#eef1f5;border-color:#d3ddea}.gt-flt.na span{color:#5b7189}'+
+  '.gt-flt.train{background:#ede7f6;border-color:#b9a3dd}.gt-flt.train span{color:#5e3aa8}'+   /* อบรม/เทรน/ประชุม */
   '.gt-flt.sup{border-color:#e39a10;border-width:1.5px}'+
   '.gt-now{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:2;pointer-events:none}'+
   '.gt-hideoff .gt-dim{display:none}'+
@@ -9508,6 +9531,12 @@ function rbTtGantt_(res, ll, nowMin) {
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
     var flts = [];
     (r.assignments || []).forEach(function (a) {
+      if (a.activity) {                                          // อบรม/เทรน/ประชุม (จาก REMARK) → แท่งกิจกรรม (สีเทาม่วง)
+        var aw = (typeof acFlightWin_ === 'function') ? acFlightWin_(a) : null;
+        if (aw) flts.push({ lo: aw[0], hi: aw[1], ph: 'train', sup: false, lab: '📚 อบรม/กิจกรรม',
+          tip: rbAttr_(r.name + '¦อบรม/กิจกรรม (ไม่ว่างช่วงนี้)¦' + a.flight) });
+        return;
+      }
       if (!acIsFlight_(a.flight) && !(typeof acIsCoverWork_ === 'function' && acIsCoverWork_(a.flight))) return;   // ไฟลท์จริง + งานโซน/เคาน์เตอร์ (LP MORNING/AFTERNOON · Counter Gx · CHECK-IN COMMON) → วางแท่งด้วย
       // วางแถบตาม "เวลาของ JOB ที่ได้รับ assign" — ใช้ acFlightWin_ ตัวเดียวกับหน้า ตรวจ Assign
       //   (เช็คอิน OP–CL · เกท→STD · CS OP+2h · FR/GK→STD · ไม่มีเคาน์เตอร์→STA/STD · ตัดค่าขยะ/หน้าต่างเพี้ยน)
@@ -9558,6 +9587,7 @@ function rbTtGantt_(res, ll, nowMin) {
     '<span class="gt-lg"><i style="background:#ece8fb;border-color:#c1b9e8"></i>ขาเข้า</span>' +
     '<span class="gt-lg"><i style="background:#d6efee;border-color:#5cb8b6"></i>หัวหน้า/SOD</span>' +
     '<span class="gt-lg"><i style="background:#fbe3ee;border-color:#e2a3c6"></i>โซน LP</span>' +
+    '<span class="gt-lg"><i style="background:#ede7f6;border-color:#b9a3dd"></i>อบรม/เทรน</span>' +
     '<span class="gt-lg"><i style="background:#e7ebf1;border:1px dashed #aab6c4"></i>STBY (รอจัดไฟลท์)</span>' +
     '<span class="gt-lg"><i style="background:#eef1f5;border-color:#d3ddea"></i>อื่น ๆ</span>' +
     '<span class="gt-lg"><i style="background:#e5484d;border-color:#e5484d;width:3px"></i>เวลาปัจจุบัน</span>' +
