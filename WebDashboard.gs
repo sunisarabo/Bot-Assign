@@ -707,8 +707,10 @@ function rbSupportHtml(iso, addJson) {
       } else if (r.cands.length || others.length) {
         var grps = slaGroupCands_(r.cands);
         function optRow(p, defName) {
-          return '<option value="' + rbAttr_(p.name) + '"' + (p.name === defName ? ' selected' : '') + '>' +
-            rbEsc_(p.name + ' · ' + (p.pos || '') + ' · ' + (p.team || '') + ' · ' + (p.shift || '') + ' · ' + (p.n || 0) + ' ไฟลท์'
+          var jobs = (p.flts && p.flts.length) ? (' [' + p.flts.join(' · ') + ']') : ' (ว่าง)';   // งานที่ถืออยู่ + เวลา (กี่งาน/อะไร/กี่โมง)
+          return '<option value="' + rbAttr_(p.name) + '"' + (p.name === defName ? ' selected' : '') +
+            ' title="' + rbAttr_((p.n || 0) + ' งาน' + jobs) + '">' +
+            rbEsc_(p.name + ' · ' + (p.pos || '') + ' · ' + (p.team || '') + ' · ' + (p.shift || '') + ' · ' + (p.n || 0) + ' งาน' + jobs
               + (p.hlevel && p.hlevel !== 'ok' ? '  ⚠️ ' + (p.htxt || 'เกินชั่วโมง') : '')) + '</option>';
         }
         function sel(defName) {
