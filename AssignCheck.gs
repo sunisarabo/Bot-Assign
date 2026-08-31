@@ -381,7 +381,7 @@ function acOwnerTeams_(res, ll) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
     if (slaSkipTeam_(team)) return;          // Porter/Crewsign/Admin Doc ไม่นับเป็นเจ้าของสายการบิน
     (r.assignments || []).forEach(function (a) {
-      if (!acIsFlight_(a.flight)) return;
+      if (!acIsFlight_(a.flight) || a.supportOut) return;      // งานไปซัพทีมอื่น = ไม่นับเป็นเจ้าของสายการบิน
       var al = slaAirlineOf_(a.flight);
       (cnt[al] = cnt[al] || {})[team] = (cnt[al][team] || 0) + 1;
     });

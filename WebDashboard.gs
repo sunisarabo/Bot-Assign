@@ -181,6 +181,7 @@ function rbLoadResLLraw_(date) {
   if (res.counters) { try { rbApplyCounterTimes_(res); } catch (e5) {} }
   try { rbDedupeTeams_(res, ll); } catch (eD) {}           // รหัสซ้ำหลายทีม (คนไปช่วย) → เก็บที่ต้นสังกัด ไม่นับซ้ำ
   try { rbResolveSupportTeams_(res, ll); } catch (e6) {}   // แถวซัพที่ไม่มีรหัสทีม → ค้นทีมต้นสังกัดจากชื่อในเวรทั้งวัน
+  try { rbAttachSupportOut_(res, ll); } catch (e6b) {}     // "งานไปซัพทีมอื่น" (SUPPORT REQUEST) → ผูกกลับที่ตัวคน → ขึ้น Gantt + นับ busy
   // ตารางบินสัปดาห์ (source of truth) → เติม A/C TYPE + STA/STD · (ง) cache ต่อวัน TTL 1 ชม. (ไม่เปิดไฟล์ซ้ำ)
   if (typeof wfFileId_ === 'function' && wfFileId_()) {
     var iso2 = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
@@ -200,6 +201,34 @@ function rbNameKey_(name) {
 }
 /** แถวซัพพอร์ตที่ไม่มีรหัสทีมต้นสังกัด → ค้นชื่อในเวรทั้งวัน (แถวปกติ ไม่ใช่ซัพ)
  *  เจอในทีมเดียวชัดเจน → ใส่ทีมให้อัตโนมัติ (supportTeamAuto) · เจอหลายทีม/ไม่เจอ → คงเตือน (กันเดาผิด) */
+/** ผูก "งานที่ไปซัพทีมอื่น" จากแท็บ SUPPORT REQUEST (แถวที่ระบุชื่อคนแล้ว) กลับไปที่ record ของคนนั้น
+ *  → คนจะขึ้นแท่งงานซัพบน Gantt + ถูกนับว่า busy (ไม่ถูกแนะให้ไปซัพซ้อนอีก) · ทำเครื่องหมาย supportOut */
+function rbAttachSupportOut_(res, ll) {
+  var reqs = (res.supportReq || []).filter(function (q) { return q.name && q.flight && acIsFlight_(q.flight); });
+  if (!reqs.length) return;
+  var idx = {};
+  function add(team, r) { if (r.support) return; var k = rbNameKey_(r.name); if (k) (idx[k] = idx[k] || []).push({ team: team, r: r }); }
+  Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { add(t, r); }); });
+  if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { add('LL·' + s, r); }); });
+  reqs.forEach(function (q) {
+    var k = rbNameKey_(q.name); if (!k) return;
+    var cands = idx[k] || [], person = null;
+    if (q.fromTeam) {                                        // เลือกคนที่ทีมตรง "จากทีม" ก่อน (กันชื่อซ้ำข้ามทีม)
+      var ft = String(q.fromTeam).toUpperCase();
+      person = cands.filter(function (c) { var ct = String(c.team).toUpperCase(); return ct.indexOf(ft) >= 0 || ft.indexOf(ct) >= 0; })[0];
+    }
+    if (!person) person = cands[0];
+    if (!person) return;
+    var r = person.r;
+    var ph = (typeof rbSupDutyPhase_ === 'function') ? rbSupDutyPhase_(q.duty) : 'GATE';
+    var win = (typeof rbSupReqWin_ === 'function') ? rbSupReqWin_(q.time, ph) : String(q.time || '');
+    var wm = String(win).match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
+    var op = wm ? wm[1] : '', cl = wm ? wm[2] : '';
+    if ((r.assignments || []).some(function (a) { return a.supportOut && a.flight === q.flight; })) return;   // กันซ้ำ
+    (r.assignments = r.assignments || []).push({ flight: q.flight, task: 'ซัพ ' + (q.duty || '').trim() + (q.team ? ' →' + q.team : ''),
+      STA: '', STD: '', OP: op, CL: cl, supportOut: true });
+  });
+}
 function rbResolveSupportTeams_(res, ll) {
   var idx = {};
   function add(team, r) {
