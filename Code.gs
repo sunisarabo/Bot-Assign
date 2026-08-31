@@ -8678,6 +8678,14 @@ function rbAutoAssignHtml(iso, fcJson) {
   } catch (e) { return '<div class="panel">โหลด "Auto Assign" ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
+/** map หน้าที่ (SUPPORT REQUEST) → phase หาคน: ARR / CI / SUP / GATE (ค่าเริ่มต้น = GATE/แรมป์) */
+function rbSupDutyPhase_(duty) {
+  var d = String(duty || '').toUpperCase();
+  if (/\bARR\b|ARRIVAL|\bTF\b|CIQ|TRANSFER/.test(d)) return 'ARR';
+  if (/CHECK|\bCI\b|COUNTER|CREW\s*SIGN|\bCS\b|\bCF\b|\bGK\b|\bCT\b/.test(d)) return 'CI';
+  if (/\bSUP\b|SPVR|\bFC\b|CONTROL/.test(d)) return 'SUP';
+  return 'GATE';                       // Gate Agent / GA / GM / Gate DOM / Boarding / ramp → GATE
+}
 /** Lazy tab: 🆘 Support — ไฟลท์ที่คนไม่ครบ + คนที่ว่าง & รู้ระบบเช็คอินมาช่วยได้ */
 function rbSupportHtml(iso, addJson) {
   try {
@@ -8685,12 +8693,21 @@ function rbSupportHtml(iso, addJson) {
     var autoRows = slaSupportRows_(d.res, d.ll);
     var manualRows = [];
     if (addJson) { try { manualRows = slaManualSupportRows_(d.res, d.ll, JSON.parse(addJson)); } catch (ea) { manualRows = []; } }
-    var rows = manualRows.concat(autoRows);        // คำขอ Duty (เพิ่มเอง) ขึ้นก่อน
+    // 📋 คำขอจากแท็บ SUPPORT REQUEST ของวันนั้น → หาคนว่างให้แต่ละคำขอ (เหมือน Duty เพิ่มเอง แต่ดึงจากชีต)
+    var reqRows = [];
+    try {
+      var reqs = (d.res.supportReq || []).map(function (q) {
+        return { flight: q.flight, phase: rbSupDutyPhase_(q.duty), n: 1, win: q.time,
+          open: q.name ? 0 : 1, assigned: q.name || '', label: (q.duty || '') + (q.team ? ' · ขอโดย ' + q.team : '') };
+      }).filter(function (r) { return r.flight && acIsFlight_(r.flight); });
+      if (reqs.length) { reqRows = slaManualSupportRows_(d.res, d.ll, reqs, true); reqRows.forEach(function (r) { r.fromReq = true; }); }
+    } catch (er) { reqRows = []; }
+    var rows = reqRows.concat(manualRows).concat(autoRows);   // คำขอจากชีต SUPPORT REQUEST → Duty เพิ่มเอง → ที่ขาดตาม SLA
     var nF = {}, supTeams = {};
     autoRows.forEach(function (r) { nF[r.flight] = 1; });
     rows.forEach(function (r) { r.cands.forEach(function (c) { supTeams[c.team] = 1; }); });
     var hd = '<div class="sectionlabel">🆘 <b>Support / เติมคน</b> (รวม "เติม Assign เดิม") — ไฟลท์ที่คนไม่ครบตาม SLA: <b class="badd">' + Object.keys(nF).length +
-      ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + autoRows.length + ' รายการ' + (manualRows.length ? ' · <b class="okk">คำขอ Duty ' + manualRows.length + '</b>' : '') +
+      ' ไฟลท์</b> · ตำแหน่งที่ขาด ' + autoRows.length + ' รายการ' + (reqRows.length ? ' · <b style="color:#1f4e79">📋 คำขอจากชีต ' + reqRows.length + '</b>' : '') + (manualRows.length ? ' · <b class="okk">คำขอ Duty ' + manualRows.length + '</b>' : '') +
       ' — เมนูตั้งค่าคนที่ <b>ว่าง + รู้ระบบ</b> ให้อัตโนมัติ · เลือก <b>พนักงานอื่นๆ</b> ได้จากในเมนู</div>';
     // แถบเพิ่มคำขอเอง (Duty สั่งช่วยไฟลท์/ตำแหน่งที่ระบบไม่ได้จับว่าขาด)
     var addBar = '<div class="supaddbar" style="margin:8px 0;padding:10px 12px;border:1px dashed #cdd8e6;border-radius:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
@@ -8750,7 +8767,7 @@ function rbSupportHtml(iso, addJson) {
           : (r.noFlightTime ? '⚠️ ยังไม่กรอกเวลาไฟลท์ (STA/STD)'
           : (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + rbEsc_(r.needSys) : 'ไม่มีคนว่าง'))) + '</span>';
       }
-      var mtag = r.manual ? '<span class="tag" style="background:#fff3cd;color:#8a6d00">➕ Duty</span> ' : '';
+      var mtag = r.fromReq ? '<span class="tag" style="background:#e7f0ff;color:#1f4e79">📋 REQUEST</span> ' : (r.manual ? '<span class="tag" style="background:#fff3cd;color:#8a6d00">➕ Duty</span> ' : '');
       return '<tr class="' + (r.cands.length || others.length ? '' : 'rowbad') + '" data-team="' + rbEsc_(r.team) +
         '" data-flight="' + rbAttr_(r.flight) + '" data-air="' + rbAttr_(r.airline) + '" data-std="' + rbAttr_(r.STD) + '" data-phase="' + rbAttr_(r.phase) +
         '"><td class="b">' + mtag + rbEsc_(r.flight) +
