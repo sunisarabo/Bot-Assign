@@ -673,7 +673,9 @@ function rbSupportHtml(iso, addJson) {
     var body = rows.map(function (r) {
       var who;
       var others = r.others || [];
-      if (r.cands.length || others.length) {
+      if (r.fromReq && r.shortN === 0 && r.assigned) {           // คำขอที่ดิวตี้ระบุคนแล้ว (สถานะ "จัดแล้ว") → โชว์ชื่อ ไม่ต้องหาคน
+        who = '<span class="okk">✅ จัดแล้ว: <b>' + rbEsc_(r.assigned) + '</b></span>';
+      } else if (r.cands.length || others.length) {
         var grps = slaGroupCands_(r.cands);
         function optRow(p, defName) {
           return '<option value="' + rbAttr_(p.name) + '"' + (p.name === defName ? ' selected' : '') + '>' +
