@@ -199,7 +199,7 @@ function rrIsTrainingTask_(task) {
   // กิจกรรมที่ "ไม่ใช่การทำไฟลท์" → แสดงเป็นกิจกรรม ไม่นับเป็นคนคุมไฟลท์
   // TRAIN (ครอบ TRAINING + ตัวย่อ "TRAIN LC HB") · อบรม/สัมมนา/ประชุม (ไทย) · กิจกรรม (เข้าวัด ฯลฯ) · RESIGN/ลาออก
   // ระวัง: ห้ามจับ MONITOR (= Gate Monitor เป็นงานไฟลท์จริง)
-  return /\bTRAIN|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|ลาออก/i.test(String(task || ''));
+  return /\bTRAIN|\bOJT\b|\bBRIEF|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|ORIENTATION|RECURRENT|TOWN\s?HALL|\bGOM\b|ACCESSOR|บินทดสอบ|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ|สอนงาน|ลาออก/i.test(String(task || ''));
 }
 /** ดึง "กิจกรรม/เทรน + ช่วงเวลา" จาก REMARK → [{name, STA, STD}] (busy ช่วงนั้น)
  *  รองรับ: "TR PRODUCT TRAINING 0800-1700" · "EK391/อบรม 1100-1230/EK379" · "BRIEF LTU OFFICE 08:35 - 11:55"
@@ -3430,7 +3430,7 @@ function acIsFlight_(name) {
 function acIsActivity_(s) {
   var u = String(s || '').toUpperCase();
   if (!u) return false;
-  return /TRAINING|RECURRENT|WORKSHOP|ORIENTATION|SEMINAR|MEETING|E-?LEARNING|\bLMS\b|\bEXAM\b|อบรม|เทรน|ประชุม|สัมมนา|กิจกรรม|สอนงาน|ทดสอบ|\bสอบ\b/.test(u);
+  return /TRAIN|\bOJT\b|\bBRIEF|RECURRENT|WORKSHOP|ORIENTATION|SEMINAR|MEETING|E-?LEARNING|\bLMS\b|\bEXAM\b|\bCOURSE\b|TOWN\s?HALL|\bGOM\b|ACCESSOR|MANDATORY|IN.?HOUSE|อบรม|เทรน|บรีฟ|ประชุม|สัมมนา|กิจกรรม|สอนงาน|ทดสอบ|\bสอบ\b/.test(u);
 }
 
 /** ชื่อ "ไฟลท์" ที่จริงเป็นค่าขยะหลุดจากช่องอื่น — ค่าเวลา (A:/D:/O:/C: หรือ HH:MM) หรือวันที่ (07 AUG 26)
@@ -9531,7 +9531,9 @@ function rbTtGantt_(res, ll, nowMin) {
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
     var flts = [];
     (r.assignments || []).forEach(function (a) {
-      if (a.activity) {                                          // อบรม/เทรน/ประชุม (จาก REMARK) → แท่งกิจกรรม (สีเทาม่วง)
+      // อบรม/เทรน/ประชุม → แท่งกิจกรรม (สีเทาม่วง)
+      //   a.activity = มาจาก REMARK · acIsActivity_(a.flight) = หัวคอลัมน์ไฟลท์เป็นกิจกรรม (AOTGA-GOM / MINI TOWN HALL / ACCESSOR / OJT TRAINER ฯลฯ)
+      if (a.activity || (typeof acIsActivity_ === 'function' && acIsActivity_(a.flight))) {
         var aw = (typeof acFlightWin_ === 'function') ? acFlightWin_(a) : null;
         if (aw) flts.push({ lo: aw[0], hi: aw[1], ph: 'train', sup: false, lab: '📚 อบรม/กิจกรรม',
           tip: rbAttr_(r.name + '¦อบรม/กิจกรรม (ไม่ว่างช่วงนี้)¦' + a.flight) });

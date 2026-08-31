@@ -191,7 +191,7 @@ function rrIsTrainingTask_(task) {
   // กิจกรรมที่ "ไม่ใช่การทำไฟลท์" → แสดงเป็นกิจกรรม ไม่นับเป็นคนคุมไฟลท์
   // TRAIN (ครอบ TRAINING + ตัวย่อ "TRAIN LC HB") · อบรม/สัมมนา/ประชุม (ไทย) · กิจกรรม (เข้าวัด ฯลฯ) · RESIGN/ลาออก
   // ระวัง: ห้ามจับ MONITOR (= Gate Monitor เป็นงานไฟลท์จริง)
-  return /\bTRAIN|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|ลาออก/i.test(String(task || ''));
+  return /\bTRAIN|\bOJT\b|\bBRIEF|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|ORIENTATION|RECURRENT|TOWN\s?HALL|\bGOM\b|ACCESSOR|บินทดสอบ|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ|สอนงาน|ลาออก/i.test(String(task || ''));
 }
 /** ดึง "กิจกรรม/เทรน + ช่วงเวลา" จาก REMARK → [{name, STA, STD}] (busy ช่วงนั้น)
  *  รองรับ: "TR PRODUCT TRAINING 0800-1700" · "EK391/อบรม 1100-1230/EK379" · "BRIEF LTU OFFICE 08:35 - 11:55"

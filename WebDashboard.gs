@@ -1422,7 +1422,9 @@ function rbTtGantt_(res, ll, nowMin) {
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
     var flts = [];
     (r.assignments || []).forEach(function (a) {
-      if (a.activity) {                                          // อบรม/เทรน/ประชุม (จาก REMARK) → แท่งกิจกรรม (สีเทาม่วง)
+      // อบรม/เทรน/ประชุม → แท่งกิจกรรม (สีเทาม่วง)
+      //   a.activity = มาจาก REMARK · acIsActivity_(a.flight) = หัวคอลัมน์ไฟลท์เป็นกิจกรรม (AOTGA-GOM / MINI TOWN HALL / ACCESSOR / OJT TRAINER ฯลฯ)
+      if (a.activity || (typeof acIsActivity_ === 'function' && acIsActivity_(a.flight))) {
         var aw = (typeof acFlightWin_ === 'function') ? acFlightWin_(a) : null;
         if (aw) flts.push({ lo: aw[0], hi: aw[1], ph: 'train', sup: false, lab: '📚 อบรม/กิจกรรม',
           tip: rbAttr_(r.name + '¦อบรม/กิจกรรม (ไม่ว่างช่วงนี้)¦' + a.flight) });

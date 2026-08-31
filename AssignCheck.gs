@@ -52,7 +52,7 @@ function acIsFlight_(name) {
 function acIsActivity_(s) {
   var u = String(s || '').toUpperCase();
   if (!u) return false;
-  return /TRAINING|RECURRENT|WORKSHOP|ORIENTATION|SEMINAR|MEETING|E-?LEARNING|\bLMS\b|\bEXAM\b|อบรม|เทรน|ประชุม|สัมมนา|กิจกรรม|สอนงาน|ทดสอบ|\bสอบ\b/.test(u);
+  return /TRAIN|\bOJT\b|\bBRIEF|RECURRENT|WORKSHOP|ORIENTATION|SEMINAR|MEETING|E-?LEARNING|\bLMS\b|\bEXAM\b|\bCOURSE\b|TOWN\s?HALL|\bGOM\b|ACCESSOR|MANDATORY|IN.?HOUSE|อบรม|เทรน|บรีฟ|ประชุม|สัมมนา|กิจกรรม|สอนงาน|ทดสอบ|\bสอบ\b/.test(u);
 }
 
 /** ชื่อ "ไฟลท์" ที่จริงเป็นค่าขยะหลุดจากช่องอื่น — ค่าเวลา (A:/D:/O:/C: หรือ HH:MM) หรือวันที่ (07 AUG 26)
