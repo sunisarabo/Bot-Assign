@@ -207,14 +207,30 @@ function rrIsTrainingTask_(task) {
 function rrRemarkActivity_(remark) {
   var s = String(remark || '');
   if (!s) return [];
-  var KW = /\bTRAIN|\bOJT\b|\bBRIEF\b|\bCOURSE\b|MEETING|SEMINAR|WORKSHOP|E-?LEARN|LOAD CONTROL|ACCESSOR|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ/i;
+  var KW = /\bTRAIN|\bOJT\b|\bBRIEF|\bCOURSE\b|MEETING|SEMINAR|WORKSHOP|E-?LEARN|LOAD CONTROL|ACCESSOR|RECURRENT|ORIENTATION|TOWN\s?HALL|\bGOM\b|MANDATORY|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ|คอร์ส|หลักสูตร/i;
+  // แปลง token เวลา → นาที: "0830"/"08:30"/"08.30"/"14" (ชม.ล้วน) → HH:MM · null ถ้าไม่ใช่เวลา
+  function tok(t) {
+    var mm = String(t).match(/^(\d{1,2})[:.](\d{2})$/);                 // 08:30 / 8.30
+    if (mm) { var h = +mm[1], m = +mm[2]; return (h < 24 && m < 60) ? ('0' + h).slice(-2) + ':' + mm[2] : null; }
+    var hm = String(t).match(/^(\d{3,4})$/);                            // 0830 / 830 → HHMM
+    if (hm) { var d = hm[1]; var mn = d.slice(-2), hh = d.slice(0, -2); if (+hh < 24 && +mn < 60) return ('0' + (+hh)).slice(-2) + ':' + mn; return null; }
+    var ho = String(t).match(/^(\d{1,2})$/);                            // 14 → 14:00 (ชม.ล้วน)
+    if (ho && +ho[1] < 24) return ('0' + (+ho[1])).slice(-2) + ':00';
+    return null;
+  }
   var out = [];
   s.split(/[\/\n;]|,\s/).forEach(function (raw) {
     var seg = rrClean_(raw);
     if (!seg || !KW.test(seg)) return;
-    var m = seg.match(/(\d{1,2})[:.]?(\d{2})\s*[-–]\s*(\d{1,2})[:.]?(\d{2})/);
+    // ช่วงเวลา: รับรูปแบบหลวม "0830-1000" · "14-1530" · "0830-10" · "08:30-10:00" · "11-1230"
+    var m = seg.match(/(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})/);
     if (!m) return;
-    out.push({ name: seg.slice(0, 50), STA: ('0' + m[1]).slice(-2) + ':' + m[2], STD: ('0' + m[3]).slice(-2) + ':' + m[4] });
+    var a = tok(m[1]), b = tok(m[2]);
+    if (!a || !b) return;
+    // กันเลขที่ไม่ใช่เวลา (เช่น "Townhall batch 3-4"): เวลาเริ่มต้องอยู่ 05:00–22:00 (เทรน/กิจกรรมเป็นเวลากลางวัน)
+    var sm = (+a.slice(0, 2)) * 60 + (+a.slice(3));
+    if (sm < 300 || sm > 1320) return;
+    out.push({ name: seg.slice(0, 50), STA: a, STD: b });
   });
   return out;
 }
@@ -340,6 +356,9 @@ function rrFindHeader_(rows) {
     // คอลัมน์สถานะ (Onduty/Off/OT OFF/VAC…): บางชีต (PVTLP) ใช้หัว 'STATUS', ที่เหลือใช้ 'REMARK'
     // ('REMARK FOR SUPPORT OTHER FLT' = โน้ต ไม่ใช่สถานะ → ไม่แมตช์ 'REMARK' ตรง ๆ อยู่แล้ว)
     cm.remark = u.indexOf('STATUS') >= 0 ? u.indexOf('STATUS') : u.indexOf('REMARK');
+    // คอลัมน์ REMARK "จริง" (โน้ตอบรม/กิจกรรม เช่น "MINI TOWN HALL 0830-1000") — แยกจาก STATUS
+    // ฟอร์มใหม่มีทั้ง STATUS + REMARK → cm.remark=STATUS, ตัวโน้ตอยู่คนละคอลัมน์ ต้องอ่านต่างหาก (จับเทรน/กิจกรรมที่เขียนใน REMARK)
+    cm.remark2 = (u.indexOf('STATUS') >= 0 && u.indexOf('REMARK') >= 0 && u.indexOf('REMARK') !== cm.remark) ? u.indexOf('REMARK') : -1;
     // คอลัมน์จ็อบแบบข้อความ (ทีม LP): หัวคอลัมน์มี 'SUPPORT' + 'FL' เช่น "REMARK FOR SUPPORT OTHER FLT"
     cm.jobtext = -1;
     for (var jt = 0; jt < u.length; jt++) { if (u[jt].indexOf('SUPPORT') >= 0 && /\bFL/.test(u[jt])) { cm.jobtext = jt; break; } }
@@ -566,6 +585,7 @@ function rrParseStandard_(rows, team, meta) {
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
     var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
     var remark = (cm.remark >= 0 && cm.remark < row.length) ? rrClean_(row[cm.remark]) : '';
+    var remark2 = (cm.remark2 >= 0 && cm.remark2 < row.length) ? rrClean_(row[cm.remark2]) : '';   // โน้ต REMARK จริง (เทรน/กิจกรรม)
     // สถานะ (Off/VAC/SICK) บางแถวกรอก "เยื้อง" มาช่องซ้ายของ REMARK เช่น QR: "Off" ตกในคอลัมน์ Total Hrs.
     // → REMARK ว่างเลยนับเป็นมาทำงานผิด · ถ้า REMARK ไม่มีสถานะ ให้ดูช่องซ้ายถัดไป (Total Hrs เป็นตัวเลข ไม่ชนคำสถานะ)
     if (cm.remark - 1 >= 0 && !/\b(OFF|VAC|SICK|\bSL\b|\bBL\b|OT\s*OFF|ONDUTY)\b/i.test(rrUp_(remark))) {
@@ -655,7 +675,7 @@ function rrParseStandard_(rows, team, meta) {
     }
     // REMARK บอกไปเทรน/อบรม/ประชุม + เวลา (เช่น "TR PRODUCT TRAINING 0800-1700", "EK391/อบรม 1100-1230/EK379")
     //  → เพิ่มเป็น assignment กิจกรรม (busy ช่วงนั้น · acFlightWin_ ดึงช่วงเวลาจากข้อความเอง) กันถือว่าว่างกลางเทรน
-    rrRemarkActivity_(remark).forEach(function (ac) {
+    rrRemarkActivity_(remark2 || remark).forEach(function (ac) {   // อ่านโน้ต REMARK จริงก่อน (ฟอร์มใหม่) ไม่งั้นใช้ช่อง STATUS (ฟอร์มเก่า)
       if (!assigns.some(function (a) { return a.flight === ac.name; })) assigns.push({ flight: ac.name, task: '', STA: ac.STA, STD: ac.STD, OP: '', CL: '', activity: true });
     });
 
@@ -697,7 +717,7 @@ function rrParseStandard_(rows, team, meta) {
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
       shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
-      bucket: bkt, remark: remark, ot: oth, otType: otType, otSpans: otSpans,
+      bucket: bkt, remark: remark, remark2: remark2, ot: oth, otType: otType, otSpans: otSpans,
       otTime: oth > 0 ? otSpans.map(function (s) { return rrFmtRange_([s.a, s.b]); }).filter(String).join(', ') : '',
       // แถวว่างเปล่าจริง (ไม่มีกะ/เวลา/สถานะ/งานเลย) = ชีตยังไม่กรอก → เติมจาก ROSTER เดือนได้
       // (ถ้ามี REMARK เช่น "Off"/"SL" = ตั้งใจให้หยุด → ไม่เติม เคารพชีตรายวัน)
@@ -736,8 +756,12 @@ function rrParseStandard_(rows, team, meta) {
   recs.forEach(function (r) {
     var onDuty = (r.bucket === 'working' || r.bucket === 'ot_off');
     var trnStatus = /\bTRN\b|TRAIN|อบรม/i.test(rrUp_(r.remark)) || /\bTRN\b/i.test(rrUp_(r.shift));
-    r.training = onDuty && (trnStatus || ((r.assignments || []).length > 0
-      && !(r.assignments || []).some(function (a) { return acIsFlight_(a.flight); })
+    var hasFlt = (r.assignments || []).some(function (a) { return acIsFlight_(a.flight); });
+    // โน้ต REMARK บอกเทรน/กิจกรรม (เช่น "TRAIN : AOTGA GOM") — นับเป็นเทรน "ทั้งวัน" เฉพาะเมื่อไม่มีไฟลท์จริง
+    // (คนที่เทรนบางช่วงแต่ยังมีไฟลท์ → ไม่ flag เป็นเทรน จะได้ไม่หายไปจากยอดคนทำงาน · ช่วงเทรนจับเป็นแท่ง busy แทน)
+    var remarkTrain = !hasFlt && rrIsTrainingTask_(r.remark2 || '');
+    r.training = onDuty && (trnStatus || remarkTrain || ((r.assignments || []).length > 0
+      && !hasFlt
       && (r.assignments || []).some(function (a) { return rrIsTrainingTask_(a.flight) || rrIsTrainingTask_(a.task); })));
   });
   return recs;
