@@ -3028,7 +3028,7 @@ function slaManualSupportRows_(res, ll, requests, showAlt) {
   if (!requests.length) return [];
   var fmap = {}; slaCollectFlights_(res, ll).forEach(function (f) { fmap[slaFlightKey_(f.flight)] = f; });
   var teamSys = slaTeamSystems_(res, ll);
-  var pool = slaSupportPool_(res, ll, teamSys, true);
+  var pool = slaSupportPool_(res, ll, teamSys, false);   // คน OFF (วันหยุด) ไม่เสนอเป็นตัวเลือกซัพ — อัปเดตเป็น Off = ตัดออกจากคนช่วย
   return requests.map(function (rq) {
     var rawPh = String(rq.phase).toUpperCase();
     var ph = SLA_PH_LB[rawPh] ? rawPh : 'GATE';                // RF/ไม่รู้จัก → ใช้กลไกหาคนแบบ GATE (ปล่อยเครื่อง = งานเกท/แรมป์)
@@ -3053,7 +3053,7 @@ function slaManualSupportRows_(res, ll, requests, showAlt) {
 function slaSupportRows_(res, ll) {
   var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok && !f.noTime; });
   var teamSys = slaTeamSystems_(res, ll);
-  var pool = slaSupportPool_(res, ll, teamSys, true);          // รวมคน OFF (re-sked) เป็นตัวเลือกท้ายสุด
+  var pool = slaSupportPool_(res, ll, teamSys, false);         // คน OFF (วันหยุด) ไม่เสนอเป็นตัวเลือกซัพ (เฉพาะคนมาทำงาน/OT-OFF)
   var rows = [];
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
