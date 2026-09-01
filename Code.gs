@@ -3452,6 +3452,26 @@ function acIsJunkFlight_(name) {
 }
 var AC_WIN_MAX = 14 * 60;   // หน้าต่างไฟลท์ยาวเกินนี้ (ชม.) = ข้อมูลเวลาเพี้ยน (เช่น N898S) → ทิ้ง ไม่คิดครอบคลุม
 
+/** เอกสารที่ต้องส่งตามกำหนด → หน้าต่าง busy สั้นๆ (1 ชม.) รอบเวลา deadline · null ถ้าไม่ใช่งานเอกสารพวกนี้
+ *  · Debrief    = ส่งหลังเครื่องถอย  (deadline STD+1) → busy [STD, STD+60]
+ *  · Manifest   = ส่งก่อนเปิดเคาน์เตอร์ (deadline STA−1) → busy [STA−120, STA−60] (เตรียม 1 ชม.ก่อนเส้นตาย)
+ *  · Staff list = ส่งก่อนเปิดเคาน์เตอร์ (deadline STA−1) → เหมือน Manifest
+ *  (ไม่มี STA ใช้ STD แทน · ไม่มีเวลาเลย → null ให้ตกไปคำนวณแบบปกติ) */
+function acDocDeadline_(task, sta, std) {
+  var t = String(task || '').toUpperCase();
+  if (/\bDE-?BRIEF\b/.test(t)) {
+    if (std == null) return null;
+    return [std, std + 60];                       // deadline STD+1 → busy ช่วงหลังเครื่องถอย
+  }
+  if (/\bMANIFEST\b|\bMNF\b|STAFF\s*LIST|\bSTAFFLIST\b/.test(t)) {
+    var base = (sta != null) ? sta : std;         // ยึด STA ก่อน · ไม่มีจึงใช้ STD
+    if (base == null) return null;
+    var dl = base - 60;                           // deadline = STA−1
+    return [dl - 60, dl];                         // busy = 1 ชม.ก่อนเส้นตาย (เตรียมเอกสาร)
+  }
+  return null;
+}
+
 /** [lo,hi] นาทีที่พนักงาน "cover" ไฟลท์ = ตั้งแต่ "เวลาบรีฟ" จนถึง STD
  *  · เวลาบรีฟ = เวลาเปิดเคาน์เตอร์ (OP จากไฟล์ หรือ STD+ci) ลบเวลาบรีฟของสายการบิน
  *  · จบที่ STD (เครื่องออก)
@@ -3470,6 +3490,9 @@ function acFlightWin_(a) {
   }
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
+  // เอกสารตามกำหนดส่ง (Debrief / Manifest / Staff list) → busy สั้นๆ รอบ "เวลา deadline"
+  var docWin = acDocDeadline_(a.task, sta, std);
+  if (docWin) return docWin;
   // งานพูล/โซนที่ไม่ใช่ไฟลท์ (LP MORNING/AFTERNOON ฯลฯ) — STA/STD = ช่วงเวลางานจริง (เช่น 05:00–15:00)
   // ใช้ช่วงนั้นตรง ๆ ไม่คิดแบบเปิดเคาน์เตอร์ก่อน STD (กันได้ช่วงผิด เช่น 11:00–15:20 แทน 05:00–15:00)
   if (sta != null && std != null && typeof acIsFlight_ === 'function' && !acIsFlight_(a.flight)) {
@@ -7116,7 +7139,8 @@ var FORM_MODE_OPTS = ['ปกติ (เคาน์เตอร์แยก)', 
 
 /** โค้ดตำแหน่งที่ใช้ได้ต่อ "ระบบเช็คอิน" (แก้/เพิ่มได้) — ใช้ทำ dropdown กันกรอกผิด */
 var FORM_POS_CODES = {
-  _common: ['SOD', 'FC', 'SUP', 'GA', 'GC', 'GB', 'GM', 'GK', 'PFD', 'ARR', 'ARR/GATE', 'CIQ', 'BIR', 'MEET', 'TF', 'CREW', 'CRW', 'AC', 'IPAD', 'STBY', 'RF', 'DEBRIEF', 'SUM', 'การเงิน',
+  _common: ['SOD', 'FC', 'SUP', 'GA', 'GC', 'GB', 'GM', 'GK', 'PFD', 'ARR', 'ARR/GATE', 'CIQ', 'BIR', 'MEET', 'TF', 'CREW', 'CRW', 'AC', 'IPAD', 'STBY', 'RF', 'SUM', 'การเงิน',
+    'DEBRIEF', 'MANIFEST', 'STAFF LIST',   // เอกสารตามกำหนดส่ง: Debrief=หลังเครื่องถอย STD+1 · Manifest/Staff list=ก่อนเปิดเคาน์เตอร์ STA−1 (busy ในกราฟตาม acDocDeadline_)
     'TRAINING', 'TRAINING ครึ่งเช้า', 'TRAINING ครึ่งบ่าย', 'กิจกรรม', 'ประชุม', 'MEETING', 'E-LEARNING', 'OJT'],   // อบรม/กิจกรรม → ไม่นับคุมไฟลท์ (ครึ่งวันใส่ในไฟลท์ช่วงนั้น · เต็มวันใส่ช่องเดียว)
   'Altea':     ['J1', 'J2', 'Y1', 'Y2', 'Y3', 'Y4', 'WEB1', 'WEB2', 'WEB3', 'F1', 'B1', 'B2', 'PRIO', 'KSK', 'BAG DROP', 'PSC', 'WEL GST'],
   'iPort':     ['CT1', 'CT2', 'CT3', 'CT4', 'WEB', 'PRIO', 'KSK'],
@@ -7134,18 +7158,26 @@ function formCodesForSystem_(system) {
   return FORM_POS_CODES._common.concat(sys).filter(function (v, i, a) { return a.indexOf(v) === i; });
 }
 
-/** ตรวจจับคอลัมน์ไฟลท์ในแท็บทีม → [{col(1-based), flight, end}] (หัวไฟลท์แถว 3 หลังคอลัมน์ 'FLIGHT') */
+/** ตรวจจับคอลัมน์ไฟลท์ในแท็บทีม → [{col(1-based), flight, end, hdrRow}]
+ *  หา "หัวไฟลท์" (แถวที่มีคำว่า FLIGHT) แบบยืดหยุ่นใน 8 แถวแรก — บางชีต/บางฟอร์มหัวไม่ได้อยู่แถว 3 พอดี
+ *  → กัน dropdown "ไม่ครบทุกชีต" เพราะ lock แถว 3 ตายตัว */
 function formDetectFlightCols_(sheet) {
   var lastCol = sheet.getLastColumn();
   if (lastCol < 2) return [];
-  var r3 = sheet.getRange(3, 1, 1, lastCol).getValues()[0];
-  var fltCol = -1;
-  for (var c = 0; c < r3.length; c++) { if (String(r3[c] || '').trim().toUpperCase() === 'FLIGHT') { fltCol = c; break; } }
-  if (fltCol < 0) return [];
+  var scanRows = Math.min(8, sheet.getLastRow() || 1);
+  var scan = sheet.getRange(1, 1, scanRows, lastCol).getValues();
+  var hdrRow = -1, fltCol = -1;
+  for (var ri = 0; ri < scan.length && hdrRow < 0; ri++) {
+    for (var c = 0; c < scan[ri].length; c++) {
+      if (String(scan[ri][c] || '').trim().toUpperCase() === 'FLIGHT') { hdrRow = ri + 1; fltCol = c; break; }   // 1-based row
+    }
+  }
+  if (hdrRow < 0) return [];
+  var hr = scan[hdrRow - 1];
   var starts = [];
-  for (var c2 = fltCol + 1; c2 < r3.length; c2++) {
-    var v = String(r3[c2] || '').trim();
-    if (v && /(?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\s*\d{2,4}/i.test(v)) starts.push({ col: c2 + 1, flight: v.replace(/\s/g, '') });   // 1-based
+  for (var c2 = fltCol + 1; c2 < hr.length; c2++) {
+    var v = String(hr[c2] || '').trim();
+    if (v && /(?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\s*\d{2,4}/i.test(v)) starts.push({ col: c2 + 1, flight: v.replace(/\s/g, ''), hdrRow: hdrRow });   // 1-based
   }
   for (var i = 0; i < starts.length; i++) starts[i].end = (i + 1 < starts.length) ? (starts[i + 1].col - 1) : lastCol;
   return starts;
@@ -7162,13 +7194,14 @@ function formOpenSs_(ssId) {
 function formSetupForm(ssId) {
   var ss = formOpenSs_(ssId);
   var modeRule = SpreadsheetApp.newDataValidation().requireValueInList(FORM_MODE_OPTS, true).setAllowInvalid(true).build();
-  var done = 0, nCol = 0;
+  var done = 0, nCol = 0, sheetsOk = 0, skipped = [];
   ss.getSheets().forEach(function (sh) {
     var nm = sh.getName();
-    if (/MANPOWER|MASTER|SHIFTDB|CODE|ALL FLIGHTS/i.test(nm)) return;         // ข้ามแท็บที่ไม่ใช่ทีม
+    if (/MANPOWER|MASTER|SHIFTDB|CODE|ALL FLIGHTS|_CODES/i.test(nm)) return;  // ข้ามแท็บที่ไม่ใช่ทีม
     var flights = formDetectFlightCols_(sh);
-    if (!flights.length) return;
+    if (!flights.length) { skipped.push(nm); return; }                        // หา FLIGHT/ไฟลท์ไม่เจอ → บันทึกไว้แจ้ง
     var lastRow = sh.getLastRow();
+    sheetsOk++;
     flights.forEach(function (f) {
       var air = slaAirlineOf_(f.flight);
       var sys = (typeof slaSystemOf_ === 'function') ? slaSystemOf_(air) : '';
@@ -7176,16 +7209,19 @@ function formSetupForm(ssId) {
       var jobRule = SpreadsheetApp.newDataValidation().requireValueInList(codes, true).setAllowInvalid(true)
         .setHelpText('ตำแหน่งระบบ ' + (sys || 'ทั่วไป') + ' — เลือกจากรายการ หรือพิมพ์เพิ่มได้').build();
       var nCols = f.end - f.col + 1;
-      // MODE เคาน์เตอร์ที่แถว 2 (ว่างอยู่) เหนือหัวไฟลท์
-      sh.getRange(2, f.col).setDataValidation(modeRule);
-      if (!sh.getRange(2, f.col).getValue()) sh.getRange(2, f.col).setValue(FORM_MODE_OPTS[0]);   // default ปกติ
-      // dropdown ตำแหน่งที่เซลล์ Job (แถว 7 ถึงท้าย)
-      if (lastRow >= 7) sh.getRange(7, f.col, lastRow - 6, nCols).setDataValidation(jobRule);
+      var modeRow = Math.max(1, (f.hdrRow || 3) - 1);   // MODE เคาน์เตอร์เหนือหัวไฟลท์ 1 แถว
+      var jobStart = (f.hdrRow || 3) + 4;               // หัว→STA/STD→OP/CL→Job→คน = hdrRow+4
+      // MODE เคาน์เตอร์ (เหนือหัวไฟลท์)
+      sh.getRange(modeRow, f.col).setDataValidation(modeRule);
+      if (!sh.getRange(modeRow, f.col).getValue()) sh.getRange(modeRow, f.col).setValue(FORM_MODE_OPTS[0]);   // default ปกติ
+      // dropdown ตำแหน่งที่เซลล์ Job (แถวคน ถึงท้ายชีต)
+      if (lastRow >= jobStart) sh.getRange(jobStart, f.col, lastRow - jobStart + 1, nCols).setDataValidation(jobRule);
       nCol += nCols; done++;
     });
   });
-  Logger.log('เติมฟอร์ม: ' + done + ' ไฟลท์ · ' + nCol + ' คอลัมน์ Job + MODE dropdown แถว 2');
-  return 'เติม dropdown ตำแหน่ง + MODE เคาน์เตอร์ ' + done + ' ไฟลท์ เรียบร้อย (แถว 2 = ปกติ/Common check-in)';
+  Logger.log('เติมฟอร์ม: ' + sheetsOk + ' ชีต · ' + done + ' ไฟลท์ · ' + nCol + ' คอลัมน์ Job + MODE' + (skipped.length ? (' · ข้าม (ไม่เจอไฟลท์): ' + skipped.join(', ')) : ''));
+  return 'เติม dropdown ตำแหน่ง + MODE เคาน์เตอร์ ' + sheetsOk + ' ชีต / ' + done + ' ไฟลท์ เรียบร้อย'
+    + (skipped.length ? ('\n⚠️ ข้าม ' + skipped.length + ' ชีต (หาหัว FLIGHT ไม่เจอ): ' + skipped.join(', ')) : '');
 }
 
 /** อ่าน MODE เคาน์เตอร์ (แถว 2) ทุกแท็บ → { flightKey: 'Common'/'ปกติ' }
@@ -9453,6 +9489,7 @@ function rbGanttCss_() {
   '.gt-flt.stby{background:repeating-linear-gradient(45deg,#f2f4f7,#f2f4f7 6px,#e7ebf1 6px,#e7ebf1 12px);border:1px dashed #aab6c4}.gt-flt.stby span{color:#6b7b8e}'+   /* STBY รอจัดไฟลท์ */
   '.gt-flt.na{background:#eef1f5;border-color:#d3ddea}.gt-flt.na span{color:#5b7189}'+
   '.gt-flt.train{background:#ede7f6;border-color:#b9a3dd}.gt-flt.train span{color:#5e3aa8}'+   /* อบรม/เทรน/ประชุม */
+  '.gt-flt.doc{background:#fff3d6;border-color:#e6b84d}.gt-flt.doc span{color:#9a6a00}'+   /* เอกสารตามกำหนดส่ง (Debrief/Manifest/Staff list) */
   '.gt-flt.sup{border-color:#e39a10;border-width:1.5px}'+
   '.gt-now{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:2;pointer-events:none}'+
   '.gt-hideoff .gt-dim{display:none}'+
@@ -9547,14 +9584,16 @@ function rbTtGantt_(res, ll, nowMin) {
       if (!win || (win[1] - win[0]) > capMax) return;           // ไม่มีเวลา/หน้าต่างเพี้ยน → ไม่วางแถบ
       var lo = win[0], hi = win[1];
       if (hi - lo < 35) hi = lo + 35;                           // min 35 นาที ให้ป้ายพออ่าน
-      var ph = /^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? 'lp' : rbFltPhase_(a.task);   // โซน LP → สีแยก
+      var isDoc = /\bDE-?BRIEF\b|\bMANIFEST\b|STAFF\s*LIST/i.test(String(a.task || ''));   // เอกสารตามกำหนดส่ง (Debrief/Manifest/Staff list)
+      var ph = isDoc ? 'doc' : (/^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? 'lp' : rbFltPhase_(a.task));   // โซน LP / เอกสาร → สีแยก
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
-      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', lp: 'โซน LP', stby: 'STBY (รอจัดไฟลท์)', na: 'งาน' }[ph];
+      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', lp: 'โซน LP', stby: 'STBY (รอจัดไฟลท์)', doc: 'เอกสาร (กำหนดส่ง)', na: 'งาน' }[ph];
       var barTx = rrFmtMin_(((lo % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((hi % 1440) + 1440) % 1440);
       var raw = (a.STD ? ('STD ' + a.STD) : '') + ((a.OP || a.CL) ? ((a.STD ? ' · ' : '') + 'เคาน์เตอร์ ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
-      var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
-      flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: rbEsc_(leg1) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
+      var dl = isDoc ? ('¦⏰ กำหนดส่ง ' + (/\bDE-?BRIEF\b/i.test(a.task) ? ('STD+1 = ' + rrFmtMin_(((hi % 1440) + 1440) % 1440)) : ('STA−1 = ' + rrFmtMin_(((hi % 1440) + 1440) % 1440)))) : '';
+      var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + dl + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
+      flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: (isDoc ? ('📄 ' + rbEsc_(String(a.task))) : rbEsc_(leg1)) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
     });
     // ทีมพูล/สแตนด์บาย (PVT/LP · CHARTER/ZF) ที่มาทำงานแต่ยังไม่มีงาน = STBY รอจัดไฟลท์ → แสดงแท่ง standby คลุมกะ (ไม่ปล่อยว่างเหมือนไม่มีงาน)
     if (!flts.length && r.bucket === 'working' && du.ss != null && du.se != null && typeof slaIsFloatTeam_ === 'function' && slaIsFloatTeam_(r.team)) {
@@ -9590,6 +9629,7 @@ function rbTtGantt_(res, ll, nowMin) {
     '<span class="gt-lg"><i style="background:#d6efee;border-color:#5cb8b6"></i>หัวหน้า/SOD</span>' +
     '<span class="gt-lg"><i style="background:#fbe3ee;border-color:#e2a3c6"></i>โซน LP</span>' +
     '<span class="gt-lg"><i style="background:#ede7f6;border-color:#b9a3dd"></i>อบรม/เทรน</span>' +
+    '<span class="gt-lg"><i style="background:#fff3d6;border-color:#e6b84d"></i>เอกสาร (กำหนดส่ง)</span>' +
     '<span class="gt-lg"><i style="background:#e7ebf1;border:1px dashed #aab6c4"></i>STBY (รอจัดไฟลท์)</span>' +
     '<span class="gt-lg"><i style="background:#eef1f5;border-color:#d3ddea"></i>อื่น ๆ</span>' +
     '<span class="gt-lg"><i style="background:#e5484d;border-color:#e5484d;width:3px"></i>เวลาปัจจุบัน</span>' +

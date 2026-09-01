@@ -1344,6 +1344,7 @@ function rbGanttCss_() {
   '.gt-flt.stby{background:repeating-linear-gradient(45deg,#f2f4f7,#f2f4f7 6px,#e7ebf1 6px,#e7ebf1 12px);border:1px dashed #aab6c4}.gt-flt.stby span{color:#6b7b8e}'+   /* STBY รอจัดไฟลท์ */
   '.gt-flt.na{background:#eef1f5;border-color:#d3ddea}.gt-flt.na span{color:#5b7189}'+
   '.gt-flt.train{background:#ede7f6;border-color:#b9a3dd}.gt-flt.train span{color:#5e3aa8}'+   /* อบรม/เทรน/ประชุม */
+  '.gt-flt.doc{background:#fff3d6;border-color:#e6b84d}.gt-flt.doc span{color:#9a6a00}'+   /* เอกสารตามกำหนดส่ง (Debrief/Manifest/Staff list) */
   '.gt-flt.sup{border-color:#e39a10;border-width:1.5px}'+
   '.gt-now{position:absolute;top:0;bottom:0;width:2px;background:#e5484d;z-index:2;pointer-events:none}'+
   '.gt-hideoff .gt-dim{display:none}'+
@@ -1438,14 +1439,16 @@ function rbTtGantt_(res, ll, nowMin) {
       if (!win || (win[1] - win[0]) > capMax) return;           // ไม่มีเวลา/หน้าต่างเพี้ยน → ไม่วางแถบ
       var lo = win[0], hi = win[1];
       if (hi - lo < 35) hi = lo + 35;                           // min 35 นาที ให้ป้ายพออ่าน
-      var ph = /^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? 'lp' : rbFltPhase_(a.task);   // โซน LP → สีแยก
+      var isDoc = /\bDE-?BRIEF\b|\bMANIFEST\b|STAFF\s*LIST/i.test(String(a.task || ''));   // เอกสารตามกำหนดส่ง (Debrief/Manifest/Staff list)
+      var ph = isDoc ? 'doc' : (/^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? 'lp' : rbFltPhase_(a.task));   // โซน LP / เอกสาร → สีแยก
       var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
       var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
-      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', lp: 'โซน LP', stby: 'STBY (รอจัดไฟลท์)', na: 'งาน' }[ph];
+      var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', lp: 'โซน LP', stby: 'STBY (รอจัดไฟลท์)', doc: 'เอกสาร (กำหนดส่ง)', na: 'งาน' }[ph];
       var barTx = rrFmtMin_(((lo % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((hi % 1440) + 1440) % 1440);
       var raw = (a.STD ? ('STD ' + a.STD) : '') + ((a.OP || a.CL) ? ((a.STD ? ' · ' : '') + 'เคาน์เตอร์ ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
-      var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
-      flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: rbEsc_(leg1) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
+      var dl = isDoc ? ('¦⏰ กำหนดส่ง ' + (/\bDE-?BRIEF\b/i.test(a.task) ? ('STD+1 = ' + rrFmtMin_(((hi % 1440) + 1440) % 1440)) : ('STA−1 = ' + rrFmtMin_(((hi % 1440) + 1440) % 1440)))) : '';
+      var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + dl + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
+      flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: (isDoc ? ('📄 ' + rbEsc_(String(a.task))) : rbEsc_(leg1)) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
     });
     // ทีมพูล/สแตนด์บาย (PVT/LP · CHARTER/ZF) ที่มาทำงานแต่ยังไม่มีงาน = STBY รอจัดไฟลท์ → แสดงแท่ง standby คลุมกะ (ไม่ปล่อยว่างเหมือนไม่มีงาน)
     if (!flts.length && r.bucket === 'working' && du.ss != null && du.se != null && typeof slaIsFloatTeam_ === 'function' && slaIsFloatTeam_(r.team)) {
@@ -1481,6 +1484,7 @@ function rbTtGantt_(res, ll, nowMin) {
     '<span class="gt-lg"><i style="background:#d6efee;border-color:#5cb8b6"></i>หัวหน้า/SOD</span>' +
     '<span class="gt-lg"><i style="background:#fbe3ee;border-color:#e2a3c6"></i>โซน LP</span>' +
     '<span class="gt-lg"><i style="background:#ede7f6;border-color:#b9a3dd"></i>อบรม/เทรน</span>' +
+    '<span class="gt-lg"><i style="background:#fff3d6;border-color:#e6b84d"></i>เอกสาร (กำหนดส่ง)</span>' +
     '<span class="gt-lg"><i style="background:#e7ebf1;border:1px dashed #aab6c4"></i>STBY (รอจัดไฟลท์)</span>' +
     '<span class="gt-lg"><i style="background:#eef1f5;border-color:#d3ddea"></i>อื่น ๆ</span>' +
     '<span class="gt-lg"><i style="background:#e5484d;border-color:#e5484d;width:3px"></i>เวลาปัจจุบัน</span>' +

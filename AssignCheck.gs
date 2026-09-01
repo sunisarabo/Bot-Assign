@@ -74,6 +74,26 @@ function acIsJunkFlight_(name) {
 }
 var AC_WIN_MAX = 14 * 60;   // หน้าต่างไฟลท์ยาวเกินนี้ (ชม.) = ข้อมูลเวลาเพี้ยน (เช่น N898S) → ทิ้ง ไม่คิดครอบคลุม
 
+/** เอกสารที่ต้องส่งตามกำหนด → หน้าต่าง busy สั้นๆ (1 ชม.) รอบเวลา deadline · null ถ้าไม่ใช่งานเอกสารพวกนี้
+ *  · Debrief    = ส่งหลังเครื่องถอย  (deadline STD+1) → busy [STD, STD+60]
+ *  · Manifest   = ส่งก่อนเปิดเคาน์เตอร์ (deadline STA−1) → busy [STA−120, STA−60] (เตรียม 1 ชม.ก่อนเส้นตาย)
+ *  · Staff list = ส่งก่อนเปิดเคาน์เตอร์ (deadline STA−1) → เหมือน Manifest
+ *  (ไม่มี STA ใช้ STD แทน · ไม่มีเวลาเลย → null ให้ตกไปคำนวณแบบปกติ) */
+function acDocDeadline_(task, sta, std) {
+  var t = String(task || '').toUpperCase();
+  if (/\bDE-?BRIEF\b/.test(t)) {
+    if (std == null) return null;
+    return [std, std + 60];                       // deadline STD+1 → busy ช่วงหลังเครื่องถอย
+  }
+  if (/\bMANIFEST\b|\bMNF\b|STAFF\s*LIST|\bSTAFFLIST\b/.test(t)) {
+    var base = (sta != null) ? sta : std;         // ยึด STA ก่อน · ไม่มีจึงใช้ STD
+    if (base == null) return null;
+    var dl = base - 60;                           // deadline = STA−1
+    return [dl - 60, dl];                         // busy = 1 ชม.ก่อนเส้นตาย (เตรียมเอกสาร)
+  }
+  return null;
+}
+
 /** [lo,hi] นาทีที่พนักงาน "cover" ไฟลท์ = ตั้งแต่ "เวลาบรีฟ" จนถึง STD
  *  · เวลาบรีฟ = เวลาเปิดเคาน์เตอร์ (OP จากไฟล์ หรือ STD+ci) ลบเวลาบรีฟของสายการบิน
  *  · จบที่ STD (เครื่องออก)
@@ -92,6 +112,9 @@ function acFlightWin_(a) {
   }
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
+  // เอกสารตามกำหนดส่ง (Debrief / Manifest / Staff list) → busy สั้นๆ รอบ "เวลา deadline"
+  var docWin = acDocDeadline_(a.task, sta, std);
+  if (docWin) return docWin;
   // งานพูล/โซนที่ไม่ใช่ไฟลท์ (LP MORNING/AFTERNOON ฯลฯ) — STA/STD = ช่วงเวลางานจริง (เช่น 05:00–15:00)
   // ใช้ช่วงนั้นตรง ๆ ไม่คิดแบบเปิดเคาน์เตอร์ก่อน STD (กันได้ช่วงผิด เช่น 11:00–15:20 แทน 05:00–15:00)
   if (sta != null && std != null && typeof acIsFlight_ === 'function' && !acIsFlight_(a.flight)) {
