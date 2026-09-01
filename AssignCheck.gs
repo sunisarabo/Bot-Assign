@@ -34,6 +34,18 @@ function acMin_(s) {
   return m ? (+m[1] * 60 + +m[2]) : null;
 }
 
+/** แปลง token เวลาในข้อความกิจกรรม → นาที · "08:30"/"08.30"/"0830"/"830"(HHMM) หรือ "14"(ชม.ล้วน) · null ถ้าไม่ใช่ */
+function acActTok_(t) {
+  t = String(t == null ? '' : t);
+  var mm = t.match(/^(\d{1,2})[:.](\d{2})$/);
+  if (mm) { return (+mm[1] < 24 && +mm[2] < 60) ? (+mm[1] * 60 + +mm[2]) : null; }
+  var hm = t.match(/^(\d{3,4})$/);
+  if (hm) { var d = hm[1], mn = +d.slice(-2), hh = +d.slice(0, -2); return (hh < 24 && mn < 60) ? (hh * 60 + mn) : null; }
+  var ho = t.match(/^(\d{1,2})$/);
+  if (ho) { return (+ho[1] < 24) ? (+ho[1] * 60) : null; }
+  return null;
+}
+
 /** ไฟลท์จริง (มีรหัสไฟลท์) ที่ต้องเช็คครอบคลุม — ไม่ใช่ pool/counter/common
  *  (CHECK-IN COMMON, LP MORNING/AFTERNOON, Counter G2/G11, Gate A1 ฯลฯ).
  *  รหัสไฟลท์จริงจะ "ขึ้นต้น" ด้วยโค้ดสายการบิน (EK378, 6E1077, G9687, QZ246) —
@@ -104,11 +116,13 @@ function acFlightWin_(a) {
   // อบรม/เทรน/ประชุม ที่ระบุช่วงเวลาในข้อความ (เช่น "TRAINING ... 08-17") → ใช้ช่วงนั้นเป็นเวลางาน (busy/gap ถูกต้อง)
   var atxt = String((a.task || '') + ' ' + (a.flight || ''));
   if (acIsActivity_(atxt)) {
-    var rg = atxt.match(/(\d{1,2})(?:[:.](\d{2}))?\s*[-–]\s*(\d{1,2})(?:[:.](\d{2}))?/);
-    if (rg) { var alo = (+rg[1]) * 60 + (+(rg[2] || 0)), ahi = (+rg[3]) * 60 + (+(rg[4] || 0)); if (ahi <= alo) ahi += 1440; return [alo, ahi]; }
-    // เทรน/กิจกรรม (เช่น "Training CM") ที่เวลาอยู่ในช่อง STA/STD/OP/CL → ใช้ช่วงนั้นเต็ม (ไม่ใช่ช่วงเช็คอิน) กันถือว่าว่างกลางเทรน
+    // 1) เวลาชัดเจนในช่อง STA/STD/OP/CL (rrRemarkActivity_ ใส่ "HH:MM" มาแล้ว · หัวคอลัมน์เทรนมี A/D) → ใช้เลย
+    //    (สำคัญ: ต้องเช็คช่องก่อน ไม่งั้นไปแกะ "0830-1000" จากชื่อผิดเป็น "30-10")
     var ts0 = acMin_(a.STA) || acMin_(a.OP), te0 = acMin_(a.STD) || acMin_(a.CL);
     if (ts0 && te0) { if (te0 <= ts0) te0 += 1440; return [ts0, te0]; }
+    // 2) ไม่มีช่องเวลา → แกะจากข้อความ รองรับ HHMM/H:MM/H (เช่น "TRAINING 08-17", "0830-1000", "14-1530")
+    var rg = atxt.match(/(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})/);
+    if (rg) { var alo = acActTok_(rg[1]), ahi = acActTok_(rg[2]); if (alo != null && ahi != null) { if (ahi <= alo) ahi += 1440; return [alo, ahi]; } }
   }
   function m(x) { var v = acMin_(x); return v ? v : null; }   // 00:00 = placeholder → null
   var sta = m(a.STA), op = m(a.OP), cl = m(a.CL), std = m(a.STD);
