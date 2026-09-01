@@ -1450,6 +1450,11 @@ function rbTtGantt_(res, ll, nowMin) {
       var tip = a.flight + (sup ? ' 🔁' : '') + '¦' + phL + (a.task ? ' · ' + a.task : '') + '¦ช่วงงาน ' + barTx + dl + (raw ? '¦' + raw : '') + (sup ? '¦🔁 ซัพข้ามทีม' : '');
       flts.push({ lo: lo, hi: hi, ph: ph, sup: sup, lab: (isDoc ? ('📄 ' + rbEsc_(String(a.task))) : rbEsc_(leg1)) + (sup ? ' 🔁' : ''), tip: rbAttr_(tip) });
     });
+    // ติดอบรม/เทรน (STATUS=TRN / remark training) แต่ไม่มีเวลาอบรมระบุในโน้ต + ไม่มีไฟลท์ → ไม่ว่างทั้งกะ → แท่งเทรนคลุมกะ (เช่น "Pax handling course" 08:00-17:00)
+    if (!flts.length && r.training && du.ss != null && du.se != null) {
+      flts.push({ lo: du.ss, hi: du.se, ph: 'train', sup: false, lab: '📚 อบรม/เทรน',
+        tip: rbAttr_(r.name + '¦📚 อบรม/เทรน (ไม่ว่างทั้งกะ)' + (r.remark && !/^TRN$/i.test(String(r.remark).trim()) ? ' · ' + r.remark : '') + '¦กะ ' + (r.shiftTime || (rrFmtMin_(((du.ss % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((du.se % 1440) + 1440) % 1440)))) });
+    }
     // ทีมพูล/สแตนด์บาย (PVT/LP · CHARTER/ZF) ที่มาทำงานแต่ยังไม่มีงาน = STBY รอจัดไฟลท์ → แสดงแท่ง standby คลุมกะ (ไม่ปล่อยว่างเหมือนไม่มีงาน)
     if (!flts.length && r.bucket === 'working' && du.ss != null && du.se != null && typeof slaIsFloatTeam_ === 'function' && slaIsFloatTeam_(r.team)) {
       flts.push({ lo: du.ss, hi: du.se, ph: 'stby', sup: false, lab: 'STBY · รอ assign',
