@@ -3441,6 +3441,16 @@ function acMin_(s) {
   return m ? (+m[1] * 60 + +m[2]) : null;
 }
 
+/** แกะเวลาจาก "ช่องเวลา" ที่รก → นาที · รองรับ "A : 11:00" · "O :0800" · "D :12:30" · "08-30" · "0830" · null ถ้าไม่มี
+ *  (คอลัมน์เทรน AOTGA-GOM/ACCESSOR/TOWN HALL ใส่เวลาไว้ที่ A/D หรือ O/C ด้วยรูปแบบไม่คงที่) */
+function acActCell_(v) {
+  var s = String(v == null ? '' : v).replace(/^\s*[ADOC]\s*[:：]?\s*/i, '').trim();   // ตัดป้าย "A :" / "O :" / "D :" / "C :"
+  var m = s.match(/(\d{1,2})[:.\-](\d{2})/);            // HH:MM · HH.MM · HH-MM (พิมพ์ขีดแทน colon)
+  if (m && +m[1] < 24 && +m[2] < 60) return (+m[1]) * 60 + (+m[2]);
+  var h = s.match(/^(\d{3,4})$/);                        // HHMM ไม่มีตัวคั่น
+  if (h) { var mn = +h[1].slice(-2), hh = +h[1].slice(0, -2); if (hh < 24 && mn < 60) return hh * 60 + mn; }
+  return null;
+}
 /** แปลง token เวลาในข้อความกิจกรรม → นาที · "08:30"/"08.30"/"0830"/"830"(HHMM) หรือ "14"(ชม.ล้วน) · null ถ้าไม่ใช่ */
 function acActTok_(t) {
   t = String(t == null ? '' : t);
@@ -3523,10 +3533,10 @@ function acFlightWin_(a) {
   // อบรม/เทรน/ประชุม ที่ระบุช่วงเวลาในข้อความ (เช่น "TRAINING ... 08-17") → ใช้ช่วงนั้นเป็นเวลางาน (busy/gap ถูกต้อง)
   var atxt = String((a.task || '') + ' ' + (a.flight || ''));
   if (acIsActivity_(atxt)) {
-    // 1) เวลาชัดเจนในช่อง STA/STD/OP/CL (rrRemarkActivity_ ใส่ "HH:MM" มาแล้ว · หัวคอลัมน์เทรนมี A/D) → ใช้เลย
-    //    (สำคัญ: ต้องเช็คช่องก่อน ไม่งั้นไปแกะ "0830-1000" จากชื่อผิดเป็น "30-10")
-    var ts0 = acMin_(a.STA) || acMin_(a.OP), te0 = acMin_(a.STD) || acMin_(a.CL);
-    if (ts0 && te0) { if (te0 <= ts0) te0 += 1440; return [ts0, te0]; }
+    // 1) เวลาชัดเจนในช่อง STA/STD/OP/CL — รองรับรูปแบบรก "A : 11:00" · "O :0800" · "08-30" · "0830"
+    //    (หัวคอลัมน์เทรนใส่เวลาไว้ที่ A/D หรือ O/C ปนกัน) — เช็คช่องก่อนแกะจากชื่อ (กัน "0830-1000" → "30-10")
+    var ts0 = acActCell_(a.STA) || acActCell_(a.OP), te0 = acActCell_(a.STD) || acActCell_(a.CL);
+    if (ts0 != null && te0 != null) { if (te0 <= ts0) te0 += 1440; return [ts0, te0]; }
     // 2) ไม่มีช่องเวลา → แกะจากข้อความ รองรับ HHMM/H:MM/H (เช่น "TRAINING 08-17", "0830-1000", "14-1530")
     var rg = atxt.match(/(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})/);
     if (rg) { var alo = acActTok_(rg[1]), ahi = acActTok_(rg[2]); if (alo != null && ahi != null) { if (ahi <= alo) ahi += 1440; return [alo, ahi]; } }
