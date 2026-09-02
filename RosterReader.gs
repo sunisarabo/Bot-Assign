@@ -680,6 +680,11 @@ function rrParseStandard_(rows, team, meta) {
     if (otG2) { oth += otG2.hours; if (otG2.range[0] != null) otSpans.push({ a: otG2.range[0], b: otG2.range[1], type: 'POST' }); }
     oth = Math.round(oth * 10) / 10;
     var bkt = rrClassify_(shift || timev, remark);
+    // เผื่อดิวตี้เขียน "ลา/VAC/SL" ไว้ในคอลัมน์ REMARK จริง (ไม่ใช่ STATUS) → จับเป็นลา/ป่วยด้วย (กัน "คนลาไม่ระบุว่าลา")
+    if ((bkt === 'working' || bkt === 'off') && remark2) {
+      var rc2 = rrClassify_('', remark2);
+      if (rc2 === 'vac' || rc2 === 'sick') bkt = rc2;
+    }
     // บางชีต (เช่น AK) ใส่ "รหัสกะวันหยุด" (เช่น P5) ในคอลัมน์ SHIFT แล้วเขียน "OFF" ในคอลัมน์ TIME/IN
     // (สถานะ Onduty/Off อาจอยู่ผิดคอลัมน์ → remark ว่าง) → ถ้า TIME = OFF/X ให้ถือว่าหยุด แม้รหัสกะไม่ใช่ OFF
     if (bkt === 'working' && /^\s*(OFF|X{1,2})\b/i.test(timev)) bkt = 'off';

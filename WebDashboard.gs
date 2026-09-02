@@ -1431,7 +1431,9 @@ function rbTtGantt_(res, ll, nowMin) {
           tip: rbAttr_(r.name + '¦อบรม/กิจกรรม (ไม่ว่างช่วงนี้)¦' + a.flight) });
         return;
       }
-      if (!acIsFlight_(a.flight) && !(typeof acIsCoverWork_ === 'function' && acIsCoverWork_(a.flight))) return;   // ไฟลท์จริง + งานโซน/เคาน์เตอร์ (LP MORNING/AFTERNOON · Counter Gx · CHECK-IN COMMON) → วางแท่งด้วย
+      // คอลัมน์ "SUPPORT <ไฟลท์>" / "ซัพ <ไฟลท์>" ในชีตตัวเอง (ไปช่วยไฟลท์ทีมอื่น) — เดิมไม่วางแท่ง ทำให้ดูเหมือนว่าง
+      var isSupCol = /^(SUPPORT|ซัพ)\b/i.test(String(a.flight || '')) || a.supportOut === true;
+      if (!acIsFlight_(a.flight) && !(typeof acIsCoverWork_ === 'function' && acIsCoverWork_(a.flight)) && !isSupCol) return;   // ไฟลท์จริง + งานโซน/เคาน์เตอร์ (LP MORNING/AFTERNOON · Counter Gx · CHECK-IN COMMON) + งานไปซัพ → วางแท่งด้วย
       // วางแถบตาม "เวลาของ JOB ที่ได้รับ assign" — ใช้ acFlightWin_ ตัวเดียวกับหน้า ตรวจ Assign
       //   (เช็คอิน OP–CL · เกท→STD · CS OP+2h · FR/GK→STD · ไม่มีเคาน์เตอร์→STA/STD · ตัดค่าขยะ/หน้าต่างเพี้ยน)
       var win = (typeof acFlightWin_ === 'function') ? acFlightWin_(a) : null;
@@ -1441,8 +1443,9 @@ function rbTtGantt_(res, ll, nowMin) {
       if (hi - lo < 35) hi = lo + 35;                           // min 35 นาที ให้ป้ายพออ่าน
       var isDoc = /\bDE-?BRIEF\b|\bMANIFEST\b|STAFF\s*LIST/i.test(String(a.task || ''));   // เอกสารตามกำหนดส่ง (Debrief/Manifest/Staff list)
       var ph = isDoc ? 'doc' : (/^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? 'lp' : rbFltPhase_(a.task));   // โซน LP / เอกสาร → สีแยก
-      var sup = owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team);
-      var leg1 = String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
+      var supFlt = isSupCol ? rrCleanFltName_(String(a.flight).replace(/^(SUPPORT|ซัพ)\s*/i, '')) : '';   // ดึงรหัสไฟลท์จาก "SUPPORT 6E1493-1494"
+      var sup = isSupCol || (owner && owner[slaAirlineOf_(a.flight)] && owner[slaAirlineOf_(a.flight)] !== r.team && !slaSkipTeam_(r.team));
+      var leg1 = isSupCol ? (supFlt || 'ซัพ') : String(a.flight).split('/')[0].trim();   // ย่อเหลือขาแรก: "9C8665/9C8663" → "9C8665"
       var phL = { ci: 'เช็คอิน', gate: 'เกท', arr: 'ขาเข้า', sod: 'หัวหน้า/คุมงาน', lp: 'โซน LP', stby: 'STBY (รอจัดไฟลท์)', doc: 'เอกสาร (กำหนดส่ง)', na: 'งาน' }[ph];
       var barTx = rrFmtMin_(((lo % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((hi % 1440) + 1440) % 1440);
       var raw = (a.STD ? ('STD ' + a.STD) : '') + ((a.OP || a.CL) ? ((a.STD ? ' · ' : '') + 'เคาน์เตอร์ ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
