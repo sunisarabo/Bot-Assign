@@ -1328,11 +1328,79 @@ function readMasterHeadcount(masterFileId) {
       hc[deptKey].byPos[grp] = (hc[deptKey].byPos[grp] || 0) + 1;
       hc.active++;
     }
+    // ── ผูกกับชีต "BKK Batch 1" (พนักงาน BKK มาช่วย HKT · รหัสขึ้นต้น B · ไม่ได้อยู่ชีต Total) ──
+    //   → ใส่รหัสเข้า hc.ids (กันเตือน "ในเวรแต่ไม่มีใน master") + นับเข้ายอด PSA ให้ตรง
+    try { rbAddBkkBatch_(ss, hc); } catch (eBk) { Logger.log('BKK Batch: ' + eBk.message); }
     return hc;
   } catch (e) {
     Logger.log('⚠️ Master: เข้าไฟล์ไม่ได้ (' + e.message + ') → ข้าม (รายงานยังออกได้)');
     return null;
   }
+}
+
+/** หาชีต "BKK Batch 1" (ชื่อมีเว้นวรรค/ตัวเลขต่อท้ายได้) */
+function rbFindBkkBatchSheet_(ss) {
+  var found = null;
+  ss.getSheets().forEach(function (s) {
+    var n = s.getName();
+    if (!found && /BKK/i.test(n) && /BATCH/i.test(n)) found = s;
+  });
+  return found;
+}
+/** แถวคน BKK Batch → { id(เลขล้วน), team, nameTh, pos } · หัวตาราง: รหัส(1) ทีม(2) คำนำหน้า(3) ชื่อ(4) สกุล(5) แผนก(6) ตำแหน่ง(7) */
+function rbReadBkkBatch_(ss) {
+  var out = [], ws = rbFindBkkBatchSheet_(ss);
+  if (!ws) return out;
+  var data = ws.getDataRange().getValues();
+  var hi = 0;
+  for (var h = 0; h < Math.min(6, data.length); h++) {
+    var u = data[h].map(function (c) { return String(c == null ? '' : c); });
+    if (u.some(function (c) { return /รหัส/.test(c); }) && u.some(function (c) { return /ชื่อ/.test(c); })) { hi = h; break; }
+  }
+  for (var i = hi + 1; i < data.length; i++) {
+    var row = data[i];
+    var idNum = String(row[1] == null ? '' : row[1]).replace(/\D/g, '');   // "B2607384" → "2607384"
+    if (!/^\d{6,8}$/.test(idNum)) continue;
+    out.push({ id: idNum, team: String(row[2] || '').trim(),
+      nameTh: (String(row[4] || '').trim() + ' ' + String(row[5] || '').trim()).trim(),
+      pos: String(row[7] || 'Passenger Services Agent').trim() });
+  }
+  return out;
+}
+/** ใส่คน BKK Batch เข้า headcount: hc.ids + นับ PSA (ทุกคนเป็น PSA การโดยสาร) */
+function rbAddBkkBatch_(ss, hc) {
+  rbReadBkkBatch_(ss).forEach(function (p) {
+    if (hc.ids[p.id]) return;                                  // มีใน Total อยู่แล้ว → ไม่นับซ้ำ
+    hc.ids[p.id] = 1;
+    var grp = (typeof rrPosGroup_ === 'function') ? rrPosGroup_(p.pos, p.team) : 'Agent';
+    hc.PSA.total++; hc.PSA.byPos[grp] = (hc.PSA.byPos[grp] || 0) + 1; hc.active++;
+  });
+}
+
+/** เติมคน BKK ที่ยังไม่มีในชีต "BKK Batch 1" (รันครั้งเดียวใน Apps Script · idempotent ไม่เพิ่มซ้ำ)
+ *  ใช้เพิ่มคนที่อยู่ในเวรแต่ยังไม่มีในไฟล์รายชื่อเลย (เช่น SOFROP, MUHAMMAD) → ยอดครบ ไม่เตือน */
+function rbBkkBatchAddMissing() {
+  var ADD = [                                                  // {id(ไม่มี B), team, prefix, first, last, pos}
+    { id: '2520045', team: 'SQ',   prefix: '', first: 'SOFROP', last: '', pos: 'Passenger Services Agent' },
+    { id: '2520062', team: 'WYWK', prefix: '', first: 'MUHAMMAD (MATTY)', last: '', pos: 'Passenger Services Agent' }
+  ];
+  var ss = SpreadsheetApp.openById(MASTER_FILE_ID_RB);
+  var ws = rbFindBkkBatchSheet_(ss);
+  if (!ws) throw new Error('ไม่พบชีต BKK Batch 1');
+  var have = {};
+  rbReadBkkBatch_(ss).forEach(function (p) { have[p.id] = 1; });
+  var last = ws.getLastRow(), seq = 0, added = [];
+  // หาเลขลำดับล่าสุด (คอลัมน์ A)
+  var colA = ws.getRange(1, 1, last, 1).getValues();
+  colA.forEach(function (r) { var n = parseInt(r[0], 10); if (!isNaN(n)) seq = Math.max(seq, n); });
+  ADD.forEach(function (p) {
+    if (have[p.id]) return;                                    // มีแล้ว → ข้าม
+    seq++;
+    ws.appendRow([seq, 'B' + p.id, p.team, p.prefix, p.first, p.last, 'การโดยสาร ภูเก็ต', p.pos, new Date()]);
+    added.push(p.id + ' ' + p.first);
+  });
+  Logger.log('เพิ่มเข้า BKK Batch 1: ' + (added.length ? added.join(', ') : '(ไม่มีที่ต้องเพิ่ม — มีครบแล้ว)'));
+  return 'เพิ่ม ' + added.length + ' คน: ' + added.join(', ');
 }
 
 function debugDumpMaster(masterFileId) {
@@ -1367,6 +1435,13 @@ function rbMasterNameTeam_(masterFileId) {
       var k = key(nm); if (k) (out[k] = out[k] || {})[team] = 1;
     });
   }
+  // เพิ่มคน BKK Batch (ชีตแยก) → ชื่อ→ทีม (ใช้โค้ดสายแรกเป็นทีม เช่น "EK/UO/6B" → EK)
+  try {
+    rbReadBkkBatch_(ss).forEach(function (p) {
+      var team = String(p.team || '').split('/')[0].trim();
+      var k = key(p.nameTh); if (k && team) (out[k] = out[k] || {})[team] = 1;
+    });
+  } catch (eB) {}
   return out;
 }
 
