@@ -877,18 +877,28 @@ function slaCandidates_(f, ph, pool, max, winOverride) {
   });
   function ovh(x) { return (x.hstat && (x.hstat.level === 'over' || x.hstat.level === 'high')) ? 1 : 0; }   // ชั่วโมงเกินเกณฑ์ → ดันท้าย
   function rst(x) { return x.rest ? 1 : 0; }   // วันหยุด (OT-OFF / OFF re-sked) → ดันท้ายสุด ไม่แนะนำก่อนคนกะปกติ
+  // "เวลากะตรงกับไฟลท์" — กะครอบ window พอดี (slack น้อย) = ตรงเวลากว่า · สแตนด์บายกะกว้าง = หลวมกว่า → ดันหลัง
+  function fit(x) { var ds = (x.ds == null ? -100000 : x.ds), de = (x.de == null ? 100000 : x.de); return Math.max(0, win[0] - ds) + Math.max(0, de - win[1]); }
+  // ลำดับความสำคัญ (ตามที่ทีมกำหนด): 1) เวลากะตรงไฟลท์ 2) งานน้อยสุด 3) ตำแหน่ง Agent 4) ทีมพูลซัพ
+  //   (ยังกันคนวันหยุด/ชั่วโมงเกินไว้เป็นด่านแรกเสมอ — ไม่แนะคนพัก/ล้าก่อนคนพร้อม)
   if (ph === 'SUP') {
-    // คนกะปกติก่อน · วันหยุด(OT-OFF/OFF)ท้ายสุด · ชั่วโมงไม่เกินก่อน · ทีมลอย(PVTLP/STBY)ก่อน · Sup ก่อน Snr · งานน้อยกว่าก่อน
-    cands.sort(function (a, b) { return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || (a.posGroup === 'PSS' ? 0 : 1) - (b.posGroup === 'PSS' ? 0 : 1) || a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
-  } else {
-    // CI / GATE / ARR: คนกะปกติก่อน · วันหยุด(OT-OFF/OFF)ท้ายสุด · ชั่วโมงไม่เกินก่อน · ทีมลอยก่อน · Agent → Senior → Sup · งานน้อย/ว่างกว่าก่อน
-    var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
-      return rst(a) - rst(b) ||
-        (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
-        ovh(a) - ovh(b) ||
-        (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
-        (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+      return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) ||
+        fit(a) - fit(b) ||                                                            // 1) เวลากะตรงไฟลท์
+        a.nflt - b.nflt ||                                                            // 2) งานน้อยสุด
+        (a.posGroup === 'PSS' ? 0 : 1) - (b.posGroup === 'PSS' ? 0 : 1) ||            // (SUP ต้อง Sup ก่อน Snr)
+        (a.float ? 0 : 1) - (b.float ? 0 : 1) ||                                      // 4) ทีมพูลซัพ
+        String(a.team).localeCompare(b.team);
+    });
+  } else {
+    var PRI = { PSA: 0, SNR: 1, PSS: 2 };   // Agent → Senior → Sup
+    cands.sort(function (a, b) {
+      return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) ||
+        fit(a) - fit(b) ||                                                            // 1) เวลากะตรงไฟลท์
+        a.nflt - b.nflt ||                                                            // 2) งานน้อยสุด
+        (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) ||   // 3) Agent ก่อน
+        (a.float ? 0 : 1) - (b.float ? 0 : 1) ||                                      // 4) ทีมพูลซัพ
+        String(a.team).localeCompare(b.team);
     });
   }
   return max ? cands.slice(0, max) : cands;
@@ -911,9 +921,13 @@ function slaOtherCands_(f, ph, pool, max, exclude, winOverride) {
     return true;
   });
   var PRI = { PSA: 0, SNR: 1, PSS: 2 };
+  function fit(x) { var ds = (x.ds == null ? -100000 : x.ds), de = (x.de == null ? 100000 : x.de); return Math.max(0, win[0] - ds) + Math.max(0, de - win[1]); }
   cands.sort(function (a, b) {
-    return (a.rest ? 1 : 0) - (b.rest ? 1 : 0) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || (a.float ? 0 : 1) - (b.float ? 0 : 1) ||
-      (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+    return (a.rest ? 1 : 0) - (b.rest ? 1 : 0) || (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
+      fit(a) - fit(b) ||                                                              // 1) เวลากะตรงไฟลท์
+      a.nflt - b.nflt ||                                                             // 2) งานน้อยสุด
+      (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) ||   // 3) Agent ก่อน
+      (a.float ? 0 : 1) - (b.float ? 0 : 1);                                         // 4) ทีมพูลซัพ
   });
   return max ? cands.slice(0, max) : cands;
 }
