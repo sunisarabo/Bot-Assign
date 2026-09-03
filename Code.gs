@@ -2860,6 +2860,9 @@ function slaTeamSystems_(res, ll) {
   }
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { add(t, r); }); });
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
+  // ฐาน: ทีม CHARTER/ZF = พูล ASTRA (รับชาร์เตอร์ ZF ซึ่งใช้ ASTRA เหมือน SU) → ถือว่าเช็คอิน ASTRA เป็น
+  //   แม้วันนั้นยังไม่ได้ทำ CI ไฟลท์ ASTRA → ให้เป็นตัวเลือกช่วย SU เช็คอินได้ (Duty เรียก CHARTER ก่อนเป็นปกติ)
+  Object.keys(res.teams).forEach(function (t) { if (/CHARTER|\bZF\b/i.test(t)) (sys[t] = sys[t] || {})['astra'] = true; });
   return sys;
 }
 /** ทีมลอย/สแตนด์บายที่ Duty เรียกมาช่วยก่อน (PVTLP=PVT pool, CHARTER=ZF pool, STBY) */
@@ -2987,11 +2990,15 @@ function slaCandidates_(f, ph, pool, max, winOverride) {
   function rst(x) { return x.rest ? 1 : 0; }   // วันหยุด (OT-OFF / OFF re-sked) → ดันท้ายสุด ไม่แนะนำก่อนคนกะปกติ
   // "เวลากะตรงกับไฟลท์" — กะครอบ window พอดี (slack น้อย) = ตรงเวลากว่า · สแตนด์บายกะกว้าง = หลวมกว่า → ดันหลัง
   function fit(x) { var ds = (x.ds == null ? -100000 : x.ds), de = (x.de == null ? 100000 : x.de); return Math.max(0, win[0] - ds) + Math.max(0, de - win[1]); }
+  // SU เช็คอิน (ASTRA) → ให้ทีม CHARTER (พูล ASTRA) ขึ้นก่อนเสมอ (Duty เรียก CHARTER ช่วยเช็คอิน SU เป็นปกติ)
+  var astraCI = (ph === 'CI' && needNorm === slaSysNorm_('ASTRA'));
+  function chF(x) { return (astraCI && /CHARTER|\bZF\b/i.test(x.team)) ? 0 : 1; }
   // ลำดับความสำคัญ (ตามที่ทีมกำหนด): 1) เวลากะตรงไฟลท์ 2) งานน้อยสุด 3) ตำแหน่ง Agent 4) ทีมพูลซัพ
   //   (ยังกันคนวันหยุด/ชั่วโมงเกินไว้เป็นด่านแรกเสมอ — ไม่แนะคนพัก/ล้าก่อนคนพร้อม)
   if (ph === 'SUP') {
     cands.sort(function (a, b) {
       return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) ||
+        chF(a) - chF(b) ||                                                            // 0) SU เช็คอิน → CHARTER ก่อน
         fit(a) - fit(b) ||                                                            // 1) เวลากะตรงไฟลท์
         a.nflt - b.nflt ||                                                            // 2) งานน้อยสุด
         (a.posGroup === 'PSS' ? 0 : 1) - (b.posGroup === 'PSS' ? 0 : 1) ||            // (SUP ต้อง Sup ก่อน Snr)
@@ -3002,6 +3009,7 @@ function slaCandidates_(f, ph, pool, max, winOverride) {
     var PRI = { PSA: 0, SNR: 1, PSS: 2 };   // Agent → Senior → Sup
     cands.sort(function (a, b) {
       return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) ||
+        chF(a) - chF(b) ||                                                            // 0) SU เช็คอิน → CHARTER ก่อน
         fit(a) - fit(b) ||                                                            // 1) เวลากะตรงไฟลท์
         a.nflt - b.nflt ||                                                            // 2) งานน้อยสุด
         (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) ||   // 3) Agent ก่อน
