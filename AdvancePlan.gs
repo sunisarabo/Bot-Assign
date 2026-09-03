@@ -1090,23 +1090,26 @@ function apTeamsNotFilled_(ss) {
     var lastR = Math.min(sh.getLastRow(), 80), lastC = Math.min(sh.getLastColumn(), 60);
     if (lastR < 4 || lastC < 3) return;
     var data = sh.getRange(1, 1, lastR, lastC).getValues();
-    var hi = -1, cId = -1, cSt = -1, cFlt = -1;
+    var hi = -1, cId = -1, cSt = -1, cFlt = -1, cSh = -1;
     for (var h = 0; h < Math.min(8, data.length); h++) {
       var u = data[h].map(function (c) { return String(c == null ? '' : c).trim().toUpperCase(); });
       if (u.indexOf('ID') >= 0 && u.indexOf('NAME') >= 0) {
-        hi = h; cId = u.indexOf('ID'); cSt = u.indexOf('STATUS'); cFlt = u.indexOf('FLIGHT'); break;
+        hi = h; cId = u.indexOf('ID'); cSt = u.indexOf('STATUS'); cFlt = u.indexOf('FLIGHT'); cSh = u.indexOf('SHIFT'); break;
       }
     }
     if (hi < 0) return;                         // ไม่ใช่แท็บทีม
+    // ทีมสแตนด์บาย (CHARTER/PVTLP) ไม่ได้จัดไฟลท์ประจำ → ใส่ "สถานะ + กะ" ครบก็ถือว่าลงแล้ว (ไม่ต้องมีงานไฟลท์)
+    var isStandby = /CHARTER|\bZF\b|PVT|PVTLP|\bLP\b|STBY|STAND ?BY|FLOAT/i.test(nm);
     var people = 0, filled = 0;
     for (var r = hi + 1; r < data.length; r++) {
       var id = String(data[r][cId] == null ? '' : data[r][cId]).replace(/\D/g, '');
       if (id.length < 6 || id.length > 8) continue;
       people++;
       var st = (cSt >= 0 && cSt < data[r].length) ? String(data[r][cSt] || '').trim() : '';
+      var shv = (cSh >= 0 && cSh < data[r].length) ? String(data[r][cSh] || '').trim() : '';
       var hasJob = false;
       if (cFlt >= 0) for (var c = cFlt + 1; c < data[r].length; c++) { if (String(data[r][c] || '').trim()) { hasJob = true; break; } }
-      if (st || hasJob) { filled++; }
+      if (st || hasJob || (isStandby && shv)) { filled++; }   // สแตนด์บาย: มีกะก็นับว่าลง
     }
     if (people > 0 && filled < people) out.push({ team: nm, people: people, filled: filled, missing: people - filled });   // ยังกรอกไม่ครบทุกคน = ยังไม่ลง
   });
