@@ -9046,9 +9046,9 @@ function rbAutoAssignHtml(iso, fcJson) {
 /** map หน้าที่ (SUPPORT REQUEST) → phase หาคน: ARR / CI / SUP / GATE (ค่าเริ่มต้น = GATE/แรมป์) */
 function rbSupDutyPhase_(duty) {
   var d = String(duty || '').toUpperCase();
+  if (/\bSOD\b|\bSUP\b|SPVR|\bFC\b|CONTROL/.test(d)) return 'SUP';   // SOD/หัวหน้าคุมงาน → ต้องเป็น Sup/Snr + รู้ระบบ (เช็คก่อน ARR/GATE)
   if (/\bARR\b|ARRIVAL|\bTF\b|CIQ|TRANSFER/.test(d)) return 'ARR';
   if (/CHECK|\bCI\b|COUNTER|\bCTR\b|CREW\s*SIGN|\bCS\b|\bCF\b|\bGK\b|\bCT\b/.test(d)) return 'CI';
-  if (/\bSUP\b|SPVR|\bFC\b|CONTROL/.test(d)) return 'SUP';
   return 'GATE';                       // Gate Agent / GA / GM / Gate DOM / Boarding / ramp → GATE
 }
 /** เวลาในคำขอ (SUPPORT REQUEST) → ช่วงเวลา "HH:MM-HH:MM" ให้ตัวหาคน
