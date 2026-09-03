@@ -1078,7 +1078,7 @@ function advTest() {
 //   apSetupMissingNotify()  — ตั้ง trigger รายวัน (รันครั้งเดียว)
 //   apNotifyMissingAssignments(7) — เช็ก+ส่งเมลเดี๋ยวนี้ (เรียกเองทดสอบได้)
 // ═══════════════════════════════════════════════════════════════════════════
-var AP_NOTIFY_EMAILS = null;   // null = ใช้ RB_SHARE_EMAILS (duty + asst-mgr) · ใส่ ['a@x','b@y'] เพื่อกำหนดเอง
+var AP_NOTIFY_EMAILS = ['hktadminpsa@aotga.com'];   // ผู้รับอีเมลแจ้งเตือน (ตั้ง null = ใช้ RB_SHARE_EMAILS)
 var AP_NOTIFY_HOUR = 9;        // ชั่วโมงที่ส่งเมลรายวัน (09:00)
 
 /** เช็กแต่ละแท็บทีมในไฟล์ 1 วัน → คืนรายชื่อทีมที่ "ยังไม่ลงข้อมูล" (ไม่มีสถานะ + ไม่มีงานเลย) */
@@ -1108,7 +1108,7 @@ function apTeamsNotFilled_(ss) {
       if (cFlt >= 0) for (var c = cFlt + 1; c < data[r].length; c++) { if (String(data[r][c] || '').trim()) { hasJob = true; break; } }
       if (st || hasJob) { filled++; }
     }
-    if (people > 0 && filled === 0) out.push(nm);   // มีรายชื่อคนแต่ยังไม่กรอกสถานะ/งานเลย = ยังไม่ลง
+    if (people > 0 && filled < people) out.push({ team: nm, people: people, filled: filled, missing: people - filled });   // ยังกรอกไม่ครบทุกคน = ยังไม่ลง
   });
   return out;
 }
@@ -1118,15 +1118,18 @@ function apBuildMissingEmail_(report, days, tz) {
   var rows = report.map(function (d) {
     var detail = d.fileMissing
       ? '<span style="color:#c0392b">❌ ยังไม่มีไฟล์เวรของวันนี้</span>'
-      : d.missingTeams.map(function (t) { return '<span style="display:inline-block;background:#fde8e8;color:#a12; border-radius:4px;padding:1px 7px;margin:2px">' + t + '</span>'; }).join(' ');
+      : d.missingTeams.map(function (t) {
+          return '<span style="display:inline-block;background:#fde8e8;color:#a12;border-radius:4px;padding:1px 7px;margin:2px">'
+            + t.team + ' <b>(ลง ' + t.filled + '/' + t.people + ' · ค้าง ' + t.missing + ')</b></span>';
+        }).join(' ');
     return '<tr><td style="padding:8px 10px;border-bottom:1px solid #eee;white-space:nowrap"><b>' + d.wd + ' ' + d.iso + '</b></td>'
       + '<td style="padding:8px 10px;border-bottom:1px solid #eee">' + detail + '</td></tr>';
   }).join('');
   return '<div style="font-family:Tahoma,Arial,sans-serif;max-width:640px">'
-    + '<h2 style="color:#1f4e79;margin:0 0 4px">⚠️ ทีมที่ยังไม่ลง Assignment (ล่วงหน้า ' + days + ' วัน)</h2>'
-    + '<p style="color:#666;margin:0 0 12px;font-size:13px">ตรวจอัตโนมัติ ' + Utilities.formatDate(new Date(), tz, 'dd MMM yyyy HH:mm') + ' · กรุณาให้ทีมเข้าไปกรอกให้ครบ</p>'
+    + '<h2 style="color:#1f4e79;margin:0 0 4px">⚠️ ทีมที่ยังลง Assignment ไม่ครบ (ล่วงหน้า ' + days + ' วัน)</h2>'
+    + '<p style="color:#666;margin:0 0 12px;font-size:13px">ตรวจอัตโนมัติ ' + Utilities.formatDate(new Date(), tz, 'dd MMM yyyy HH:mm') + ' · ต้องกรอกให้ครบทุกคน (ลง = มีสถานะหรือมีงาน)</p>'
     + '<table style="border-collapse:collapse;width:100%;font-size:14px"><tr style="background:#1f4e79;color:#fff">'
-    + '<th style="padding:8px 10px;text-align:left">วันที่</th><th style="padding:8px 10px;text-align:left">ทีมที่ยังไม่ลง</th></tr>'
+    + '<th style="padding:8px 10px;text-align:left">วันที่</th><th style="padding:8px 10px;text-align:left">ทีมที่ยังไม่ครบ (ลง/ทั้งหมด · ค้าง)</th></tr>'
     + rows + '</table></div>';
 }
 
