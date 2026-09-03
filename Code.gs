@@ -5720,6 +5720,106 @@ function advTest() {
   return { employees: Object.keys(emp).length, rosterRows: ros.length, flights: flt.length, pool: built.pool.length, nFlights: plan.nFlights, nAssigned: plan.nAssigned };
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// แจ้งเตือนอีเมล: ทีมไหน "ยังไม่ลง Assignment" ล่วงหน้า 7 วัน
+//   apSetupMissingNotify()  — ตั้ง trigger รายวัน (รันครั้งเดียว)
+//   apNotifyMissingAssignments(7) — เช็ก+ส่งเมลเดี๋ยวนี้ (เรียกเองทดสอบได้)
+// ═══════════════════════════════════════════════════════════════════════════
+var AP_NOTIFY_EMAILS = null;   // null = ใช้ RB_SHARE_EMAILS (duty + asst-mgr) · ใส่ ['a@x','b@y'] เพื่อกำหนดเอง
+var AP_NOTIFY_HOUR = 9;        // ชั่วโมงที่ส่งเมลรายวัน (09:00)
+
+/** เช็กแต่ละแท็บทีมในไฟล์ 1 วัน → คืนรายชื่อทีมที่ "ยังไม่ลงข้อมูล" (ไม่มีสถานะ + ไม่มีงานเลย) */
+function apTeamsNotFilled_(ss) {
+  var out = [];
+  ss.getSheets().forEach(function (sh) {
+    var nm = sh.getName();
+    if (/MANPOWER|MASTER|SHIFTDB|\bCODE\b|_CODES|ALL FLIGHTS|SUPPORT REQUEST|Lists|Pivot|Report/i.test(nm)) return;
+    var lastR = Math.min(sh.getLastRow(), 80), lastC = Math.min(sh.getLastColumn(), 60);
+    if (lastR < 4 || lastC < 3) return;
+    var data = sh.getRange(1, 1, lastR, lastC).getValues();
+    var hi = -1, cId = -1, cSt = -1, cFlt = -1;
+    for (var h = 0; h < Math.min(8, data.length); h++) {
+      var u = data[h].map(function (c) { return String(c == null ? '' : c).trim().toUpperCase(); });
+      if (u.indexOf('ID') >= 0 && u.indexOf('NAME') >= 0) {
+        hi = h; cId = u.indexOf('ID'); cSt = u.indexOf('STATUS'); cFlt = u.indexOf('FLIGHT'); break;
+      }
+    }
+    if (hi < 0) return;                         // ไม่ใช่แท็บทีม
+    var people = 0, filled = 0;
+    for (var r = hi + 1; r < data.length; r++) {
+      var id = String(data[r][cId] == null ? '' : data[r][cId]).replace(/\D/g, '');
+      if (id.length < 6 || id.length > 8) continue;
+      people++;
+      var st = (cSt >= 0 && cSt < data[r].length) ? String(data[r][cSt] || '').trim() : '';
+      var hasJob = false;
+      if (cFlt >= 0) for (var c = cFlt + 1; c < data[r].length; c++) { if (String(data[r][c] || '').trim()) { hasJob = true; break; } }
+      if (st || hasJob) { filled++; }
+    }
+    if (people > 0 && filled === 0) out.push(nm);   // มีรายชื่อคนแต่ยังไม่กรอกสถานะ/งานเลย = ยังไม่ลง
+  });
+  return out;
+}
+
+/** สร้าง HTML อีเมลสรุป */
+function apBuildMissingEmail_(report, days, tz) {
+  var rows = report.map(function (d) {
+    var detail = d.fileMissing
+      ? '<span style="color:#c0392b">❌ ยังไม่มีไฟล์เวรของวันนี้</span>'
+      : d.missingTeams.map(function (t) { return '<span style="display:inline-block;background:#fde8e8;color:#a12; border-radius:4px;padding:1px 7px;margin:2px">' + t + '</span>'; }).join(' ');
+    return '<tr><td style="padding:8px 10px;border-bottom:1px solid #eee;white-space:nowrap"><b>' + d.wd + ' ' + d.iso + '</b></td>'
+      + '<td style="padding:8px 10px;border-bottom:1px solid #eee">' + detail + '</td></tr>';
+  }).join('');
+  return '<div style="font-family:Tahoma,Arial,sans-serif;max-width:640px">'
+    + '<h2 style="color:#1f4e79;margin:0 0 4px">⚠️ ทีมที่ยังไม่ลง Assignment (ล่วงหน้า ' + days + ' วัน)</h2>'
+    + '<p style="color:#666;margin:0 0 12px;font-size:13px">ตรวจอัตโนมัติ ' + Utilities.formatDate(new Date(), tz, 'dd MMM yyyy HH:mm') + ' · กรุณาให้ทีมเข้าไปกรอกให้ครบ</p>'
+    + '<table style="border-collapse:collapse;width:100%;font-size:14px"><tr style="background:#1f4e79;color:#fff">'
+    + '<th style="padding:8px 10px;text-align:left">วันที่</th><th style="padding:8px 10px;text-align:left">ทีมที่ยังไม่ลง</th></tr>'
+    + rows + '</table></div>';
+}
+
+/** เช็ก 7 วันข้างหน้า + ส่งอีเมลถ้ามีทีมยังไม่ลง (ไม่มี = ไม่ส่ง กันสแปม) */
+function apNotifyMissingAssignments(daysAhead) {
+  daysAhead = daysAhead || 7;
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var WD = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  var today = new Date(), report = [];
+  for (var i = 1; i <= daysAhead; i++) {
+    var d = new Date(today); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + i);
+    var iso = Utilities.formatDate(d, tz, 'dd MMM yyyy'), wd = WD[d.getDay()];
+    var r = null;
+    try { r = rbOpenTodayRoster_(d); }
+    catch (e) { report.push({ iso: iso, wd: wd, fileMissing: true, missingTeams: [] }); continue; }
+    try {
+      var miss = apTeamsNotFilled_(r.ss);
+      if (miss.length) report.push({ iso: iso, wd: wd, fileMissing: false, missingTeams: miss });
+    } catch (e2) { Logger.log('เช็ก ' + iso + ' พลาด: ' + e2.message); }
+    finally { if (r && r.tempId) { try { DriveApp.getFileById(r.tempId).setTrashed(true); } catch (e3) {} } }
+  }
+  if (!report.length) { Logger.log('✅ ครบทุกทีม ' + daysAhead + ' วัน — ไม่ส่งเมล'); return 'ครบทุกทีม'; }
+  var to = (AP_NOTIFY_EMAILS && AP_NOTIFY_EMAILS.length ? AP_NOTIFY_EMAILS : RB_SHARE_EMAILS).join(',');
+  MailApp.sendEmail({ to: to, subject: '⚠️ ทีมยังไม่ลง Assignment ล่วงหน้า ' + daysAhead + ' วัน (' + report.length + ' วันมีค้าง)',
+    htmlBody: apBuildMissingEmail_(report, daysAhead, tz) });
+  Logger.log('ส่งเมลแล้ว → ' + to + ' · วันมีค้าง ' + report.length);
+  return report;
+}
+
+/** ตั้ง trigger รายวัน (รันครั้งเดียวใน Apps Script) · ลบตัวเก่าก่อน กันซ้ำ */
+function apSetupMissingNotify(hour) {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'apNotifyMissingDaily') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().atHour(hour || AP_NOTIFY_HOUR).nearMinute(0).everyDays(1).create();
+  return 'ตั้งแจ้งเตือนรายวันเวลา ' + (hour || AP_NOTIFY_HOUR) + ':00 แล้ว (เช็กล่วงหน้า 7 วัน)';
+}
+/** ฟังก์ชันที่ trigger เรียก (fix 7 วัน) */
+function apNotifyMissingDaily() { return apNotifyMissingAssignments(7); }
+/** ยกเลิกแจ้งเตือน */
+function apStopMissingNotify() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'apNotifyMissingDaily') { ScriptApp.deleteTrigger(t); n++; } });
+  return 'ยกเลิกแจ้งเตือน ' + n + ' trigger';
+}
+
 
 // ===== RosterGen.gs =====
 
