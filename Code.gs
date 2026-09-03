@@ -6623,7 +6623,7 @@ function otDashHtml_() { return OT_DASH_HTML_ + otEmbedPanel_(); }
 
 // ── ฝังแอป OT Dashboard ตัวเต็ม (PSA/LL · exec แยก) เข้ามาในแท็บ OT ของ PAS ───
 // เปลี่ยน URL ได้ด้วย Script Property 'OT_DASH_URL'
-var OT_DASH_EXEC_URL = 'https://script.google.com/a/macros/aotga.com/s/AKfycbzHCJ5hbkxePjfbGrBF59ykdrTK3nFPfsteHNpqDFNQ4HHYfZtvdBdZ5q_meB6Vt4oSvQ/exec';
+var OT_DASH_EXEC_URL = 'https://script.google.com/a/macros/aotga.com/s/AKfycbzlWVh8f2L7OWmdoIgjDNRYXdkrWk6_-K4-19fz4RDD5-oIUElnDjpkFm6D8vdQHmY8Jg/exec';
 function otDashUrl_() { try { return PropertiesService.getScriptProperties().getProperty('OT_DASH_URL') || OT_DASH_EXEC_URL; } catch (e) { return OT_DASH_EXEC_URL; } }
 // แผงกราฟสรุปเต็ม (sub-tab "กราฟสรุป") — ฝังแอป OT Dashboard ตัวเต็มแบบ lazy (โหลดเมื่อกดแท็บ)
 function otEmbedPanel_() {
