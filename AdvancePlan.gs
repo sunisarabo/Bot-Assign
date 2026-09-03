@@ -1078,7 +1078,8 @@ function advTest() {
 //   apSetupMissingNotify()  — ตั้ง trigger รายวัน (รันครั้งเดียว)
 //   apNotifyMissingAssignments(7) — เช็ก+ส่งเมลเดี๋ยวนี้ (เรียกเองทดสอบได้)
 // ═══════════════════════════════════════════════════════════════════════════
-var AP_NOTIFY_EMAILS = ['hktadminpsa@aotga.com'];   // ผู้รับอีเมลแจ้งเตือน (ตั้ง null = ใช้ RB_SHARE_EMAILS)
+var AP_NOTIFY_EMAILS = ['hktadminpsa@aotga.com', 'dutyhkt@aotga.com'];   // ผู้รับอีเมลแจ้งเตือน (ตั้ง null = ใช้ RB_SHARE_EMAILS)
+var AP_NOTIFY_FROM = 'hktadminpsa@aotga.com';   // ส่งออกจากอีเมลนี้ (ต้องเป็น alias 'ส่งในชื่อ' ของบัญชีที่รันสคริปต์)
 var AP_NOTIFY_HOUR = 9;        // ชั่วโมงที่ส่งเมลรายวัน (09:00)
 
 /** เช็กแต่ละแท็บทีมในไฟล์ 1 วัน → คืนรายชื่อทีมที่ "ยังไม่ลงข้อมูล" (ไม่มีสถานะ + ไม่มีงานเลย) */
@@ -1156,9 +1157,16 @@ function apNotifyMissingAssignments(daysAhead) {
   }
   if (!report.length) { Logger.log('✅ ครบทุกทีม ' + daysAhead + ' วัน — ไม่ส่งเมล'); return 'ครบทุกทีม'; }
   var to = (AP_NOTIFY_EMAILS && AP_NOTIFY_EMAILS.length ? AP_NOTIFY_EMAILS : RB_SHARE_EMAILS).join(',');
-  MailApp.sendEmail({ to: to, subject: '⚠️ ทีมยังไม่ลง Assignment ล่วงหน้า ' + daysAhead + ' วัน (' + report.length + ' วันมีค้าง)',
-    htmlBody: apBuildMissingEmail_(report, daysAhead, tz) });
-  Logger.log('ส่งเมลแล้ว → ' + to + ' · วันมีค้าง ' + report.length);
+  var subj = '⚠️ ทีมยังลง Assignment ไม่ครบ ล่วงหน้า ' + daysAhead + ' วัน (' + report.length + ' วันมีค้าง)';
+  var html = apBuildMissingEmail_(report, daysAhead, tz);
+  // ส่งจากอีเมล AP_NOTIFY_FROM (ใช้ GmailApp เพื่อกำหนด from ได้ · ต้องเป็น alias ส่งในชื่อของบัญชีที่รัน)
+  var sent = false;
+  if (AP_NOTIFY_FROM && typeof GmailApp !== 'undefined') {
+    try { GmailApp.sendEmail(to, subj, '', { htmlBody: html, from: AP_NOTIFY_FROM, name: 'PAS Assignment Alert' }); sent = true; }
+    catch (eG) { Logger.log('GmailApp from=' + AP_NOTIFY_FROM + ' พลาด (' + eG.message + ') → ใช้ MailApp แทน'); }
+  }
+  if (!sent) MailApp.sendEmail({ to: to, subject: subj, htmlBody: html });
+  Logger.log('ส่งเมลแล้ว → ' + to + (sent ? (' (จาก ' + AP_NOTIFY_FROM + ')') : '') + ' · วันมีค้าง ' + report.length);
   return report;
 }
 
