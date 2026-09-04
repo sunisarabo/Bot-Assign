@@ -6,7 +6,7 @@ untouched. The individual .gs modules remain the readable source."""
 import io, os, re
 
 ORDER = ['RosterReader', 'MasterReader', 'LLReader', 'SLA',
-         'AssignCheck', 'AutoPlan', 'AdvancePlan', 'RosterBot', 'WebDashboard']
+         'AssignCheck', 'AutoPlan', 'AdvancePlan', 'OTDashboard', 'RosterBot', 'WebDashboard']
 HEADER = ('/** SmartShift Roster Bot — All-in-One (compact). '
           'setupTriggers()=รัน 08:00/14:00 ส่ง Google Chat */\n')
 

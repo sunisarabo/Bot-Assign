@@ -22,6 +22,12 @@ var CONFIG_RB = {
   ROOT_FOLDER_ID:   '1Uk-6w7U-cqQEXFIVEl6tRhKKRCaN1ojp',   // PSA year folder (drill month→day)
   OUTPUT_FOLDER_ID: '',                                     // โฟลเดอร์เก็บรายงาน — เว้นว่าง = เซฟลง My Drive
   LL_FILE_ID:       '', // ไฟล์ LL — ใส่ ID ถ้าบัญชีที่รันมีสิทธิ์เข้า (ของเดิม '13Ry12jDy8S8vmlPVTxMUDLC_8u3PiPRIhvgDHEeWhMg'); เว้นว่าง = ข้าม LL
+  COUNTER_FILE_ID:  '1sUxh2xu4U3Jx2uqxOp0tyjr2mPGi7xS23RUNWmTzQPE', // ไฟล์ "PAS Counter Bridge" (IMPORTRANGE เคาน์เตอร์ของท่าเข้ามาเอง) — เว้นว่าง = ไม่ตัดตามเคาน์เตอร์
+  // ไฟล์ COUNTER CHECK ของท่าโดยตรง (ต้นทาง IMPORTRANGE): '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk'
+  COUNTER_SRC_ID:   '1c_eEouBq8YfNiJKWDOhhTxTXu2cBjh_zh9jul_Tn3rk', // ไฟล์ COUNTER CHECK ของท่า (ต้นทางให้ Bridge IMPORTRANGE) — เว้นว่าง = ไม่รีเฟรช Bridge อัตโนมัติ
+  COUNTER_SRC_RANGE:'A1:J400',                              // ช่วงเซลล์ที่ IMPORTRANGE จากแท็บของท่า
+  COUNTER_SRC_TABFMT:'DDMONYY',                             // รูปแบบชื่อแท็บของท่า: DDMONYY=06JUL26 · DMONYY=6JUL26 · DDMON=06JUL · DMON=6JUL
+  COUNTER_BRIDGE_DAYS: 7,                                   // สร้างแท็บครอบ ±N วันจากวันนี้ใน Bridge
   CHAT_WEBHOOK_PROP: 'GCHAT_WEBHOOK_REPORT',               // Script Property holding the webhook URL
   SKIP_TIMETABLE_TEAMS: [],                                // teams to omit from the timetable tab
 };
@@ -37,6 +43,125 @@ function runDailyRosterReport() {
 function runRosterForDate(y, m, d) {
   try { rbRunForDate_(new Date(y, m - 1, d)); }
   catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
+}
+
+/** เจนรายงานทั้งเดือน (regenerate ทุกวันด้วยโค้ดล่าสุด) — กด Run ในตัว editor ได้เลย (ไม่ต้องใส่ค่า → ใช้เดือนปัจจุบัน)
+ *  มี time-budget กันชน limit 6 นาที + auto-resume (จำวันที่ค้าง) → กด Run ซ้ำจะทำต่อจนครบเอง
+ *  ระบุเดือนเองก็ได้: runRosterForMonth(2026, 7) */
+function runRosterForMonth(y, m, fromDay) {
+  var now = new Date();
+  if (!y || !m) { y = now.getFullYear(); m = now.getMonth() + 1; }   // ไม่ใส่ค่า (กด Run) → เดือนปัจจุบัน
+  var props = PropertiesService.getScriptProperties(), ckey = 'rbGenCursor_' + y + '_' + m;
+  if (fromDay == null) { var saved = props.getProperty(ckey); if (saved) fromDay = +saved; }   // ทำต่อจากที่ค้างไว้อัตโนมัติ
+  var start = new Date().getTime(), BUDGET = 5 * 60 * 1000;          // ~5 นาที (เผื่อ 1 นาทีเขียนไฟล์ก่อนชน limit 6 นาที)
+  var lastDay = new Date(y, m, 0).getDate();
+  var isCur = (now.getFullYear() === y && now.getMonth() === m - 1);
+  var endDay = isCur ? now.getDate() : lastDay;                      // เดือนปัจจุบัน → ถึงวันนี้ · เดือนที่ผ่านมา → ทั้งเดือน
+  var d0 = Math.max(1, fromDay || 1), done = 0, fail = 0, stopAt = 0;
+  for (var d = d0; d <= endDay; d++) {
+    if (new Date().getTime() - start > BUDGET) { stopAt = d; break; }
+    try { rbRunForDate_(new Date(y, m - 1, d)); done++; }
+    catch (e) { fail++; Logger.log('⚠️ วันที่ ' + d + '/' + m + ': ' + e.message); }
+  }
+  if (stopAt) { props.setProperty(ckey, String(stopAt)); Logger.log('⏸️ เจนถึงวันที่ ' + (stopAt - 1) + '/' + m + ' แล้ว (ใกล้หมดเวลา) · สำเร็จรอบนี้ ' + done + ' วัน · 👉 กด Run ฟังก์ชันนี้ซ้ำเพื่อทำต่อจนครบ'); }
+  else { props.deleteProperty(ckey); Logger.log('✅ เจนรายงานเดือน ' + m + '/' + y + ' ครบแล้ว (ถึงวันที่ ' + endDay + ') · รอบนี้ ' + done + ' วัน' + (fail ? ' · พลาด ' + fail + ' วัน (ดู log)' : '')); }
+}
+
+/** กด Run เดียว → เจนรายงาน "เดือนก่อน" (เช่น ตอนนี้ ส.ค. กดปุ่มนี้ = เจน ก.ค.) · auto-resume กด Run ซ้ำได้ */
+function runRosterPrevMonth() {
+  var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+  runRosterForMonth(d.getFullYear(), d.getMonth() + 1);
+}
+
+/** เจนใหม่เฉพาะวันที่ 8 ส.ค. 2026 (กด Run) */
+function regenDay8() { runRosterForMonth(2026, 8, 8); }
+
+/** ✅ ตรวจว่าโค้ดที่ "บันทึกไว้จริง" มีกฎเวลาล่าสุดไหม — กด Run แล้วดู Execution log
+ *  ถ้าค่าตรงกับ "ใหม่" ทุกบรรทัด = โค้ดล่าสุด · ถ้าตรง "เก่า" = ยังไม่ได้บันทึก/วางโค้ดใหม่ทับ */
+function rbVerifyRules() {
+  function W(flight, task, STA, OP, CL, STD) {
+    var w = acFlightWin_({ flight: flight, task: task, STA: STA, OP: OP, CL: CL, STD: STD });
+    return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : 'null';
+  }
+  var L = [
+    'FR ถึง STD:        ' + W('SQ740/739', 'J1 PRIO/FR', '19:15', '17:10', '19:30', '20:10') + '   [ใหม่ 17:10-20:40 · เก่า 16:10-19:30]',
+    'ไม่มี OP/CL→STA:   ' + W('9A203/201', 'SOD', '12:00', '', '', '13:00') + '   [ใหม่ 12:00-13:20 · เก่า ~09:00-13:20]',
+    'CS ล้วน OP+2h:     ' + W('AK832/833', 'CS/PFD', '', '07:10', '', '11:10') + '   [ใหม่ 09:10-11:30]',
+    'GK→เปิดเคาน์เตอร์:  ' + W('AK8553/8554', 'CS/GK/PFD', '', '05:00', '', '09:00') + '   [ใหม่ 05:00-09:20]',
+  ];
+  var msg = '🔎 ตรวจกฎเวลา (โค้ดที่รันอยู่):\n  ' + L.join('\n  ');
+  Logger.log(msg);
+  return msg;
+}
+
+/** นับสถานะ 1 คนเข้า day (dedupe ต่อวัน) — มาทำงาน/ป่วย/แวค/กิจ/OT · แยก VL/VAC/AL=แวค · BL/ML/PL=กิจ */
+function rbWkAcc_(day, seen, r) {
+  var id = String(r.id || '').replace(/\D/g, '') || ('N:' + String(r.name).toUpperCase());
+  if (seen[id]) return; seen[id] = 1;
+  if (r.bucket === 'working' || r.bucket === 'ot_off') day.work++;
+  else if (r.bucket === 'sick') day.sick++;
+  else if (r.bucket === 'vac') { if (/\bBL\b|\bML\b|\bPL\b|กิจ|PERSONAL|BUSINESS|MATERN/i.test(String(r.remark || r.shift || ''))) day.personal++; else day.vac++; }
+  if (r.ot > 0) { day.otP++; day.otH += r.ot; }
+}
+/** ตัวรวมข้อมูลสรุปสัปดาห์ (จ.–อา.) — ใช้ร่วมกันทั้ง log/ชีต/เว็บ · loadFn(dt) → {res, ll}
+ *  คืน { label, days:[{lbl,iso,future,nofile,work,sick,vac,personal,otP,otH}], total } */
+function rbWeekAgg_(date, loadFn) {
+  var wr = rbWeekRange_(date), now = new Date(), days = [];
+  var tot = { work: 0, sick: 0, vac: 0, personal: 0, otP: 0, otH: 0 };
+  wr.days.forEach(function (dt, idx) {
+    var day = { lbl: wr.dayNums[idx] + ' ' + MON_RB[dt.getMonth()], iso: rbDayIso_(dt), future: false, nofile: false, work: 0, sick: 0, vac: 0, personal: 0, otP: 0, otH: 0 };
+    if (dt.getTime() > now.getTime() + 43200000) { day.future = true; days.push(day); return; }
+    var dc; try { dc = loadFn(dt); } catch (e) { dc = null; }
+    if (!dc || !dc.res) { day.nofile = true; days.push(day); return; }
+    var seen = {};
+    Object.keys(dc.res.teams).forEach(function (t) { dc.res.teams[t].records.forEach(function (r) { rbWkAcc_(day, seen, r); }); });
+    if (dc.ll && dc.ll.totals && dc.ll.totals.staff > 0) Object.keys(dc.ll.sections).forEach(function (s) { dc.ll.sections[s].records.forEach(function (r) { rbWkAcc_(day, seen, r); }); });
+    day.otH = Math.round(day.otH * 10) / 10;
+    ['work', 'sick', 'vac', 'personal', 'otP', 'otH'].forEach(function (k) { tot[k] += day[k]; });
+    days.push(day);
+  });
+  tot.otH = Math.round(tot.otH * 10) / 10;
+  return { label: wr.label, days: days, total: tot };
+}
+/** สรุปรายสัปดาห์ → log (กด Run อ่านในบันทึกได้) · ไม่ใส่ค่า = สัปดาห์ปัจจุบัน · runWeekSummaryPrev() = สัปดาห์ก่อน */
+function rbWeekSummary(y, m, d) {
+  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+  var A = rbWeekAgg_(date, rbGetDay_);
+  var lines = ['📊 สรุปสัปดาห์ ' + A.label + '  (มาทำงาน · ป่วย · แวค · กิจ · OT)'];
+  A.days.forEach(function (p) {
+    lines.push('  ' + p.lbl + ' → ' + (p.future ? '(ยังไม่ถึง)' : p.nofile ? '(ไม่มีไฟล์)' :
+      'มาทำงาน ' + p.work + ' · ป่วย ' + p.sick + ' · แวค ' + p.vac + ' · กิจ ' + p.personal + ' · OT ' + p.otP + ' คน (' + p.otH + ' ชม.)'));
+  });
+  var t = A.total;
+  lines.push('  ── รวม → มาทำงาน ' + t.work + ' · ป่วย ' + t.sick + ' · แวค ' + t.vac + ' · กิจ ' + t.personal + ' · OT รวม ' + t.otH + ' ชม. (person-days)');
+  var txt = lines.join('\n'); Logger.log(txt); return txt;
+}
+function runWeekSummary() { return rbWeekSummary(); }               // สัปดาห์ปัจจุบัน (กด Run)
+function runWeekSummaryPrev() { var d = new Date(); d.setDate(d.getDate() - 7); return rbWeekSummary(d.getFullYear(), d.getMonth() + 1, d.getDate()); }  // สัปดาห์ก่อน
+
+/** เขียนตารางสรุปสัปดาห์ลงชีต (แท็บในไฟล์รายงานเดือน) */
+function rbWriteWeekSummary_(ss, date, tabName) {
+  tabName = tabName || '📊 สรุปสัปดาห์';
+  var old = ss.getSheetByName(tabName); if (old) ss.deleteSheet(old);
+  var sh = ss.insertSheet(tabName);
+  rbCleanWeekTabs_(ss, date, '📊 สรุปสัปดาห์ ', tabName);   // ลบแท็บสรุปสัปดาห์ชื่อเก่า
+  var A = rbWeekAgg_(date, rbGetDay_), W = 7;
+  sh.getRange(1, 1, 1, W).merge().setValue('📊 สรุปสัปดาห์ ' + A.label + ' — มาทำงาน · ลาป่วย · ลาแวค · ลากิจ · OT')
+    .setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 26);
+  var head = ['วันที่', 'มาทำงาน', 'ลาป่วย', 'ลาแวค', 'ลากิจ', 'OT (คน)', 'OT (ชม.)'];
+  sh.getRange(2, 1, 1, W).setValues([head]).setBackground('#2e75b6').setFontColor('#fff').setFontWeight('bold').setHorizontalAlignment('center');
+  var body = A.days.map(function (p) {
+    if (p.future) return [p.lbl, '—', '—', '—', '—', '—', '—'];
+    if (p.nofile) return [p.lbl, 'ไม่มีไฟล์', '', '', '', '', ''];
+    return [p.lbl, p.work, p.sick, p.vac, p.personal, p.otP, p.otH];
+  });
+  var t = A.total;
+  body.push(['รวมสัปดาห์', t.work, t.sick, t.vac, t.personal, t.otP, t.otH]);
+  sh.getRange(3, 1, body.length, W).setValues(body);
+  sh.getRange(3 + body.length - 1, 1, 1, W).setFontWeight('bold').setBackground('#eef3f9');
+  sh.setFrozenRows(2); sh.setColumnWidth(1, 90);
+  return sh;
 }
 
 /**
@@ -110,7 +235,7 @@ function testRosterFromId(ssId, llId, y, m, d) {
   }
   var master = null;
   try { master = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) { Logger.log('⚠️ Master: ' + e.message); }
-  var out = SpreadsheetApp.create('Roster Report — ' + roster.getName());
+  var out = rbCreateSheet_('Roster Report — ' + roster.getName());
   rbWriteDashboard_(out, res, roster.getName(), ll, master);
   rbWriteTimetable_(out, res, roster.getName(), ll);
   rbWriteFlightSLA_(out, res, roster.getName(), ll);
@@ -125,22 +250,39 @@ function testRosterFromId(ssId, llId, y, m, d) {
   return out.getUrl();
 }
 
+// ─── CACHE ต่อ 1 การรัน: อ่าน/แปลงไฟล์รายวัน + master ครั้งเดียว (เจนทั้งเดือนเร็วขึ้นมาก — OT รายสัปดาห์ reuse ไฟล์ที่อ่านแล้ว) ───
+var RB_DAY_CACHE_ = {}, RB_MASTER_CACHE_;
+function rbDayIso_(d) { return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function rbGetDay_(date) {
+  var iso = rbDayIso_(date);
+  if (RB_DAY_CACHE_[iso] !== undefined) return RB_DAY_CACHE_[iso];   // อ่าน/แปลงไฟล์วันนี้ครั้งเดียวต่อการรัน
+  var res = null, ll = null;
+  try {
+    var roster = rbOpenTodayRoster_(date);
+    var ss = roster.ss;
+    // อ่านทั้งไฟล์ครั้งเดียวผ่าน Advanced Sheets API (เร็วกว่าอ่านทีละแท็บ ~10 เท่า) — เจนรายงาน/OT รายสัปดาห์เร็วขึ้นมาก
+    // (ใช้ตัวเดียวกับหน้าเว็บ · พังเมื่อไหร่ fallback อ่านปกติ)
+    try { if (typeof rbFastSheets_ === 'function' && typeof Sheets !== 'undefined' && Sheets.Spreadsheets) ss = rbFastSheets_(roster.ss.getId()); } catch (eFast) { ss = roster.ss; }
+    res = readRosterFromSpreadsheet(ss, date);
+    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
+  } catch (e) { res = null; }
+  if (res && CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); } catch (e2) {} }
+  if (res && typeof rbDedupeTeams_ === 'function') { try { rbDedupeTeams_(res, ll); } catch (eD) {} }   // รหัสซ้ำหลายทีม → ไม่นับซ้ำ (ให้ตรงกับเว็บ)
+  var out = { res: res, ll: ll };
+  RB_DAY_CACHE_[iso] = out;
+  return out;
+}
+function rbGetMaster_() {
+  if (RB_MASTER_CACHE_ !== undefined) return RB_MASTER_CACHE_;
+  var m = null; if (MASTER_FILE_ID_RB) { try { m = readMasterHeadcount(MASTER_FILE_ID_RB); } catch (e) {} }
+  RB_MASTER_CACHE_ = m; return m;
+}
+
 // ─── MAIN PIPELINE ──────────────────────────────────────────────────────────
 function rbRunForDate_(date) {
-  var roster = rbOpenTodayRoster_(date);
-  var res = readRosterFromSpreadsheet(roster.ss);
-
-  var ll = null;
-  if (CONFIG_RB.LL_FILE_ID) {
-    try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, date); }
-    catch (e) { Logger.log('⚠️ LL: ' + e.message); }
-  }
-
-  var master = null;
-  if (MASTER_FILE_ID_RB) {
-    try { master = readMasterHeadcount(MASTER_FILE_ID_RB); }
-    catch (e) { Logger.log('⚠️ Master: ' + e.message); }
-  }
+  var day = rbGetDay_(date), res = day.res, ll = day.ll;
+  if (!res) throw new Error('อ่านไฟล์เวรของวันที่ ' + rbDayIso_(date) + ' ไม่ได้ (ไม่มีไฟล์/เปิดไม่ได้)');
+  var master = rbGetMaster_();
 
   var be = date.getFullYear() + 543;
   var mon = MON_RB[date.getMonth()];
@@ -159,12 +301,12 @@ function rbRunForDate_(date) {
   // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
   try {
     var wr = rbWeekRange_(date);
-    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
-  } catch (e) { Logger.log('⚠️ Weekly OT: ' + e.message); }
+    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
+    rbWriteWeekSummary_(out, date, '📊 สรุปสัปดาห์ ' + wr.label);   // ตารางสรุป มาทำงาน/ป่วย/แวค/กิจ/OT
+  } catch (e) { Logger.log('⚠️ Weekly summary: ' + e.message); }
   ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
     var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
   });
-  if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e) {} }
 
   rbPostChat_(res, dateStr, out.getUrl(), ll, master);
   Logger.log('✅ Done: %s', out.getUrl());
@@ -418,30 +560,33 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
 // ─── WEEKLY OT (>36h/week check) ────────────────────────────────────────────
 var OT_WEEK_LIMIT = 36;
 
-/** 7-day week block within the month, starting day 1 (1-7, 8-14, …). */
+/** บล็อกสัปดาห์ 7 วันในเดือน เริ่มวันที่ 1 (1-7, 8-14, 15-21, …)
+ *  ตั้งแต่ มิ.ย. 2026 เป็นต้นไป: สัปดาห์สุดท้าย = 22 ถึงสิ้นเดือน (รวมวัน 29-31 เข้าสัปดาห์เดียว)
+ *  ก่อน มิ.ย. 2026: คงเดิม (1-7, 8-14, 15-21, 22-28, 29-สิ้นเดือน) */
 function rbWeekRange_(date) {
-  var d = date.getDate();
-  var startDay = Math.floor((d - 1) / 7) * 7 + 1;
-  var daysInMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-  return { startDay: startDay, endDay: Math.min(startDay + 6, daysInMonth) };
+  // รอบสัปดาห์ = จันทร์–อาทิตย์ (ISO) ต่อเนื่อง (ข้ามเดือนได้) — ให้ตรงกับหน้า ชม./สัปดาห์
+  var d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  var dow = (d.getDay() + 6) % 7;                          // 0 = จันทร์
+  var start = new Date(d); start.setDate(d.getDate() - dow);
+  var days = [], dayNums = [];
+  for (var i = 0; i < 7; i++) { var x = new Date(start); x.setDate(start.getDate() + i); days.push(x); dayNums.push(x.getDate()); }
+  var end = days[6];
+  var label = (start.getMonth() === end.getMonth())
+    ? (start.getDate() + '-' + end.getDate() + ' ' + MON_RB[start.getMonth()])           // 27-31 JUL
+    : (start.getDate() + MON_RB[start.getMonth()] + '-' + end.getDate() + MON_RB[end.getMonth()]);  // 27JUL-2AUG
+  return { start: start, end: end, days: days, dayNums: dayNums, startDay: start.getDate(), endDay: end.getDate(), label: label };
 }
 
 /** Accumulate OT hours per employee across the week (week-to-date up to `date`). */
 function rbWeeklyOT_(date) {
   var wr = rbWeekRange_(date);
-  var upto = Math.min(date.getDate(), wr.endDay);
-  var people = {}, daysRead = [];
-  for (var day = wr.startDay; day <= upto; day++) {
-    var dt = new Date(date.getFullYear(), date.getMonth(), day);
-    var roster;
-    try { roster = rbOpenTodayRoster_(dt); } catch (e) { continue; }
-    var res;
-    try { res = readRosterFromSpreadsheet(roster.ss); } catch (e2) { res = null; }
-    if (roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (e3) {} }
-    if (!res) continue;
+  var today = new Date(), people = {}, daysRead = [];
+  wr.days.forEach(function (dt, idx) {
+    if (dt.getTime() > today.getTime() + 43200000) return;   // วันอนาคต → ยังไม่มีไฟล์เวร
+    var day = wr.dayNums[idx];
+    var dc = rbGetDay_(dt), res = dc.res, ll = dc.ll;         // ใช้ cache (ไฟล์ที่เจนวันนั้นอ่านไปแล้ว ไม่ต้องแปลงซ้ำ)
+    if (!res) return;
     daysRead.push(day);
-    var ll = null;
-    if (CONFIG_RB.LL_FILE_ID) { try { ll = readLLForDate(CONFIG_RB.LL_FILE_ID, dt); } catch (e4) {} }
 
     function tally(team, r) {
       if ((r.bucket !== 'working' && r.bucket !== 'ot_off') || !(r.ot > 0)) return;
@@ -454,26 +599,48 @@ function rbWeeklyOT_(date) {
     if (ll && ll.totals.staff > 0) {
       Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tally('LL·' + s, r); }); });
     }
-  }
+  });
   var list = Object.keys(people).map(function (k) { people[k].total = Math.round(people[k].total * 10) / 10; return people[k]; })
     .sort(function (a, b) { return b.total - a.total; });
-  return { startDay: wr.startDay, endDay: wr.endDay, daysRead: daysRead, people: list,
+  return { label: wr.label, dayNums: wr.dayNums, daysRead: daysRead, people: list,
            over: list.filter(function (p) { return p.total > OT_WEEK_LIMIT; }) };
 }
 
+/** ชื่อแท็บรายสัปดาห์ที่ "ถูกต้อง" (รอบ จ.–อา.) ของทุกสัปดาห์ที่คาบเกี่ยวเดือนของ date · prefix เช่น "⏱️ OT " / "📊 สรุปสัปดาห์ " */
+function rbValidWeekTabs_(date, prefix) {
+  var y = date.getFullYear(), m = date.getMonth();
+  var lastDay = new Date(y, m + 1, 0).getDate();
+  var first = new Date(y, m, 1), dow = (first.getDay() + 6) % 7;
+  var monday = new Date(first); monday.setDate(1 - dow);          // จันทร์ของสัปดาห์ที่มีวันที่ 1
+  var monthEnd = new Date(y, m, lastDay).getTime(), set = {};
+  while (monday.getTime() <= monthEnd) {
+    set[prefix + rbWeekRange_(monday).label] = 1;
+    monday = new Date(monday); monday.setDate(monday.getDate() + 7);
+  }
+  return set;
+}
+function rbValidOtTabs_(date) { return rbValidWeekTabs_(date, '⏱️ OT '); }
+/** ลบแท็บรายสัปดาห์ชื่อเก่า (prefix เดียวกัน) ที่ไม่ใช่รอบ จ.–อา. ของเดือนนี้ · keep = ชื่อแท็บที่กำลังเขียน (อย่าลบ) */
+function rbCleanWeekTabs_(ss, date, prefix, keep) {
+  var valid = rbValidWeekTabs_(date, prefix);
+  ss.getSheets().forEach(function (s) {
+    var n = s.getName();
+    if (n.indexOf(prefix) === 0 && n !== keep && !valid[n]) { try { ss.deleteSheet(s); } catch (e) {} }
+  });
+}
 /** Sheet tab: ⏱️ OT รายสัปดาห์ — per-person weekly OT + >36h flag. */
 function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   tabName = tabName || '⏱️ OT สัปดาห์';
   var old = ss.getSheetByName(tabName);
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
+  rbCleanWeekTabs_(ss, date, '⏱️ OT ', tabName);   // ลบแท็บ OT ชื่อเก่า (รอบแบบเดิม 1-7/22-31) ที่ไม่ใช่รอบ จ.–อา.
   var wk = rbWeeklyOT_(date);
-  var dayCols = [];
-  for (var d = wk.startDay; d <= wk.endDay; d++) dayCols.push(d);
+  var dayCols = wk.dayNums;                                // จันทร์–อาทิตย์ (เลขวันจริง เช่น 27,28,29,30,31,1,2)
   var W = 3 + dayCols.length + 2;
 
   sh.getRange(1, 1, 1, W).merge()
-    .setValue('⏱️ OT รายสัปดาห์ (' + wk.startDay + '-' + wk.endDay + ' ' + mon + ')  •  เกิน ' + OT_WEEK_LIMIT +
+    .setValue('⏱️ OT รายสัปดาห์ (' + wk.label + ')  •  เกิน ' + OT_WEEK_LIMIT +
               ' ชม./สัปดาห์: ' + wk.over.length + ' คน  •  อ่าน ' + wk.daysRead.length + ' วัน')
     .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
   sh.setRowHeight(1, 26);
@@ -508,7 +675,7 @@ function runWeeklyOTReport(y, m, d) {
   var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
   var out = rbGetMonthlyOutput_(mon, be);
   var wr = rbWeekRange_(date);
-  rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.startDay + '-' + wr.endDay + ' ' + mon);
+  rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
   Logger.log('✅ Weekly OT: %s', out.getUrl());
   return out.getUrl();
 }
@@ -630,7 +797,7 @@ function rbGetMonthlyOutput_(mon, be) {
   }
   var it = folder ? folder.getFilesByName(name) : DriveApp.getFilesByName(name);
   if (it.hasNext()) return SpreadsheetApp.openById(it.next().getId());
-  var ss = SpreadsheetApp.create(name);
+  var ss = rbCreateSheet_(name);
   if (folder) {
     try {
       var file = DriveApp.getFileById(ss.getId());

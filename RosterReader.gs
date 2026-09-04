@@ -25,14 +25,47 @@
  * can call readRosterFromSpreadsheet() in place of detectAndParse().
  */
 
-var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE'];
+var SKIP_SHEETS_RR = ['MANPOWER', 'ROSTER', 'SUMMARY', 'MASTER SMART SHIFT', 'SHIFTDB', 'CODE', 'SUPPORT REQUEST', 'แม่แบบ', '_CODES'];
+/** ทีม "ภายนอก" (ไม่ใช่ HC ของ HKT): พนักงาน BKK มาช่วยชั่วคราว · Outsource — นับรวมหัว/ชม. แต่ติดป้ายแยก */
+function rrIsExternalTeam_(team) { return /\bBKK\b|OUTSOURCE|\bOUT\s?SRC\b|\bOS\b/i.test(String(team || '')); }
+
+/** วันหยุดประเพณี/นักขัตฤกษ์ ปี 2569 (2026) ตามประกาศ AOTGA 403/2568
+ *  ทำงานในวันเหล่านี้ = ได้ OT นักขัต X1 (1 เท่า) จากชั่วโมงทำงานในกะวันนั้น */
+var PUBLIC_HOLIDAYS = {
+  '2026-01-01': 'วันขึ้นปีใหม่',
+  '2026-03-03': 'วันมาฆบูชา',
+  '2026-04-06': 'วันจักรี',
+  '2026-04-13': 'วันสงกรานต์',
+  '2026-04-14': 'วันสงกรานต์',
+  '2026-05-01': 'วันแรงงานแห่งชาติ',
+  '2026-06-01': 'วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี',
+  '2026-07-28': 'วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระเจ้าอยู่หัว',
+  '2026-07-29': 'วันอาสาฬหบูชา',
+  '2026-08-12': 'วันแม่แห่งชาติ',
+  '2026-10-13': 'วันนวมินทรมหาราช',
+  '2026-10-23': 'วันปิยมหาราช',
+  '2026-12-05': 'วันพ่อแห่งชาติ',
+  '2026-12-31': 'วันสิ้นปี'
+};
+
+/** คืนชื่อวันหยุดประเพณี ถ้า date เป็นวันหยุด (รับ Date หรือ {y,m,d}) ไม่ใช่ → null */
+function rrPublicHoliday_(date) {
+  var y, m, d;
+  if (date && typeof date.getFullYear === 'function') { y = date.getFullYear(); m = date.getMonth() + 1; d = date.getDate(); }
+  else if (date) { y = date.y; m = date.m; d = date.d; } else return null;
+  var key = y + '-' + ('0' + m).slice(-2) + '-' + ('0' + d).slice(-2);
+  return PUBLIC_HOLIDAYS[key] || null;
+}
 
 // ─── cell helpers ───────────────────────────────────────────────────────────
 function rrClean_(v) {
   if (v === null || v === undefined) return '';
   if (v instanceof Date) {
+    // ค่าเวลา-ล้วน (time-only) ใน Sheets วางอยู่บนวันฐาน epoch (ปี 1899/1900) → เป็น "เวลา" รวมเที่ยงคืน 00:00
+    // ส่วนวันที่ปฏิทินจริง (ปี > 1901 เช่น 12/06/2026) ไม่ใช่เวลา → คืนว่าง
+    if (v.getFullYear() > 1901) return '';
     var h = v.getHours(), m = v.getMinutes();
-    return (h || m) ? (('0' + h).slice(-2) + ':' + ('0' + m).slice(-2)) : '';
+    return ('0' + h).slice(-2) + ':' + ('0' + m).slice(-2);   // 00:00 = เที่ยงคืนจริง (เดิม (h||m) ตัดทิ้งผิด)
   }
   var s = String(v).trim();
   return s.replace(/\.0+$/, '');
@@ -47,12 +80,12 @@ function rrClassify_(shift, remark) {
 
   if (core.indexOf('SICK') === 0 || core === 'SL' || core === 'MC'
       || sh === 'SICK' || sh === 'SL' || sh === 'MC') return 'sick';
-  if (core.indexOf('VAC') === 0 || core === 'BL' || core === 'AL' || core === 'VACATION') return 'vac';
+  if (core.indexOf('VAC') === 0 || core === 'BL' || core === 'AL' || core === 'VL' || core === 'ML' || core === 'PL' || core === 'VACATION') return 'vac';
   if (core.indexOf('OT OFF') === 0 || core.indexOf('OT-OFF') === 0) return 'ot_off';
   if (core.indexOf('ONDUTY') === 0 || core.indexOf('ON DUTY') === 0) return 'working';
   if (core.indexOf('OFF') === 0 || core === 'X') return 'off';
   if (core === '') {                                       // no REMARK -> use shift
-    if (sh.indexOf('VAC') >= 0 || sh === 'BL') return 'vac';
+    if (sh.indexOf('VAC') >= 0 || sh === 'BL' || sh === 'VL' || sh === 'ML' || sh === 'PL' || sh === 'AL') return 'vac';
     if (sh === 'SL' || sh === 'SICK' || sh === 'MC') return 'sick';
     if (sh === '' || sh === 'X' || sh === 'XX' || sh === 'OFF' || sh === '-'
         || sh.indexOf('OFF') === 0) return 'off';
@@ -61,10 +94,151 @@ function rrClassify_(shift, remark) {
   return 'working';
 }
 
+// ─── สร้างไฟล์ชีต + แชร์ให้ Duty / Asst Mgr อัตโนมัติ ───────────────────────
+// ทุกไฟล์ชีตที่ระบบสร้าง (export ต่าง ๆ) จะถูกแชร์ให้อีเมลเหล่านี้เป็น editor โดยอัตโนมัติ
+var RB_SHARE_EMAILS = ['dutyhkt@aotga.com', 'asst-mgr@aotga.com'];
+/** สร้าง Spreadsheet ใหม่ แล้วแชร์ให้อีเมลที่กำหนด (ไม่ให้ error เรื่องแชร์มาทำให้ export ล้ม) */
+function rbCreateSheet_(title) {
+  var ss = SpreadsheetApp.create(title);
+  try {
+    var file = DriveApp.getFileById(ss.getId());
+    RB_SHARE_EMAILS.forEach(function (em) {
+      try { file.addEditor(em); } catch (e1) {}                 // อีเมลไม่ถูกต้อง/แชร์ไม่ได้ → ข้าม ไม่ให้กระทบไฟล์
+    });
+  } catch (e0) {}
+  return ss;
+}
+
 // ─── time / OT helpers ──────────────────────────────────────────────────────
 function rrTimePair_(s) {
   var m = rrClean_(s).match(/(\d{1,2})[:.]?(\d{2})/);
   return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : '';
+}
+/** "0820" / "925" → "08:20" / "09:25" */
+function rrHHMM_(s) { var m = String(s || '').match(/(\d{1,2})(\d{2})$/); return m ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
+/** ทีม PRIVATE/LP รูปแบบใหม่: บล็อก "LP MORNING (A:0500 D:1500)" / "LP AFTERNOON (A:1400 D:2400)"
+ *  อยู่แถวเหนือหัว ID · หัวคอลัมน์เป็น "Job 1-4" (ซ้ำ 2 ชุด) → จับช่วงคอลัมน์ + เวลาของแต่ละโซน
+ *  คืน [{c0,c1,label,sta,std}] (ว่าง = ไม่ใช่ layout LP) */
+function rrLpZones_(rows, hi, fltStart) {
+  var zones = [];
+  for (var up = 1; up <= 4 && hi - up >= 0; up++) {
+    var hr = rows[hi - up]; if (!hr) continue;
+    var found = [];
+    for (var c = fltStart; c < hr.length; c++) {
+      var lbl = rrClean_(hr[c]); if (!lbl) continue;
+      var m = lbl.toUpperCase().match(/(MORNING|AFTERNOON|EVENING|NIGHT)/);
+      if (m) found.push({ c: c, label: (/\bLP\b/i.test(lbl) ? 'LP ' : '') + m[1] });
+    }
+    if (!found.length) continue;
+    for (var i = 0; i < found.length; i++) {
+      var c0 = found[i].c, c1 = (i + 1 < found.length) ? found[i + 1].c : hr.length;
+      var sta = '', std = '';
+      for (var dr = hi - up; dr < hi; dr++) {                 // หา A:/D: ในแถวป้ายและแถวใต้ลงมา ช่วง c0..c1
+        var drow = rows[dr] || [];
+        for (var cc = c0; cc < c1 && cc < drow.length; cc++) {
+          var sc = rrClean_(drow[cc]);
+          var mA = sc.match(/A\s*:?\s*(\d{1,2})[:.]?(\d{2})/i); if (mA && !sta) sta = ('0' + mA[1]).slice(-2) + ':' + mA[2];
+          var mD = sc.match(/D\s*:?\s*(\d{1,2})[:.]?(\d{2})/i); if (mD && !std) std = ('0' + mD[1]).slice(-2) + ':' + mD[2];
+        }
+      }
+      zones.push({ c0: c0, c1: c1, label: found[i].label, sta: sta, std: std });
+    }
+    break;                                                   // เจอแถวป้ายโซนแล้ว หยุด
+  }
+  return zones;
+}
+
+/** แปลงข้อความจ็อบของทีม LP เป็น assignment list
+ *  เช่น "GATE SU660/661 0925/1055 STBY0930, ARR AK822/823 1530/1600"
+ *  → [{flight:'SU660/661',task:'GATE',STA:'09:25',STD:'10:55'}, {flight:'AK822/823',task:'ARR',STA:'15:30',STD:'16:00'}] */
+function rrParseJobText_(text) {
+  var out = [];
+  if (!text) return out;
+  String(text).split(/[,;\n]+/).forEach(function (chunk) {
+    var c = rrClean_(chunk); if (!c) return;
+    var toks = c.split(/\s+/), flight = '', role = [], times = '';
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i];
+      if (!flight && /^(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}(?:\/\d{2,4})?$/i.test(t)) { flight = t; continue; }
+      var tm = t.replace(/^[-–]+/, '');   // ตัดขีดคั่นนำหน้า เช่น "- 1405/1445" หรือ "-1405/1445"
+      if (flight && !times && /^\d{3,4}[\/-]\d{3,4}$/.test(tm)) { times = tm; continue; }
+      if (!flight && /^[A-Za-z][A-Za-z/().-]*$/.test(t)) role.push(t.toUpperCase());   // คำบทบาทก่อนรหัสไฟลท์ (ARR/GATE…)
+    }
+    if (!flight || !acIsFlight_(flight)) return;     // ไม่มีรหัสไฟลท์ = ไม่ใช่จ็อบไฟลท์ (training/standby) → ข้าม
+    var sta = '', std = '';
+    if (times) { var p = times.split(/[\/-]/); sta = rrHHMM_(p[0]); std = rrHHMM_(p[1]); }
+    out.push({ flight: flight, task: role.join(' '), STA: sta, STD: std, OP: '', CL: '' });
+  });
+  return out;
+}
+/** แถวซัพพอร์ต (ทีมรับใส่คนช่วยจากทีมอื่น): รหัสทีมต้นสังกัดต่อท้ายชื่อ
+ *  รองรับ 2 รูปแบบ: "TANADON PVT" (เว้นวรรค) และ "THADASAK (WY)" / "PREEDA(ZF)" (วงเล็บ)
+ *  → {name:'TANADON', team:'PVT'} */
+function rrSupportTeam_(name) {
+  var s = String(name || '').trim();
+  // รูปแบบวงเล็บ "ชื่อ (WY)" — รหัสทีมในวงเล็บท้ายชื่อ
+  var mp = s.match(/^(.*\S)\s*\(\s*([A-Za-z][A-Za-z0-9]{1,4})\s*\)\s*$/);
+  if (mp) return { team: mp[2].toUpperCase(), name: mp[1].trim() };
+  var toks = s.split(/\s+/);
+  if (toks.length >= 2) {
+    var last = toks[toks.length - 1].replace(/[()]/g, '');   // เผื่อวงเล็บติดมากับ token สุดท้าย
+    if (/^[A-Z0-9]{2,5}$/.test(last) && /[A-Z]/.test(last)) return { team: last.toUpperCase(), name: toks.slice(0, -1).join(' ') };
+  }
+  return { team: '', name: s };
+}
+/** task ที่เป็นการอบรม/ประชุม (ไม่ใช่งานไฟลท์) → ไปเทรน ไม่ได้คุมไฟลท์ */
+function rrIsTrainingTask_(task) {
+  // กิจกรรมที่ "ไม่ใช่การทำไฟลท์" → แสดงเป็นกิจกรรม ไม่นับเป็นคนคุมไฟลท์
+  // TRAIN (ครอบ TRAINING + ตัวย่อ "TRAIN LC HB") · อบรม/สัมมนา/ประชุม (ไทย) · กิจกรรม (เข้าวัด ฯลฯ) · RESIGN/ลาออก
+  // ระวัง: ห้ามจับ MONITOR (= Gate Monitor เป็นงานไฟลท์จริง)
+  return /\bTRAIN|\bOJT\b|\bBRIEF|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|ORIENTATION|RECURRENT|TOWN\s?HALL|\bGOM\b|ACCESSOR|บินทดสอบ|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ|สอนงาน|ลาออก/i.test(String(task || ''));
+}
+/** ดึง "กิจกรรม/เทรน + ช่วงเวลา" จาก REMARK → [{name, STA, STD}] (busy ช่วงนั้น)
+ *  รองรับ: "TR PRODUCT TRAINING 0800-1700" · "EK391/อบรม 1100-1230/EK379" · "BRIEF LTU OFFICE 08:35 - 11:55"
+ *  ตัดด้วย / , ; ก่อน แล้วเก็บเฉพาะ segment ที่มี keyword + ช่วงเวลา (ไม่มีเวลา = มัก STATUS=TRN → จับแล้ว) */
+function rrRemarkActivity_(remark) {
+  var s = String(remark || '');
+  if (!s) return [];
+  var KW = /\bTRAIN|\bOJT\b|\bBRIEF|\bCOURSE\b|MEETING|SEMINAR|WORKSHOP|E-?LEARN|LOAD CONTROL|ACCESSOR|RECURRENT|ORIENTATION|TOWN\s?HALL|\bGOM\b|MANDATORY|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ|คอร์ส|หลักสูตร/i;
+  // แปลง token เวลา → นาที: "0830"/"08:30"/"08.30"/"14" (ชม.ล้วน) → HH:MM · null ถ้าไม่ใช่เวลา
+  function tok(t) {
+    var mm = String(t).match(/^(\d{1,2})[:.](\d{2})$/);                 // 08:30 / 8.30
+    if (mm) { var h = +mm[1], m = +mm[2]; return (h < 24 && m < 60) ? ('0' + h).slice(-2) + ':' + mm[2] : null; }
+    var hm = String(t).match(/^(\d{3,4})$/);                            // 0830 / 830 → HHMM
+    if (hm) { var d = hm[1]; var mn = d.slice(-2), hh = d.slice(0, -2); if (+hh < 24 && +mn < 60) return ('0' + (+hh)).slice(-2) + ':' + mn; return null; }
+    var ho = String(t).match(/^(\d{1,2})$/);                            // 14 → 14:00 (ชม.ล้วน)
+    if (ho && +ho[1] < 24) return ('0' + (+ho[1])).slice(-2) + ':00';
+    return null;
+  }
+  var out = [];
+  s.split(/[\/\n;]|,\s/).forEach(function (raw) {
+    var seg = rrClean_(raw);
+    if (!seg || !KW.test(seg)) return;
+    // ช่วงเวลา: รับรูปแบบหลวม "0830-1000" · "14-1530" · "0830-10" · "08:30-10:00" · "11-1230"
+    var m = seg.match(/(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})/);
+    if (!m) return;
+    var a = tok(m[1]), b = tok(m[2]);
+    if (!a || !b) return;
+    // กันเลขที่ไม่ใช่เวลา (เช่น "Townhall batch 3-4"): เวลาเริ่มต้องอยู่ 05:00–22:00 (เทรน/กิจกรรมเป็นเวลากลางวัน)
+    var sm = (+a.slice(0, 2)) * 60 + (+a.slice(3));
+    if (sm < 300 || sm > 1320) return;
+    out.push({ name: seg.slice(0, 50), STA: a, STD: b });
+  });
+  return out;
+}
+/** ดึงรหัสไฟลท์ทั้งหมดจากข้อความรกๆ (Admin Doc/Crewsign) — เก็บเฉพาะที่ผ่าน acIsFlight_, ตัดซ้ำด้วยเลขไฟลท์
+ *  เช่น "EY414/415 CREWSIGN(0500), AK818-819 STA0805" → [{flight:'EY414/415'},{flight:'AK818-819'}] */
+function rrExtractFlights_(txt) {
+  var out = [], seen = {};
+  if (!txt) return out;
+  (String(txt).match(/[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?\d{2,4})?/gi) || []).forEach(function (code) {
+    code = rrClean_(code).replace(/\s+/g, '');
+    if (!acIsFlight_(code)) return;
+    var key = (code.match(/\d{2,4}/g) || []).join('/');
+    if (!key || seen[key]) return; seen[key] = 1;
+    out.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
+  });
+  return out;
 }
 function rrRangeHours_(s) {
   var str = rrClean_(s).replace(/\./g, ':');
@@ -85,6 +259,23 @@ function rrOtHours_(v) {
   }
   if (/^\d+(\.\d+)?$/.test(s)) { var f = parseFloat(s); return (f > 0 && f <= 14) ? f : 0; }
   return rrRangeHours_(s);
+}
+/** อ่าน OT หนึ่งกลุ่ม (คู่ IN/OUT ที่คอลัมน์ otc, total ที่ totc) → {hours, range:[s,e]} หรือ null
+ *  ถ้ามีคอลัมน์ TOTAL → ใช้ค่ารวม (ว่าง+มี IN-OUT → คำนวณจากช่วง) ; ไม่มี TOTAL → ใช้ค่าในคอลัมน์ OT เอง */
+function rrReadOtGroup_(row, otc, totc) {
+  if (otc < 0) return null;
+  var rng = rrRangeCells_(row, otc), h;
+  if (rng[0] != null && rng[1] != null && rng[0] === rng[1]) rng = [null, null];   // IN==OUT (เช่น 00:00-00:00 placeholder) = ไม่มี OT จริง (กันคิดเป็น 24 ชม.)
+  if (totc >= 0) {
+    h = rrOtHours_(totc < row.length ? row[totc] : '');
+    if (!(h > 0) && rng[0] != null && rng[1] != null) {
+      var a = rng[0], b = rng[1]; if (b <= a) b += 1440; h = Math.round((b - a) / 60 * 10) / 10;
+    }
+  } else {
+    h = rrOtHours_(otc < row.length ? row[otc] : '');
+  }
+  if (!(h > 0) && rng[0] == null) return null;
+  return { hours: h > 0 ? h : 0, range: rng };
 }
 
 // ── OT pre/post (ก่อนกะ / หลังกะ) classification ────────────────────────────
@@ -110,8 +301,20 @@ function rrRangeCells_(row, col) {
 }
 function rrFmtMin_(m) {
   if (m == null) return '';
-  var h = Math.floor(m / 60) % 24, mm = ((m % 60) + 60) % 60;
-  return ('0' + h).slice(-2) + ':' + ('0' + mm).slice(-2);
+  m = ((Math.round(m) % 1440) + 1440) % 1440;                 // normalize → นาฬิกา 00:00–23:59 (กันค่าติดลบ/ข้ามคืน)
+  return ('0' + Math.floor(m / 60)).slice(-2) + ':' + ('0' + (m % 60)).slice(-2);
+}
+/** เลื่อนช่วง [a,b] ด้วย k×1440 ให้แนบชิดช่วงอ้างอิง [rs,re] มากสุด — จัดเวลาข้ามเที่ยงคืนให้อยู่ timeline เดียวกัน */
+function rrAlignTo_(a, b, rs, re) {
+  if (a == null || b == null || rs == null || re == null) return [a, b];
+  if (b <= a) b += 1440;                                       // ช่วงตัวเองข้ามคืน
+  var bestK = 0, bestGap = Infinity;
+  for (var k = -2; k <= 2; k++) {
+    var aa = a + 1440 * k, bb = b + 1440 * k;
+    var gap = (aa > re) ? (aa - re) : (bb < rs ? (rs - bb) : 0);
+    if (gap < bestGap) { bestGap = gap; bestK = k; }
+  }
+  return [a + 1440 * bestK, b + 1440 * bestK];
 }
 function rrFmtRange_(r) { return (r[0] != null && r[1] != null) ? (rrFmtMin_(r[0]) + '-' + rrFmtMin_(r[1])) : ''; }
 
@@ -120,13 +323,12 @@ function rrOtType_(srng, orng, isOff) {
   if (isOff) return 'POST';
   var si = srng[0], so = srng[1], oi = orng[0], oo = orng[1];
   if (oi == null) return 'POST';
-  if (so != null && si != null && so <= si) so += 1440;
-  if (oo != null && oo <= oi) oo += 1440;
-  var TOL = 30;
-  if (si != null && oo != null && oo <= si + TOL) return 'PRE';
-  if (so != null && oi >= so - TOL) return 'POST';
-  if (si != null && oi < si) return 'PRE';
-  return 'POST';
+  if (oo == null) return (si != null && oi < si) ? 'PRE' : 'POST';   // ไม่มีเวลาเลิก OT → เทียบ in กับต้นกะ (กัน null<=x เป็น PRE ผิด)
+  if (so != null && si != null && so <= si) so += 1440;       // กะข้ามคืน
+  if (oo != null && oo <= oi) oo += 1440;                      // OT ข้ามคืน
+  if (si == null || so == null) return (si != null && oi < si) ? 'PRE' : 'POST';
+  var al = rrAlignTo_(oi, oo, si, so); oi = al[0]; oo = al[1]; // จัด OT ให้อยู่ timeline เดียวกับกะ
+  return (oo <= si + 30) ? 'PRE' : 'POST';                     // จบ ≤ ต้นกะ = ก่อนกะ, ไม่งั้น = หลังกะ
 }
 
 // ─── header detection (standard + TR NO/ID/NAME/TIME/SHIFT/OT variant) ──────
@@ -143,23 +345,46 @@ function rrFindHeader_(rows) {
     cm.shift  = u.indexOf('SHIFT');
     cm.time   = u.indexOf('TIME');
     cm.pos    = u.indexOf('POSITION') >= 0 ? u.indexOf('POSITION') : u.indexOf('POS.');
-    cm.remark = u.indexOf('REMARK');
+    // คอลัมน์สถานะ (Onduty/Off/OT OFF/VAC…): บางชีต (PVTLP) ใช้หัว 'STATUS', ที่เหลือใช้ 'REMARK'
+    // ('REMARK FOR SUPPORT OTHER FLT' = โน้ต ไม่ใช่สถานะ → ไม่แมตช์ 'REMARK' ตรง ๆ อยู่แล้ว)
+    cm.remark = u.indexOf('STATUS') >= 0 ? u.indexOf('STATUS') : u.indexOf('REMARK');
+    // คอลัมน์ REMARK "จริง" (โน้ตอบรม/กิจกรรม เช่น "MINI TOWN HALL 0830-1000") — แยกจาก STATUS
+    // ฟอร์มใหม่มีทั้ง STATUS + REMARK → cm.remark=STATUS, ตัวโน้ตอยู่คนละคอลัมน์ ต้องอ่านต่างหาก (จับเทรน/กิจกรรมที่เขียนใน REMARK)
+    cm.remark2 = (u.indexOf('STATUS') >= 0 && u.indexOf('REMARK') >= 0 && u.indexOf('REMARK') !== cm.remark) ? u.indexOf('REMARK') : -1;
+    // คอลัมน์จ็อบแบบข้อความ (ทีม LP): หัวคอลัมน์มี 'SUPPORT' + 'FL' เช่น "REMARK FOR SUPPORT OTHER FLT"
+    cm.jobtext = -1;
+    for (var jt = 0; jt < u.length; jt++) { if (u[jt].indexOf('SUPPORT') >= 0 && /\bFL/.test(u[jt])) { cm.jobtext = jt; break; } }
     cm.re     = u.indexOf('RE');
     cm.resked = u.indexOf('RE-SKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RESKED');
     if (cm.resked < 0) cm.resked = u.indexOf('RE-SKED.');
-    cm.ot     = u.indexOf('OT');
-    cm.ottot  = -1;
-    for (var c = 0; c < u.length; c++) {
-      var h = u[c].replace(/\./g, '').replace(/\s+/g, ' ').trim();
-      if (h.indexOf('TOTAL') === 0 && cm.ot >= 0 && (c - cm.ot) > 0 && (c - cm.ot) <= 3) cm.ottot = c;
+    // OT: รองรับ 'OT' ตรง ๆ · 'OT(BEFORE)'/'OT(AFTER)' · และฟอร์มใหม่ 'OT ก่อนกะ'/'OT หลังกะ' (ไทย · IN/OUT/Total แยกแถวล่าง)
+    var otCols = [];
+    for (var oc = 0; oc < u.length; oc++) {
+      var oh = u[oc].replace(/[\s.]/g, '');
+      if (oh === 'OT' || oh.indexOf('OT(') === 0 || /^OT(ก่อน|หลัง|BEFORE|AFTER|PRE|POST)/i.test(oh)) otCols.push(oc);
     }
+    cm.ot  = otCols.length     ? otCols[0] : -1;
+    cm.ot2 = otCols.length > 1 ? otCols[1] : -1;
+    function rrTotAfter(otc) {                                  // หา 'TOTAL HRS' ภายใน 3 คอลัมน์ถัดจากกลุ่ม OT (หัวอยู่แถวเดียวกัน)
+      if (otc < 0) return -1;
+      for (var c = otc + 1; c < u.length; c++) {
+        var h = u[c].replace(/\./g, '').replace(/\s+/g, ' ').trim();
+        if (h.indexOf('TOTAL') === 0 && (c - otc) > 0 && (c - otc) <= 3) return c;
+      }
+      return -1;
+    }
+    cm.ottot  = rrTotAfter(cm.ot);
+    cm.ottot2 = rrTotAfter(cm.ot2);
+    // ฟอร์มใหม่: หัว OT อยู่ row3 แต่ IN/OUT/Total อยู่ sub-header row ล่าง → rrTotAfter หาไม่เจอ · Total = คอลัมน์ +2 (IN,OUT,Total)
+    if (cm.ottot  < 0 && cm.ot  >= 0) cm.ottot  = cm.ot  + 2;
+    if (cm.ottot2 < 0 && cm.ot2 >= 0) cm.ottot2 = cm.ot2 + 2;
     cm.flt = u.indexOf('FLIGHT') >= 0 ? u.indexOf('FLIGHT') + 1 : -1;
     if (cm.flt < 0) {
       // บางวันชีต (เช่น WY) ไม่มีหัว "FLIGHT" — รหัสไฟลท์อยู่ในหัวตารางตรง ๆ
       var after = Math.max(cm.remark, cm.ot, cm.ottot, cm.time, cm.shift, cm.name, cm.id);
       for (var fc = after + 1; fc < u.length; fc++) {
-        if (rrIsFlightHdr_(u[fc])) { cm.flt = fc; break; }
+        if (rrIsFlightHdr_(u[fc]) || rrIsCounterHdr_(u[fc])) { cm.flt = fc; break; }   // SU/SQ: หัวบล็อก "Counter G2".."Counter H6" (เลขเดียว rrIsFlightHdr_ จับไม่ได้)
       }
     }
     return cm;
@@ -171,67 +396,197 @@ function rrFindHeader_(rows) {
 function rrIsFlightHdr_(h) {
   return /(?:^|[\s\/])(?:[A-Z]{1,3}\s?\d{2,4}|\d[A-Z]\d{2,4})/.test(String(h || ''));
 }
+/** หัวบล็อกเคาน์เตอร์เช็คอินรวม (SU/SQ): "Counter G2".."Counter G12" / "Counter H2".."Counter H6"
+ *  (เลขเดียวก็ต้องจับ — rrIsFlightHdr_ ต้องการ ≥2 หลัก เลยพลาด G2/H3) */
+function rrIsCounterHdr_(h) { return /^\s*COUNTER\s+[A-Z]{0,2}\d{1,3}\b/i.test(String(h || '')); }
+/** ค่าในเซลล์เป็น "เวลา" ไหม → คืน "HH:MM" (รองรับ 07:35 · 0735 · 955) · ไม่ใช่เวลา = '' (ตรวจช่วงถูกต้อง กันเลขไฟลท์เช่น 8665) */
+function rrCellTimeVal_(v) {
+  var s = String(v == null ? '' : v).trim();
+  var m = s.match(/^(\d{1,2})[:.](\d{2})/);
+  if (m) { return (+m[1] < 24 && +m[2] < 60) ? (('0' + m[1]).slice(-2) + ':' + m[2]) : ''; }
+  var m2 = s.match(/^(\d{1,2})(\d{2})$/);                    // HHMM ไม่มีตัวคั่น (เคาน์เตอร์ SU: 0735 / 0955)
+  if (m2 && +m2[1] < 24 && +m2[2] < 60) return ('0' + m2[1]).slice(-2) + ':' + m2[2];
+  return '';
+}
 
 // ─── parsers ────────────────────────────────────────────────────────────────
-function rrParseStandard_(rows, team) {
+/** เทากลาง (ไม่ขาว/ไม่ดำสนิท) แบบ neutral grey — ใช้มาร์คไฟลท์ยกเลิก (ระบายเทาทั้งบล็อก) */
+function rrIsCancelGrey_(hex) {
+  var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(String(hex || ''));
+  if (!m) return false;
+  var r = parseInt(m[1], 16), g = parseInt(m[2], 16), b = parseInt(m[3], 16);
+  var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+  return (mx - mn) <= 0x16 && mn >= 0x40 && mx <= 0xDC;       // r≈g≈b และอยู่โทนเทากลาง
+}
+/** ไฟลท์ถูกยกเลิกไหม — เช็ค 3 สัญญาณ: ข้อความ CXL/CANCEL/ยกเลิก, ขีดฆ่าหัวไฟลท์, ระบายเทาทั้งบล็อก (หัว+STA+OP) */
+function rrFlightCancelled_(name, col, c1, hi, meta) {
+  if (/\b(CXL|CNL|CANCEL(?:LED)?)\b|ยกเลิก/i.test(String(name || ''))) return true;
+  if (!meta) return false;
+  var bgs = meta.bgs, lines = meta.lines;
+  if (lines && lines[hi] && /line-through/i.test(String(lines[hi][col] || ''))) return true;   // ขีดฆ่า
+  if (bgs && bgs[hi] && rrIsCancelGrey_(bgs[hi][col])) return true;                             // หัวไฟลท์เทา
+  if (bgs) {                                                  // ระบายเทาเกือบทั้งบล็อก (หัว/STA/OP)
+    var grey = 0, tot = 0;
+    for (var rr = hi; rr <= hi + 2 && rr < bgs.length; rr++) {
+      for (var cc = col; cc < c1; cc++) { var hx = bgs[rr] && bgs[rr][cc]; if (!hx) continue; tot++; if (rrIsCancelGrey_(hx)) grey++; }
+    }
+    if (tot >= 3 && grey >= Math.ceil(tot * 0.6)) return true;
+  }
+  return false;
+}
+
+/** ดึงรหัสไฟลท์สะอาดจากหัวคอลัมน์ที่มี prefix รก — SU ฟอร์ม ก.ย.: "GATE ___ / FLT SU643/637" → "SU643/637" */
+function rrCleanFltName_(nm) {
+  var m = String(nm || '').match(/\bFL[TG]?\.?\s+([A-Z0-9][A-Z0-9\/]*)/i);
+  return (m && /\d/.test(m[1])) ? m[1] : nm;
+}
+/** สร้างตารางไฟลท์ (fltcols + flights{STA/STD/OP/CL/AC} + lpZones) จากหัวตารางที่แถว hi
+ *  แยกเป็นฟังก์ชันเพื่อใช้ซ้ำกับ "หัวตารางที่สอง" ในแท็บเดียวกัน (SU: CHECK IN + GATE ASSIGNMENT) */
+function rrBuildFltcols_(rows, hi, fltStart, meta) {
+  var flights = {}, fltcols = [], lpZones = [];
+  if (fltStart == null || fltStart < 0 || !rows[hi]) return { flights: flights, fltcols: fltcols, lpZones: lpZones };
+  var hdr = rows[hi];
+  var above = rows[hi - 1] || [];                          // LP: รหัสไฟลท์อยู่แถวเหนือหัว (หัว = STA/STD)
+  for (var c = fltStart; c < hdr.length; c++) {
+    var nm = rrClean_(hdr[c]);
+    var nu = nm.toUpperCase();
+    // เลย์เอาต์ LP: เซลล์หัว = เวลา "A '09:15" / "D:10:35" (STA/STD) → รหัสไฟลท์จริงอยู่แถวเหนือ (WY833/834)
+    if (/^[AD]\s*['":]/.test(nm)) {
+      var av = rrClean_(above[c]);
+      if (av && rrIsFlightHdr_(av)) fltcols.push({ col: c, name: av, lpShift: true });   // ใช้รหัสจากแถวเหนือ · STA/STD เลื่อนขึ้น 1 แถว
+      continue;
+    }
+    if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
+        && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
+        && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
+      fltcols.push({ col: c, name: rrCleanFltName_(nm) });               // "GATE ___ / FLT SU643/637" → "SU643/637"
+    }
+  }
+  var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
+  var acRow = null;
+  for (var ar = hi + 1; ar <= hi + 5 && ar < rows.length; ar++) {
+    var albl = (fltStart - 1 >= 0 && fltStart - 1 < (rows[ar] || []).length) ? rrClean_(rows[ar][fltStart - 1]) : '';
+    if (/A\/?C\s*TYPE|AIRCRAFT/i.test(albl)) { acRow = rows[ar]; break; }
+  }
+  for (var fi = 0; fi < fltcols.length; fi++) {
+    var c0 = fltcols[fi].col;
+    var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
+    fltcols[fi].end = c1;
+    fltcols[fi].cancelled = rrFlightCancelled_(fltcols[fi].name, c0, c1, hi, meta);
+    var staR = fltcols[fi].lpShift ? hdr : sta;             // LP: STA/STD อยู่แถวหัว (hi) · OP/CL อยู่แถว hi+1
+    var opnR = fltcols[fi].lpShift ? sta : opn;
+    var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
+    for (var cc = c0; cc < c1; cc++) {
+      var sc = rrClean_(staR[cc]), tv = rrTimePair_(sc);
+      if (tv && tv !== '00:00') { if (/^\s*D/i.test(sc)) { if (!stdV) stdV = tv; } else if (/^\s*A/i.test(sc)) { if (!staV) staV = tv; } else posS.push(tv); }
+      var ocs = rrClean_(opnR[cc]), ov = rrTimePair_(ocs);
+      if (ov && ov !== '00:00') { if (/^\s*C/i.test(ocs)) { if (!clV) clV = ov; } else if (/^\s*O/i.test(ocs)) { if (!opV) opV = ov; } else posO.push(ov); }
+    }
+    if (!staV && posS.length) staV = posS.shift();
+    if (!stdV && posS.length) stdV = posS.shift();
+    if (!opV && posO.length) opV = posO.shift();
+    if (!clV && posO.length) clV = posO.shift();
+    var acV = '';
+    if (acRow) { for (var ac = c0; ac < c1; ac++) { var av = rrClean_(acRow[ac]); if (av) { acV = av; break; } } }
+    flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV, AC: acV };
+  }
+  fltcols = fltcols.filter(function (f) { return !f.cancelled; });
+  lpZones = rrLpZones_(rows, hi, fltStart);
+  return { flights: flights, fltcols: fltcols, lpZones: lpZones };
+}
+/** รวม assignment ชุดใหม่เข้ากับ record เดิม (dedup ตาม flight+task) — ใช้ตอนคนเดิมโผล่ 2 บล็อก */
+function rrMergeAssigns_(rec, more) {
+  if (!more || !more.length) return;
+  rec.assignments = rec.assignments || [];
+  var key = {}; rec.assignments.forEach(function (a) { key[(a.flight || '') + '|' + (a.task || '')] = 1; });
+  more.forEach(function (a) { var k = (a.flight || '') + '|' + (a.task || ''); if (!key[k]) { rec.assignments.push(a); key[k] = 1; } });
+}
+function rrParseStandard_(rows, team, meta) {
   var cm = rrFindHeader_(rows);
   if (!cm) return null;
   var hi = cm.hdr;
 
-  var flights = {}, fltcols = [];
-  if (cm.flt >= 0) {
-    var hdr = rows[hi];
-    for (var c = cm.flt; c < hdr.length; c++) {
-      var nm = rrClean_(hdr[c]);
-      var nu = nm.toUpperCase();
-      if (nm && nm.charAt(0) !== '=' && nu !== 'STA / STD' && nu !== 'OP / CL'
-          && nu !== 'REMARK' && nu !== 'RE' && nu !== 'OT' && nu !== 'COUNTER'
-          && nu !== 'NIL' && nu !== '-' && nu !== 'N/A' && nu !== 'NA') {   // NIL = placeholder "ไม่มีไฟลท์" — ไม่นับ
-        fltcols.push({ col: c, name: nm });
+  // ตรวจคอลัมน์ "งานซัพพอร์ตข้ามทีม" แบบไม่มีหัวคอลัมน์ SUPPORT (เช่น PVT คอลัมน์ O หลัง REMARK)
+  // ข้อความรูปแบบ "ARR AK818/819 0805/0840" / "GATE SU660/661 STA/STD : 0925/1055" → อ่านเป็น assignment ไฟลท์
+  if (cm.jobtext < 0 && cm.remark >= 0) {
+    var supRole = /\b(ARR|GATE|GA|CREW|CRW|TRANSFER|TF|CI|CHECK|SUPP?ORT|STBY|SD)\b/i;
+    var supFlt = /(?:[A-Z]{1,3}|\d[A-Z])\s?\d{2,4}\s?\/\s?\d{2,4}|(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}/;
+    var loC = cm.remark + 1, hiC = (cm.flt > 0 ? cm.flt - 1 : (rows[hi] ? rows[hi].length : 0));
+    var bestC = -1, bestN = 0;
+    for (var sc = loC; sc < hiC; sc++) {
+      var nMatch = 0;
+      for (var rr = hi + 1; rr < rows.length; rr++) {
+        var sv = rows[rr] ? String(rows[rr][sc] || '') : '';
+        if (sv && supRole.test(sv) && supFlt.test(sv)) nMatch++;
       }
+      if (nMatch > bestN) { bestN = nMatch; bestC = sc; }
     }
-    var sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
-    for (var fi = 0; fi < fltcols.length; fi++) {
-      var c0 = fltcols[fi].col;
-      var c1 = (fi + 1 < fltcols.length) ? fltcols[fi + 1].col : hdr.length;
-      fltcols[fi].end = c1;                                  // flight occupies cols c0..c1-1
-      // ใช้ป้าย A:/D: (STA/STD) และ O:/C: (OP/CL) ถ้ามี (กัน STA ว่างแล้ว STD เลื่อนมาผิดช่อง)
-      var staV = '', stdV = '', opV = '', clV = '', posS = [], posO = [];
-      for (var cc = c0; cc < c1; cc++) {
-        var sc = rrClean_(sta[cc]), tv = rrTimePair_(sc);
-        if (tv) { if (/^\s*D/i.test(sc)) stdV = tv; else if (/^\s*A/i.test(sc)) staV = tv; else posS.push(tv); }
-        var ocs = rrClean_(opn[cc]), ov = rrTimePair_(ocs);
-        if (ov) { if (/^\s*C/i.test(ocs)) clV = ov; else if (/^\s*O/i.test(ocs)) opV = ov; else posO.push(ov); }
-      }
-      if (!staV && posS.length) staV = posS.shift();
-      if (!stdV && posS.length) stdV = posS.shift();
-      if (!opV && posO.length) opV = posO.shift();
-      if (!clV && posO.length) clV = posO.shift();
-      flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV };
-    }
+    if (bestN >= 2) cm.jobtext = bestC;     // ใช้ช่องนี้เป็น "งานซัพพอร์ต" → parse ด้วย rrParseJobText_ (โค้ดเดิม)
   }
 
-  var recs = [], seen = {};
+  var b1 = rrBuildFltcols_(rows, hi, cm.flt, meta);
+  var flights = b1.flights, fltcols = b1.fltcols, lpZones = b1.lpZones;
+  // ── หัวตารางที่สองในแท็บเดียวกัน (SU/SQ: "CHECK IN" ด้านบน + "GATE ASSIGNMENT" ด้านล่าง · คนชุดเดิม) ──
+  //    บล็อก 2 มีคอลัมน์ไฟลท์คนละชุด (เช่น SU284/285 · Job1-4) → parse แยก แล้วรวม assignment เข้าคนเดิม
+  var hi2 = -1;
+  for (var hr = hi + 4; hr < rows.length; hr++) {
+    var hrow = rows[hr]; if (!hrow) continue;
+    if (rrUp_(hrow[cm.id]) === 'ID' && rrUp_(hrow[cm.name]) === 'NAME') { hi2 = hr; break; }
+  }
+  var fltcols2 = [], flights2 = {}, cm2flt = -1, sect2Differs = false;
+  if (hi2 >= 0) {
+    var u2 = rows[hi2].map(rrUp_);
+    cm2flt = u2.indexOf('FLIGHT') >= 0 ? u2.indexOf('FLIGHT') + 1 : cm.flt;
+    var b2 = rrBuildFltcols_(rows, hi2, cm2flt, meta);
+    fltcols2 = b2.fltcols; flights2 = b2.flights;
+    sect2Differs = fltcols2.some(function (f) { return !fltcols.some(function (g) { return g.name === f.name; }); });   // บล็อก 2 มีไฟลท์ที่บล็อก 1 ไม่มี = คนละชุดงาน (ไม่ใช่สำเนาซ้ำ)
+  }
+
+  var recs = [], seen = {}, recByIdd = {}, dupSkip = 0, inSect2 = false;
   for (var rr = hi + 1; rr < rows.length; rr++) {
     var row = rows[rr];
-    var idd = (cm.id < row.length ? rrClean_(row[cm.id]) : '').replace(/\D/g, '');
+    if (hi2 >= 0 && rr === hi2) { fltcols = fltcols2; flights = flights2; lpZones = []; cm.flt = cm2flt; inSect2 = true; }   // ข้ามเข้าโซนบล็อก 2 → สลับตารางไฟลท์
+    var idRaw = cm.id < row.length ? rrClean_(row[cm.id]) : '';
+    var isBkk = /^B\s*\d{6,7}\b/i.test(idRaw);                // รหัสขึ้นต้น "B" (เช่น B2607384) = พนักงาน BKK มาช่วย (Batch)
+    var idd = idRaw.replace(/\D/g, '');
     if (idd.length < 6 && cm.id + 1 < row.length) {          // WY leading seq column
       var rawNext = rrClean_(row[cm.id + 1]).replace(/\.0+$/, '');
       if (/^\d{6,8}$/.test(rawNext)) idd = rawNext;           // only a PURE numeric id (not a flight code like PG251/252)
     }
     var name = cm.name < row.length ? rrClean_(row[cm.name]) : '';
-    if (!name || idd.length < 6 || idd.length > 8) continue;
+    // แถวซัพพอร์ต: ทีมที่รับใส่ "ชื่อ + รหัสทีมต้นสังกัด" (เช่น "TANADON PVT")
+    //  รองรับ 2 แบบ: (1) ID หรือ Position = SUPPORT/SUPP  (2) มีคำว่า "Support" นำหน้าชื่อ เช่น "Support Pattaramon PG"
+    //  (กัน "Sup" = ตำแหน่ง Supervisor ไม่ให้เข้าเงื่อนไข — ต้องมี PP สองตัว)
+    var posRaw0 = (cm.pos >= 0 && cm.pos < row.length) ? rrClean_(row[cm.pos]) : '';
+    var SUP_PREFIX = /^\s*SUPP(?:ORT)?\b[\s:.\-]*/i;
+    var isSup = SUP_PREFIX.test(idRaw) || SUP_PREFIX.test(posRaw0) || SUP_PREFIX.test(name);
+    var supTeam = '';
+    if (isSup) {
+      var rawName = SUP_PREFIX.test(name) ? name.replace(SUP_PREFIX, '').trim() : name;   // ตัดคำ "Support" นำหน้าชื่อออก
+      if (rawName && !/^(NAME|REMARK|SUPPORT|SUPP)$/i.test(rawName)) {
+        var sp = rrSupportTeam_(rawName); name = sp.name; supTeam = sp.team;
+        idd = ('SUP' + supTeam + name).replace(/[^A-Za-z0-9ก-๙]/g, '').slice(0, 18);   // รหัสจำลอง (ไม่ใช่รหัสจริง) → ไม่ชนรหัสเดิม/ไม่นับหัวซ้ำ
+      } else { isSup = false; }
+    }
+    if (!name || (!isSup && (idd.length < 6 || idd.length > 8))) continue;
     var nU = name.toUpperCase();
-    if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE' || seen[idd]) continue;
-    if (rrUp_(row[cm.id]).indexOf('EX') === 0) continue;     // template "Ex. 212121" sample row
-    seen[idd] = true;
+    if (nU === 'NAME' || nU === 'REMARK' || nU === 'SUPPORT' || nU === 'JAIDEE') continue;
+    if (!isSup && rrUp_(row[cm.id]).indexOf('EX') === 0) continue;     // template "Ex. 212121" sample row
+    var dupOf = seen[idd] ? recByIdd[idd] : null;                      // ID ซ้ำ (บล็อกซ้ำในแท็บ เช่น SU: CHECK IN + GATE ASSIGN)
 
     var shift  = (cm.shift  >= 0 && cm.shift  < row.length) ? rrClean_(row[cm.shift])  : '';
     var timev  = (cm.time   >= 0 && cm.time   < row.length) ? rrClean_(row[cm.time])   : '';
     var remark = (cm.remark >= 0 && cm.remark < row.length) ? rrClean_(row[cm.remark]) : '';
-    // OT ชั่วโมง: ปกติอยู่คอลัมน์ TOTAL หลัง OT; ถ้าไม่มี → ใช้ค่าในคอลัมน์ OT เอง (เช่น "14-20")
-    var otCol = cm.ottot >= 0 ? cm.ottot : cm.ot;
-    var otv   = (otCol >= 0 && otCol < row.length) ? rrClean_(row[otCol]) : '';
+    var remark2 = (cm.remark2 >= 0 && cm.remark2 < row.length) ? rrClean_(row[cm.remark2]) : '';   // โน้ต REMARK จริง (เทรน/กิจกรรม)
+    // สถานะ (Off/VAC/SICK) บางแถวกรอก "เยื้อง" มาช่องซ้ายของ REMARK เช่น QR: "Off" ตกในคอลัมน์ Total Hrs.
+    // → REMARK ว่างเลยนับเป็นมาทำงานผิด · ถ้า REMARK ไม่มีสถานะ ให้ดูช่องซ้ายถัดไป (Total Hrs เป็นตัวเลข ไม่ชนคำสถานะ)
+    if (cm.remark - 1 >= 0 && !/\b(OFF|VAC|SICK|\bSL\b|\bBL\b|OT\s*OFF|ONDUTY)\b/i.test(rrUp_(remark))) {
+      var nbL = rrClean_(row[cm.remark - 1]);
+      if (/^(OFF|OT\s*-?\s*OFF|VAC(?:ATION)?|SICK|SL|BL|DAY\s*OFF|ลา|หยุด)\b/i.test(nbL)) remark = nbL;
+    }
+    // คอลัมน์ "สถานะงาน" ก่อนบล็อกไฟลท์ (เช่น KE/OZ: ":: FLIGHT ::") — เขียน "OFF"/"OFF/Training" สำหรับคนหยุด
+    // (คนยังมีรหัสกะหมุนเวียน เช่น J8 → ถ้าไม่ดูคอลัมน์นี้จะอ่านเป็นมาทำงานทั้งทีม)
+    var leadLbl = (cm.flt - 1 >= 0 && cm.flt - 1 < row.length) ? rrClean_(row[cm.flt - 1]) : '';
 
     var assigns = [];
     fltcols.forEach(function (fc) {
@@ -239,14 +594,44 @@ function rrParseStandard_(rows, team) {
       for (var cc = fc.col; cc < (fc.end || fc.col + 1); cc++) {
         var v = cc < row.length ? rrClean_(row[cc]) : '';
         if (!v) continue;
-        if (/^\d{1,2}[:.]\d{2}/.test(v)) times.push(v); else tasks.push(v);   // SU: เวลาในเซลล์เคาน์เตอร์
+        var tv = rrCellTimeVal_(v);
+        if (tv) times.push(tv); else tasks.push(v);   // SU: เวลา IN/OUT ในเซลล์เคาน์เตอร์ (07:35 หรือ 0735)
       }
       if (tasks.length || times.length) {
         var info = flights[fc.name] || {};
         var op = info.OP || '', cl = info.CL || '';
         if (times.length && !op && !cl) { op = times[0]; cl = times[times.length - 1]; }   // ใช้เวลาในเซลล์เป็น OP/CL
-        assigns.push({ flight: fc.name, task: tasks.join('/'),
-                       STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl });
+        // คนไปเทรน/ประชุม (เช่น "TRAINING BASIC LOAD CONTROL 08-17") = ไม่ได้ทำไฟลท์นั้น
+        // → แสดงเป็นกิจกรรมอบรม ไม่นับเป็นไฟลท์ (ทุกทีม)
+        // เก็บเวลากิจกรรมจากคอลัมน์ด้วย (เช่น "Training CM" ที่ใส่เวลา 10:00-18:00 ในแถว STA/STD) — ถ้าไม่มีเวลาในข้อความ
+        if (rrIsTrainingTask_(tasks.join(' '))) { assigns.push({ flight: tasks.join(' '), task: '', STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl }); return; }
+        // หัวคอลัมน์เป็น "ป้ายไฟลท์ทั่วไป" (เช่น "หมายเลขไฟลท์ 1", "Job 1", "FLIGHT") — รหัสไฟลท์จริง
+        // ฝังในข้อความ (Admin Doc/Crewsign: "EY414/415 CREWSIGN…, AK818-819…") → ดึงออกมา
+        // (ไม่แตะคอลัมน์ Counter ของ SU — คงงานเคาน์เตอร์ไว้)
+        var codes = /หมายเลขไฟลท์|^(?:JOB|FLIGHT)\b/i.test(fc.name) ? rrExtractFlights_(tasks.join(' ')) : null;
+        if (codes && codes.length) {
+          codes.forEach(function (a) { assigns.push(a); });
+        } else {
+          var lpz = null;                                     // LP: คอลัมน์นี้อยู่ในโซน MORNING/AFTERNOON ที่มีเวลาไหม
+          for (var zi = 0; zi < lpZones.length; zi++) { if (fc.col >= lpZones[zi].c0 && fc.col < lpZones[zi].c1) { lpz = lpZones[zi]; break; } }
+          if (lpz && (lpz.sta || lpz.std) && !acIsFlight_(fc.name)) {   // งาน LP ในโซน → ใช้เวลาโซนเป็นช่วงงาน (05:00–15:00 / 14:00–24:00)
+            assigns.push({ flight: lpz.label, task: tasks.join('/'), STA: info.STA || lpz.sta, STD: info.STD || lpz.std, OP: op, CL: cl });
+            return;
+          }
+          assigns.push({ flight: fc.name, task: tasks.join('/'),
+                         STA: info.STA || '', STD: info.STD || '', OP: op, CL: cl, AC: info.AC || '' });
+          // common check-in (SU): โค้ดเคาน์เตอร์ที่ระบุเลขไฟลท์ เช่น "FC661" = FC ของ SU661
+          // → เพิ่ม assignment ไฟลท์ของทีม (เฉพาะทีมที่ชื่อเป็นรหัสสายการบิน 2 ตัว)
+          if (/^[A-Z]{2}$/.test(String(team).toUpperCase()) && !acIsFlight_(fc.name)) {
+            var air = String(team).toUpperCase();
+            tasks.forEach(function (tk) {
+              var mm = String(tk).match(/^([A-Z]{1,3})(\d{3,4})$/);   // ต้องมี role นำหน้า เช่น FC661 (กัน "0835" = เวลา/เคาน์เตอร์)
+              if (mm && acIsFlight_(air + mm[2])) {
+                assigns.push({ flight: air + mm[2], task: mm[1] || '', STA: '', STD: '', OP: '', CL: '' });
+              }
+            });
+          }
+        }
       }
     });
     // บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
@@ -260,17 +645,55 @@ function rrParseStandard_(rows, team) {
           code = code.trim();
           var cn = code.match(/\d{2,4}/g) || [];
           var allDup = cn.length && cn.every(function (n) { return nums[n]; });
-          if (cn.length && !allDup && acIsFlight_(code)) {
+          if (cn.length && !allDup && acIsFlight_(code) && slaKnownAir_(code)) {   // กันรหัสปลอมจากโน้ต เช่น "BRUSH UP 19"
             assigns.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
             cn.forEach(function (n) { nums[n] = 1; });
           }
         });
       }
     }
+    // ทีม LP/Support: จ็อบงานเขียนเป็นข้อความในคอลัมน์ "REMARK FOR SUPPORT OTHER FLT"
+    // (เช่น "GATE SU660/661 0925/1055 STBY0930, ARR AK822/823 1530/1600") → แปลงเป็น assignment
+    if (cm.jobtext >= 0 && cm.jobtext < row.length) {
+      var jobs = rrParseJobText_(rrClean_(row[cm.jobtext]));
+      if (jobs.length) {
+        var jnums = {};
+        assigns.forEach(function (a) { (a.flight.match(/\d{2,4}/g) || []).forEach(function (n) { jnums[n] = 1; }); });
+        jobs.forEach(function (a) {
+          var cn = a.flight.match(/\d{2,4}/g) || [];
+          if (cn.length && !cn.some(function (n) { return jnums[n]; })) { assigns.push(a); cn.forEach(function (n) { jnums[n] = 1; }); }
+        });
+      }
+    }
+    // REMARK บอกไปเทรน/อบรม/ประชุม + เวลา (เช่น "TR PRODUCT TRAINING 0800-1700", "EK391/อบรม 1100-1230/EK379")
+    //  → เพิ่มเป็น assignment กิจกรรม (busy ช่วงนั้น · acFlightWin_ ดึงช่วงเวลาจากข้อความเอง) กันถือว่าว่างกลางเทรน
+    rrRemarkActivity_(remark2 || remark).forEach(function (ac) {   // อ่านโน้ต REMARK จริงก่อน (ฟอร์มใหม่) ไม่งั้นใช้ช่อง STATUS (ฟอร์มเก่า)
+      if (!assigns.some(function (a) { return a.flight === ac.name; })) assigns.push({ flight: ac.name, task: '', STA: ac.STA, STD: ac.STD, OP: '', CL: '', activity: true });
+    });
 
-    var oth = rrOtHours_(otv);
+    // OT: รวมทุกกลุ่ม — ปกติ 1 กลุ่ม; EY มี ก่อนกะ(BEFORE) + หลังกะ(AFTER) แยกคู่ IN/OUT
+    var twoSided = cm.ot2 >= 0;
+    var otG1 = rrReadOtGroup_(row, cm.ot, cm.ottot);
+    var otG2 = twoSided ? rrReadOtGroup_(row, cm.ot2, cm.ottot2) : null;
+    var otSpans = [], oth = 0;
+    if (otG1) { oth += otG1.hours; if (otG1.range[0] != null) otSpans.push({ a: otG1.range[0], b: otG1.range[1], type: twoSided ? 'PRE' : null }); }
+    if (otG2) { oth += otG2.hours; if (otG2.range[0] != null) otSpans.push({ a: otG2.range[0], b: otG2.range[1], type: 'POST' }); }
+    oth = Math.round(oth * 10) / 10;
     var bkt = rrClassify_(shift || timev, remark);
+    // เผื่อดิวตี้เขียน "ลา/VAC/SL" ไว้ในคอลัมน์ REMARK จริง (ไม่ใช่ STATUS) → จับเป็นลา/ป่วยด้วย (กัน "คนลาไม่ระบุว่าลา")
+    if ((bkt === 'working' || bkt === 'off') && remark2) {
+      var rc2 = rrClassify_('', remark2);
+      if (rc2 === 'vac' || rc2 === 'sick') bkt = rc2;
+    }
+    // บางชีต (เช่น AK) ใส่ "รหัสกะวันหยุด" (เช่น P5) ในคอลัมน์ SHIFT แล้วเขียน "OFF" ในคอลัมน์ TIME/IN
+    // (สถานะ Onduty/Off อาจอยู่ผิดคอลัมน์ → remark ว่าง) → ถ้า TIME = OFF/X ให้ถือว่าหยุด แม้รหัสกะไม่ใช่ OFF
+    if (bkt === 'working' && /^\s*(OFF|X{1,2})\b/i.test(timev)) bkt = 'off';
+    // คอลัมน์งานระบุ OFF (เช่น KE: "OFF"/"OFF/Training") + ไม่มีไฟลท์จริง → หยุด แม้มีรหัสกะหมุนเวียน
+    if (bkt === 'working' && /^OFF\b/i.test(leadLbl) &&
+        !assigns.some(function (a) { return acIsFlight_(a.flight); })) bkt = 'off';
     if (bkt === 'off' && oth > 0) bkt = 'ot_off';            // SHIFT=X แต่มี OT (เช่น 14-20) = ทำ OT วันหยุด
+    if (bkt === 'ot_off' && !(oth > 0)) bkt = 'off';         // REMARK="OT OFF" แต่ไม่มีชั่วโมง OT จริง = ยังไม่ได้มาทำ → หยุด (ไม่นับเป็น on-duty)
+    if (isSup) { bkt = assigns.length ? 'working' : 'off'; oth = 0; }   // แถวซัพพอร์ต = มาช่วยไฟลท์ (นับครอบคลุม) · ไม่นับ OT/ชั่วโมงซ้ำ (อยู่ทีมต้นสังกัด)
     // เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงเวลาจากคอลัมน์ SHIFT เอง (เช่น "09-17")
     var srng = cm.time >= 0 ? rrRangeCells_(row, cm.time) : rrRangeStr_(shift);
     // Re-Sked overrides the shift time when filled (เปลี่ยนเวลาเข้างาน)
@@ -279,21 +702,88 @@ function rrParseStandard_(rows, team) {
       var rs = rrRangeCells_(row, cm.resked);
       if (rs[0] != null) { srng = rs; reTime = rrFmtRange_(rs); }
     }
-    var orng = cm.ot >= 0 ? rrRangeCells_(row, cm.ot) : [null, null];
-    var otType = oth > 0 ? rrOtType_(srng, orng, bkt === 'ot_off') : null;
-    recs.push({
-      team: team, id: idd, name: name,
+    // otType (ฟิลด์เดียว สำหรับสถิติ/แสดงผล): มีฝั่งหลังกะ → POST ไม่งั้นจัดประเภทช่วงแรกอัตโนมัติ
+    var primarySpan = otSpans.length ? [otSpans[otSpans.length - 1].a, otSpans[otSpans.length - 1].b] : [null, null];
+    var otType = oth > 0 ? (twoSided ? (otG2 ? 'POST' : 'PRE') : rrOtType_(srng, primarySpan, bkt === 'ot_off')) : null;
+    var rec = {
+      team: team, id: idd, name: name, bkk: isBkk,
+      support: isSup, supportTeam: supTeam,                  // มาช่วยจากทีมไหน (แถวซัพพอร์ต)
       pos: cm.pos >= 0 ? rrClean_(row[cm.pos]) : '',
       re: reTime || ((cm.re >= 0 && cm.re < row.length) ? rrClean_(row[cm.re]) : ''),
       shift: shift || timev,
       shiftTime: rrFmtRange_(srng) || (shift || timev),
       shiftStart: srng[0],
       shiftHrs: (srng[0] != null && srng[1] != null) ? Math.round((((srng[1] <= srng[0] ? srng[1] + 1440 : srng[1]) - srng[0]) / 60) * 10) / 10 : 0,
-      bucket: bkt, ot: oth, otType: otType, otTime: oth > 0 ? rrFmtRange_(orng) : '',
+      bucket: bkt, remark: remark, remark2: remark2, ot: oth, otType: otType, otSpans: otSpans,
+      otTime: oth > 0 ? otSpans.map(function (s) { return rrFmtRange_([s.a, s.b]); }).filter(String).join(', ') : '',
+      // แถวว่างเปล่าจริง (ไม่มีกะ/เวลา/สถานะ/งานเลย) = ชีตยังไม่กรอก → เติมจาก ROSTER เดือนได้
+      // (ถ้ามี REMARK เช่น "Off"/"SL" = ตั้งใจให้หยุด → ไม่เติม เคารพชีตรายวัน)
+      blankRow: (!shift && !timev && !remark && srng[0] == null && assigns.length === 0),
       assignments: assigns,
-    });
+    };
+    // ID ซ้ำ: ถ้าบล็อกแรกที่เก็บไว้ "ว่างเปล่า" แต่บล็อกนี้มีข้อมูล (กะ/สถานะ/งาน) → ใช้บล็อกนี้แทน
+    // (แท็บ SU มี CHECK IN บนสุด (กะว่าง) + GATE ASSIGN ล่าง (กะครบ) ID เดียวกัน)
+    if (dupOf) {
+      if (inSect2 && sect2Differs) {
+        // บล็อก 2 = งานคนละชุด (เช่น SU GATE ASSIGNMENT) → รวม assignment เข้าคนเดิม (ไม่นับหัวซ้ำ)
+        rrMergeAssigns_(dupOf, rec.assignments);
+        if (dupOf.blankRow && !rec.blankRow) {                                          // บล็อก 1 มีแต่รายชื่อ (กะว่าง) → เอากะ/สถานะ/OT จากบล็อก 2
+          ['shift', 'shiftTime', 'shiftStart', 'shiftHrs', 'bucket', 'remark', 'ot', 'otType', 'otSpans', 'otTime', 'pos', 're'].forEach(function (k) { dupOf[k] = rec[k]; });
+          dupOf.blankRow = false;
+        }
+        // เดิมหยุด/ไม่ระบุ แต่บล็อก 2 มีไฟลท์จริง และไม่ได้กรอก OFF/VAC ชัด → ถือว่ามาทำงาน
+        if (dupOf.bucket !== 'working' && dupOf.bucket !== 'ot_off'
+            && !/^(OFF|VAC|SICK|SL|BL)\b/i.test(rrUp_(dupOf.remark))
+            && (rec.assignments || []).some(function (a) { return acIsFlight_(a.flight); })) dupOf.bucket = 'working';
+        continue;
+      }
+      if (dupOf.blankRow && !rec.blankRow) { for (var k in rec) dupOf[k] = rec[k]; }   // บล็อกแรกว่าง (เช่น SU CHECK-IN) → ใช้บล็อกนี้แทน
+      else if (!rec.blankRow) dupSkip++;                                                // ทั้งคู่มีข้อมูล = บล็อกซ้อนซ้ำ (เช่น CHARTER) → ข้ามบล็อก 2 (นับไว้เตือน)
+      continue;
+    }
+    seen[idd] = true; recByIdd[idd] = rec; recs.push(rec);
   }
+  recs._dupSkip = dupSkip;   // จำนวนแถวที่ข้ามเพราะ ID ซ้ำ (บล็อกซ้อนซ้ำในแท็บ) — ไว้เตือนให้ลบบล็อกซ้ำ
+  // โน้ตใต้ตาราง: บางทีมเขียนงานอบรมนอกตาราง เช่น "BASIC LOAD CONTROL TRAINING : CHANAPAT"
+  // → คนที่ชื่อตรง + ยังไม่มีไฟลท์จริง ให้ขึ้นเป็นกิจกรรมอบรม (ไม่ใช่ว่าง)
+  rrApplyTrainingNotes_(rows, recs);
+  // ธง "เทรน/กิจกรรม" = มาทำงานแต่ติดอบรม (ไม่พร้อมลงไฟลท์) — จาก 2 สัญญาณ:
+  //   (1) STATUS = TRN / TRAINING / อบรม  (2) มีงานที่เป็นอบรมล้วน ไม่มีไฟลท์จริง
+  //   → นับแยกออกจาก "คนทำงานจริง" (ตรงกับ MANPOWER: ทำงานจริง ไม่รวมอบรม)
+  recs.forEach(function (r) {
+    var onDuty = (r.bucket === 'working' || r.bucket === 'ot_off');
+    var trnStatus = /\bTRN\b|TRAIN|อบรม/i.test(rrUp_(r.remark)) || /\bTRN\b/i.test(rrUp_(r.shift));
+    var hasFlt = (r.assignments || []).some(function (a) { return acIsFlight_(a.flight); });
+    // โน้ต REMARK บอกเทรน/กิจกรรม (เช่น "TRAIN : AOTGA GOM") — นับเป็นเทรน "ทั้งวัน" เฉพาะเมื่อไม่มีไฟลท์จริง
+    // (คนที่เทรนบางช่วงแต่ยังมีไฟลท์ → ไม่ flag เป็นเทรน จะได้ไม่หายไปจากยอดคนทำงาน · ช่วงเทรนจับเป็นแท่ง busy แทน)
+    var remarkTrain = !hasFlt && rrIsTrainingTask_(r.remark2 || '');
+    r.training = onDuty && (trnStatus || remarkTrain || ((r.assignments || []).length > 0
+      && !hasFlt
+      && (r.assignments || []).some(function (a) { return rrIsTrainingTask_(a.flight) || rrIsTrainingTask_(a.task); })));
+  });
   return recs;
+}
+/** หาโน้ต "…TRAINING/LOAD CONTROL… : ชื่อ" ในชีต แล้วผูกกับพนักงานที่ชื่อตรง (ถ้ายังไม่มีไฟลท์จริง) */
+function rrApplyTrainingNotes_(rows, recs) {
+  var notes = [];
+  rows.forEach(function (row) {
+    (row || []).forEach(function (cell) {
+      var c = rrClean_(cell);
+      if (!c || c.indexOf(':') < 0 || !rrIsTrainingTask_(c)) return;
+      var i = c.indexOf(':'), act = c.slice(0, i).trim(), who = c.slice(i + 1).trim();
+      if (act && who) notes.push({ act: act, who: who.toUpperCase() });
+    });
+  });
+  if (!notes.length) return;
+  recs.forEach(function (r) {
+    var first = String(r.name || '').toUpperCase().split(/[\s(]/)[0];
+    if (first.length < 3) return;
+    var hasReal = (r.assignments || []).some(function (a) { return acIsFlight_(a.flight); });
+    if (hasReal) return;                                   // มีไฟลท์จริงแล้ว → ไม่ทับ
+    notes.forEach(function (n) {
+      if (n.who.indexOf(first) >= 0) r.assignments = [{ flight: n.act, task: '', STA: '', STD: '', OP: '', CL: '' }];
+    });
+  });
 }
 
 function rrParsePorter_(rows, team) {
@@ -319,7 +809,10 @@ function rrParseAdminDoc_(rows, team) {
     var row = rows[r];
     var nm = rrClean_(row[0]), sched = row.length > 1 ? rrClean_(row[1]) : '';
     var nU = nm.toUpperCase();
-    if (!nm || nm.length < 2 || nU === 'NAME' || nU === 'SCHEDULE') continue;
+    // ข้ามแถวหัวตาราง/legend ท้ายชีต (ไม่ใช่ชื่อคน) — กันนับ AdminDoc เกินจริง
+    if (!nm || nm.length < 2) continue;
+    if (/^(NAME|SCHEDULE|SHIFT|POSITION|TYPE|ON\s*DUTY|ONDUTY|OT\s*OFF|OFF|RE-?SKED|REMARK|FLIGHT|SUPP|SUPPORT|TOTAL)\b/.test(nU)) continue;
+    if (/^(SL|BL|VAC|ID|XX)$/.test(nU)) continue;
     var flts = [];
     for (var c = 2; c < row.length; c++) { var v = rrClean_(row[c]); if (v) flts.push({ flight: v, task: '' }); }
     recs.push({ team: team, id: '', name: nm, pos: 'ADMINDOC', shift: sched,
@@ -479,31 +972,63 @@ function rrParseSU_(rows, team) {
   return recs;
 }
 
+// อ่านวันที่ที่พิมพ์บนหัวแท็บ (เช่น "วันที่ 29/JUN/2026") → คืนรูปแบบ "29/JUN" · '' ถ้าไม่พบ
+// ใช้ตรวจแท็บที่ลืมอัปเดต (ทีมหนึ่งเป็นวันเก่า อีกทีมเป็นวันปัจจุบัน → ข้อมูลไม่ตรงวัน)
+function rrSheetDate_(ws) {
+  var last = Math.min(ws.getLastRow(), 4);
+  if (last < 1) return '';
+  var vals = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 20)).getValues();
+  for (var r = 0; r < vals.length; r++) {
+    for (var c = 0; c < vals[r].length; c++) {
+      var s = String(vals[r][c] == null ? '' : vals[r][c]);
+      var m = s.match(/(\d{1,2})\s*\/\s*([A-Za-z]{3,4})/);      // 29/JUN , 24 / JUN
+      if (m) return m[1].replace(/^0/, '') + '/' + m[2].toUpperCase();
+    }
+  }
+  return '';
+}
+
 function rrParseSheet_(ws) {
   var name = ws.getName();
   var n = name.trim().toUpperCase();
   for (var i = 0; i < SKIP_SHEETS_RR.length; i++) if (n.indexOf(SKIP_SHEETS_RR[i]) >= 0) return null;
   var last = ws.getLastRow();
   if (last < 3) return null;
-  var rows = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 60)).getValues();
-  if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) return rrParseCrewsign_(rows, name);
+  var rng = ws.getRange(1, 1, last, Math.min(ws.getLastColumn(), 210));   // ฟอร์ม ก.ย.: SU วาง FLIGHT+COUNTER+GATE เรียงแนวนอนถึง ~คอลัมน์ 198 (เดิม 130 ตัดบล็อก GATE ทิ้ง)
+  var rows = rng.getValues();
+  // อ่านสีพื้น + ขีดฆ่า เพื่อตรวจไฟลท์ที่ยกเลิก (ระบายเทาทั้งบล็อก / ขีดฆ่า)
+  var meta = null;
+  try { meta = { bgs: rng.getBackgrounds(), lines: rng.getFontLines() }; } catch (e) { meta = null; }
+  if (n.indexOf('PORTER') >= 0 && n.indexOf('CREW') >= 0) {
+    // ชีต Crewsign แบบใหม่ใช้เลย์เอาต์มาตรฐาน (ID/Position/NAME/SHIFT/IN-OUT) — นับครบทุกคน
+    // (ทีมมี "CREW" → rrPosGroup_ จัดเป็น Crewsign อยู่แล้ว) · เลย์เอาต์เก่า 2 คอลัมน์ → fallback
+    var cstd = rrParseStandard_(rows, name, meta);
+    if (cstd && cstd.length) return cstd;
+    return rrParseCrewsign_(rows, name);
+  }
   if (n === 'PORTER') {
     // New PORTER sheets use the standard ID/REMARK layout; old ones are a
     // 2-column name list. Prefer standard; fall back to the 2-column parser.
-    var pstd = rrParseStandard_(rows, name);
+    var pstd = rrParseStandard_(rows, name, meta);
     if (pstd && pstd.length) return pstd;
     return rrParsePorter_(rows, name);
   }
-  if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) return rrParseAdminDoc_(rows, name);
+  if (n.indexOf('ADMIN') >= 0 && n.indexOf('DOC') >= 0) {
+    // ชีต Admin Doc แบบใหม่ใช้เลย์เอาต์มาตรฐาน (ID/Position/NAME/SHIFT + REMARK สถานะ Onduty/Off)
+    // → อ่านชื่อ/กะ/สถานะ off ถูกต้อง · เลย์เอาต์เก่า 2 คอลัมน์ → fallback
+    var astd = rrParseStandard_(rows, name, meta);
+    if (astd && astd.length) return astd;
+    return rrParseAdminDoc_(rows, name);
+  }
   if (n === 'SU' || n.indexOf('SU ') === 0) {
     // New SU template (effective 08 JUN) is a standard ID/REMARK staff table
     // (with inline Counter/Gate sections); the old SU sheet is a counter-rotation
     // grid with no ID column. Prefer the standard reader; fall back to the grid.
-    var std = rrParseStandard_(rows, name);
+    var std = rrParseStandard_(rows, name, meta);
     if (std && std.length) return std;
     return rrParseSU_(rows, name);
   }
-  return rrParseStandard_(rows, name);
+  return rrParseStandard_(rows, name, meta);
 }
 
 // เมื่อชีตทีมเดียวกันมีหลายเวอร์ชัน (เช่น AK, REV01 AK, REV02 AK) → เก็บ REV ล่าสุด
@@ -552,8 +1077,10 @@ function rrPosGroup_(pos, team) {
   return 'PSA';                                              // Agent / blank default
 }
 
-function rrAddBucket_(agg, r) {
-  if (r.bucket === 'working') agg.working++;
+function rrAddBucket_(agg, r, isHol) {
+  if (r.support) return;                                       // แถวซัพพอร์ต (มาช่วยจากทีมอื่น) — ไม่นับ headcount/OT/ชั่วโมงของทีมรับ (นับที่ทีมต้นสังกัด)
+  if (r.training) agg.training++;                              // อบรม — แยกออกจาก "คนทำงานจริง" (ตรงกับ MANPOWER)
+  else if (r.bucket === 'working') agg.working++;
   else if (r.bucket === 'ot_off') agg.ot_off++;
   else if (r.bucket === 'off') agg.off++;
   else if (r.bucket === 'sick') agg.sick++;
@@ -564,41 +1091,150 @@ function rrAddBucket_(agg, r) {
     else if (r.otType === 'PRE') { agg.otPre++; agg.otPreHrs += r.ot; }
     else { agg.otPost++; agg.otPostHrs += r.ot; }
   }
+  if (isHol && !r.training && r.bucket === 'working' && r.shiftHrs > 0) {      // วันหยุดประเพณี: ทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ
+    agg.otHol++; agg.otHolHrs += r.shiftHrs;
+  }
   agg.flights += (r.assignments ? r.assignments.length : 0);
   agg.staff++;
 }
 function rrNewAgg_() {
-  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, otPeople: 0, otHours: 0,
-           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, flights: 0 };
+  return { staff: 0, working: 0, ot_off: 0, off: 0, sick: 0, leave: 0, training: 0, otPeople: 0, otHours: 0,
+           otPre: 0, otPreHrs: 0, otPost: 0, otPostHrs: 0, otOffHrs: 0, otHol: 0, otHolHrs: 0, flights: 0 };
 }
 function rrRoundAgg_(a) {
   a.otHours = Math.round(a.otHours * 10) / 10; a.otPreHrs = Math.round(a.otPreHrs * 10) / 10;
-  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10; return a;
+  a.otPostHrs = Math.round(a.otPostHrs * 10) / 10; a.otOffHrs = Math.round(a.otOffHrs * 10) / 10;
+  a.otHolHrs = Math.round(a.otHolHrs * 10) / 10; return a;
 }
 
-function readRosterFromSpreadsheet(ss) {
+function readRosterFromSpreadsheet(ss, date) {
   var teams = {};
   var positions = {};                                        // exact per-position-group rollup
   var totals = rrNewAgg_();
+  var holName = date ? rrPublicHoliday_(date) : null, isHol = !!holName;  // วันหยุดประเพณี → OT นักขัต X1
+  // เผื่อชีตรายวัน "ลืมกรอกกะ" บางคน → ดึงกะจาก ROSTER เดือนมาเติม (ถ้าตั้งค่า PWMS_ROSTER_ID + เข้าถึงได้)
+  var rosIso = '', roster = null;
+  if (date) { try { rosIso = Utilities.formatDate(date, Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd'); roster = (typeof whLoadMonth_ === 'function') ? whLoadMonth_(rosIso) : null; } catch (eR) {} }
+  function fillFromRoster(r) {
+    try {
+      if (!roster || !roster.byId || !r.blankRow) return;   // เติมเฉพาะแถวว่างเปล่าจริง · กันทุก error ไม่ให้ล้มการโหลด
+      var p = roster.byId[String(r.id || '').replace(/\.0+$/, '').replace(/\D/g, '')]; if (!p || !p.days) return;
+      for (var i = 0; i < p.days.length; i++) {
+        if (p.days[i].iso === rosIso) {
+          var dd = p.days[i];
+          if (dd.work && dd.hours > 0) { r.shift = dd.code; r.shiftTime = dd.code; r.shiftHrs = dd.hours; r.bucket = 'working'; r.fromRoster = true; }
+          return;
+        }
+      }
+    } catch (eFR) {}
+  }
+  // ShiftDB: รหัสกะ→เวลา (เผื่อชีตรายวันกรอกแค่รหัสกะ แต่ไม่กรอกช่วงเวลา → คิดชั่วโมงไม่ได้ เช่น "E10")
+  var shiftDB = {};
+  try {
+    var sdb = ss.getSheetByName('ShiftDB') || ss.getSheetByName('SHIFTDB') || ss.getSheetByName('Shift DB');
+    if (sdb) {
+      var sv = sdb.getDataRange().getValues();
+      var cm = function (v) {
+        if (v == null || v === '') return null;
+        if (Object.prototype.toString.call(v) === '[object Date]') return v.getHours() * 60 + v.getMinutes();
+        var mm = String(v).match(/(\d{1,2})[:.](\d{2})/); return mm ? (+mm[1] * 60 + +mm[2]) : null;
+      };
+      for (var si = 1; si < sv.length; si++) {
+        var code = String(sv[si][0] == null ? '' : sv[si][0]).trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (!code) continue;
+        var inM = cm(sv[si][1]), outM = cm(sv[si][2]);
+        if (inM == null) continue;
+        if (outM != null && outM <= inM) outM += 1440;
+        shiftDB[code] = { in: inM, out: outM, hrs: outM != null ? Math.round((outM - inM) / 60 * 10) / 10 : (+sv[si][3] || 0) };
+      }
+    }
+  } catch (eSDB) {}
+  function fillFromShiftDB(r) {
+    try {
+      if (r.shiftStart != null) return;                     // มีเวลากะอยู่แล้ว
+      if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+      var code = String(r.shift || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      var d = shiftDB[code]; if (!d) return;
+      r.shiftStart = d.in;
+      r.shiftTime = rrFmtMin_(d.in) + '-' + rrFmtMin_(((d.out == null ? d.in : d.out) % 1440));
+      r.shiftHrs = d.hrs;
+      r.fromShiftDB = true;
+    } catch (e) {}
+  }
+  var droppedTabs = [], dupBlockTabs = [];
   rrFilterRev_(ss.getSheets()).forEach(function (ws) {
     var recs = rrParseSheet_(ws);
-    if (!recs || !recs.length) return;
+    if (!recs || !recs.length) {
+      // แท็บทีมที่มีข้อมูลจริง แต่ parser อ่านไม่ได้เลย (เช่น ZF ไม่มีคอลัมน์ ID) → หายไปเงียบ ๆ ต้องเตือน
+      try {
+        var nmU = ws.getName().trim().toUpperCase();
+        var isSkip = false;
+        for (var ki = 0; ki < SKIP_SHEETS_RR.length; ki++) if (nmU.indexOf(SKIP_SHEETS_RR[ki]) >= 0) isSkip = true;
+        if (!isSkip && ws.getLastRow() >= 8 && ws.getLastColumn() >= 4) droppedTabs.push(ws.getName().trim());
+      } catch (eDT) {}
+      return;
+    }
+    if (recs._dupSkip >= 3) dupBlockTabs.push(ws.getName().trim());   // บล็อกซ้อนซ้ำ (≥3 แถว ID ซ้ำ ที่มีข้อมูลทั้งคู่) → เตือนให้ลบบล็อกซ้ำ
     var t = rrNewAgg_();
     t.records = recs;
     recs.forEach(function (r) {
       r.posGroup = rrPosGroup_(r.pos, ws.getName());
-      rrAddBucket_(t, r);
+      r.isHoliday = isHol;
+      fillFromRoster(r);                                     // เติมกะจาก ROSTER เดือนถ้าชีตรายวันว่าง
+      fillFromShiftDB(r);                                    // เติมเวลากะจาก ShiftDB ถ้ามีแค่รหัสกะ
+      rrAddBucket_(t, r, isHol);
       if (!positions[r.posGroup]) positions[r.posGroup] = rrNewAgg_();
-      rrAddBucket_(positions[r.posGroup], r);
-      rrAddBucket_(totals, r);
+      rrAddBucket_(positions[r.posGroup], r, isHol);
+      rrAddBucket_(totals, r, isHol);
     });
     rrRoundAgg_(t);
+    try { t.sheetDate = rrSheetDate_(ws); } catch (eSD) { t.sheetDate = ''; }   // วันที่ที่พิมพ์บนแท็บ (ไว้ตรวจแท็บค้างวันเก่า)
     teams[ws.getName().trim()] = t;
   });
   Object.keys(positions).forEach(function (p) { rrRoundAgg_(positions[p]); });
   rrRoundAgg_(totals);
   delete totals.records;
-  return { teams: teams, positions: positions, totals: totals };
+  return { teams: teams, positions: positions, totals: totals, holiday: holName, droppedTabs: droppedTabs, dupBlockTabs: dupBlockTabs };
+}
+
+/** อ่านแท็บ "SUPPORT REQUEST" (ฟอร์มใหม่ ก.ย.) → คำขอซัพพอร์ตที่ดิวตี้กรอกแล้ว
+ *  หัวตาราง: NO. | ทีมที่ขอ | FLIGHT | หน้าที่ | เวลา/STBY | ชื่อผู้ไปซัพพอร์ต (ดิวตี้กรอก) | จากทีม | สถานะ
+ *  คืนเฉพาะแถวที่กรอกแล้ว (มี FLIGHT / หน้าที่ / ชื่อ) — แถว template ว่าง (มีแค่ NO.+ทีม) ข้าม
+ *  รับ ss ตัวจริง (SpreadsheetApp) เพื่ออ่านครบทุกแถว (ตารางนี้ ~306 แถว เกิน cap ของ fast-read) */
+function rrReadSupportReq_(ss) {
+  var out = [];
+  try {
+    var sh = ss.getSheetByName('SUPPORT REQUEST') || ss.getSheetByName('SUPPORT REQUESTS') || ss.getSheetByName('Support Request');
+    if (!sh) return out;
+    var vals = sh.getDataRange().getValues();
+    var hi = -1, C = {};
+    for (var r = 0; r < Math.min(6, vals.length); r++) {
+      var u = vals[r].map(function (x) { return String(x == null ? '' : x).trim(); });
+      var uu = u.map(function (x) { return x.toUpperCase(); });
+      if (uu.indexOf('FLIGHT') >= 0 && u.some(function (x) { return /ทีมที่ขอ|^TEAM$/i.test(x); })) {
+        hi = r;
+        var find = function (re) { for (var i = 0; i < u.length; i++) if (re.test(u[i])) return i; return -1; };
+        C.team = find(/ทีมที่ขอ|^TEAM$/i);
+        C.flight = uu.indexOf('FLIGHT');
+        C.duty = find(/หน้าที่|^DUTY$|^ROLE$/i);
+        C.time = find(/เวลา|STBY|^TIME$/i);
+        C.name = find(/ชื่อ|^NAME$/i);
+        C.from = find(/จากทีม|^FROM/i);
+        C.status = find(/สถานะ|^STATUS$/i);
+        break;
+      }
+    }
+    if (hi < 0) return out;
+    var g = function (row, i) { return (i != null && i >= 0 && i < row.length && row[i] != null) ? String(row[i]).trim() : ''; };
+    for (var ri = hi + 1; ri < vals.length; ri++) {
+      var row = vals[ri];
+      var flight = g(row, C.flight), name = g(row, C.name), duty = g(row, C.duty);
+      if (!flight && !name && !duty) continue;   // แถว template ยังไม่กรอก → ข้าม
+      out.push({ no: g(row, 0), team: g(row, C.team), flight: flight, duty: duty,
+        time: g(row, C.time), name: name, fromTeam: g(row, C.from), status: g(row, C.status) });
+    }
+  } catch (e) {}
+  return out;
 }
 
 // ─── debug ──────────────────────────────────────────────────────────────────
