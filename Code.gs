@@ -5734,7 +5734,7 @@ function apTeamsNotFilled_(ss) {
   var out = [];
   ss.getSheets().forEach(function (sh) {
     var nm = sh.getName();
-    if (/MANPOWER|MASTER|SHIFTDB|\bCODE\b|_CODES|ALL FLIGHTS|SUPPORT REQUEST|Lists|Pivot|Report/i.test(nm)) return;
+    if (/MANPOWER|MASTER|SHIFTDB|\bCODE\b|_CODES|ALL FLIGHTS|SUPPORT REQUEST|Lists|Pivot|Report|PORTER|CREWSIGN|ADMIN\s*DOC/i.test(nm)) return;   // ข้ามทีมพอตเตอร์/ครูไซน์/แอดมิน (ไม่ได้กรอกสถานะรายคน → เตือนผิด)
     var lastR = Math.min(sh.getLastRow(), 80), lastC = Math.min(sh.getLastColumn(), 60);
     if (lastR < 4 || lastC < 3) return;
     var data = sh.getRange(1, 1, lastR, lastC).getValues();
