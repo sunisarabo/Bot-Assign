@@ -296,6 +296,29 @@ function otComputeDay_(date) {
 /** cache เก็บใน Script Properties (key = otc_YYYY-MM-DD, value = JSON {team:hrs})
  *  เร็ว ไม่ต้องเปิด spreadsheet ใดๆ — เลิกพึ่งไฟล์ OT Yearly ที่หนัก/timeout */
 var OT_CACHE_PREFIX = 'otc_';
+
+/** ล้าง Script Properties ที่รก (แคช OT รายวันเก่า + แคชปียาว) → UI Script Properties กลับมาแก้ได้ (ต่ำกว่า 50 รายการ)
+ *  · ลบ otc_YYYY-MM-DD ที่เก่ากว่า daysKeep วัน (default 30 · เก็บวันล่าสุดไว้ให้ OT Dashboard เร็ว)
+ *  · ลบ ot_s5_* ทั้งหมด (แคชปี OT Yearly — สร้างใหม่เองเมื่อเปิด Dashboard)
+ *  รันครั้งเดียวใน Apps Script editor · ไม่กระทบข้อมูลจริง (แคชสร้างใหม่ได้) */
+function rbCleanupScriptProps(daysKeep) {
+  daysKeep = daysKeep || 30;
+  var props = PropertiesService.getScriptProperties(), all = props.getProperties() || {};
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var cut = new Date(); cut.setDate(cut.getDate() - daysKeep);
+  var cutIso = Utilities.formatDate(cut, tz, 'yyyy-MM-dd');
+  var del = [], kept = 0;
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(OT_CACHE_PREFIX) === 0) {                       // otc_YYYY-MM-DD
+      var day = k.slice(OT_CACHE_PREFIX.length);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(day) && day < cutIso) del.push(k); else kept++;
+    } else if (k.indexOf('ot_s5_') === 0) { del.push(k); }        // แคชปี — สร้างใหม่ได้
+  });
+  del.forEach(function (k) { try { props.deleteProperty(k); } catch (e) {} });
+  var msg = 'ลบพร็อพเพอร์ตี้แคชเก่า ' + del.length + ' รายการ (เก็บ otc_ ล่าสุด ' + kept + ' วัน · เก็บ config เช่น MANNING_SHEET_ID/WF_FILE_ID/GCHAT_WEBHOOK_REPORT ไว้ครบ)';
+  Logger.log(msg); return msg;
+}
+
 function otCacheLoad_() {
   var all = {};
   try { all = PropertiesService.getScriptProperties().getProperties() || {}; } catch (e) {}
