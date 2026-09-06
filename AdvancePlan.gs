@@ -1175,8 +1175,9 @@ function apSetupMissingNotify(hour) {
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'apNotifyMissingDaily') ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().atHour(hour || AP_NOTIFY_HOUR).nearMinute(0).everyDays(1).create();
-  return 'ตั้งแจ้งเตือนรายวันเวลา ' + (hour || AP_NOTIFY_HOUR) + ':00 แล้ว (เช็กล่วงหน้า 7 วัน)';
+  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().everyDays(1).atHour(hour || AP_NOTIFY_HOUR).create();   // รูปแบบรายวันมาตรฐาน (ตัด nearMinute กัน error)
+  var n = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'apNotifyMissingDaily'; }).length;
+  return 'ตั้งแจ้งเตือนรายวันเวลา ' + (hour || AP_NOTIFY_HOUR) + ':00 แล้ว — ตอนนี้มี trigger ' + n + ' ตัว (เช็กล่วงหน้า 7 วัน)';
 }
 /** ฟังก์ชันที่ trigger เรียก (fix 7 วัน) */
 function apNotifyMissingDaily() { return apNotifyMissingAssignments(7); }
