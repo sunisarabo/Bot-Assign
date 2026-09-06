@@ -8326,17 +8326,6 @@ function rbWriteWeeklyOT_(ss, date, mon, tabName) {
   sh.setFrozenRows(2);
 }
 
-/** Standalone: build the weekly-OT tab for a date into the monthly file. */
-function runWeeklyOTReport(y, m, d) {
-  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
-  var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
-  var out = rbGetMonthlyOutput_(mon, be);
-  var wr = rbWeekRange_(date);
-  rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
-  Logger.log('✅ Weekly OT: %s', out.getUrl());
-  return out.getUrl();
-}
-
 // ─── GOOGLE CHAT ────────────────────────────────────────────────────────────
 function rbPostChat_(res, dateStr, url, ll, master) {
   var webhook = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP);
