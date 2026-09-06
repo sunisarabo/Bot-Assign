@@ -331,6 +331,8 @@ function rbRunForDate_(date, opts) {
   rbWriteAssignCheck_(out, res, dateStr, ll, '🧭 ' + dd + ' ' + mon);
   rbWriteFillPlan_(out, res, dateStr, ll, '🤖 เติม ' + dd + ' ' + mon);
   rbWriteAutoAssign_(out, res, dateStr, ll, '🤖 Auto ' + dd + ' ' + mon);
+  // OT ledger (สะสมรายคน/วัน) + เตือน OT เกินเกณฑ์ สัปดาห์ >36h / เดือน >144h (+ ใกล้)
+  try { rbUpdateOTLedger_(out, date, res, ll); res._otAlert = rbWriteOTAlert_(out, date, '⚠️ OT เตือน ' + dd + ' ' + mon); } catch (eOT) { Logger.log('⚠️ OT alert: ' + eOT.message); }
   try { SpreadsheetApp.flush(); } catch (eFl) {}   // commit แท็บรายวัน (รวม OT) ก่อนขั้นตอนหนักถัดไป → ถ้าต่อไป OOM แท็บวันนี้ยังอยู่ครบ
   // weekly OT (>36h) — reads the week's files (หน่วยความจำหนัก) → default ปิดในรอบรายวัน (กัน Out of memory)
   //   เจนแยกด้วย runWeeklyOTReport() สัปดาห์ละครั้ง · เปิดในรอบนี้ได้ด้วย opts.weekly
@@ -596,6 +598,68 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
 
 // ─── WEEKLY OT (>36h/week check) ────────────────────────────────────────────
 var OT_WEEK_LIMIT = 36;
+var OT_MONTH_LIMIT = 144;                 // OT/เดือนต่อคน — เกินแล้วเตือน
+var OT_WEEK_NEAR = 30, OT_MONTH_NEAR = 130;   // "ใกล้ถึง" (สัปดาห์ ≥30 · เดือน ≥130)
+
+/** อัปเดต ledger OT รายคน/รายวัน (ชีตซ่อน OT_LEDGER ในไฟล์รายงานเดือน) — upsert เฉพาะวันนี้
+ *  → รวม OT "สัปดาห์/เดือน" ต่อคนได้โดยไม่ต้องเปิดไฟล์ 7–30 วันซ้ำ (กัน OOM) · ต้องรันรายงานแต่ละวันสะสมไว้ */
+function rbUpdateOTLedger_(out, date, res, ll) {
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var iso = Utilities.formatDate(date, tz, 'yyyy-MM-dd');
+  var sh = out.getSheetByName('OT_LEDGER');
+  if (!sh) { sh = out.insertSheet('OT_LEDGER'); sh.getRange(1, 1, 1, 5).setValues([['date', 'id', 'name', 'team', 'ot']]); try { sh.hideSheet(); } catch (e) {} }
+  var rows = [];
+  function add(team, r) { if (r && r.ot > 0 && !r.support) rows.push([iso, String(r.id || ''), r.name || '', team, r.ot]); }
+  Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { add(t, r); }); });
+  if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { add('LL·' + s, r); }); });
+  var last = sh.getLastRow(), keep = [];
+  if (last > 1) { keep = sh.getRange(2, 1, last - 1, 5).getValues().filter(function (d) { return String(d[0]) !== iso; }); sh.getRange(2, 1, last - 1, 5).clearContent(); }
+  var all = keep.concat(rows);
+  if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
+}
+
+/** เตือน OT เกินเกณฑ์ — สัปดาห์ > 36h · เดือน > 144h (+ "ใกล้" 30/130) — อ่านจาก ledger · เขียนแท็บ + คืนสรุปให้แชท */
+function rbWriteOTAlert_(out, date, tabName) {
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var R = { weekOver: [], weekNear: [], monthOver: [], monthNear: [] };
+  var sh0 = out.getSheetByName('OT_LEDGER');
+  if (!sh0 || sh0.getLastRow() < 2) return R;
+  var data = sh0.getRange(2, 1, sh0.getLastRow() - 1, 5).getValues();
+  var monPrefix = Utilities.formatDate(date, tz, 'yyyy-MM');
+  var wd = (date.getDay() + 6) % 7, mon0 = new Date(date); mon0.setDate(date.getDate() - wd);   // จันทร์ของสัปดาห์
+  var sun = new Date(mon0); sun.setDate(mon0.getDate() + 6);
+  var wStart = Utilities.formatDate(mon0, tz, 'yyyy-MM-dd'), wEnd = Utilities.formatDate(sun, tz, 'yyyy-MM-dd');
+  var per = {};
+  data.forEach(function (d) {
+    var di = String(d[0]), id = String(d[1]), ot = +d[4] || 0;
+    var p = per[id] || (per[id] = { name: d[2], team: d[3], week: 0, month: 0 });
+    if (di.indexOf(monPrefix) === 0) p.month += ot;
+    if (di >= wStart && di <= wEnd) p.week += ot;
+  });
+  Object.keys(per).forEach(function (id) {
+    var p = per[id]; p.week = Math.round(p.week * 10) / 10; p.month = Math.round(p.month * 10) / 10;
+    if (p.week > OT_WEEK_LIMIT) R.weekOver.push(p); else if (p.week >= OT_WEEK_NEAR) R.weekNear.push(p);
+    if (p.month > OT_MONTH_LIMIT) R.monthOver.push(p); else if (p.month >= OT_MONTH_NEAR) R.monthNear.push(p);
+  });
+  if (tabName) {
+    var old = out.getSheetByName(tabName); if (old) out.deleteSheet(old);
+    var sh = out.insertSheet(tabName, 0), W = 5;
+    sh.getRange(1, 1, 1, W).merge().setValue('⚠️ เตือน OT เกินเกณฑ์ — สัปดาห์ (' + wStart + '→' + wEnd + ') > ' + OT_WEEK_LIMIT + 'h · เดือน ' + monPrefix + ' > ' + OT_MONTH_LIMIT + 'h')
+      .setBackground('#8a1c1c').setFontColor('#fff').setFontWeight('bold').setFontSize(12).setHorizontalAlignment('center');
+    sh.getRange(2, 1, 1, W).setValues([['ชื่อ', 'ทีม', 'OT สัปดาห์', 'OT เดือน', 'สถานะ']]).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold').setHorizontalAlignment('center');
+    var seen = {}, body = [], cols = [];
+    function push(p, tag, c) { var k = p.name + '|' + p.team; if (seen[k]) return; seen[k] = 1; body.push([p.name, p.team, p.week, p.month, tag]); cols.push(c); }
+    R.monthOver.sort(function (a, b) { return b.month - a.month; }).forEach(function (p) { push(p, '🔴 เดือนเกิน ' + OT_MONTH_LIMIT, '#fdecec'); });
+    R.weekOver.sort(function (a, b) { return b.week - a.week; }).forEach(function (p) { push(p, '🔴 สัปดาห์เกิน ' + OT_WEEK_LIMIT, '#fdecec'); });
+    R.monthNear.sort(function (a, b) { return b.month - a.month; }).forEach(function (p) { push(p, '🟠 เดือนใกล้ ' + OT_MONTH_LIMIT, '#fff3e0'); });
+    R.weekNear.sort(function (a, b) { return b.week - a.week; }).forEach(function (p) { push(p, '🟡 สัปดาห์ใกล้ ' + OT_WEEK_LIMIT, '#fff8e1'); });
+    if (body.length) { sh.getRange(3, 1, body.length, W).setValues(body).setFontSize(10); for (var i = 0; i < cols.length; i++) sh.getRange(3 + i, 1, 1, W).setBackground(cols[i]); }
+    else sh.getRange(3, 1, 1, W).merge().setValue('✅ ไม่มีใครเกิน/ใกล้เกณฑ์').setHorizontalAlignment('center');
+    [150, 90, 85, 85, 160].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+    sh.setFrozenRows(2);
+  }
+  return R;
+}
 
 /** บล็อกสัปดาห์ 7 วันในเดือน เริ่มวันที่ 1 (1-7, 8-14, 15-21, …)
  *  ตั้งแต่ มิ.ย. 2026 เป็นต้นไป: สัปดาห์สุดท้าย = 22 ถึงสิ้นเดือน (รวมวัน 29-31 เข้าสัปดาห์เดียว)
@@ -736,6 +800,10 @@ function rbPostChat_(res, dateStr, url, ll, master) {
   var oOff = T.ot_off + lt.ot_off, oOffH = Math.round((T.otOffHrs + lt.otOffHrs) * 10) / 10;
   lines.push('⏱️ *OT ก่อนกะ:* ' + oPre + ' คน (' + oPreH + 'h)  |  *OT หลังกะ:* ' + oPost + ' คน (' + oPostH +
              'h)  |  *OT OFF:* ' + oOff + ' คน (' + oOffH + 'h)');
+  var oa = res._otAlert;
+  if (oa && (oa.weekOver.length || oa.monthOver.length || oa.weekNear.length || oa.monthNear.length)) {
+    lines.push('⚠️ *เตือน OT:* สัปดาห์เกิน ' + OT_WEEK_LIMIT + 'h *' + oa.weekOver.length + '* (ใกล้ ' + oa.weekNear.length + ') · เดือนเกิน ' + OT_MONTH_LIMIT + 'h *' + oa.monthOver.length + '* (ใกล้ ' + oa.monthNear.length + ') — ดูแท็บ ⚠️ OT เตือน');
+  }
   try {
     var ac = acAnalyze_(res, ll).summary;
     if (ac.bad || ac.warn) {
