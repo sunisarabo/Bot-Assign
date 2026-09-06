@@ -192,21 +192,22 @@ function setupTriggers() {
 }
 
 /** ⭐ ตั้ง trigger ทั้งหมดในทีเดียว (รันครั้งเดียวใน Apps Script editor) — idempotent ไม่ซ้ำ
- *   · รายงานรอบเย็น 19:00 (หลัง OT กรอกครบ → OT ในรายงานถูกต้อง)  → runDailyRosterReport
- *   · แจ้งเตือนทีมยังไม่ลง assignment 09:00                        → apNotifyMissingDaily
- *  ปรับเวลาได้: setupAllTriggers(19, 9) = รายงาน 19:00 · แจ้งเตือน 09:00 */
-function setupAllTriggers(reportHour, notifyHour) {
-  reportHour = (reportHour == null) ? 19 : reportHour;
-  notifyHour = (notifyHour == null) ? 9  : notifyHour;
+ *   · รายงาน 2 รอบ/วัน: 08:00–09:00 และ 14:00–15:00  → runDailyRosterReport
+ *   · แจ้งเตือนทีมยังไม่ลง assignment 09:00–10:00       → apNotifyMissingDaily
+ *  ปรับเวลาได้: setupAllTriggers([8,14,19], 9) = รายงาน 3 รอบ · แจ้งเตือน 09:00 */
+function setupAllTriggers(reportHours, notifyHour) {
+  if (reportHours == null) reportHours = [8, 14];                 // default: 08:00-09:00 + 14:00-15:00
+  if (!Array.isArray(reportHours)) reportHours = [reportHours];
+  notifyHour = (notifyHour == null) ? 9 : notifyHour;
   var HANDLERS = { 'runDailyRosterReport': 1, 'apNotifyMissingDaily': 1 };
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (HANDLERS[t.getHandlerFunction()]) ScriptApp.deleteTrigger(t);            // ลบของเดิม (รวม 08:00/14:00 + notify ที่ตั้งผิด) กันซ้ำ
+    if (HANDLERS[t.getHandlerFunction()]) ScriptApp.deleteTrigger(t);            // ลบของเดิมทั้งหมด (กันซ้ำ + ลบ notify ที่ตั้งผิด)
   });
-  ScriptApp.newTrigger('runDailyRosterReport').timeBased().everyDays(1).atHour(reportHour).create();   // รายงานเย็น
-  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().everyDays(1).atHour(notifyHour).create();   // แจ้งเตือนเช้า
+  reportHours.forEach(function (h) { ScriptApp.newTrigger('runDailyRosterReport').timeBased().everyDays(1).atHour(h).create(); });   // รายงานแต่ละรอบ
+  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().everyDays(1).atHour(notifyHour).create();   // แจ้งเตือน
   var n = ScriptApp.getProjectTriggers().filter(function (t) { return HANDLERS[t.getHandlerFunction()]; }).length;
   var w = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP) ? 'ตั้งแล้ว ✓' : 'ยังไม่ตั้ง (ใส่ GCHAT_WEBHOOK_REPORT ใน Script Properties)';
-  var msg = '✅ ตั้ง trigger แล้ว: รายงาน ' + reportHour + ':00 + แจ้งเตือน ' + notifyHour + ':00 · รวม ' + n + ' trigger · Chat webhook: ' + w;
+  var msg = '✅ ตั้ง trigger แล้ว: รายงาน ' + reportHours.map(function (h) { return h + ':00'; }).join(' + ') + ' · แจ้งเตือน ' + notifyHour + ':00 · รวม ' + n + ' trigger · Chat webhook: ' + w;
   Logger.log(msg); return msg;
 }
 
