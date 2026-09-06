@@ -7952,7 +7952,7 @@ function rbRunForDate_(date, opts) {
   rbWriteFillPlan_(out, res, dateStr, ll, '🤖 เติม ' + dd + ' ' + mon);
   rbWriteAutoAssign_(out, res, dateStr, ll, '🤖 Auto ' + dd + ' ' + mon);
   // OT ledger (สะสมรายคน/วัน) + เตือน OT เกินเกณฑ์ สัปดาห์ >36h / เดือน >144h (+ ใกล้)
-  try { rbUpdateOTLedger_(out, date, res, ll); res._otAlert = rbWriteOTAlert_(out, date, '⚠️ OT เตือน ' + dd + ' ' + mon); } catch (eOT) { Logger.log('⚠️ OT alert: ' + eOT.message); }
+  try { rbUpdateOTLedger_(date, res, ll); res._otAlert = rbWriteOTAlert_(out, date, '⚠️ OT เตือน ' + dd + ' ' + mon); } catch (eOT) { Logger.log('⚠️ OT alert: ' + eOT.message); }
   try { SpreadsheetApp.flush(); } catch (eFl) {}   // commit แท็บรายวัน (รวม OT) ก่อนขั้นตอนหนักถัดไป → ถ้าต่อไป OOM แท็บวันนี้ยังอยู่ครบ
   // weekly OT (>36h) — reads the week's files (หน่วยความจำหนัก) → default ปิดในรอบรายวัน (กัน Out of memory)
   //   เจนแยกด้วย runWeeklyOTReport() สัปดาห์ละครั้ง · เปิดในรอบนี้ได้ด้วย opts.weekly
@@ -8223,17 +8223,30 @@ var OT_WEEK_NEAR = 30, OT_MONTH_NEAR = 130;   // "ใกล้ถึง" (สั
 
 /** อัปเดต ledger OT รายคน/รายวัน (ชีตซ่อน OT_LEDGER ในไฟล์รายงานเดือน) — upsert เฉพาะวันนี้
  *  → รวม OT "สัปดาห์/เดือน" ต่อคนได้โดยไม่ต้องเปิดไฟล์ 7–30 วันซ้ำ (กัน OOM) · ต้องรันรายงานแต่ละวันสะสมไว้ */
-function rbUpdateOTLedger_(out, date, res, ll) {
+/** ชีต ledger กลาง (ไฟล์เดียวถาวร ข้ามเดือนได้) — เก็บ OT รายคน/วัน · id เก็บใน Script Property OT_LEDGER_FILE_ID
+ *  ทำให้สัปดาห์ที่คร่อมเดือน (เช่น 31 ส.ค.–6 ก.ย.) รวม OT ถูก ไม่ตกวันข้ามเดือน */
+function rbOTLedgerSheet_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('OT_LEDGER_FILE_ID'), ss = null;
+  if (id) { try { ss = SpreadsheetApp.openById(id); } catch (e) { ss = null; } }
+  if (!ss) { ss = SpreadsheetApp.create('OT_LEDGER (PAS · ห้ามลบ)'); props.setProperty('OT_LEDGER_FILE_ID', ss.getId()); }
+  var sh = ss.getSheetByName('LEDGER');
+  if (!sh) { sh = ss.getSheets()[0]; sh.setName('LEDGER'); sh.getRange(1, 1, 1, 5).setValues([['date', 'id', 'name', 'team', 'ot']]); }
+  return sh;
+}
+function rbUpdateOTLedger_(date, res, ll) {
   var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
   var iso = Utilities.formatDate(date, tz, 'yyyy-MM-dd');
-  var sh = out.getSheetByName('OT_LEDGER');
-  if (!sh) { sh = out.insertSheet('OT_LEDGER'); sh.getRange(1, 1, 1, 5).setValues([['date', 'id', 'name', 'team', 'ot']]); try { sh.hideSheet(); } catch (e) {} }
+  var sh = rbOTLedgerSheet_();
   var rows = [];
   function add(team, r) { if (r && r.ot > 0 && !r.support) rows.push([iso, String(r.id || ''), r.name || '', team, r.ot]); }
   Object.keys(res.teams).forEach(function (t) { (res.teams[t].records || []).forEach(function (r) { add(t, r); }); });
   if (ll && ll.sections) Object.keys(ll.sections).forEach(function (s) { (ll.sections[s].records || []).forEach(function (r) { add('LL·' + s, r); }); });
+  var cut = new Date(); cut.setDate(cut.getDate() - 70);                        // เก็บย้อนหลัง ~70 วัน (พอสำหรับสัปดาห์+เดือน)
+  var cutIso = Utilities.formatDate(cut, tz, 'yyyy-MM-dd');
   var last = sh.getLastRow(), keep = [];
-  if (last > 1) { keep = sh.getRange(2, 1, last - 1, 5).getValues().filter(function (d) { return String(d[0]) !== iso; }); sh.getRange(2, 1, last - 1, 5).clearContent(); }
+  if (last > 1) keep = sh.getRange(2, 1, last - 1, 5).getValues().filter(function (d) { var di = String(d[0]); return di !== iso && di >= cutIso; });   // ทับวันเดียวกัน + ตัดวันเก่า
+  if (last > 1) sh.getRange(2, 1, last - 1, 5).clearContent();
   var all = keep.concat(rows);
   if (all.length) sh.getRange(2, 1, all.length, 5).setValues(all);
 }
@@ -8242,7 +8255,7 @@ function rbUpdateOTLedger_(out, date, res, ll) {
 function rbWriteOTAlert_(out, date, tabName) {
   var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
   var R = { weekOver: [], weekNear: [], monthOver: [], monthNear: [] };
-  var sh0 = out.getSheetByName('OT_LEDGER');
+  var sh0 = rbOTLedgerSheet_();
   if (!sh0 || sh0.getLastRow() < 2) return R;
   var data = sh0.getRange(2, 1, sh0.getLastRow() - 1, 5).getValues();
   var monPrefix = Utilities.formatDate(date, tz, 'yyyy-MM');
