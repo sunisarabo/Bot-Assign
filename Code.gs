@@ -7811,6 +7811,25 @@ function setupTriggers() {
   Logger.log('✅ ตั้ง trigger รันทุกวัน 08:00 และ 14:00 แล้ว · Google Chat webhook: ' + w);
 }
 
+/** ⭐ ตั้ง trigger ทั้งหมดในทีเดียว (รันครั้งเดียวใน Apps Script editor) — idempotent ไม่ซ้ำ
+ *   · รายงานรอบเย็น 19:00 (หลัง OT กรอกครบ → OT ในรายงานถูกต้อง)  → runDailyRosterReport
+ *   · แจ้งเตือนทีมยังไม่ลง assignment 09:00                        → apNotifyMissingDaily
+ *  ปรับเวลาได้: setupAllTriggers(19, 9) = รายงาน 19:00 · แจ้งเตือน 09:00 */
+function setupAllTriggers(reportHour, notifyHour) {
+  reportHour = (reportHour == null) ? 19 : reportHour;
+  notifyHour = (notifyHour == null) ? 9  : notifyHour;
+  var HANDLERS = { 'runDailyRosterReport': 1, 'apNotifyMissingDaily': 1 };
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (HANDLERS[t.getHandlerFunction()]) ScriptApp.deleteTrigger(t);            // ลบของเดิม (รวม 08:00/14:00 + notify ที่ตั้งผิด) กันซ้ำ
+  });
+  ScriptApp.newTrigger('runDailyRosterReport').timeBased().everyDays(1).atHour(reportHour).create();   // รายงานเย็น
+  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().everyDays(1).atHour(notifyHour).create();   // แจ้งเตือนเช้า
+  var n = ScriptApp.getProjectTriggers().filter(function (t) { return HANDLERS[t.getHandlerFunction()]; }).length;
+  var w = PropertiesService.getScriptProperties().getProperty(CONFIG_RB.CHAT_WEBHOOK_PROP) ? 'ตั้งแล้ว ✓' : 'ยังไม่ตั้ง (ใส่ GCHAT_WEBHOOK_REPORT ใน Script Properties)';
+  var msg = '✅ ตั้ง trigger แล้ว: รายงาน ' + reportHour + ':00 + แจ้งเตือน ' + notifyHour + ':00 · รวม ' + n + ' trigger · Chat webhook: ' + w;
+  Logger.log(msg); return msg;
+}
+
 /**
  * รันครั้งเดียวเพื่อบันทึก Google Chat webhook ลง Script Properties
  * (อย่าใส่ URL ลงในโค้ดที่ commit ขึ้น GitHub — เป็นความลับ)
