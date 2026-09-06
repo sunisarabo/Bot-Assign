@@ -7642,6 +7642,18 @@ function runRosterForDate(y, m, d) {
   catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
 }
 
+/** เจนแท็บ OT รายสัปดาห์ + สรุปสัปดาห์ แยกต่างหาก (อ่านไฟล์ 7 วัน — หน่วยหนัก) — รันสัปดาห์ละครั้ง กัน OOM รอบรายวัน */
+function runWeeklyOTReport(y, m, d) {
+  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+  try {
+    var mon = MON_RB[date.getMonth()], be = date.getFullYear() + 543;
+    var out = rbGetMonthlyOutput_(mon, be), wr = rbWeekRange_(date);
+    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
+    rbWriteWeekSummary_(out, date, '📊 สรุปสัปดาห์ ' + wr.label);
+    Logger.log('✅ Weekly OT/summary: ' + wr.label + ' → ' + out.getUrl());
+  } catch (e) { Logger.log('❌ runWeeklyOTReport: ' + e.message + '\n' + (e.stack || '')); }
+}
+
 /** เจนรายงานทั้งเดือน (regenerate ทุกวันด้วยโค้ดล่าสุด) — กด Run ในตัว editor ได้เลย (ไม่ต้องใส่ค่า → ใช้เดือนปัจจุบัน)
  *  มี time-budget กันชน limit 6 นาที + auto-resume (จำวันที่ค้าง) → กด Run ซ้ำจะทำต่อจนครบเอง
  *  ระบุเดือนเองก็ได้: runRosterForMonth(2026, 7) */
@@ -7876,7 +7888,8 @@ function rbGetMaster_() {
 }
 
 // ─── MAIN PIPELINE ──────────────────────────────────────────────────────────
-function rbRunForDate_(date) {
+function rbRunForDate_(date, opts) {
+  opts = opts || {};
   var day = rbGetDay_(date), res = day.res, ll = day.ll;
   if (!res) throw new Error('อ่านไฟล์เวรของวันที่ ' + rbDayIso_(date) + ' ไม่ได้ (ไม่มีไฟล์/เปิดไม่ได้)');
   var master = rbGetMaster_();
@@ -7895,12 +7908,16 @@ function rbRunForDate_(date) {
   rbWriteAssignCheck_(out, res, dateStr, ll, '🧭 ' + dd + ' ' + mon);
   rbWriteFillPlan_(out, res, dateStr, ll, '🤖 เติม ' + dd + ' ' + mon);
   rbWriteAutoAssign_(out, res, dateStr, ll, '🤖 Auto ' + dd + ' ' + mon);
-  // weekly OT (>36h) — reads the week's files; non-fatal if it can't finish
-  try {
-    var wr = rbWeekRange_(date);
-    rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
-    rbWriteWeekSummary_(out, date, '📊 สรุปสัปดาห์ ' + wr.label);   // ตารางสรุป มาทำงาน/ป่วย/แวค/กิจ/OT
-  } catch (e) { Logger.log('⚠️ Weekly summary: ' + e.message); }
+  try { SpreadsheetApp.flush(); } catch (eFl) {}   // commit แท็บรายวัน (รวม OT) ก่อนขั้นตอนหนักถัดไป → ถ้าต่อไป OOM แท็บวันนี้ยังอยู่ครบ
+  // weekly OT (>36h) — reads the week's files (หน่วยความจำหนัก) → default ปิดในรอบรายวัน (กัน Out of memory)
+  //   เจนแยกด้วย runWeeklyOTReport() สัปดาห์ละครั้ง · เปิดในรอบนี้ได้ด้วย opts.weekly
+  if (opts.weekly) {
+    try {
+      var wr = rbWeekRange_(date);
+      rbWriteWeeklyOT_(out, date, mon, '⏱️ OT ' + wr.label);
+      rbWriteWeekSummary_(out, date, '📊 สรุปสัปดาห์ ' + wr.label);
+    } catch (e) { Logger.log('⚠️ Weekly summary: ' + e.message); }
+  }
   ['Sheet1', 'ชีต1', 'Sheet'].forEach(function (n) {
     var s = out.getSheetByName(n); if (s && out.getSheets().length > 1) out.deleteSheet(s);
   });
