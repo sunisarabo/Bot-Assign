@@ -96,7 +96,7 @@ function rrClassify_(shift, remark) {
 
 // ─── สร้างไฟล์ชีต + แชร์ให้ Duty / Asst Mgr อัตโนมัติ ───────────────────────
 // ทุกไฟล์ชีตที่ระบบสร้าง (export ต่าง ๆ) จะถูกแชร์ให้อีเมลเหล่านี้เป็น editor โดยอัตโนมัติ
-var RB_SHARE_EMAILS = ['dutyhkt@aotga.com', 'asst-mgr@aotga.com'];
+var RB_SHARE_EMAILS = ['hansa.sr@aotga.com', 'lawan.sa@aotga.com', 'natthaphong.so@aotga.com', 'dutyhkt@aotga.com', 'sunisara.bo@aotga.com', 'asst-mgr@aotga.com'];
 /** สร้าง Spreadsheet ใหม่ แล้วแชร์ให้อีเมลที่กำหนด (ไม่ให้ error เรื่องแชร์มาทำให้ export ล้ม) */
 function rbCreateSheet_(title) {
   var ss = SpreadsheetApp.create(title);
