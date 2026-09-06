@@ -1239,6 +1239,31 @@ function rbNoAccessCard_(what, fileId) {
 }
 /** การ์ดเตือน: คนที่อยู่ในเวรวันนี้แต่ไม่มีรหัสในไฟล์รายชื่อ (master) → ให้ไปเพิ่มใน master ให้ครบ
  *  (ตัดแถว SUPPORT/รหัสจำลองออก · เทียบเฉพาะรหัสจริง 6-8 หลัก) */
+/** การ์ดเตือน OT เกินเกณฑ์ (อ่านจาก Script Property ที่รายงานเขียนไว้) — สัปดาห์ >36h · เดือน >144h (+ ใกล้) */
+function rbOTAlertCard_(date) {
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var raw; try { raw = PropertiesService.getScriptProperties().getProperty('OTALERT_' + Utilities.formatDate(date, tz, 'yyyy-MM')); } catch (e) { raw = null; }
+  if (!raw) return '';
+  var a; try { a = JSON.parse(raw); } catch (e) { return ''; }
+  var nWO = (a.weekOver || []).length, nMO = (a.monthOver || []).length, nWN = (a.weekNear || []).length, nMN = (a.monthNear || []).length;
+  if (!(nWO + nMO + nWN + nMN)) return '';
+  function rows(list, tag, bg) {
+    return (list || []).map(function (p) {
+      return '<tr style="background:' + bg + '"><td class="b">' + rbEsc_(p.n) + '</td><td>' + rbEsc_(p.t) + '</td><td class="tnum">' + p.w + '</td><td class="tnum">' + p.m + '</td><td>' + tag + '</td></tr>';
+    }).join('');
+  }
+  var seen = {}, body = '';
+  // เดือนเกินก่อน แล้วสัปดาห์เกิน แล้วใกล้ (กันชื่อซ้ำ)
+  [[a.monthOver, '🔴 เดือนเกิน ' + a.mLimit, '#fdecec'], [a.weekOver, '🔴 สัปดาห์เกิน ' + a.wLimit, '#fdecec'],
+   [a.monthNear, '🟠 เดือนใกล้ ' + a.mLimit, '#fff3e0'], [a.weekNear, '🟡 สัปดาห์ใกล้ ' + a.wLimit, '#fff8e1']].forEach(function (g) {
+    var list = (g[0] || []).filter(function (p) { var k = p.n + '|' + p.t; if (seen[k]) return false; seen[k] = 1; return true; });
+    body += rows(list, g[1], g[2]);
+  });
+  var title = '⚠️ เตือน OT — สัปดาห์เกิน ' + a.wLimit + 'h: ' + nWO + ' คน · เดือนเกิน ' + a.mLimit + 'h: ' + nMO + ' คน (ใกล้ ' + nWN + '/' + nMN + ')';
+  return '<div style="margin-top:16px">' + rbTblCard_(title,
+    '<tr><th>ชื่อ</th><th>ทีม</th><th>OT สัปดาห์</th><th>OT เดือน</th><th>สถานะ</th></tr>', body,
+    '<span class="muted" style="font-weight:400">อัปเดตจากรายงานล่าสุด ' + rbEsc_(a.ts || '') + ' · เกณฑ์ สัปดาห์ ' + a.wLimit + 'h / เดือน ' + a.mLimit + 'h</span>') + '</div>';
+}
 function rbMasterMissingCard_(res, ll, master) {
   if (!master || !master.ids) return '';
   var miss = [], seen = {};
@@ -1717,6 +1742,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
+    rbOTAlertCard_(date) +
     rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
     (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +

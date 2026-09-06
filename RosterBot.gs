@@ -658,6 +658,14 @@ function rbWriteOTAlert_(out, date, tabName) {
     [150, 90, 85, 85, 160].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
     sh.setFrozenRows(2);
   }
+  // เก็บสรุปแบบย่อไว้ใน Script Property → หน้าเว็บ/Dashboard อ่านไปแสดงการ์ดเตือนได้เร็ว (ไม่ต้องเปิดไฟล์รายงาน)
+  try {
+    function slim(a, key) { return a.slice(0, 40).map(function (p) { return { n: p.name, t: p.team, w: p.week, m: p.month }; }); }
+    PropertiesService.getScriptProperties().setProperty('OTALERT_' + monPrefix, JSON.stringify({
+      ts: Utilities.formatDate(new Date(), tz, 'dd MMM HH:mm'), wLimit: OT_WEEK_LIMIT, mLimit: OT_MONTH_LIMIT,
+      weekOver: slim(R.weekOver), weekNear: slim(R.weekNear), monthOver: slim(R.monthOver), monthNear: slim(R.monthNear)
+    }));
+  } catch (eP) {}
   return R;
 }
 
