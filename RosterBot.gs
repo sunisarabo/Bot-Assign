@@ -333,6 +333,7 @@ function rbRunForDate_(date, opts) {
   rbWriteAutoAssign_(out, res, dateStr, ll, '🤖 Auto ' + dd + ' ' + mon);
   // OT ledger (สะสมรายคน/วัน) + เตือน OT เกินเกณฑ์ สัปดาห์ >36h / เดือน >144h (+ ใกล้)
   try { rbUpdateOTLedger_(date, res, ll); res._otAlert = rbWriteOTAlert_(out, date, '⚠️ OT เตือน ' + dd + ' ' + mon); } catch (eOT) { Logger.log('⚠️ OT alert: ' + eOT.message); }
+  try { rbCleanWeekTabs_(out, date, '⏱️ OT ', ''); } catch (eCW) {}   // ลบแท็บ weekly OT format เก่า (เช่น "⏱️ OT 1-7 SEP") ที่ไม่ใช่รอบ จ.–อา.
   try { SpreadsheetApp.flush(); } catch (eFl) {}   // commit แท็บรายวัน (รวม OT) ก่อนขั้นตอนหนักถัดไป → ถ้าต่อไป OOM แท็บวันนี้ยังอยู่ครบ
   // weekly OT (>36h) — reads the week's files (หน่วยความจำหนัก) → default ปิดในรอบรายวัน (กัน Out of memory)
   //   เจนแยกด้วย runWeeklyOTReport() สัปดาห์ละครั้ง · เปิดในรอบนี้ได้ด้วย opts.weekly
