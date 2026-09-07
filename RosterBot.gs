@@ -41,7 +41,9 @@ function runDailyRosterReport() {
 }
 
 function runRosterForDate(y, m, d) {
-  try { rbRunForDate_(new Date(y, m - 1, d)); }
+  // กด Run ตรงๆ ในหน้า editor จะไม่ส่ง y/m/d → ใช้ "วันนี้" แทน (กัน error NaN-aN-aN)
+  var date = (y && m && d) ? new Date(y, m - 1, d) : new Date();
+  try { rbRunForDate_(date); }
   catch (e) { Logger.log('❌ runRosterForDate: ' + e.message + '\n' + (e.stack || '')); }
 }
 
