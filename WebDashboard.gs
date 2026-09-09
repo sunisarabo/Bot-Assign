@@ -489,7 +489,9 @@ function rbAssignHtml(iso) {
       ' · <span class="muted">ไม่มีไฟลท์ ' + s.noFlt + ' (bench/standby)</span>' +
       (s.noWin ? ' · <span class="muted">ไม่มีเวลากะ ' + s.noWin + '</span>' : '') +
       ' <label style="margin-left:8px;font-weight:600;cursor:pointer;white-space:nowrap"><input type="checkbox" class="acshowok" onchange="applyFilter(\'view-ac\')" style="vertical-align:-2px"> แสดงทีมที่ครบ (✅) ทุกคน</label>' +
-      '<div class="muted" style="font-size:11px;margin-top:2px">เลือกทีมจาก dropdown เพื่อดูทั้งทีม (รวมคนที่จัดครบ) · โดยปกติแสดงเฉพาะที่ต้องแก้</div></div>';
+      '<div class="muted" style="font-size:11px;margin-top:2px">เลือกทีมจาก dropdown เพื่อดูทั้งทีม (รวมคนที่จัดครบ) · โดยปกติแสดงเฉพาะที่ต้องแก้</div>' +
+      '<div style="font-size:11px;margin-top:4px">📌 job แบ่งตามเวลากะ (ในคอลัมน์ “ไฟลท์ที่ทำ”): <b>🟩 ในกะ</b> · <b style="color:#c2410c">🟧 OT ก่อน/หลังกะ</b> (งานที่อยู่ในโอที) · <b class="badd">🟥 นอกกะ</b> (ตกนอกกะ ต้องใช้ OT)' +
+      ' &nbsp;|&nbsp; รวมทั้งวัน: 🟧 งานใน OT <b>' + s.otJobs + '</b> · 🟥 งานนอกกะ <b class="badd">' + s.outJobs + '</b></div></div>';
     var rows = an.rows.map(function (r) {
       var emo = r.status === 'bad' ? '🔴' : (r.status === 'warn' ? '🟡' : (r.status === 'nowin' ? '⚪' : '✅'));
       var okCls = (r.status === 'ok' || r.status === 'nowin') ? ' acok' : '';   // แถว "ครบ/ตรวจไม่ได้" — ซ่อนโดยปริยาย เปิดดูได้

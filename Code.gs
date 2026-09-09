@@ -3814,7 +3814,7 @@ function acAnalyzeRecord_(r, team) {
   var out = {
     hasWindow: reliable && d.ds != null && d.de != null,
     shiftStr: r.bucket === 'ot_off' ? 'OFF' : ((d.ss != null && d.se != null) ? (rrFmtMin_(d.ss) + '–' + rrFmtMin_(d.se)) : (r.shift || '-')),
-    dutyStr: '', dutyMins: 0, ss: d.ss, se: d.se, ds: d.ds, de: d.de,
+    dutyStr: '', dutyMins: 0, ss: d.ss, se: d.se, ds: d.ds, de: d.de, otSegs: d.otSegs || [],
     flightN: 0, coveredN: 0, uncovered: [], gaps: [], wins: [],
     otVerdict: '', issues: [], status: 'ok',
   };
@@ -3924,6 +3924,33 @@ function acAnalyzeRecord_(r, team) {
   return out;
 }
 
+/** จัด job หนึ่งงาน (หน้าต่างเวลา w=[lo,hi]) เข้า zone เทียบ duty ของคน (a = ผลจาก acAnalyzeRecord_)
+ *  คืน: 'shift' (ในกะ) · 'ot-pre'/'ot-post' (อยู่ในช่วง OT ที่กรอก) · 'out' (นอกกะ ต้องใช้ OT) · '' (ไม่มีเวลา)
+ *  ใช้เกณฑ์เดียวกับการนับ coverage: ไม่คาบ duty เลย = out · คาบ = ในกะ/OT ตามช่วงที่ตรงมากสุด */
+function acJobZone_(w, a) {
+  if (!w) return '';
+  var lo = w[0], hi = w[1];
+  if (a.ds == null || a.de == null) return '';
+  var overlaps = (hi > a.ds && lo < a.de);
+  if (!overlaps && hi + 1440 > a.ds && lo + 1440 < a.de) { lo += 1440; hi += 1440; overlaps = true; }  // จัด timeline ข้ามเที่ยงคืน
+  if (!overlaps) return 'out';                                   // ไม่คาบเวลางานเลย = ไฟลท์นอกเวลากะ (ต้องใช้ OT)
+  function ov(a0, b0, a1, b1) { return Math.max(0, Math.min(b0, b1) - Math.max(a0, a1)); }
+  var inShift = (a.ss != null && a.se != null) ? ov(lo, hi, a.ss, a.se) : 0;
+  var inOt = 0, otType = '';
+  (a.otSegs || []).forEach(function (sg) { var o = ov(lo, hi, sg[0], sg[1]); if (o > inOt) { inOt = o; otType = (a.se != null && sg[0] >= a.se - 1) ? 'post' : 'pre'; } });
+  if (inOt > inShift && inOt > 0) return 'ot-' + otType;
+  return 'shift';
+}
+
+/** ป้ายกำกับ zone (emoji + ไทย) — รอด HTML-escape (ไม่มี &<>) */
+function acZoneMark_(z) {
+  if (z === 'out') return '🟥นอกกะ';
+  if (z === 'ot-pre') return '🟧OTก่อนกะ';
+  if (z === 'ot-post') return '🟧OTหลังกะ';
+  if (z === 'shift') return '🟩';
+  return '';
+}
+
 /** ทีม "เจ้าของ" ของแต่ละสายการบิน = ทีมที่มีพนักงานทำไฟลท์สายการบินนั้นมากสุด
  *  (ใช้บอกว่าไฟลท์ไหนเป็นการ "ซัพพอร์ตข้ามทีม") */
 function acOwnerTeams_(res, ll) {
@@ -3952,7 +3979,7 @@ function acOwnerTeams_(res, ll) {
 function acAnalyze_(res, ll) {
   var rows = [];
   var owner = acOwnerTeams_(res, ll);
-  var sum = { working: 0, checked: 0, bad: 0, warn: 0, otMuch: 0, gap: 0, noFlt: 0, noWin: 0, support: 0 };
+  var sum = { working: 0, checked: 0, bad: 0, warn: 0, otMuch: 0, gap: 0, noFlt: 0, noWin: 0, support: 0, otJobs: 0, outJobs: 0 };
 
   function consider(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
@@ -3970,6 +3997,7 @@ function acAnalyze_(res, ll) {
     sum.checked++;
     // ไฟลท์ที่ทำ + ตั้ง flag ไฟลท์ "ซัพพอร์ตข้ามทีม" (สายการบินที่ทีมอื่นเป็นเจ้าของ)
     var nSupport = 0, skipT = slaSkipTeam_(team);
+    var zc = { shift: 0, ot: 0, out: 0 };                 // นับ job แยกตามกะ (ในกะ/OT/นอกกะ)
     var jobList = (r.assignments || []).filter(function (x) { return x.flight && !acIsJunkFlight_(x.flight); })   // ตัดค่าขยะ (เวลา/วันที่หลุดช่อง) · รวมเคาน์เตอร์/งานของ SU
       .map(function (x) {
         var w = acFlightWin_(x);                          // ช่วงเวลา cover (บรีฟ→STD / เคาน์เตอร์)
@@ -3979,9 +4007,14 @@ function acAnalyze_(res, ll) {
         var ow = acIsFlight_(x.flight) ? owner[slaAirlineOf_(x.flight)] : '';
         var sup = (!skipT && ow && ow !== team) ? ' ซัพพอร์ต' : '';
         if (sup) nSupport++;
-        return x.flight + jb + tm + sup;
+        // จับ job ตามช่วงเวลากะ: ในกะ / ใน OT / นอกกะ (ใช้ duty window เดียวกับ coverage)
+        var z = (!x.activity && !acIsActivity_(x.task) && !acIsActivity_(x.flight)) ? acJobZone_(w, a) : '';
+        if (z === 'shift') zc.shift++; else if (z && z.indexOf('ot') === 0) zc.ot++; else if (z === 'out') zc.out++;
+        var zm = acZoneMark_(z);
+        return x.flight + jb + tm + sup + (zm ? ' ' + zm : '');
       });
     if (nSupport) sum.support++;
+    sum.otJobs += zc.ot; sum.outJobs += zc.out;
     if (a.status === 'bad') sum.bad++;
     if (a.status === 'warn') sum.warn++;
     if (a.otVerdict.indexOf('เกินจำเป็น') >= 0) sum.otMuch++;
@@ -3991,6 +4024,7 @@ function acAnalyze_(res, ll) {
     rows.push({
       team: team, id: r.id || '', pos: r.pos || r.posGroup || '', name: r.name || '',
       job: jobList.join(', '),
+      zones: zc.shift + '/' + zc.ot + '/' + zc.out,   // ในกะ/OT/นอกกะ
       support: nSupport,
       shift: a.shiftStr, duty: a.dutyStr,
       ot: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) +
@@ -9040,7 +9074,9 @@ function rbAssignHtml(iso) {
       ' · <span class="muted">ไม่มีไฟลท์ ' + s.noFlt + ' (bench/standby)</span>' +
       (s.noWin ? ' · <span class="muted">ไม่มีเวลากะ ' + s.noWin + '</span>' : '') +
       ' <label style="margin-left:8px;font-weight:600;cursor:pointer;white-space:nowrap"><input type="checkbox" class="acshowok" onchange="applyFilter(\'view-ac\')" style="vertical-align:-2px"> แสดงทีมที่ครบ (✅) ทุกคน</label>' +
-      '<div class="muted" style="font-size:11px;margin-top:2px">เลือกทีมจาก dropdown เพื่อดูทั้งทีม (รวมคนที่จัดครบ) · โดยปกติแสดงเฉพาะที่ต้องแก้</div></div>';
+      '<div class="muted" style="font-size:11px;margin-top:2px">เลือกทีมจาก dropdown เพื่อดูทั้งทีม (รวมคนที่จัดครบ) · โดยปกติแสดงเฉพาะที่ต้องแก้</div>' +
+      '<div style="font-size:11px;margin-top:4px">📌 job แบ่งตามเวลากะ (ในคอลัมน์ “ไฟลท์ที่ทำ”): <b>🟩 ในกะ</b> · <b style="color:#c2410c">🟧 OT ก่อน/หลังกะ</b> (งานที่อยู่ในโอที) · <b class="badd">🟥 นอกกะ</b> (ตกนอกกะ ต้องใช้ OT)' +
+      ' &nbsp;|&nbsp; รวมทั้งวัน: 🟧 งานใน OT <b>' + s.otJobs + '</b> · 🟥 งานนอกกะ <b class="badd">' + s.outJobs + '</b></div></div>';
     var rows = an.rows.map(function (r) {
       var emo = r.status === 'bad' ? '🔴' : (r.status === 'warn' ? '🟡' : (r.status === 'nowin' ? '⚪' : '✅'));
       var okCls = (r.status === 'ok' || r.status === 'nowin') ? ' acok' : '';   // แถว "ครบ/ตรวจไม่ได้" — ซ่อนโดยปริยาย เปิดดูได้
