@@ -495,16 +495,20 @@ function rbAssignHtml(iso) {
     var rows = an.rows.map(function (r) {
       var emo = r.status === 'bad' ? '🔴' : (r.status === 'warn' ? '🟡' : (r.status === 'nowin' ? '⚪' : '✅'));
       var okCls = (r.status === 'ok' || r.status === 'nowin') ? ' acok' : '';   // แถว "ครบ/ตรวจไม่ได้" — ซ่อนโดยปริยาย เปิดดูได้
+      var zp = String(r.zones || '0/0/0').split('/');       // ในกะ/OT/นอกกะ
+      var zcell = '<td class="tnum" style="white-space:nowrap" data-zout="' + (+zp[2] || 0) + '"><span class="okk">' + (zp[0] || '0') +
+        '</span> / <b style="color:#c2410c">' + (zp[1] || '0') + '</b> / <b class="' + ((+zp[2] > 0) ? 'badd' : 'muted') + '">' + (zp[2] || '0') + '</b></td>';
       return '<tr class="' + (r.status === 'bad' ? 'rowbad' : '') + okCls + '" data-status="' + r.status + '" data-team="' + rbEsc_(r.team) + '" data-gaps="' + rbEsc_(r.gapsRaw || '') + '"><td>' + emo + '</td><td class="b">' +
         rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.id || '') + '</td><td>' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.pos) + '</td><td class="tnum">' +
-        rbEsc_(r.shift) + '</td><td>' + (r.ot && r.ot !== '-' ? rbEsc_(r.ot) : '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.flights) + '</td><td>' +
+        rbEsc_(r.shift) + '</td><td>' + (r.ot && r.ot !== '-' ? rbEsc_(r.ot) : '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.flights) + '</td>' + zcell + '<td>' +
         (rbEsc_(r.job) || '<span class="muted">—</span>') + '</td><td class="' + (r.uncovered ? 'badd' : 'muted') + '">' +
         (rbEsc_(r.uncovered) || '—') + '</td><td>' + (rbEsc_(r.gaps) || '<span class="muted">—</span>') + '</td><td>' +
         (rbEsc_(r.otVerdict) || '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.issue) + '</td></tr>';
     }).join('');
-    if (!rows) rows = '<tr><td colspan="13" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
+    if (!rows) rows = '<tr><td colspan="14" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
     return hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
-      '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>ไฟลท์</th><th>ไฟลท์ที่ทำ</th>' +
+      '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>ไฟลท์</th>' +
+      '<th title="นับ job แยกตามเวลากะ: ในกะ 🟩 / ใน OT 🟧 / นอกกะ 🟥">แยกกะ<br><span style="font-weight:400;font-size:10px">ในกะ/OT/นอกกะ</span></th><th>ไฟลท์ที่ทำ</th>' +
       '<th>ไฟลท์นอกเวลา</th><th>ช่วงว่าง</th><th>OT เหมาะสม?</th><th>ปัญหา/คำแนะนำ</th></tr>',
       rows, rbCtrls_('view-ac', true) + rbGapCtrl_('view-ac'));
   } catch (e) { return '<div class="panel">โหลดตรวจ Assign ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
