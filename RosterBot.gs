@@ -603,6 +603,9 @@ function rbWriteTimetable_(ss, res, dateStr, ll, tabName) {
 var OT_WEEK_LIMIT = 36;
 var OT_MONTH_LIMIT = 144;                 // OT/เดือนต่อคน — เกินแล้วเตือน
 var OT_WEEK_NEAR = 30, OT_MONTH_NEAR = 130;   // "ใกล้ถึง" (สัปดาห์ ≥30 · เดือน ≥130)
+// เกณฑ์ "แดง" ภาพรวม/รายทีม ของ OT ล่วงหน้า — สัดส่วนคนทำ OT ต่อคนทำงาน (ratio)
+var OT_AHEAD_OVER_HI = 0.30, OT_AHEAD_OVER_MID = 0.20;   // ภาพรวมวันนั้น: ≥30% แดง · ≥20% ส้ม
+var OT_AHEAD_TEAM_HI = 0.40, OT_AHEAD_TEAM_MID = 0.25;   // รายทีม: ≥40% แดง · ≥25% ส้ม
 
 /** อัปเดต ledger OT รายคน/รายวัน (ชีตซ่อน OT_LEDGER ในไฟล์รายงานเดือน) — upsert เฉพาะวันนี้
  *  → รวม OT "สัปดาห์/เดือน" ต่อคนได้โดยไม่ต้องเปิดไฟล์ 7–30 วันซ้ำ (กัน OOM) · ต้องรันรายงานแต่ละวันสะสมไว้ */
@@ -999,4 +1002,83 @@ function runOTAhead(days) {
   sh.setFrozenRows(3);
   Logger.log('✅ 🔮 OT ล่วงหน้า ' + days + ' วัน → ' + out.getUrl());
   return out.getUrl();
+}
+
+/** ข้อมูล OT ล่วงหน้า (ใช้ทั้งแท็บชีต + หน้าเว็บ) — คืน { days, teamList, persons, wStart, wEnd, monPrefix }
+ *  persons.week/month = OT สะสมจริง (ledger ก่อนหน้า + ช่วงล่วงหน้า) → เตือน "แดงรายคน" ตามเกณฑ์สัปดาห์/เดือน */
+function rbOTAheadData_(startDate, days) {
+  days = (days && days > 0) ? days : 3;
+  function r1(n) { return Math.round((n || 0) * 10) / 10; }
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  var start = new Date(startDate); start.setHours(0, 0, 0, 0);
+  var wd = (start.getDay() + 6) % 7, mon0 = new Date(start); mon0.setDate(start.getDate() - wd);
+  var sun = new Date(mon0); sun.setDate(mon0.getDate() + 6);
+  var wStart = Utilities.formatDate(mon0, tz, 'yyyy-MM-dd'), wEnd = Utilities.formatDate(sun, tz, 'yyyy-MM-dd');
+  var monPrefix = Utilities.formatDate(start, tz, 'yyyy-MM');
+
+  var mergedById = {}, infoById = {};                       // id -> {iso:hrs} · id -> {name,team}
+  try {
+    var lsh = rbOTLedgerSheet_();
+    if (lsh && lsh.getLastRow() > 1) {
+      lsh.getRange(2, 1, lsh.getLastRow() - 1, 5).getValues().forEach(function (d) {
+        var iso = String(d[0]), id = String(d[1]); if (!id) return;
+        (mergedById[id] = mergedById[id] || {})[iso] = +d[4] || 0;
+        infoById[id] = infoById[id] || { name: d[2], team: d[3] };
+      });
+    }
+  } catch (eL) {}
+
+  var daysArr = [];
+  for (var i = 0; i <= days; i++) {
+    var dt = new Date(start.getTime() + i * 86400000);
+    var iso = Utilities.formatDate(dt, tz, 'yyyy-MM-dd');
+    var rec = { iso: iso, label: dt.getDate() + ' ' + MON_RB[dt.getMonth()] + (i === 0 ? ' (วันนี้)' : ''), ok: false, teams: {} };
+    try {
+      var x = rbLoadResLL_(dt);
+      var P = x.res.totals, L = (x.ll && x.ll.totals && x.ll.totals.staff > 0) ? x.ll.totals : null;
+      rec.ok = true;
+      rec.working = (P.working + P.ot_off) + (L ? L.working + L.ot_off : 0);
+      rec.otOff = P.ot_off + (L ? L.ot_off : 0); rec.otOffH = r1(P.otOffHrs + (L ? L.otOffHrs : 0));
+      rec.otPre = P.otPre + (L ? L.otPre : 0); rec.otPreH = r1(P.otPreHrs + (L ? L.otPreHrs : 0));
+      rec.otPost = P.otPost + (L ? L.otPost : 0); rec.otPostH = r1(P.otPostHrs + (L ? L.otPostHrs : 0));
+      rec.otPpl = P.otPeople + (L ? L.otPeople : 0); rec.otHrs = r1(P.otHours + (L ? L.otHours : 0));
+      rec.ratio = rec.working > 0 ? rec.otPpl / rec.working : 0;
+      function walk(team, r) {
+        if (!r || r.support) return;
+        if (r.ot > 0 || r.bucket === 'ot_off') {
+          var id = String(r.id || ('~' + r.name));
+          (mergedById[id] = mergedById[id] || {})[iso] = r.ot || 0;               // ช่วงล่วงหน้าทับ ledger
+          if (!infoById[id]) infoById[id] = { name: r.name, team: team };
+        }
+      }
+      Object.keys(x.res.teams).forEach(function (t) {
+        var tb = x.res.teams[t];
+        var ppl = (tb.ot_off || 0) + (tb.otPre || 0) + (tb.otPost || 0), work = (tb.working || 0) + (tb.ot_off || 0);
+        rec.teams[t] = { ppl: ppl, work: work, ratio: work > 0 ? ppl / work : 0 };
+        (tb.records || []).forEach(function (r) { walk(t, r); });
+      });
+      if (x.ll && x.ll.sections) Object.keys(x.ll.sections).forEach(function (s) { (x.ll.sections[s].records || []).forEach(function (r) { walk('LL·' + s, r); }); });
+    } catch (e) { rec.err = e.message; }
+    daysArr.push(rec);
+  }
+
+  var winIsos = daysArr.map(function (r) { return r.iso; });
+  var persons = [];
+  Object.keys(infoById).forEach(function (id) {
+    var m = mergedById[id] || {};
+    if (!winIsos.some(function (iso) { return m[iso] != null; })) return;         // ไม่มี OT ในช่วงล่วงหน้า → ข้าม
+    var week = 0, month = 0;
+    Object.keys(m).forEach(function (iso) { if (iso >= wStart && iso <= wEnd) week += m[iso]; if (iso.indexOf(monPrefix) === 0) month += m[iso]; });
+    week = r1(week); month = r1(month);
+    var flag = (week > OT_WEEK_LIMIT || month > OT_MONTH_LIMIT) ? 'over' : ((week >= OT_WEEK_NEAR || month >= OT_MONTH_NEAR) ? 'near' : '');
+    persons.push({
+      id: id, name: infoById[id].name, team: infoById[id].team,
+      byIso: winIsos.map(function (iso) { return m[iso] != null ? r1(m[iso]) : null; }),
+      week: week, month: month, flag: flag
+    });
+  });
+  persons.sort(function (a, b) { var o = { over: 0, near: 1, '': 2 }; if (o[a.flag] !== o[b.flag]) return o[a.flag] - o[b.flag]; return b.week - a.week; });
+
+  var teamSet = {}; daysArr.forEach(function (r) { Object.keys(r.teams).forEach(function (t) { if (r.teams[t].ppl > 0) teamSet[t] = 1; }); });
+  return { days: daysArr, teamList: Object.keys(teamSet).sort(), persons: persons, wStart: wStart, wEnd: wEnd, monPrefix: monPrefix };
 }

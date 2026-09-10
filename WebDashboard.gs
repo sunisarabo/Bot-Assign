@@ -515,6 +515,62 @@ function rbAssignHtml(iso) {
   } catch (e) { return '<div class="panel">โหลดตรวจ Assign ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
+/** Lazy tab: 🔮 OT ล่วงหน้า — ภาพรวมต่อวัน + รายทีม + รายคน (เตือนแดง 3 ระดับ) */
+function rbOTAheadHtml(iso) {
+  try {
+    var start = rbDateFromIso_(iso);
+    var D = rbOTAheadData_(start, 3);
+    function cell(r, hi, mid) { return r >= hi ? 'background:#fdecec;color:#b02a2a;font-weight:700' : (r >= mid ? 'background:#fff3e0;color:#b26a00;font-weight:700' : ''); }
+
+    // ── (1) ภาพรวม OT ต่อวัน ──
+    var b1 = '';
+    D.days.forEach(function (d) {
+      if (!d.ok) { b1 += '<tr><td class="b">' + rbEsc_(d.label) + '</td><td colspan="7" class="muted">⚠️ ไม่มีไฟล์ assignment ของวันนี้</td></tr>'; return; }
+      var st = cell(d.ratio, OT_AHEAD_OVER_HI, OT_AHEAD_OVER_MID);
+      b1 += '<tr style="' + st + '"><td class="b">' + rbEsc_(d.label) + '</td><td class="tnum">' + d.working + '</td><td class="tnum">' + d.otOff + ' (' + d.otOffH + 'h)</td><td class="tnum">' +
+        d.otPre + ' (' + d.otPreH + 'h)</td><td class="tnum">' + d.otPost + ' (' + d.otPostH + 'h)</td><td class="tnum b">' + d.otPpl + '</td><td class="tnum b">' + d.otHrs + 'h</td><td class="tnum">' + Math.round(d.ratio * 100) + '%</td></tr>';
+    });
+    var sec1 = rbTblCard_('📊 ภาพรวม OT ต่อวัน <span style="font-weight:400;font-size:11px">(แดง = คน OT ≥ ' + Math.round(OT_AHEAD_OVER_HI * 100) + '% ของคนทำงาน · ส้ม ≥ ' + Math.round(OT_AHEAD_OVER_MID * 100) + '%)</span>',
+      '<tr><th>วันที่</th><th>🟢 Working</th><th>🟡 OT OFF</th><th>⏰ ก่อนกะ</th><th>⏰ หลังกะ</th><th>รวม OT (คน)</th><th>รวม OT (ชม.)</th><th>% OT</th></tr>', b1);
+
+    // ── (2) OT รายทีม (matrix ข้ามวัน) ──
+    var dayTh = D.days.map(function (d) { return '<th>' + rbEsc_(d.label) + '</th>'; }).join('');
+    var b2 = '';
+    D.teamList.forEach(function (t) {
+      b2 += '<tr><td class="b">' + rbEsc_(t) + '</td>' + D.days.map(function (d) {
+        if (!d.ok || !d.teams[t]) return '<td class="tnum muted">-</td>';
+        var tc = d.teams[t], st = cell(tc.ratio, OT_AHEAD_TEAM_HI, OT_AHEAD_TEAM_MID);
+        return '<td class="tnum" style="' + st + '" title="' + tc.ppl + '/' + tc.work + ' = ' + Math.round(tc.ratio * 100) + '%">' + tc.ppl + '</td>';
+      }).join('') + '</tr>';
+    });
+    if (!b2) b2 = '<tr><td colspan="' + (D.days.length + 1) + '" class="muted" style="text-align:center;padding:14px">— ไม่มี OT รายทีมในช่วงนี้ —</td></tr>';
+    var sec2 = rbTblCard_('📌 OT รายทีม — จำนวนคนทำ OT ต่อวัน <span style="font-weight:400;font-size:11px">(แดง ≥ ' + Math.round(OT_AHEAD_TEAM_HI * 100) + '% ของทีม · ส้ม ≥ ' + Math.round(OT_AHEAD_TEAM_MID * 100) + '%)</span>',
+      '<tr><th>ทีม</th>' + dayTh + '</tr>', b2);
+
+    // ── (3) รายคน — เตือนแดงตามเกณฑ์สัปดาห์/เดือน (ledger + ล่วงหน้า) ──
+    var nOver = D.persons.filter(function (p) { return p.flag === 'over'; }).length;
+    var nNear = D.persons.filter(function (p) { return p.flag === 'near'; }).length;
+    var b3 = '';
+    D.persons.forEach(function (p) {
+      var rst = p.flag === 'over' ? 'background:#fdecec' : (p.flag === 'near' ? 'background:#fff8e1' : '');
+      var tag = p.flag === 'over' ? '🔴 เกิน' : (p.flag === 'near' ? '🟠 ใกล้' : '');
+      var wcl = p.week > OT_WEEK_LIMIT ? 'color:#b02a2a;font-weight:700' : (p.week >= OT_WEEK_NEAR ? 'color:#b26a00;font-weight:700' : '');
+      var mcl = p.month > OT_MONTH_LIMIT ? 'color:#b02a2a;font-weight:700' : (p.month >= OT_MONTH_NEAR ? 'color:#b26a00;font-weight:700' : '');
+      b3 += '<tr data-team="' + rbEsc_(p.team) + '" style="' + rst + '"><td>' + tag + '</td><td class="b">' + rbEsc_(p.name) + '</td><td>' + rbEsc_(p.team) + '</td>' +
+        p.byIso.map(function (h) { return '<td class="tnum">' + (h == null ? '<span class="muted">·</span>' : (h > 0 ? h + 'h' : '<span class="muted">OFF</span>')) + '</td>'; }).join('') +
+        '<td class="tnum" style="' + wcl + '">' + p.week + 'h</td><td class="tnum" style="' + mcl + '">' + p.month + 'h</td></tr>';
+    });
+    if (!b3) b3 = '<tr><td colspan="' + (D.days.length + 5) + '" class="okk" style="text-align:center;padding:14px">✅ ไม่มีคนทำ OT ในช่วงล่วงหน้านี้</td></tr>';
+    var sec3 = rbTblCard_('👤 OT รายคน — สัปดาห์ (' + rbEsc_(D.wStart) + '→' + rbEsc_(D.wEnd) + ') · เดือน ' + rbEsc_(D.monPrefix) +
+      ' <span style="font-weight:400;font-size:11px">(🔴 เกิน ' + OT_WEEK_LIMIT + 'h/สัปดาห์ หรือ ' + OT_MONTH_LIMIT + 'h/เดือน · 🟠 ใกล้)</span>',
+      '<tr><th>สถานะ</th><th>ชื่อ</th><th>ทีม</th>' + dayTh + '<th>OT สัปดาห์</th><th>OT เดือน</th></tr>', b3, rbCtrls_('view-otah', false));
+
+    var hd = '<div class="sectionlabel">🔮 OT ล่วงหน้า 3 วัน (จาก ' + rbEsc_(iso) + ') · <b class="badd">🔴 เกินเกณฑ์ ' + nOver + ' คน</b> · 🟠 ใกล้ ' + nNear + ' คน' +
+      '<div class="muted" style="font-size:11px;margin-top:2px">เตือนแดง 3 ระดับ: ภาพรวมต่อวัน · รายทีม · รายคน (อิง OT สะสมจริงจาก ledger + ที่จัดล่วงหน้า)</div></div>';
+    return hd + sec1 + sec2 + sec3;
+  } catch (e) { return '<div class="panel">โหลด OT ล่วงหน้าไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
+}
+
 function rbEsc_(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function rbAttr_(s){ return rbEsc_(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function rbOtTxt_(n,h){ return n>0 ? (n+' <span class="muted">('+h+'h)</span>') : '·'; }
@@ -927,7 +983,7 @@ var RB_NAV_ = [
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
   ['advw','🗂️','ภาพรวมสัปดาห์','loadAdvW()'],
   ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'],
-  ['ot','⏱️','OT Dashboard',''], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
+  ['ot','⏱️','OT Dashboard',''], ['otah','🔮','OT ล่วงหน้า','loadOtah()'], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
 function rbRail_(shortCount, acCount) {
   var logo = ''; try { logo = rbLogoDataUri_(); } catch (e) {}
@@ -1762,6 +1818,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-adv" style="display:none">' + advInner + '</div>' +
     '<div id="view-advw" style="display:none"><div id="advwbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังวางแผนหลายวัน…</div></div></div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
+    '<div id="view-otah" style="display:none"><div id="otahbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด OT ล่วงหน้า…</div></div></div>' +
     '<div id="view-week" style="display:none"><div id="weekbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตารางบินสัปดาห์…</div></div></div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
     '<div id="view-wsum" style="display:none"><div id="wsumbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังสรุปสัปดาห์…</div></div></div>' +
@@ -1773,9 +1830,10 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","advw","week","rq","ot","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","advw","week","rq","ot","otah","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function exportPdf(){var pt=document.getElementById("pageTitle");var nm=(pt&&pt.textContent.trim())||"PAS";var old=document.title;document.title=nm+" "+ISO;window.print();setTimeout(function(){document.title=old;},600);}' +
     'function exportServerPdf(b){if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน Web App URL (/exec) เพื่อสร้างไฟล์");return;}var old=b?b.textContent:"";if(b){b.textContent="⏳ กำลังสร้างไฟล์ PDF…";b.disabled=true;}google.script.run.withSuccessHandler(function(url){if(b){b.textContent=old;b.disabled=false;}window.open(url,"_blank");}).withFailureHandler(function(e){if(b){b.textContent=old;b.disabled=false;}alert("สร้าง PDF ไม่ได้: "+e.message);}).rbExportDayPdf(ISO);}' +
+    'function loadOtah(){lazy("otahbox","rbOTAheadHtml","otah");}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadWsum(){lazy("wsumbox","rbWeekSummaryHtml","wsum");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
