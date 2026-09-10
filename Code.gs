@@ -8580,6 +8580,81 @@ function rbGetMonthlyOutput_(mon, be) {
   return ss;
 }
 
+/** 🔮 ดู OT ล่วงหน้า N วัน (default 3) — อ่าน assignment วันนี้..+N แล้วสรุป OT ต่อวัน + รายทีม
+ *  เขียนแท็บ "🔮 OT ล่วงหน้า" ลงไฟล์รายงานเดือนปัจจุบัน · กด Run ได้เลย (ไม่ใส่ค่า = 3 วัน)
+ *  ใช้เลข OT ชุดเดียวกับ 📊 Manpower (res.totals) — ตรงกับรายงานรายวัน */
+function runOTAhead(days) {
+  days = (days && days > 0) ? days : 3;
+  function r1(n) { return Math.round((n || 0) * 10) / 10; }
+  var today = new Date(); today.setHours(0, 0, 0, 0);
+  var mon = MON_RB[today.getMonth()], be = today.getFullYear() + 543;
+  var out = rbGetMonthlyOutput_(mon, be);
+  var rows = [];
+  for (var i = 0; i <= days; i++) {
+    var d = new Date(today.getTime() + i * 86400000);
+    var rec = { d: d, label: d.getDate() + ' ' + MON_RB[d.getMonth()] + (i === 0 ? ' (วันนี้)' : ''), ok: false, teams: {} };
+    try {
+      var x = rbLoadResLL_(d);
+      var P = x.res.totals, L = (x.ll && x.ll.totals && x.ll.totals.staff > 0) ? x.ll.totals : null;
+      rec.ok = true;
+      rec.working = (P.working + P.ot_off) + (L ? L.working + L.ot_off : 0);
+      rec.otOff = P.ot_off + (L ? L.ot_off : 0); rec.otOffH = r1(P.otOffHrs + (L ? L.otOffHrs : 0));
+      rec.otPre = P.otPre + (L ? L.otPre : 0); rec.otPreH = r1(P.otPreHrs + (L ? L.otPreHrs : 0));
+      rec.otPost = P.otPost + (L ? L.otPost : 0); rec.otPostH = r1(P.otPostHrs + (L ? L.otPostHrs : 0));
+      rec.otPpl = P.otPeople + (L ? L.otPeople : 0); rec.otHrs = r1(P.otHours + (L ? L.otHours : 0));
+      Object.keys(x.res.teams).forEach(function (t) {
+        var b = x.res.teams[t]; rec.teams[t] = (b.ot_off || 0) + (b.otPre || 0) + (b.otPost || 0);
+      });
+    } catch (e) { rec.err = e.message; }
+    rows.push(rec);
+  }
+
+  var tab = '🔮 OT ล่วงหน้า';
+  var old = out.getSheetByName(tab); if (old) out.deleteSheet(old);
+  var sh = out.insertSheet(tab, 0);
+  var W = 8;
+  sh.getRange(1, 1, 1, W).merge()
+    .setValue('🔮 OT ล่วงหน้า ' + days + ' วัน  —  สร้างเมื่อ ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Bangkok', 'd MMM yyyy HH:mm'))
+    .setBackground('#241c33').setFontColor('#f5c542').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
+  sh.setRowHeight(1, 30);
+
+  // ตารางสรุป OT ต่อวัน
+  var head = ['วันที่', 'สถานะไฟล์', '🟢 Working', '🟡 OT OFF (คน/ชม)', '⏰ OT ก่อนกะ (คน/ชม)', '⏰ OT หลังกะ (คน/ชม)', 'รวม OT (คน)', 'รวม OT (ชม.)'];
+  var body = [head];
+  rows.forEach(function (rec) {
+    if (!rec.ok) { body.push([rec.label, '⚠️ ไม่มีไฟล์/อ่านไม่ได้', '-', '-', '-', '-', '-', '-']); return; }
+    body.push([rec.label, '✅', rec.working,
+      rec.otOff + ' (' + rec.otOffH + 'h)', rec.otPre + ' (' + rec.otPreH + 'h)', rec.otPost + ' (' + rec.otPostH + 'h)',
+      rec.otPpl, rec.otHrs]);
+  });
+  sh.getRange(3, 1, body.length, W).setValues(body);
+  sh.getRange(3, 1, 1, W).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
+  rows.forEach(function (rec, i) { if (i === 0) sh.getRange(4, 1, 1, W).setBackground('#fff3cd'); });   // ไฮไลต์วันนี้
+
+  // ตาราง OT รายทีม (คน OT รวม = OT OFF + ก่อนกะ + หลังกะ)
+  var r2 = 3 + body.length + 2;
+  sh.getRange(r2, 1, 1, W).merge().setValue('📌 OT รายทีม (จำนวนคนที่ทำ OT: OT OFF + ก่อนกะ + หลังกะ)')
+    .setBackground('#37474f').setFontColor('#fff').setFontWeight('bold').setHorizontalAlignment('center');
+  var teamSet = {};
+  rows.forEach(function (rec) { Object.keys(rec.teams).forEach(function (t) { if (rec.teams[t] > 0) teamSet[t] = 1; }); });
+  var teams = Object.keys(teamSet).sort();
+  var th = ['ทีม'].concat(rows.map(function (rec) { return rec.label; }));
+  var tbody = [th];
+  teams.forEach(function (t) {
+    tbody.push([t].concat(rows.map(function (rec) { return rec.ok ? (rec.teams[t] || 0) : '-'; })));
+  });
+  if (teams.length) {
+    sh.getRange(r2 + 1, 1, tbody.length, th.length).setValues(tbody);
+    sh.getRange(r2 + 1, 1, 1, th.length).setBackground('#1f4e79').setFontColor('#fff').setFontWeight('bold');
+  } else {
+    sh.getRange(r2 + 1, 1).setValue('— ไม่มี OT ในช่วงนี้ —');
+  }
+  sh.autoResizeColumns(1, W);
+  sh.setFrozenRows(3);
+  Logger.log('✅ 🔮 OT ล่วงหน้า ' + days + ' วัน → ' + out.getUrl());
+  return out.getUrl();
+}
+
 
 // ===== WebDashboard.gs =====
 
