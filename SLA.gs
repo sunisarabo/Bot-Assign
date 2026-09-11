@@ -9,9 +9,49 @@
  * Requires RosterReader.gs (res = readRosterFromSpreadsheet()).
  */
 
-// ── Airline SLA: timing offsets (รอบ STD) + required headcount per role/phase ──
+// ── Airline SLA: timing offsets (นาที รอบ STD = เวลาออก) + required headcount per role/phase ──
 // roles: [name, count, code, phase]  · phase = ALL(SUP) / CI / ARR / GATE
-// ci/cc = check-in open/close (นาที รอบ STD) · go = gate · brief/post = ก่อน/หลัง
+// ci    = check-in เปิด ก่อน STD (เช่น -180 = 3 ชม.)   · cc = check-in ปิด ก่อน STD (เช่น -60 = 1 ชม.)
+// go    = gate open ก่อน STD (เช่น -45)                · lc = boarding/last call ก่อน STD
+// brief = บรีฟเริ่ม ก่อนเวลาเปิด check-in (นาที)        · post = งาน post-flight หลัง STD/STA (นาที) — มีทุกสาย
+// total = จำนวนพนักงานทั้งหมด · เวลาเปิดเคาน์เตอร์ใช้ OP ในชีตก่อน ถ้าไม่มีจึงใช้ STD+ci
+// post-flight ใช้ค่า post รายสาย (full-service 30 / LCC 20) · SLA_POST = ค่า fallback กรณีสายไม่มี post
+var SLA_POST = 20;   // fallback post-flight (นาที) เมื่อสายการบินไม่มีฟิลด์ post
+var SLA_TRANSIT_MIN = 55;   // เวลาเบรค/เดินทางต่อไฟลท์ขั้นต่ำ (นาที) — ต้องมีช่องว่าง > 50 นาที ระหว่างไฟลท์ (กันเสนอคนไปช่วยชิดเกินไป)
+var SLA_REST_MIN = 60;      // ถ้าทำ 2 ไฟลท์ติดกันมาแล้ว → ต้องพักก่อนไฟลท์ถัดไป ≥ ค่านี้ (นาที, ปรับเป็น 90 ได้ถ้าต้องการ 1.5 ชม.)
+// ── ระเบียบชั่วโมงทำงาน (AOTGA) — กะ 7-12 ชม./วัน · OT แยก · เพดานรวม/สัปดาห์ดูทั้งสัปดาห์ ──
+var WH_SHIFT_MIN = 7, WH_SHIFT_MAX = 12, WH_DAY_HIGH = 14;   // กะ 7-12 ชม. · รวม(กะ+OT) >14ช = เตือนพักไม่พอ
+/** สถานะชั่วโมงทำงานรายวันของพนักงาน 1 คน → {shift, ot, total, level, txt}
+ *  · ปกติ: total = กะ + OT (OT ก่อน/หลังกะ ไม่ทับกัน) · ot_off (วันหยุดมาทำ OT): total = OT เท่านั้น (กะไม่ได้ทำ)
+ *  level: ok | short(กะ<7) | over(กะ>12) | high(รวม>14ช = เสี่ยงพักไม่พอ) */
+/** ช่วงทำงาน "ต่อเนื่องยาวสุด" (นาที→ชม.) รวมกะ + OT ที่ติดกัน (ช่องว่าง ≤30 นาที = ต่อเนื่อง)
+ *  → OT ที่มีช่วงพักคั่น (เช่น กะ 05-17 แล้ว OT 22-04) ไม่ถูกนับเป็นควบยาว */
+function slaMaxContiguousHrs_(rec) {
+  var iv = [];
+  if (rec && rec.shiftStart != null && rec.shiftHrs > 0) iv.push([rec.shiftStart, rec.shiftStart + rec.shiftHrs * 60]);
+  ((rec && rec.otSpans) || []).forEach(function (s) { if (s.a != null && s.b != null) { var a = s.a, b = s.b; if (b <= a) b += 1440; iv.push([a, b]); } });
+  if (!iv.length) return 0;
+  iv.sort(function (x, y) { return x[0] - y[0]; });
+  var maxLen = 0, curA = iv[0][0], curB = iv[0][1], GAP = 30;
+  for (var i = 1; i < iv.length; i++) {
+    if (iv[i][0] <= curB + GAP) curB = Math.max(curB, iv[i][1]);   // ติดกัน (พักไม่ถึง 30 นาที) → ต่อเนื่อง
+    else { if (curB - curA > maxLen) maxLen = curB - curA; curA = iv[i][0]; curB = iv[i][1]; }
+  }
+  if (curB - curA > maxLen) maxLen = curB - curA;
+  return Math.round(maxLen / 60 * 10) / 10;
+}
+function slaHoursStat_(shiftHrs, ot, bucket, rec) {
+  var sh = Math.round((+shiftHrs || 0) * 10) / 10, o = Math.round((+ot || 0) * 10) / 10, total;
+  if (bucket === 'ot_off') { sh = 0; total = o; }              // วันหยุดมาทำ OT → ทำงานจริง = OT (กะปกติไม่ได้ทำ ไม่นับซ้ำ)
+  else total = Math.round((sh + o) * 10) / 10;
+  var level = 'ok', txt = '';
+  if (sh > 0 && sh < WH_SHIFT_MIN) { level = 'short'; txt = 'กะ ' + sh + 'ช <' + WH_SHIFT_MIN; }
+  else if (sh > WH_SHIFT_MAX) { level = 'over'; txt = 'กะ ' + sh + 'ช >' + WH_SHIFT_MAX; }
+  // "พักไม่พอ" = ทำงาน "ต่อเนื่อง" ยาว (กะ+OT ติดกัน) — ไม่ใช่แค่ผลรวมมาก · มี rec → ดูช่วงจริง · ไม่มี → เดิม(ผลรวม)
+  var contig = (rec && rec.shiftStart != null) ? slaMaxContiguousHrs_(rec) : total;
+  if (contig > WH_DAY_HIGH) { level = 'high'; txt = 'ต่อเนื่อง ' + contig + 'ช (พักไม่พอ)'; }
+  return { shift: sh, ot: o, total: total, contig: contig, level: level, txt: txt };
+}
 var SLA_DB = {
   'SQ': {ci:-240,cc:-40,go:-75,lc:-45,brief:60,post:30,total:13,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'SOD/FC','CI'],['CHECK-IN GK',1,'CT1/GK','CI'],
@@ -67,7 +107,7 @@ var SLA_DB = {
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',3,'GM','GATE']]},
   'HX': {ci:-240,cc:-50,go:-60,brief:60,post:30,total:11,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',4,'GM','GATE']]},
-  'EY': {ci:-180,cc:-60,go:-60,lc:-45,brief:60,post:30,total:11,
+  'EY': {ci:-180,cc:-60,go:-60,lc:-45,brief:60,post:45,total:11,   // EY บ้าน: +1hr ก่อนเปิดเคาน์เตอร์ (brief) · +45 นาทีหลัง STD (เคลียร์หลังไฟท์) ตามที่ทีมแจ้ง
     roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC/CTR','CI'],['SOD/CTR',1,'SOD/CTR','CI'],
            ['J-CLASS',2,'J','CI'],['BOARDING',5,'B','GATE'],['ARRIVAL',1,'ARR','ARR']]},
   'AY': {ci:-180,cc:-60,go:-60,brief:60,post:30,total:9,
@@ -167,6 +207,37 @@ var SLA_DB = {
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',2,'GATE','GATE']]},
   'S7': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:10,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',3,'GATE','GATE']]},
+  // ── สายที่ยังไม่มี timing เฉพาะ (เพิ่มจากไฟล์ SLA_Systems_Airlines_2 — roles ตรงไฟล์ · timing = มาตรฐาน narrow-body) ──
+  '8L': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  '8M': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:7,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',3,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  '9H': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'C6': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'G2': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:10,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'H4': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:9,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',5,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'HB': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:7,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',3,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'KY': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:7,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',3,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'N4': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:10,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'OM': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'OQ': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'PN': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'VN': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:10,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',7,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'WZ': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:10,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',6,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
+  'ZH': {ci:-180,cc:-45,go:-45,brief:60,post:20,total:8,
+    roles:[['SUPERVISOR',1,'SUP','ALL'],['FLIGHT CTRL',1,'FC','CI'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',1,'G','GATE']]},
   'PRIVATE': {ci:-60,cc:-20,go:-20,brief:20,post:20,total:3,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',1,'CT/G','CI'],['GATE',1,'GATE','GATE']]},
   'CHARTER': {ci:-120,cc:-30,go:-30,brief:30,post:20,total:5,
@@ -174,26 +245,72 @@ var SLA_DB = {
   'DEFAULT': {ci:-180,cc:-45,go:-45,lc:-30,brief:60,post:20,total:8,
     roles:[['SUPERVISOR',1,'SUP','ALL'],['CHECK-IN',4,'CT/G','CI'],['ARRIVAL',1,'ARR','ARR'],['GATE',2,'GATE','GATE']]}
 };
-var SLA_ALIAS = { '8M':'QZ','VN':'HY','3K':'JQ','HB':'HX','WZ':'ZF','N4':'EO','C6':'LO','G2':'LO','H4':'LO',
-  'ZH':'CA','PN':'CA','OQ':'CA','GX':'CA','KX':'CA','8H':'CA','9H':'CA','BK':'CA','PVT':'PRIVATE' };
+// alias = สายที่ไม่มี SLA ของตัวเอง → ยืมของสายที่ใกล้เคียง (ตัดสายที่เพิ่ม SLA เต็มของตัวเองแล้วออก เช่น VN, ZH, PN…)
+var SLA_ALIAS = { '3K':'JQ','GX':'CA','KX':'CA','8H':'CA','BK':'CA','PVT':'PRIVATE' };
 
 // ── จำนวนคนที่ต้องการต่อสายการบิน [SUP, CI, ARR, GATE(controller), TTL] ──────
-// จาก Manpower Meeting (ตัดชนิดเครื่องบินออก = ใช้แถวลำใหญ่สุด) · TTL = จำนวนคนจริง
-// · gate agent มาจาก check-in (ไม่นับซ้ำใน per-phase) · total ใช้ TTL
+// ตรงตามไฟล์ SLA_Systems_Airlines (Manpower per Job · สเปคทางการ) · หลายลำ → ใช้แถวลำใหญ่สุด (TTL มากสุด)
+// · CI = Check-in Open · ARR = Arrival Agent · GATE = Gate Monitor/Controller (1) เพราะ Gate Agent มาจาก
+//   check-in counter (ไม่นับซ้ำ) · 6E แยกเกท (SEPARATE) → GATE = GM+GA · TTL = คอลัมน์ "Total MP/Flight" จากไฟล์
 var SLA_RQ = {
-  '3K':[2,4,1,2,8], '3U':[2,4,1,2,8], '6B':[2,5,2,2,10], '6E':[2,5,1,6,9], '8L':[2,4,1,2,8], '8M':[2,3,1,2,7],
-  '9C':[2,5,1,2,9], '9H':[2,4,1,2,8], 'AF':[2,9,1,2,13], 'AI':[2,6,1,2,10], 'AK':[2,3,1,2,7], 'AQ':[2,3,1,2,7],
-  'AY':[2,5,1,2,9], 'BY':[2,5,2,2,10], 'C6':[2,4,1,2,8], 'CA':[2,6,1,2,10], 'CX':[2,6,2,2,11], 'CZ':[2,6,1,2,10],
-  'DE':[2,6,2,2,11], 'DK':[2,7,1,2,11], 'DV':[2,4,1,2,8], 'EK':[2,7,3,2,13], 'EO':[2,6,1,2,10], 'EY':[2,9,1,2,13],
-  'FM':[2,4,1,2,8], 'FY':[2,4,1,2,8], 'G2':[2,6,1,2,10], 'G8':[2,4,1,2,8], 'G9':[2,4,1,2,8], 'HB':[2,4,1,2,8],
-  'HH':[2,4,1,2,8], 'HO':[2,4,1,2,8], 'HU':[2,6,1,2,10], 'HX':[2,5,1,2,9], 'HY':[2,5,1,2,9], 'IT':[2,4,1,2,8],
-  'JQ':[2,7,1,3,11], 'KC':[2,5,1,2,9], 'KE':[2,8,1,2,12], 'KY':[2,3,1,2,7], 'LJ':[2,4,1,2,8], 'LO':[2,6,1,2,10],
-  'LY':[2,8,1,2,12], 'MH':[2,4,1,2,8], 'MU':[2,4,1,2,8], 'N0':[2,5,1,2,9], 'N4':[2,6,1,2,10], 'NO':[2,6,1,2,10],
-  'OD':[2,5,1,2,9], 'OM':[2,4,1,2,8], 'OQ':[2,4,1,2,8], 'OV':[2,4,1,2,8], 'OZ':[2,6,1,2,10], 'PG':[2,0,1,2,5],
-  'PN':[2,4,1,2,8], 'QR':[2,9,2,2,14], 'QZ':[1,3,1,1,7], 'S7':[2,4,1,2,8], 'SG':[2,4,1,2,8], 'SQ':[2,5,1,2,9],
-  'SU':[2,8,1,2,12], 'TK':[2,8,4,2,15], 'TR':[2,6,1,2,10], 'U6':[2,4,1,2,8], 'UO':[2,4,2,2,9], 'VJ':[2,5,1,2,9],
-  'W5':[2,7,1,2,11], 'WK':[2,6,1,2,10], 'WY':[2,7,1,2,11], 'WZ':[2,6,1,2,10], 'ZF':[2,6,1,2,10], 'ZH':[2,4,1,2,8],
+  '3K':[1,4,1,1,8], '3U':[1,4,1,1,8], '6B':[1,5,2,1,10], '6E':[1,5,1,1,9], '8L':[1,4,1,1,8], '8M':[1,3,1,1,7],
+  '9C':[1,5,1,1,9], '9H':[1,4,1,1,8], 'AF':[1,9,1,1,13], 'AI':[1,6,1,1,9], 'AK':[1,4,1,1,8], 'AQ':[1,3,1,1,7],
+  'AY':[1,5,1,1,9], 'B2':[1,6,1,1,10], 'BY':[1,5,2,1,10], 'C6':[1,4,1,1,8], 'CA':[1,6,1,1,10], 'CX':[1,6,2,1,11],
+  'CZ':[1,6,1,1,10], 'DE':[1,6,2,1,11], 'DK':[1,4,1,1,8], 'DV':[1,4,1,1,8], 'EK':[1,7,4,1,14], 'EO':[1,6,1,1,10],
+  'EY':[1,7,1,1,12], 'FM':[1,4,1,1,8], 'FY':[1,3,1,1,6], 'G2':[1,6,1,1,10], 'G8':[1,4,1,1,8], 'G9':[1,4,1,1,8],
+  'H4':[1,5,1,1,9], 'HB':[1,3,1,1,7], 'HH':[1,4,1,1,8], 'HO':[1,4,1,1,8], 'HU':[1,6,1,1,10], 'HX':[1,5,1,1,9],
+  'HY':[1,5,1,1,8], 'IT':[1,4,1,1,7], 'IX':[1,4,1,1,7], 'JQ':[1,7,1,1,10], 'KC':[1,5,1,1,9], 'KE':[1,8,1,1,11],
+  'KY':[1,3,1,1,7], 'LJ':[1,4,1,1,8], 'LO':[1,6,1,1,10], 'LY':[1,7,4,1,14], 'MH':[1,4,1,1,8], 'MU':[1,4,1,1,8],
+  'N0':[1,5,1,1,9], 'N4':[1,6,1,1,10], 'NO':[1,6,1,1,10], 'OD':[1,4,1,1,7], 'OM':[1,4,1,1,8], 'OQ':[1,4,1,1,8],
+  'OV':[1,4,1,1,8], 'OZ':[1,6,1,1,10], 'PG':[1,0,1,2,8], 'PN':[1,4,1,1,8], 'QP':[1,5,1,1,9], 'QR':[1,11,3,1,17],
+  'QZ':[1,4,1,1,8], 'S7':[1,4,1,1,8], 'SG':[1,4,1,1,7], 'SQ':[1,4,1,1,8], 'SU':[1,8,1,1,12], 'SV':[1,7,2,1,12],
+  'TK':[1,8,4,1,15], 'TR':[1,5,1,1,10], 'U6':[1,4,1,1,8], 'UO':[1,4,2,1,8], 'VJ':[1,4,1,1,8], 'VN':[1,7,1,1,10],
+  'W5':[1,7,2,1,12], 'WK':[1,6,2,1,11], 'WY':[1,7,1,1,11], 'WZ':[1,6,1,1,10], 'ZF':[1,6,1,1,10], 'ZH':[1,4,1,1,8],
 };
+
+// ── SLA ตามชนิดเครื่อง (บางสายต่างกันตามลำ เช่น TR A320=8, B787=10) — จากไฟล์ SLA_Systems_Airlines_2 ──
+// [acString, CI, ARR, GATE(GM), Total] · จับคู่กับ "A/C TYPE" ที่กรอกในชีต · ไม่ตรง → ใช้ SLA_RQ (ลำใหญ่สุด) เหมือนเดิม
+var SLA_AC = {
+  'QR':[['B777',11,3,1,17],['B787',9,2,1,14]],
+  'EY':[['B787-9',6,1,1,11],['B787-10',7,1,1,12],['A321Neo',5,1,1,11]],
+  'KE':[['A333/B772/B787',7,1,1,10],['B773',8,1,1,11]],
+  'SU':[['B777',8,1,1,12],['A333',7,1,1,11],['B737/A320/A321Neo',4,1,1,8]],
+  'TR':[['A320',3,1,1,8],['A321',4,1,1,9],['B787',5,1,1,10]],
+  'JQ':[['B787',7,1,1,10],['A321Neo',5,1,1,8]],
+  'AK':[['A320',3,1,1,7],['A321',4,1,1,8]],
+  'QZ':[['A320',3,1,1,7],['A321',4,1,1,8]],
+  'PG':[['A319/320',0,1,2,8],['ATR',0,1,1,6]],
+  'CX':[['A330',6,2,1,11],['A321NEO',5,2,1,10]],
+  'KC':[['A320',4,1,1,8],['B737',5,1,1,9]],
+  '6E':[['A321',5,1,1,9],['A320',4,1,1,8]],
+  'CA':[['A320/B737',4,1,1,8],['A330',6,1,1,10]],
+  'CZ':[['A320',4,1,1,8],['A321',4,1,1,8],['A330',6,1,1,10]],
+  'HU':[['B737',4,1,1,8],['A330',6,1,1,10]],
+  'SV':[['B789',6,2,1,11],['B78X',7,2,1,12]],
+  'VN':[['A320/A321',5,1,1,8],['B787/A350',7,1,1,10]],
+};
+/** ดึงรุ่นเครื่องหลักจากข้อความ (ตัด config หลัง " - " และวงเล็บ เช่น "B789(P) - 24C/254Y" → "B789") */
+function slaAcModel_(s){ return String(s||'').toUpperCase().replace(/\([^)]*\)/g,'').split(/\s+-\s+/)[0].replace(/\s+/g,''); }
+/** แตกรุ่นเครื่องเป็น token (คั่น /) เติมตัวอักษรนำให้เลขลอย เช่น "A319/320" → [A319,A320]
+ *  · fam=true เพิ่ม alias ตระกูล 787 (B788/B789/B78X → B787) — ใช้เป็น pass สำรองเท่านั้น */
+function slaAcToks_(s, fam){
+  var raw=slaAcModel_(s).split('/'), out=[], last='';
+  raw.forEach(function(x){ x=x.replace(/NEO$/,''); var m=x.match(/^([AB])?(\d.*)$/);
+    if(m){ var L=m[1]||last; if(m[1]) last=m[1]; var tok=L+m[2]; out.push(tok);
+      if(fam && /^B78[0-9X]$/.test(tok)) out.push('B787'); }
+    else if(x) out.push(x); });
+  return out;
+}
+/** เลือกแถว SLA ที่ตรงชนิดเครื่อง — pass 1 ตรง/prefix ก่อน, pass 2 ค่อยรวมตระกูล 787 (กันชนกับ B789/B78X ที่แยกกันจริง) */
+function slaAcPick_(rows, acType){ return slaAcPick1_(rows, acType, false) || slaAcPick1_(rows, acType, true); }
+function slaAcPick1_(rows, acType, fam){
+  var q=slaAcToks_(acType, fam); if(!q.length) return null;
+  for(var i=0;i<rows.length;i++){ var f=slaAcToks_(rows[i][0], fam);
+    for(var a=0;a<q.length;a++) for(var b=0;b<f.length;b++){ var Q=q[a],F=f[b];
+      if(Q&&F&&(Q===F||Q.indexOf(F)===0||F.indexOf(Q)===0)) return rows[i]; } }
+  return null;
+}
+
 
 // ── Airline → check-in SYSTEM (ตารางทางการ) ─────────────────────────────────
 var AIRLINE_SYS = {
@@ -202,12 +319,12 @@ var AIRLINE_SYS = {
   'B2':'ASTRA', 'BK':'TravelSky', 'BY':'iPort', 'C6':'iPort', 'CA':'TravelSky', 'CX':'Altea', 'CZ':'TravelSky',
   'DE':'Altea', 'DK':'Altea', 'DV':'TWD', 'EK':'AS Connect', 'EO':'Lydia DCS', 'EY':'Altea', 'FM':'TravelSky',
   'FY':'Gonow', 'G2':'iPort', 'G8':'Gonow', 'G9':'Altea', 'GX':'TravelSky', 'H4':'iPort', 'HB':'TravelSky',
-  'HH':'iPort', 'HO':'TravelSky', 'HU':'TravelSky', 'HX':'iPort', 'HY':'Altea', 'IT':'Gonow', 'IX':'Gonow',
+  'HH':'iPort', 'HO':'TravelSky', 'HU':'TravelSky', 'HX':'iPort', 'HY':'Altea', 'IT':'iPort', 'IX':'Gonow',
   'JQ':'Gonow', 'KA':'iPort', 'KC':'Altea', 'KE':'Altea', 'KX':'TravelSky', 'KY':'TravelSky', 'LJ':'iFlyRes',
-  'LO':'iPort', 'LY':'Altea', 'MH':'Altea', 'MU':'TravelSky', 'N0':'Gonow', 'N4':'Lydia DCS', 'NO':'Gonow',
+  'LO':'iPort', 'LY':'Altea', 'MH':'Altea', 'MU':'TravelSky', 'N0':'Gonow', 'N4':'Lydia DCS', 'NO':'iPort',
   'OD':'Sabre', 'OM':'iPort', 'OQ':'TravelSky', 'OV':'iPort', 'OZ':'Altea', 'PG':'Altea', 'PN':'TravelSky',
   'QP':'Gonow', 'QR':'Altea', 'QZ':'Gonow', 'S7':'TWD', 'SG':'Gonow', 'SQ':'Altea', 'SU':'ASTRA',
-  'SV':'Altea', 'TK':'TOYA', 'TR':'Gonow', 'U6':'Gonow', 'UO':'Gonow', 'VJ':'iPort', 'VN':'Gonow',
+  'SV':'Altea', 'TK':'TOYA', 'TR':'Gonow', 'U6':'Gonow', 'UO':'Gonow', 'VJ':'iPort', 'VN':'Altea',
   'W5':'AVIA', 'WK':'Altea', 'WY':'Sabre', 'WZ':'ASTRA', 'ZF':'ASTRA', 'ZH':'TravelSky',
 };
 // iPort = ระบบที่ทุกคนทำได้ (ไฟลท์ iPort ใครว่างก็ช่วยเช็คอินได้)
@@ -248,11 +365,105 @@ function slaAirlineOf_(flight) {
   var m2 = s.match(/([A-Z]{1,3})\s*\d/);
   return m2 ? m2[1] : 'DEFAULT';
 }
+/** สายการบินนี้เป็นสายที่บินที่ HKT (อยู่ในตาราง SLA) ไหม — ใช้กรองรหัสไฟลท์ปลอมจากข้อความโน้ต
+ *  เช่น "LY BRUSH UP 19-21" → "UP 19" (UP=Bahamasair ไม่บินภูเก็ต) ต้องไม่ถูกนับเป็นไฟลท์ */
+function slaKnownAir_(code) {
+  var a = slaAirlineOf_(code);
+  if (!a || a === 'DEFAULT') return false;
+  return !!(SLA_RQ[a] || SLA_ROLES[a] || SLA_DB[a] || (typeof SLA_ALIAS !== 'undefined' && SLA_ALIAS[a]));
+}
+// ชื่อสายการบิน (ย่อ) จากไฟล์ Support Allowance — ใช้แสดงในการ์ดไฟลท์
+var AIRLINE_NAME = {
+  'AK':'AirAsia Berhad',
+  'QZ':'Indonesia AirAsia',
+  '8M':'Myanmar Airways Intl',
+  'ZF':'Azur Air',
+  'LO':'LOT Polish Airlines',
+  'N4':'Nordwind Airlines',
+  'HH':'Qanot Sharq Airlines',
+  'EO':'IKAR Airlines',
+  'S7':'S7 Airlines',
+  'CZ':'China Southern Airlines',
+  'MU':'China Eastern Airlines',
+  'FM':'Shanghai Airlines',
+  '3U':'Sichuan Airlines',
+  'CA':'Air China',
+  'HO':'Juneyao Airlines',
+  'HX':'Hong Kong Airlines',
+  'HU':'Hainan Airlines',
+  '6B':'TUI fly Nordic',
+  'BY':'TUI Airways',
+  'UO':'HK Express',
+  'EK':'Emirates',
+  'FY':'Firefly',
+  'EY':'Etihad Airways',
+  'AY':'Finnair',
+  'DV':'SCAT Airlines',
+  'AI':'Air India',
+  'IX':'Air India Express',
+  'JQ':'Jetstar Airways',
+  'IT':'Tigerair Taiwan',
+  'KC':'Air Astana',
+  'OZ':'Asiana Airlines',
+  'KE':'Korean Air',
+  'LJ':'Jin Air',
+  'NO':'Neos',
+  'OV':'SalamAir',
+  'PG':'Bangkok Airways',
+  'QR':'Qatar Airways',
+  'DE':'Condor',
+  'MH':'Malaysia Airlines',
+  'OM':'Miat Mongolian Airlines',
+  'SQ':'Singapore Airlines',
+  'CX':'Cathay Pacific',
+  'LY':'El Al Israel Airlines',
+  'SU':'Aeroflot Russian Airline',
+  'W5':'Mahan Air',
+  'B2':'Belavia Belarusian Airli',
+  'TK':'Turkish Airlines',
+  'HY':'Uzbekistan Airways',
+  'OD':'Batik Air Malaysia',
+  'VJ':'VietJet Air',
+  'SG':'SpiceJet',
+  'TR':'Scoot',
+  '6E':'IndiGo',
+  'QP':'Akasa Air',
+  'WK':'Edelweiss Air',
+  'SV':'Saudia',
+  'G9':'Air Arabia',
+  'WY':'Oman Air',
+  '9C':'Spring Airlines',
+  'DK':'Sunclass Airlines',
+  'VN':'Vietnam Airlines'
+};
+function slaAirName_(code){ var c=String(code||"").toUpperCase(); return AIRLINE_NAME[c] || (typeof SLA_ALIAS!=="undefined"&&SLA_ALIAS[c]?AIRLINE_NAME[SLA_ALIAS[c]]:"") || c; }
+/** เวลาเป็นนาที — '' หรือ 00:00 (placeholder) → null (ถือว่าไม่มีขานั้น) */
+function slaRealMin_(x) { var v = acMin_(x); return v ? v : null; }
+/** key รวมไฟลท์ = สายการบิน + เลขไฟลท์ "ตัวแรก" → TK172/173, TK172, TK172/TK173 = key เดียว
+ *  (EY416/EY417 = EY416/417 = EY416 · CX773/778 ≠ CX778 เพราะเลขแรกต่างกัน) */
+function slaFlightKey_(raw) {
+  var s = String(raw || '').trim().toUpperCase();
+  var air = slaAirlineOf_(s);
+  // ตัด code สายการบินด้านหน้าออกก่อนหาเลขไฟลท์ — กันสายที่ code ขึ้นต้นด้วยตัวเลข (6E/9C/3U/3K)
+  // ไม่งั้น \d+ จะไปจับเลขตัวแรกของ code (6E1077 → '6') ทำให้ทุกไฟลท์ของสายนั้นรวมเป็น key เดียว
+  var rest = (air && air !== 'DEFAULT') ? s.replace(new RegExp('^' + air + '\\s*'), '') : s;
+  var m = rest.match(/\d+/);                                // เลขไฟลท์ชุดแรก (หลังตัด code)
+  return m ? (air + String(parseInt(m[0], 10))) : s.replace(/[\s.\/]+/g, '');
+}
 /** required headcount per phase for an airline — ใช้ SLA_RQ (Manpower) ก่อน, ไม่งั้น roles */
-function slaReq_(airline) {
+function slaReq_(airline, acType) {
   var c = String(airline || '').toUpperCase();
+  // ถ้ากรอกชนิดเครื่องในชีต + สายนี้ SLA ต่างตามลำ → เลือกแถวที่ตรงเครื่อง (เช่น TR A320=8, B787=10)
+  if (acType && SLA_AC[c]) {
+    var pk = slaAcPick_(SLA_AC[c], acType);
+    if (pk) return { SUP: 1, CI: pk[1], ARR: pk[2], GATE: pk[3], total: pk[4], ac: pk[0] };
+  }
+  // กฎจากชีต STANDARD MANNING (ops แก้เองได้) มาก่อน → ไม่งั้น fallback SLA_RQ (ค่า default เดิม)
+  var ovr = (typeof manOverride_ === 'function') ? manOverride_() : null;
+  var ro = ovr && (ovr[c] || (SLA_ALIAS[c] && ovr[SLA_ALIAS[c]]));
+  if (ro) return { SUP: ro[0] || 1, CI: ro[1], ARR: ro[2], GATE: ro[3], total: ro[4] };
   var rq = SLA_RQ[c] || (SLA_ALIAS[c] && SLA_RQ[SLA_ALIAS[c]]);
-  if (rq) return { SUP: rq[0], CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };
+  if (rq) return { SUP: 1, CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   var db = slaGet_(airline);
   var req = { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: db.total || 0 };
   (db.roles || []).forEach(function (r) {
@@ -260,34 +471,44 @@ function slaReq_(airline) {
     if (req[ph] === undefined) ph = 'CI';
     req[ph] += r[1];
   });
+  req.SUP = 1;                                                                   // SUP/FLT.Controller = 1 ต่อไฟลท์เสมอ
   return req;
 }
 
-// ── บทบาทเต็มตามตาราง Manpower per Job (สำหรับแท็บ "จัดล่วงหน้า") ──────────────
-// [SUP, FC, Check-in, Arrival, Standby, Gate Monitor, Gate Agent(+Post Dep), sepGate, total]
+// ── บทบาทเต็มตามไฟล์ SLA_Systems_Airlines (Manpower per Job · แท็บ "จัดล่วงหน้า" + คอลัมน์ Flights) ─
+// [SUP, FC, Check-in Open, Arrival, Standby, GateMonitor, Gate Agent, Post Departure, sepGate, Total MP/Flight]
+// ตรงตามไฟล์ทุกคอลัมน์ · หลายลำ → แถวลำใหญ่สุด (Total มากสุด) · Gate Agent มาจากเช็คอิน (ไม่นับใน Total) · 6E sepGate=1
 var SLA_ROLES = {
-  '3K':[1,1,4,1,0,1,4,0,8], '3U':[1,1,4,1,0,1,4,0,8], '6B':[1,1,5,2,0,1,5,0,10], '6E':[1,1,5,1,0,1,5,1,9], '8L':[1,1,4,1,0,1,4,0,8],
-  '8M':[1,1,3,1,0,1,5,0,7], '9C':[1,1,5,1,0,1,4,0,9], '9H':[1,1,4,1,0,1,4,0,8], 'AF':[1,1,9,1,0,1,5,0,13], 'AI':[1,1,6,1,0,1,4,0,10],
-  'AK':[1,1,3,1,0,1,5,0,7], 'AQ':[1,1,3,1,0,1,4,0,7], 'AY':[1,1,5,1,0,1,5,0,9], 'BY':[1,1,5,2,0,1,5,0,10], 'C6':[1,1,4,1,0,1,4,0,8],
-  'CA':[1,1,6,1,0,1,4,0,10], 'CX':[1,1,6,2,0,1,6,0,11], 'CZ':[1,1,6,1,0,1,4,0,10], 'DE':[1,1,6,2,0,1,6,0,11], 'DK':[1,1,7,1,0,1,6,0,11],
-  'DV':[1,1,4,1,0,1,5,0,8], 'EK':[1,1,7,3,0,1,6,0,13], 'EO':[1,1,6,1,0,1,6,0,10], 'EY':[1,1,9,1,0,1,6,0,13], 'FM':[1,1,4,1,0,1,4,0,8],
-  'FY':[1,1,4,1,0,1,4,0,8], 'G2':[1,1,6,1,0,1,5,0,10], 'G8':[1,1,4,1,0,1,4,0,8], 'G9':[1,1,4,1,0,1,4,0,8], 'HB':[1,1,4,1,0,1,4,0,8],
-  'HH':[1,1,4,1,0,1,5,0,8], 'HO':[1,1,4,1,0,1,4,0,8], 'HU':[1,1,6,1,0,1,4,0,10], 'HX':[1,1,5,1,0,1,4,0,9], 'HY':[1,1,5,1,0,1,5,0,9],
-  'IT':[1,1,4,1,0,1,5,0,8], 'JQ':[1,1,7,1,0,1,9,0,11], 'KC':[1,1,5,1,0,1,4,0,9], 'KE':[1,1,8,1,0,1,4,0,12], 'KY':[1,1,3,1,0,1,4,0,7],
-  'LJ':[1,1,4,1,0,1,4,0,8], 'LO':[1,1,6,1,0,1,5,0,10], 'LY':[1,1,8,1,0,1,10,0,12], 'MH':[1,1,4,1,0,1,4,0,8], 'MU':[1,1,4,1,0,1,4,0,8],
-  'N0':[1,1,5,1,0,1,5,0,9], 'N4':[1,1,6,1,0,1,6,0,10], 'NO':[1,1,6,1,0,1,6,0,10], 'OD':[1,1,5,1,0,1,5,0,9], 'OM':[1,1,4,1,0,1,4,0,8],
-  'OQ':[1,1,4,1,0,1,4,0,8], 'OV':[1,1,4,1,0,1,4,0,8], 'OZ':[1,1,6,1,0,1,5,0,10], 'PG':[1,1,0,1,0,2,4,0,5], 'PN':[1,1,4,1,0,1,4,0,8],
-  'QR':[1,1,9,2,0,1,6,0,14], 'S7':[1,1,4,1,0,1,4,0,8], 'SG':[1,1,4,1,0,1,5,0,8], 'SQ':[1,1,5,1,0,1,5,0,9], 'SU':[1,1,8,1,0,1,5,0,12],
-  'TK':[1,1,8,4,0,1,5,0,15], 'TR':[1,1,6,1,0,1,6,0,10], 'U6':[1,1,4,1,0,1,5,0,8], 'UO':[1,1,4,2,0,1,5,0,9], 'VJ':[1,1,5,1,0,1,5,0,9],
-  'W5':[1,1,7,1,0,1,5,0,11], 'WK':[1,1,6,1,0,1,5,0,10], 'WY':[1,1,7,1,0,1,8,0,11], 'WZ':[1,1,6,1,0,1,6,0,10], 'ZF':[1,1,6,1,0,1,5,0,10],
-  'ZH':[1,1,4,1,0,1,4,0,8],
+  '3K':[1,1,4,1,0,1,3,1,0,8], '3U':[1,1,4,1,0,1,4,1,0,8], '6B':[1,1,5,2,0,1,4,1,0,10], '6E':[1,1,5,1,0,1,4,1,1,9],
+  '8L':[1,1,4,1,0,1,4,1,0,8], '8M':[1,1,3,1,0,1,4,1,0,7], '9C':[1,1,5,1,0,1,4,1,0,9], '9H':[1,1,4,1,0,1,4,1,0,8],
+  'AF':[1,1,9,1,0,1,4,1,0,13], 'AI':[1,0,6,1,0,1,4,1,0,9], 'AK':[1,1,4,1,0,1,3,1,0,8], 'AQ':[1,1,3,1,0,1,4,1,0,7],
+  'AY':[1,1,5,1,0,1,4,1,0,9], 'B2':[1,1,6,1,0,1,4,1,0,10], 'BY':[1,1,5,2,0,1,4,1,0,10], 'C6':[1,1,4,1,0,1,3,1,0,8],
+  'CA':[1,1,6,1,0,1,4,1,0,10], 'CX':[1,1,6,2,0,1,5,1,0,11], 'CZ':[1,1,6,1,0,1,4,1,0,10], 'DE':[1,1,6,2,0,1,5,1,0,11],
+  'DK':[1,1,4,1,0,1,4,1,0,8], 'DV':[1,1,4,1,0,1,4,1,0,8], 'EK':[1,1,7,4,0,1,4,1,0,14], 'EO':[1,1,6,1,0,1,5,1,0,10],
+  'EY':[1,1,7,1,1,1,5,1,0,12], 'FM':[1,1,4,1,0,1,4,1,0,8], 'FY':[1,0,3,1,0,1,3,1,0,6], 'G2':[1,1,6,1,0,1,4,1,0,10],
+  'G8':[1,1,4,1,0,1,3,1,0,8], 'G9':[1,1,4,1,0,1,3,1,0,8], 'H4':[1,1,5,1,0,1,4,1,0,9], 'HB':[1,1,3,1,0,1,3,1,0,7],
+  'HH':[1,1,4,1,0,1,4,1,0,8], 'HO':[1,1,4,1,0,1,4,1,0,8], 'HU':[1,1,6,1,0,1,4,1,0,10], 'HX':[1,1,5,1,0,1,4,1,0,9],
+  'HY':[1,0,5,1,0,1,4,1,0,8], 'IT':[1,0,4,1,0,1,3,1,0,7], 'IX':[1,0,4,1,0,1,3,1,0,7], 'JQ':[1,0,7,1,0,1,7,2,0,10],
+  'KC':[1,1,5,1,0,1,3,1,0,9], 'KE':[1,0,8,1,0,1,3,1,0,11], 'KY':[1,1,3,1,0,1,4,1,0,7], 'LJ':[1,1,4,1,0,1,3,1,0,8],
+  'LO':[1,1,6,1,0,1,4,1,0,10], 'LY':[1,1,7,4,0,1,8,1,0,14], 'MH':[1,1,4,1,0,1,3,1,0,8], 'MU':[1,1,4,1,0,1,4,1,0,8],
+  'N0':[1,1,5,1,0,1,4,1,0,9], 'N4':[1,1,6,1,0,1,5,1,0,10], 'NO':[1,1,6,1,0,1,5,1,0,10], 'OD':[1,0,4,1,0,1,4,1,0,7],
+  'OM':[1,1,4,1,0,1,4,1,0,8], 'OQ':[1,1,4,1,0,1,4,1,0,8], 'OV':[1,1,4,1,0,1,3,1,0,8], 'OZ':[1,1,6,1,0,1,4,1,0,10],
+  'PG':[1,0,0,1,0,2,4,0,0,8], 'PN':[1,1,4,1,0,1,4,1,0,8], 'QP':[1,1,5,1,0,1,4,1,0,9], 'QR':[1,1,11,3,0,1,5,1,0,17],
+  'QZ':[1,1,4,1,0,1,3,1,0,8], 'S7':[1,1,4,1,0,1,4,1,0,8], 'SG':[1,0,4,1,0,1,4,1,0,7], 'SQ':[1,1,4,1,0,1,4,1,0,8],
+  'SU':[1,1,8,1,0,1,5,1,0,12], 'SV':[1,1,7,2,0,1,5,1,0,12], 'TK':[1,1,8,4,0,1,4,1,0,15], 'TR':[1,1,5,1,1,1,5,1,0,10],
+  'U6':[1,1,4,1,0,1,4,1,0,8], 'UO':[1,0,4,2,0,1,2,1,0,8], 'VJ':[1,1,4,1,0,1,4,1,0,8], 'VN':[1,0,7,1,0,1,5,1,0,10],
+  'W5':[1,1,7,2,0,1,5,1,0,12], 'WK':[1,1,6,2,0,1,4,1,0,11], 'WY':[2,0,7,1,0,1,5,1,0,11], 'WZ':[1,1,6,1,0,1,5,1,0,10],
+  'ZF':[1,1,6,1,0,1,4,1,0,10], 'ZH':[1,1,4,1,0,1,4,1,0,8],
 };
-/** บทบาทเต็มต่อไฟลท์ → {SUP,FC,CI,ARR,STB,GM,GA,sep,total} */
-function slaRoles_(airline) {
+/** บทบาทเต็มต่อไฟลท์ → {SUP,FC,CI,ARR,STB,GM,GA,post,sep,total} (GM = Gate Monitor/Controller, post = Post Departure) */
+function slaRoles_(airline, acType) {
   var c = String(airline || '').toUpperCase();
   var r = SLA_ROLES[c] || (SLA_ALIAS[c] && SLA_ROLES[SLA_ALIAS[c]]);
-  if (!r) { var q = slaReq_(airline); return { SUP: 1, FC: 1, CI: q.CI, ARR: q.ARR, STB: 0, GM: 1, GA: Math.max(0, (q.total || 0) - 3 - q.CI - q.ARR), sep: false, total: q.total }; }
-  return { SUP: r[0], FC: r[1], CI: r[2], ARR: r[3], STB: r[4], GM: r[5], GA: r[6], sep: !!r[7], total: r[8] };
+  if (!r) { var q = slaReq_(airline, acType); return { SUP: 1, FC: 1, CI: q.CI, ARR: q.ARR, STB: 0, GM: 1, GA: Math.max(0, (q.total || 0) - 4 - q.CI - q.ARR), post: 1, sep: false, total: q.total }; }
+  var out = { SUP: r[0], FC: r[1], CI: r[2], ARR: r[3], STB: r[4], GM: r[5], GA: r[6], post: r[7], sep: !!r[8], total: r[9] };
+  // aircraft-aware: ปรับจำนวนเช็คอินตามชนิดเครื่อง (เดลต้าจากค่า base) — ใช้ในจัดล่วงหน้าเมื่อมี A/C TYPE
+  if (acType) { var d = slaReq_(airline, acType).CI - slaReq_(airline).CI; if (d) { out.CI = Math.max(0, out.CI + d); out.total = Math.max(0, out.total + d); } }
+  return out;
 }
 /** เวลาเปิด-ปิดเคาน์เตอร์เช็คอินของไฟลท์ (จาก CI window) → "HH:MM-HH:MM" */
 function slaCounterTime_(f) {
@@ -295,13 +516,32 @@ function slaCounterTime_(f) {
   return w ? (rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440)) : '';
 }
 /** classify a job task code into a phase */
-function slaPhaseOf_(task) {
+/** คืน "ทุกเฟส" ที่ task ครอบคลุม (agent 1 คนทำหลายงาน เช่น "PRIO/GA/PFD" = เช็คอิน+เกท)
+ *  · [] = ไปเทรน/ประชุม (ไม่นับเป็นคนคุมไฟลท์) · ['CI'] = ค่าเริ่มต้น (เช็คอิน) */
+function slaPhasesOf_(task) {
   var u = String(task || '').toUpperCase();
-  if (!u) return 'CI';
-  if (/SUP|SPVR|^SOD|SM\b|MONITOR|CREW|^CS\b|CRW/.test(u)) return 'SUP';
-  if (/ARR|MEET|^AC\b|^RF\b|ESCORT|BIR/.test(u)) return 'ARR';
-  if (/GATE|^G[\b\/CM-]|^GM|^GC|BOARD|^B\b|BGO|BOCO|MAAS|PFD|GBD|^D\b|DEPART/.test(u)) return 'GATE';
-  return 'CI';   // check-in default (CT, C, Y, J, W, F, WEB, KIOSK, PSM, FC, GK, SD...)
+  if (!u) return ['CI'];
+  if (/TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR/.test(u)) return [];   // เทรน/ประชุม → ไม่คุมไฟลท์
+  var p = {};
+  if (/\bSUP\b|SPVR|\bSOD\b|\bSM\b|\bFC\b|\bCF\b|FLT\s*CTRL|FLIGHT\s*CONTROL/.test(u)) p.SUP = 1;   // หัวหน้า/Flight Controller (FC/CF)
+  if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR|CIQ|IMMIG/.test(u)) p.ARR = 1;          // arrival · CIQ (ด่าน ตม./ศุลกากร ขาเข้า)
+  if (/\bG[ABCKM]?\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|(^|[\s\/])D\b|(^|[\s\/])I\b/.test(u)) p.GATE = 1;   // gate: G(Agent)/GA/GB(Boarding)/GC(Controller)/GK(Flight Release)/GM(Monitor) · D=Gate Dom, I=Gate Int (PG · ต้นโทเคนเท่านั้น กัน "A-D"/"INT")
+  if (/\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|PSM|\bPSC\b|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b|COUNTER|\bIPAD\b|WEL\s*G(?:ST|UEST)|WELCOME\s*G/.test(u)) p.CI = 1;   // เช็คอิน · CT/Y/J/W/B/F+เลข = เคาน์เตอร์ตามชั้นโดยสาร (Y/J เปล่า=เคาน์เตอร์ Eco/Biz) · PSC=Priority Service Counter · KSK=kiosk · Bag Drop · crew sign · IPAD=เช็คอินมือถือ · WEL GST=รับพรีเมียม (EY)
+  // "NO GATE" = เน้นย้ำว่าไม่ต้องไปเกท (ทำเช็คอินอย่างเดียว) → ตัดเฟสเกทออก ไม่ให้คิดครอบคลุมถึงเกท/post-flight
+  if (/\bNO\s*-?\s*GATE\b|NON\s*-?\s*GATE|\bNO\s*GT\b|งดเกท|ไม่\s*(?:ต้อง)?\s*(?:ไป|ขึ้น)?\s*เกท/.test(u)) delete p.GATE;
+  var keys = Object.keys(p);
+  return keys.length ? keys : ['CI'];   // ไม่เข้าเกณฑ์ใด → เช็คอิน (ค่าเริ่มต้น)
+}
+
+/** ชนิดเกทของ task: 'D' = Gate Dom (ในประเทศ) · 'I' = Gate Int (ระหว่างประเทศ) · null = เกททั่วไป (ไม่ระบุชนิด)
+ *  ใช้แยกนับเกทใน/นอกของ PG (ทีมแยกยืน GATE DOM / GATE INT คนละคน) */
+function slaGateType_(task) {
+  var u = String(task || '').toUpperCase();
+  if (/\bINT\b|INTER|ระหว่างประเทศ|ต่างประเทศ/.test(u)) return 'I';
+  if (/\bDOM\b|DOMESTIC|ในประเทศ/.test(u)) return 'D';
+  if (/(^|[\s\/])I\b/.test(u) && !/\bPRINT\b|\bPOINT\b/.test(u)) return 'I';   // โทเคน I เดี่ยว = Gate Int (PG)
+  if (/(^|[\s\/])D\b/.test(u)) return 'D';                                     // โทเคน D เดี่ยว = Gate Dom
+  return null;
 }
 
 /** ทีมที่ไม่เกี่ยวกับ SLA เช็คอิน/เกท — ไม่นับใน Flights & SLA / Support */
@@ -316,21 +556,28 @@ function slaCollectFlights_(res, ll) {
   var flights = {};
   function add(team, rec) {
     (rec.assignments || []).forEach(function (a) {
-      var key = String(a.flight || '').trim();
+      var raw = String(a.flight || '').trim();
+      var key = slaFlightKey_(raw);                          // รวมไฟลท์เดียวกัน (เลขไฟลท์แรกตรง = key เดียว) เก็บชื่อตัวแรก
       if (!key) return;
       if (slaIsSupportFlight_(key)) return;                  // SUPPORT/SUUPORT = งานซัพพอร์ต ไม่ใช่ไฟลท์จริง → ข้าม
+      if (!acIsFlight_(raw)) return;                         // เคาน์เตอร์/พูล (Counter Gx ของ SU, LP MORNING/AFTERNOON, งานอื่นๆ) ไม่ใช่ไฟลท์ → ไม่วัด SLA
       if (!flights[key]) {
-        flights[key] = { flight: key, airline: slaAirlineOf_(key), teams: {},
-          STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '',
-          assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
+        flights[key] = { flight: raw, airline: slaAirlineOf_(key), teams: {},
+          STA: a.STA || '', STD: a.STD || '', OP: a.OP || '', CL: a.CL || '', AC: a.AC || '',
+          assigned: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0, GD: 0, GI: 0 }, staff: [] };
       }
       var f = flights[key];
       f.teams[team] = true;
       if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD;
       if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL;
-      var ph = slaPhaseOf_(a.task);
-      f.assigned[ph]++; f.assigned.total++;
-      f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: ph });
+      if (!f.AC && a.AC) f.AC = a.AC;
+      if (/\bTF\b|T\s*\/\s*S|TRANSFER/i.test(String(a.task || ''))) f.hasTransfer = true;   // มีคน tag transfer (T/S) → อาจต้อง +agent
+      var phs = slaPhasesOf_(a.task);
+      if (!phs.length) { f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: 'TRAIN' }); return; }   // ไปเทรน → แสดงได้ แต่ไม่นับเป็นคนคุมไฟลท์
+      phs.forEach(function (ph) { f.assigned[ph]++; });          // นับทุกเฟสที่คนนี้ครอบคลุม
+      if (phs.indexOf('GATE') >= 0) { var gt = slaGateType_(a.task); if (gt === 'D') f.assigned.GD++; else if (gt === 'I') f.assigned.GI++; }   // แยกนับเกทใน/นอก
+      f.assigned.total++;                                        // total = headcount (1 คน นับ 1)
+      f.staff.push({ name: rec.name, pos: rec.pos, team: team, task: a.task, phase: phs.join('/') });
     });
   }
   Object.keys(res.teams).forEach(function (t) {
@@ -342,20 +589,142 @@ function slaCollectFlights_(res, ll) {
       ll.sections[s].records.forEach(function (r) { if (r.bucket === 'working' || r.bucket === 'ot_off') add('LL·' + s, r); });
     });
   }
+  // หัวหน้า (Sup) ที่ทำงานของแต่ละทีม + ช่วงเวลา — สำหรับเครดิต "ผู้กำกับดูแล" (1 หัวหน้าดูหลายไฟลท์พร้อมกัน)
+  var teamSups = {};
+  Object.keys(res.teams).forEach(function (t) {
+    if (slaSkipTeam_(t)) return;
+    res.teams[t].records.forEach(function (r) {
+      if ((r.bucket !== 'working' && r.bucket !== 'ot_off') || r.posGroup !== 'PSS') return;
+      var d = acDuty_(r); if (d.ds == null || d.de == null) return;
+      (teamSups[t] = teamSups[t] || []).push([d.ds, d.de]);
+    });
+  });
+  // คนทำ common check-in (นั่งเคาน์เตอร์รวม เช่น SU "Counter G2") + ช่วงเวลา — เครดิตเช็คอินให้ไฟลท์ของทีมตามเวลา
+  var teamCounter = {};
+  Object.keys(res.teams).forEach(function (t) {
+    if (slaSkipTeam_(t)) return;
+    res.teams[t].records.forEach(function (r) {
+      if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+      if (!(r.assignments || []).some(function (a) { return /^\s*(COUNTER\b|CT\s?\d)/i.test(String(a.flight || '')); })) return;
+      var d = acDuty_(r); if (d.ds == null || d.de == null) return;
+      (teamCounter[t] = teamCounter[t] || []).push([d.ds, d.de]);
+    });
+  });
+  // จำนวน assignment ต่อ (สายการบิน→ทีม) — ใช้หาเจ้าของเมื่อชื่อทีมไม่ตรงโค้ดสาย (เช่น AI จัดโดยทีม "JQ")
+  var airCnt = {};
+  function tallyAir(team, r) {
+    if (slaSkipTeam_(team)) return;                              // Porter/Crewsign/Admin ไม่นับเป็นเจ้าของ
+    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    (r.assignments || []).forEach(function (a) {
+      if (!acIsFlight_(a.flight)) return;
+      var al = slaAirlineOf_(a.flight); if (!al || al === 'DEFAULT') return;
+      (airCnt[al] = airCnt[al] || {})[team] = (airCnt[al][team] || 0) + 1;
+    });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { tallyAir(t, r); }); });
+  if (ll && ll.totals && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { tallyAir('LL·' + s, r); }); });
+  // ทีมเจ้าของสายการบิน = ทีมที่ชื่อตรง/มีโค้ดสายนั้น (เช่น SU→ทีม SU) · ถ้าชื่อไม่ตรง → ทีมที่มีคนทำสายนั้นมากสุด
+  var teamNames = Object.keys(res.teams);
+  function homeTeamOf(airline) {
+    var a = String(airline || '').toUpperCase(); if (!a) return '';
+    for (var i = 0; i < teamNames.length; i++) if (teamNames[i].toUpperCase() === a) return teamNames[i];
+    for (var j = 0; j < teamNames.length; j++) if ((teamNames[j].toUpperCase().split(/[^A-Z0-9]+/)).indexOf(a) >= 0) return teamNames[j];
+    if (airCnt[a]) {   // ไม่มีทีมชื่อตรงโค้ดสาย → เจ้าของ = ทีมที่มี assignment สายนี้มากสุด (กันทีมที่มาช่วยกลายเป็นเจ้าของ)
+      var best = '', bn = -1;
+      Object.keys(airCnt[a]).forEach(function (t) { if (airCnt[a][t] > bn) { bn = airCnt[a][t]; best = t; } });
+      if (best) return best;
+    }
+    return '';
+  }
   // compute requirement + shortages per flight
-  return Object.keys(flights).map(function (k) {
+  var wfSched = (res && res._sched) || null;                  // ตารางบินสัปดาห์ (ถ้าตั้งค่า) → เติม A/C TYPE/เวลาที่ชีตเวรไม่ได้กรอก
+  var fMode = (res && res._flightMode) || null;               // MODE เคาน์เตอร์ที่ Duty ใส่เอง (ปกติ/Common check-in)
+  var arr = Object.keys(flights).map(function (k) {
     var f = flights[k];
-    f.req = slaReq_(f.airline);
+    if (fMode && fMode[k]) f.mode = fMode[k];                 // แนบ MODE (manual) ให้ไฟลท์
+    if (wfSched && typeof wfEnrichFlight_ === 'function') wfEnrichFlight_(f, wfSched);   // เติมก่อนคิด req (A/C TYPE เปลี่ยน req เช็คอิน)
+    f.req = slaReq_(f.airline, f.AC);
+    // AK เลขไฟลท์ 4 หลัก = เที่ยวบิน ferry/freighter (ไม่มีผู้โดยสาร) → คิดแค่ SUP · ตัด Check-in/Arrival/Gate
+    var akNum = (f.airline === 'AK') ? +((String(f.flight).match(/\d{3,4}/) || ['0'])[0]) : 0;
+    if (akNum >= 1000) { f.ferry = true; f.req.CI = 0; f.req.ARR = 0; f.req.GATE = 0; f.req.total = f.req.SUP; }
+    // ท่าจัดเคาน์เตอร์เช็คอินให้เท่าไหร่ → เพดานเช็คอิน = min(SLA, เคาน์เตอร์ที่ท่าให้)
+    // (ส่งคนได้เท่าเคาน์เตอร์ที่มีจริง → ไม่แจ้งว่า SLA ไม่ครบทั้งที่ท่าตัดเคาน์เตอร์เอง)
+    if (res && res.counters && f.req.CI > 0) {
+      var nCtr = counterForFlight_(res.counters, f.flight);
+      if (nCtr != null) {
+        f.ctr = nCtr;
+        if (nCtr < f.req.CI) { f.ctrCap = f.req.CI; f.req.total -= (f.req.CI - nCtr); f.req.CI = nCtr; }
+      }
+    }
+    var home = homeTeamOf(f.airline);                         // ทีมเจ้าของสายการบิน (ประกาศก่อนใช้เครดิต check-in รวม)
+    // leg-based: ตัด phase ตามขาที่ไฟลท์มีจริง (STD=ขาออก / STA=ขาเข้า · 00:00/ว่าง = ไม่มีขานั้น)
+    var hasDep = slaRealMin_(f.STD) != null, hasArr = slaRealMin_(f.STA) != null;
+    if (hasArr && hasDep && slaRealMin_(f.STA) === slaRealMin_(f.STD)) hasArr = false;   // STA=STD เวลาเดียวกัน = ขาออกอย่างเดียว (RON) → ไม่ต้องการ Arrival
+    f.noTime = !hasDep && !hasArr;                            // ไม่มีทั้งคู่ = ข้อมูลเวลาหาย (ไม่ใช่ขาเดียว) → คงความต้องการเต็ม
+    if (!f.noTime) {                                          // ตัด phase เฉพาะกรณี "มีขาเดียวจริง"
+      var extra = Math.max(0, f.req.total - (f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR));  // เกท "จากเช็คอิน" (departure)
+      if (!hasDep) { f.req.CI = 0; f.req.GATE = 0; extra = 0; } // ขาเข้าอย่างเดียว → ไม่ต้องการ Check-in/Gate/คนเสริม
+      if (!hasArr) { f.req.ARR = 0; }                           // ขาออกอย่างเดียว → ไม่ต้องการ Arrival
+      f.req.total = f.req.SUP + f.req.CI + f.req.GATE + f.req.ARR + extra;
+    }
+    // เครดิต SUP จากผู้กำกับดูแล: ไม่มีคน task=SUP บนไฟลท์ แต่ทีมเจ้าของมีหัวหน้าทำงานคาบช่วงไฟลท์ → มีผู้คุม
+    if (f.req.SUP > 0 && f.assigned.SUP === 0) {
+      var sw = slaPhaseWindow_(f, 'SUP'); var sm = slaRealMin_(f.STD); if (sm == null) sm = slaRealMin_(f.STA);
+      if (!sw && sm != null) sw = [sm - 30, sm + 30];
+      if (sw && Object.keys(f.teams).some(function (t) { return (teamSups[t] || []).some(function (w) { return w[0] <= sw[1] && w[1] >= sw[0]; }); })) {
+        f.assigned.SUP = f.req.SUP;
+      }
+    }
+    // เครดิต Check-in จาก common check-in (เคาน์เตอร์รวม): ทีมเจ้าของมีคนนั่งเคาน์เตอร์คาบช่วงเช็คอิน → เช็คอินให้ไฟลท์นี้แล้ว
+    if (f.req.CI > 0 && f.assigned.CI < f.req.CI && home && teamCounter[home]) {
+      var ciw = slaPhaseWindow_(f, 'CI');
+      if (ciw) {
+        var nC = teamCounter[home].filter(function (w) { return w[0] <= ciw[1] && w[1] >= ciw[0]; }).length;
+        if (nC > 0) f.assigned.CI = Math.min(f.req.CI, f.assigned.CI + nC);
+      }
+    }
     f.short = {};
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       var d = f.req[ph] - f.assigned[ph];
       if (d > 0) f.short[ph] = d;
     });
+    // เกลี่ยคนภาคพื้น Gate ↔ Arrival: เป็นคนกลุ่มเดียวกัน (แรมป์) — เฟสหนึ่งเกินไปยืนแทนที่ขาดอีกเฟสได้
+    // (เช่น Gate 6/2 เกิน 4 คน · Arrival 0/1 ขาด 1 → ดึงคนเกินจากเกทมายืน arrival = ครบ ไม่นับขาด)
+    var rampSpare = Math.max(0, f.assigned.GATE - f.req.GATE) + Math.max(0, f.assigned.ARR - f.req.ARR);
+    ['ARR', 'GATE'].forEach(function (ph) {
+      if (f.short[ph] && rampSpare > 0) {
+        var use = Math.min(f.short[ph], rampSpare);
+        f.short[ph] -= use; rampSpare -= use;
+        (f.redist = f.redist || []).push(ph);
+        if (f.short[ph] <= 0) delete f.short[ph];
+      }
+    });
     f.shortTotal = Math.max(0, f.req.total - f.assigned.total);
+    // คนรวมพอ/เกิน (คนเกิน) → เฟสยืดหยุ่น Check-in/Gate/Arrival ที่ขาด จัดสรรจากคนที่มีได้ ไม่นับเป็นขาด · SUP ยังต้องมีจริง (จัดแทนไม่ได้)
+    if (f.shortTotal === 0) {
+      var redist = [];
+      ['CI', 'GATE', 'ARR'].forEach(function (ph) { if (f.short[ph]) { redist.push(ph); delete f.short[ph]; } });
+      if (redist.length) f.redist = redist;
+    }
+    // ทุกเฟส (SUP/CI/ARR/GATE) ครบแล้ว → ส่วน "เกิน (extra)" ของ total ถือว่าครอบจากคนทำหลายหน้าที่
+    // (เช่น เช็คอิน 5 คนไปทำเกทต่อ → GATE 5/1) จึงไม่นับ "ขาดรวม" ทั้งที่ทุกเฟสเกิน/ครบ
+    if (Object.keys(f.short).length === 0) f.shortTotal = 0;
     f.ok = Object.keys(f.short).length === 0 && f.shortTotal === 0;
-    f.teamList = Object.keys(f.teams).join(',');
+    var home = homeTeamOf(f.airline);                          // ทีมเจ้าของสายการบิน (ถ้ามี) มาก่อนทีมที่มาช่วย
+    if (home) f.teams[home] = true;                            // ให้ candidate ถือว่าทีมนี้เป็นเจ้าของ (ไม่นับ support ซ้ำ)
+    f.teamList = home || Object.keys(f.teams).join(',');
     return f;
-  }).sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
+  });
+  // เศษขา (fragment): ไฟลท์ noTime ที่ "เลขไฟลท์ทุกตัว" ไปซ้ำกับไฟลท์ที่มีเวลาอยู่แล้ว = ขาที่สองซ้ำ → ซ่อนได้
+  // (ส่วน noTime ที่ไม่มีเลขซ้ำเลย = ข้อมูลเวลาหายจริง → เก็บไว้เตือนให้เติม)
+  var timedNums = {};
+  arr.forEach(function (f) { if (!f.noTime) (String(f.flight).match(/\d+/g) || []).forEach(function (n) { timedNums[+n] = 1; }); });
+  arr.forEach(function (f) {
+    if (!f.noTime) { f.fragment = false; return; }
+    var nums = (String(f.flight).match(/\d+/g) || []).map(Number);
+    f.fragment = nums.length > 0 && nums.every(function (n) { return timedNums[n]; });
+  });
+  return arr.sort(function (a, b) { return String(a.STD || a.STA || 'zz').localeCompare(String(b.STD || b.STA || 'zz')); });
 }
 
 var SLA_PH_TH = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
@@ -372,35 +741,67 @@ function slaTeamSystems_(res, ll) {
   function add(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
     (r.assignments || []).forEach(function (a) {
+      if (!acIsFlight_(a.flight)) return;
+      // "รู้ระบบเช็คอิน" = เคยทำ "เช็คอิน" จริงบนไฟลท์นั้น — ไม่ใช่แค่ทำ gate/arr
+      // (ทีมลอย CHARTER/PVT ทำ gate/arr บนไฟลท์ Altea ก็ไม่ได้แปลว่าเช็คอิน Altea เป็น)
+      var phs = slaPhasesOf_(a.task);
+      if (phs.indexOf('CI') < 0) return;
       var s = slaSystemOf_(slaAirlineOf_(a.flight));
       if (s) { (sys[team] = sys[team] || {})[slaSysNorm_(s)] = true; }   // เก็บเป็น normalized
     });
   }
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { add(t, r); }); });
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
+  // ฐาน: ทีม CHARTER/ZF = พูล ASTRA (รับชาร์เตอร์ ZF ซึ่งใช้ ASTRA เหมือน SU) → ถือว่าเช็คอิน ASTRA เป็น
+  //   แม้วันนั้นยังไม่ได้ทำ CI ไฟลท์ ASTRA → ให้เป็นตัวเลือกช่วย SU เช็คอินได้ (Duty เรียก CHARTER ก่อนเป็นปกติ)
+  Object.keys(res.teams).forEach(function (t) { if (/CHARTER|\bZF\b/i.test(t)) (sys[t] = sys[t] || {})['astra'] = true; });
   return sys;
 }
-/** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง) */
-function slaSupportPool_(res, ll, teamSys) {
+/** ทีมลอย/สแตนด์บายที่ Duty เรียกมาช่วยก่อน (PVTLP=PVT pool, CHARTER=ZF pool, STBY) */
+function slaIsFloatTeam_(team) {
+  var t = String(team || '').toUpperCase();
+  // ทีมลอย/พูลซัพพอร์ตที่ Duty เรียกมาช่วยก่อน — PVTLP(PVT/LP) · CHARTER/ZF(ชาร์เตอร์ ทำหน้าที่พูลซัพพอร์ตหลัก) · STBY
+  return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY|CHARTER|\bZF\b/.test(t);
+}
+/** พนักงานที่มาทำงาน + เวลางาน + ช่วงที่ติดไฟลท์ + ระบบที่ทำเป็น (สำหรับหาคนว่าง)
+ *  includeOff=true → รวมคนวันหยุด (OFF) ไว้เป็นตัวเลือก "re-sked" (ว่างทุกช่วง · จัดเวลาให้ใหม่ได้) */
+function slaSupportPool_(res, ll, teamSys, includeOff) {
   var pool = [];
   function add(team, r) {
-    if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
+    var off = (r.bucket === 'off');
+    if (!off && r.bucket !== 'working' && r.bucket !== 'ot_off') return;   // sick/leave/vac ไม่ดึง
+    if (r.training) return;                                                // อบรม — ไม่ดึงมาช่วยไฟลท์ (ไม่พร้อม)
+    if (off && !includeOff) return;                                        // คน OFF เฉพาะตอนเปิด re-sked
     if (slaSkipTeam_(team)) return;                          // Porter / Crewsign / Admin Doc ไม่เป็นคนช่วย
-    var d = acDuty_(r);
-    if (d.ds == null || d.de == null) return;
+    var d = acDuty_(r), ds = d.ds, de = d.de;
+    if (off) {
+      // OFF (re-sked): ถ้ายังมี "กะรายสัปดาห์" ติดอยู่ (เช่น X9=00:00-09:00) → เคารพเวลากะนั้น
+      // ไม่สมมุติว่าว่าง 24 ชม. (กันแนะคนกะเช้าไปช่วยไฟลท์บ่าย) · ไม่มีกะระบุ → ว่างทุกช่วง จัดเวลาใหม่ได้
+      if (ds == null || de == null) { ds = -100000; de = 100000; }
+    }
+    if (ds == null || de == null) return;
     var busy = [];
-    (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
-    var flts = (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
+    if (!off) (r.assignments || []).forEach(function (a) { var w = acFlightWin_(a); if (w) busy.push(w); });
+    var flts = off ? [] : (r.assignments || []).filter(function (a) { return acIsFlight_(a.flight); })
       .map(function (a) {
-        var tm = (a.STA || a.STD) ? (' ' + (a.STA || '–') + '-' + (a.STD || '–'))
-               : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : '');
+        var w = acFlightWin_(a);                                            // ช่วงที่ "ติดงานจริง" ตาม role (เช่น ขาเข้า = รอบ STA) ไม่ใช่ STA-STD เต็มไฟลท์ → ตรงกับเกณฑ์เช็คเวลาว่าง
+        var tm = w ? (' ' + rrFmtMin_(((w[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((w[1] % 1440) + 1440) % 1440))
+               : ((a.STA || a.STD) ? (' ' + (a.STA || '–') + '-' + (a.STD || '–'))
+                  : ((a.OP || a.CL) ? (' ' + (a.OP || '–') + '-' + (a.CL || '–')) : ''));
         return a.flight + tm;
       });
-    pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '',
-      ds: d.ds, de: d.de, busy: busy, sys: teamSys[team] || {}, nflt: flts.length,
-      shiftDisp: r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-')),
+    // ช่วงเวลา re-sked (แบบ Duty: "re-sked 11-20") — จากกะรายสัปดาห์ที่เคารพไว้ · ไม่มีกะ → "ทุกช่วง"
+    var offWin = (off && ds > -100000 && de < 100000)
+      ? (rrFmtMin_(((ds % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((de % 1440) + 1440) % 1440)) : '';
+    var otoff = (r.bucket === 'ot_off');                     // มาทำ OT ในวันหยุดของตัวเอง
+    pool.push({ name: r.name, id: r.id || '', team: team, pos: r.pos || '', posGroup: r.posGroup || '', off: off,
+      otoff: otoff, rest: off || otoff,                      // "วันหยุด" (OFF re-sked หรือ OT-OFF) → ไม่แนะนำก่อนคนกะปกติ
+      float: slaIsFloatTeam_(team),
+      ds: ds, de: de, busy: busy, hold: [], sys: teamSys[team] || {}, nflt: flts.length,
+      shiftDisp: off ? ('OFF · re-sked ' + (offWin || 'ทุกช่วง') + (r.shift && r.shift.toUpperCase() !== 'OFF' ? ' (' + r.shift + ')' : ''))
+                     : (r.bucket === 'ot_off' ? 'OFF (มา OT)' : ((r.shiftTime && r.shiftTime !== r.shift) ? (r.shift + ' ' + r.shiftTime) : (r.shift || r.shiftTime || '-'))),
       otDisp: r.ot > 0 ? (r.ot + 'h ' + (r.bucket === 'ot_off' ? 'OFF' : (r.otType === 'PRE' ? 'ก่อนกะ' : 'หลังกะ')) + (r.otTime ? ' ' + r.otTime : '')) : '-',
-      hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, flts: flts });
+      hrs: Math.round(((r.shiftHrs || 0) + (r.ot || 0)) * 10) / 10, hstat: slaHoursStat_(r.shiftHrs, r.ot, r.bucket, r), flts: flts });
   }
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { add(t, r); }); });
   if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { add('LL·' + s, r); }); });
@@ -409,43 +810,133 @@ function slaSupportPool_(res, ll, teamSys) {
 /** เวลา (นาที) ของแต่ละ phase สำหรับไฟลท์ (อิง STD + offset ของสายการบิน) */
 function slaPhaseWindow_(f, ph) {
   var db = slaGet_(f.airline);
-  var std = acMin_(f.STD), sta = acMin_(f.STA);
+  var m = function (x) { var v = acMin_(x); return v ? v : null; };   // 00:00 = placeholder → null
+  var std = m(f.STD), sta = m(f.STA);
   if (ph === 'CI')  return std != null ? [std + db.ci, std + db.cc] : null;
-  if (ph === 'GATE')return std != null ? [std + db.go, std + (db.post || 20)] : null;
-  if (ph === 'ARR') return sta != null ? [sta - 20, sta + (db.post || 30)] : null;
-  if (ph === 'SUP') return std != null ? [std + db.ci, std + (db.post || 30)] : (sta != null ? [sta - 20, sta + 30] : null);
+  var post = (db.post != null) ? db.post : SLA_POST;   // post-flight รายสาย (full-service 30 / LCC 20)
+  if (ph === 'GATE') {                                  // Duty: STA−30 → STD (turnaround) · ขาออกอย่างเดียว → STD−90
+    var gs = sta != null ? sta - 30 : (std != null ? std - 90 : null);
+    var ge = std != null ? std + post : (sta != null ? sta + post : null);
+    return (gs != null && ge != null) ? [gs, ge] : null;
+  }
+  if (ph === 'ARR') {                                   // Duty: STA−30 → STD (arrival/transfer ถึงขาออก) · ไม่มี STD → STA+post
+    var as = sta != null ? sta - 30 : null;
+    var ae = std != null ? std + post : (sta != null ? sta + post : null);
+    return (as != null && ae != null) ? [as, ae] : null;
+  }
+  if (ph === 'SUP') return std != null ? [std + db.ci, std + post] : (sta != null ? [sta - 20, sta + post] : null);
   return null;
+}
+/** หน้าต่างเวลาของ phase + fallback: คำนวณตรงไม่ได้ (ขาด STD/STA บางส่วน เช่นไม่กรอก OP/CL/STD) → ประเมินจากเวลาไฟลท์ที่มี
+ *  คืน { win:[lo,hi]|null, fb:true=ใช้ fallback, noTime:true=ไม่มีเวลาไฟลท์เลย (ต้องเติมก่อน) } */
+function slaPhaseWinFb_(f, ph) {
+  var w = slaPhaseWindow_(f, ph);
+  if (w) return { win: w, fb: false, noTime: false };
+  var mm = function (x) { var v = acMin_(x); return v ? v : null; };
+  var std = mm(f.STD), sta = mm(f.STA), lo = null, hi = null;
+  if (std != null && sta != null) { lo = Math.min(sta, std) - 30; hi = Math.max(sta, std) + 30; }
+  else if (std != null) { lo = std - 180; hi = std + 30; }          // มีแต่ STD → ประเมินช่วงเช็คอิน→ออก
+  else if (sta != null) { lo = sta - 30; hi = sta + 120; }          // มีแต่ STA → ประเมินรอบขาเข้า
+  if (lo != null && hi != null) return { win: [lo, hi], fb: true, noTime: false };
+  return { win: null, fb: false, noTime: true };                    // ไม่มีเวลาไฟลท์เลย
+}
+/** ช่องว่างที่ต้องมีก่อนรับไฟลท์ใหม่ (นาที) — ปกติ 30 นาที แต่ถ้าทำ "2 ไฟลท์ติด" มาแล้ว → ต้องพัก ≥ 60 นาที
+ *  ติด = ไฟลท์ก่อนหน้าที่ห่างกัน ≤ SLA_REST_MIN (ไม่ได้พักจริงระหว่างกัน) เรียงต่อเนื่องมาถึงก่อน winStart */
+function slaTransitBuf_(busy, winStart) {
+  var prior = (busy || []).filter(function (b) { return b[1] <= winStart + 10; })
+    .sort(function (a, b) { return b[1] - a[1]; });               // ใหม่ → เก่า
+  var n = 0, ref = winStart;
+  for (var i = 0; i < prior.length; i++) {
+    if (ref - prior[i][1] <= SLA_REST_MIN) { n++; ref = prior[i][0]; } else break;   // ต่อเนื่อง (พักไม่ถึง 60 นาที)
+  }
+  return n >= 2 ? SLA_REST_MIN : SLA_TRANSIT_MIN;                 // ทำ 2 ไฟลท์ติดแล้ว → พัก ≥ 60 นาที ก่อนไฟลท์ที่ 3
 }
 /** หาคนที่มาช่วยไฟลท์ f ใน phase ph ได้
  *  · CI  = รู้ระบบเช็คอินของสายการบินนั้น + ว่าง (ตำแหน่งใดก็ได้)
  *  · SUP = ต้องเป็นตำแหน่ง Sup + รู้ระบบนั้น + ว่าง (สำหรับ Sup/Flight Controller)
  *  · GATE/ARR = ไม่ต้องใช้ระบบ · เรียงลำดับ Agent → Senior → Sup */
-function slaCandidates_(f, ph, pool, max) {
-  var win = slaPhaseWindow_(f, ph);
+function slaCandidates_(f, ph, pool, max, winOverride) {
+  var win = winOverride || slaPhaseWindow_(f, ph);           // winOverride = ช่วงเวลาที่ Duty ระบุเอง
+  if (!win) return [];                                       // ไฟลท์ไม่มีเวลา → เช็คคนว่างไม่ได้ → ไม่แนะคนข้ามทีม (กันแนะคนกะไม่ตรงเวลาจริง)
   var needSys = slaNeedSys_(f.airline, ph);                   // '' = iPort/ไม่จำกัด → ทุกคนช่วยได้
   var needNorm = needSys ? slaSysNorm_(needSys) : '';
   var cands = pool.filter(function (p) {
     if (f.teams[p.team]) return false;                       // คนทีมเดียวกับไฟลท์ ไม่นับเป็น support
     if (needNorm && !p.sys[needNorm]) return false;          // CI/SUP ต้องรู้ระบบสายการบินนั้น (ยกเว้น iPort)
-    if (ph === 'SUP' && p.posGroup !== 'PSS') return false;  // Sup/Flight Controller ต้องเป็น Sup
+    if (ph === 'SUP' && p.posGroup !== 'PSS' && p.posGroup !== 'SNR') return false;  // SUP/Flight Controller = ตำแหน่ง Sup หรือ Snr
     if (win) {
       if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
-      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นช่วงนั้น
+      var buf = slaTransitBuf_(p.busy, win[0]);              // 30 นาที ปกติ · 60 นาที ถ้าทำ 2 ไฟลท์ติดมาแล้ว
+      for (var i = 0; i < p.busy.length; i++) {              // ต้องไม่ติดไฟลท์อื่นของตัวเองช่วงนั้น + เผื่อเวลาเดินทาง/พัก
         var b = p.busy[i];
-        if (win[0] < b[1] - 10 && win[1] > b[0] + 10) return false;
+        if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false;
+      }
+      for (var j = 0; j < p.hold.length; j++) {              // ต้องไม่ถูกจอง (tentatively) ไปช่วยไฟลท์อื่นช่วงที่ทับกัน (+ เวลาเดินทาง/พัก)
+        var h = p.hold[j];
+        if (win[0] < h[1] + buf && win[1] > h[0] - buf) return false;
       }
     }
     return true;
   });
+  function ovh(x) { return (x.hstat && (x.hstat.level === 'over' || x.hstat.level === 'high')) ? 1 : 0; }   // ชั่วโมงเกินเกณฑ์ → ดันท้าย
+  function rst(x) { return x.rest ? 1 : 0; }   // วันหยุด (OT-OFF / OFF re-sked) → ดันท้ายสุด ไม่แนะนำก่อนคนกะปกติ
+  // "เวลากะตรงกับไฟลท์" — กะครอบ window พอดี (slack น้อย) = ตรงเวลากว่า · สแตนด์บายกะกว้าง = หลวมกว่า → ดันหลัง
+  function fit(x) { var ds = (x.ds == null ? -100000 : x.ds), de = (x.de == null ? 100000 : x.de); return Math.max(0, win[0] - ds) + Math.max(0, de - win[1]); }
+  // SU เช็คอิน (ASTRA) → ให้ทีม CHARTER (พูล ASTRA) ขึ้นก่อนเสมอ (Duty เรียก CHARTER ช่วยเช็คอิน SU เป็นปกติ)
+  var astraCI = (ph === 'CI' && needNorm === slaSysNorm_('ASTRA'));
+  function chF(x) { return (astraCI && /CHARTER|\bZF\b/i.test(x.team)) ? 0 : 1; }
+  // ลำดับความสำคัญ (ตามที่ทีมกำหนด): 1) เวลากะตรงไฟลท์ 2) งานน้อยสุด 3) ตำแหน่ง Agent 4) ทีมพูลซัพ
+  //   (ยังกันคนวันหยุด/ชั่วโมงเกินไว้เป็นด่านแรกเสมอ — ไม่แนะคนพัก/ล้าก่อนคนพร้อม)
   if (ph === 'SUP') {
-    cands.sort(function (a, b) { return a.nflt - b.nflt || String(a.team).localeCompare(b.team); });
-  } else {
-    // CI / GATE / ARR: Agent → Senior → Sup ตามลำดับ แล้วคนงานน้อย/ว่างกว่าก่อน
-    var PRI = { PSA: 0, SNR: 1, PSS: 2 };
     cands.sort(function (a, b) {
-      return (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) || a.nflt - b.nflt;
+      return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) ||
+        chF(a) - chF(b) ||                                                            // 0) SU เช็คอิน → CHARTER ก่อน
+        fit(a) - fit(b) ||                                                            // 1) เวลากะตรงไฟลท์
+        a.nflt - b.nflt ||                                                            // 2) งานน้อยสุด
+        (a.posGroup === 'PSS' ? 0 : 1) - (b.posGroup === 'PSS' ? 0 : 1) ||            // (SUP ต้อง Sup ก่อน Snr)
+        (a.float ? 0 : 1) - (b.float ? 0 : 1) ||                                      // 4) ทีมพูลซัพ
+        String(a.team).localeCompare(b.team);
+    });
+  } else {
+    var PRI = { PSA: 0, SNR: 1, PSS: 2 };   // Agent → Senior → Sup
+    cands.sort(function (a, b) {
+      return rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) ||
+        chF(a) - chF(b) ||                                                            // 0) SU เช็คอิน → CHARTER ก่อน
+        fit(a) - fit(b) ||                                                            // 1) เวลากะตรงไฟลท์
+        a.nflt - b.nflt ||                                                            // 2) งานน้อยสุด
+        (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) ||   // 3) Agent ก่อน
+        (a.float ? 0 : 1) - (b.float ? 0 : 1) ||                                      // 4) ทีมพูลซัพ
+        String(a.team).localeCompare(b.team);
     });
   }
+  return max ? cands.slice(0, max) : cands;
+}
+/** "พนักงานอื่นๆ" — คนที่ "ว่างช่วงนั้น" แต่ถูกตัดออกจาก candidate หลักเพราะไม่ตรงระบบ/ตำแหน่ง
+ *  (เผื่อ Duty รู้ว่าคนนี้ช่วยได้ หรือระบบไม่ใช่ข้อบังคับตายตัว) → ให้เลือกเสริมได้ในเมนู
+ *  · เช็คเวลาว่างจริง (ครอบ window + ไม่ติดไฟลท์อื่น + ไม่ถูกจอง) เหมือน candidate หลัก
+ *  · ตัดคนที่อยู่ใน candidate หลักแล้ว (exclude) และคนทีมเดียวกับไฟลท์ */
+function slaOtherCands_(f, ph, pool, max, exclude, winOverride) {
+  var win = winOverride || slaPhaseWindow_(f, ph);
+  if (!win) return [];
+  var ex = {}; (exclude || []).forEach(function (n) { ex[n] = 1; });
+  var cands = pool.filter(function (p) {
+    if (ex[p.name]) return false;                           // อยู่ในรายการหลักแล้ว
+    if (f.teams[p.team]) return false;                      // คนทีมเดียวกับไฟลท์
+    if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;   // เวลางานครอบช่วงนั้น
+    var buf = slaTransitBuf_(p.busy, win[0]);
+    for (var i = 0; i < p.busy.length; i++) { var b = p.busy[i]; if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false; }
+    for (var j = 0; j < p.hold.length; j++) { var h = p.hold[j]; if (win[0] < h[1] + buf && win[1] > h[0] - buf) return false; }
+    return true;
+  });
+  var PRI = { PSA: 0, SNR: 1, PSS: 2 };
+  function fit(x) { var ds = (x.ds == null ? -100000 : x.ds), de = (x.de == null ? 100000 : x.de); return Math.max(0, win[0] - ds) + Math.max(0, de - win[1]); }
+  cands.sort(function (a, b) {
+    return (a.rest ? 1 : 0) - (b.rest ? 1 : 0) || (a.off ? 1 : 0) - (b.off ? 1 : 0) ||
+      fit(a) - fit(b) ||                                                              // 1) เวลากะตรงไฟลท์
+      a.nflt - b.nflt ||                                                             // 2) งานน้อยสุด
+      (PRI[a.posGroup] == null ? 3 : PRI[a.posGroup]) - (PRI[b.posGroup] == null ? 3 : PRI[b.posGroup]) ||   // 3) Agent ก่อน
+      (a.float ? 0 : 1) - (b.float ? 0 : 1);                                         // 4) ทีมพูลซัพ
+  });
   return max ? cands.slice(0, max) : cands;
 }
 function slaWinTxt_(f, ph) {
@@ -460,7 +951,7 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   if (old) ss.deleteSheet(old);
   var sh = ss.insertSheet(tabName);
 
-  var flights = slaCollectFlights_(res, ll);
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !(f.noTime && f.fragment); });   // ซ่อนเศษขา (ขาที่สองซ้ำ)
   var W = 13;
   sh.getRange(1, 1, 1, W).merge().setValue('✈️ ไฟลท์บินประจำวัน + เช็ค SLA สายการบิน — ' + dateStr)
     .setBackground('#0d2137').setFontColor('#fff').setFontWeight('bold').setFontSize(13).setHorizontalAlignment('center');
@@ -471,8 +962,9 @@ function rbWriteFlightSLA_(ss, res, dateStr, ll, tabName) {
   var body = [], status = [];
   flights.forEach(function (f) {
     function cell(ph) { return f.assigned[ph] + '/' + f.req[ph] + (f.short[ph] ? ' ⚠️-' + f.short[ph] : ' ✓'); }
+    function gcell() { var b = cell('GATE'); if (f.assigned.GD || f.assigned.GI) b += ' (D' + f.assigned.GD + '·I' + f.assigned.GI + ')'; return b; }   // แยกเกทใน/นอก
     body.push([f.flight, f.airline, f.teamList, f.STA, f.STD, f.OP, f.CL,
-               f.assigned.total, f.req.total, cell('SUP'), cell('CI'), cell('GATE'), cell('ARR')]);
+               f.assigned.total, f.req.total, cell('SUP'), cell('CI'), gcell(), cell('ARR')]);
     status.push(f.ok);
   });
   if (body.length) {
@@ -492,26 +984,132 @@ var SLA_MAX_CAND = 24;     // pool คนช่วยต่อ 1 ตำแหน
 var SLA_PH_LB = { SUP: 'SUP', CI: 'Check-in', GATE: 'Gate', ARR: 'Arrival' };
 function slaPosShort_(g) { return g === 'PSS' ? 'Sup' : (g === 'SNR' ? 'Snr' : (g === 'PSA' ? 'Agent' : (g || '-'))); }
 /** สร้างรายการ "ไฟลท์ขาด + ใครมาช่วยได้" (ต่อ 1 phase ที่ขาด = 1 แถว) */
-function slaSupportRows_(res, ll) {
-  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok; });
+/** map candidate → รูปแบบที่ view ใช้ */
+function slaCandView_(c) {
+  return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team, off: !!c.off, rest: !!c.rest,
+           shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, hlevel: (c.hstat || {}).level || 'ok', htxt: (c.hstat || {}).txt || '', n: c.nflt, flts: c.flts };
+}
+/** สร้าง 1 แถวซัพพอร์ต: ไฟลท์ f · phase ph · ขาด n คน · จาก pool · winOverride = ช่วงเวลาที่ Duty ระบุ (ถ้ามี) */
+function slaSupRow_(f, ph, n, pool, winOverride, ignoreElig, reserveN) {
+  var elig = ignoreElig ? { ok: true, reason: '' }             // RQ = ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA (เช่น "รับซัพเฉพาะ ARR/GATE")
+    : ((typeof slaCanSupport_ === 'function') ? slaCanSupport_(f.airline, ph) : { ok: true, reason: '' });
+  var fbw = winOverride ? { win: winOverride, fb: false, noTime: false } : slaPhaseWinFb_(f, ph);   // #1 fallback: ขาด OP/CL/STD → ประเมินจากเวลาไฟลท์
+  var rwin = fbw.win;
+  var cands = (elig.ok && rwin) ? slaCandidates_(f, ph, pool, SLA_MAX_CAND, rwin) : [];   // สายไม่รับซัพเฟสนี้/ไม่มีเวลาไฟลท์ → ไม่แนะคน
+  var resN = (reserveN == null) ? n : reserveN;               // จำนวนที่ "จอง" (โหมดทางเลือกจองคนที่โชว์ ให้แถวถัดไปแนะคนอื่น ไม่ซ้ำ)
+  if (rwin) cands.slice(0, resN).forEach(function (c) { c.hold.push(rwin); });   // จองคน top-n กันแนะซ้ำข้ามไฟลท์เวลาทับ
+  var winTxt = rwin ? (rrFmtMin_(((rwin[0] % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((rwin[1] % 1440) + 1440) % 1440)) : slaWinTxt_(f, ph);
+  return {
+    flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList || '',
+    STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: n, win: winTxt, winFb: fbw.fb, noFlightTime: fbw.noTime,   // #2 ธงบอกสาเหตุ
+    needSys: slaNeedSys_(f.airline, ph), block: elig.ok ? '' : elig.reason,
+    cands: cands.map(slaCandView_),
+    others: (elig.ok ? slaOtherCands_(f, ph, pool, SLA_MAX_CAND, cands.map(function (c) { return c.name; }), winOverride) : []).map(slaCandView_),
+    nCand: cands.length,
+  };
+}
+/** แปลงช่วงเวลา "0635-0735" / "06:35-07:35" → [lo,hi] นาที (ข้ามเที่ยงคืน hi<lo → +1440) */
+function slaParseWin_(s) {
+  var m = String(s || '').match(/(\d{1,2})[:.]?(\d{2})\s*[-–]\s*(\d{1,2})[:.]?(\d{2})/);
+  if (!m) return null;
+  var lo = (+m[1]) * 60 + (+m[2]), hi = (+m[3]) * 60 + (+m[4]);
+  if (hi <= lo) hi += 1440;
+  return [lo, hi];
+}
+/** คำขอซัพแบบเพิ่มเอง (Duty) — [{flight, phase, n}] → แถวเหมือน slaSupportRows_ (คิดคนให้ แม้ไฟลท์ไม่ขาดตาม SLA) */
+function slaManualSupportRows_(res, ll, requests, showAlt) {
+  requests = (requests || []).filter(function (r) { return r && r.flight && r.phase; });
+  if (!requests.length) return [];
+  var fmap = {}; slaCollectFlights_(res, ll).forEach(function (f) { fmap[slaFlightKey_(f.flight)] = f; });
   var teamSys = slaTeamSystems_(res, ll);
-  var pool = slaSupportPool_(res, ll, teamSys);
+  var pool = slaSupportPool_(res, ll, teamSys, false);   // คน OFF (วันหยุด) ไม่เสนอเป็นตัวเลือกซัพ — อัปเดตเป็น Off = ตัดออกจากคนช่วย
+  return requests.map(function (rq) {
+    var rawPh = String(rq.phase).toUpperCase();
+    var ph = SLA_PH_LB[rawPh] ? rawPh : 'GATE';                // RF/ไม่รู้จัก → ใช้กลไกหาคนแบบ GATE (ปล่อยเครื่อง = งานเกท/แรมป์)
+    var reqN = Math.max(1, parseInt(rq.n, 10) || 1);           // จำนวนที่ขอทั้งหมด
+    var openN = (rq.open == null) ? reqN : Math.max(0, parseInt(rq.open, 10) || 0);   // ยังต้องหาคนกี่คน (หักคนที่ Duty/ทีมจัดแล้ว)
+    var key = slaFlightKey_(rq.flight);
+    var f = fmap[key] || { flight: String(rq.flight).toUpperCase().trim(), airline: slaAirlineOf_(rq.flight),
+                           STA: rq.sta || '', STD: rq.std || '', teams: {}, teamList: '', OP: '', CL: '' };
+    var winOv = rq.win ? slaParseWin_(rq.win) : null;         // ช่วงเวลาที่ Duty ระบุเอง
+    // โหมดทางเลือก (แถวจัดแล้ว): จอง 3 คนที่โชว์เป็นทางเลือก → แถวถัดไปแนะคนอื่น ไม่ซ้ำ กระจายให้เห็นหลายคน/หลายทีม
+    var reserveN = (openN <= 0 && showAlt) ? 3 : undefined;
+    var row = slaSupRow_(f, ph, openN, pool, winOv, true, reserveN);    // ignoreElig: RQ ทีมขอมาเอง → ไม่บล็อกด้วยกฎ SLA
+    row.manual = true; row.label = rq.label || ''; if (rq.gtype) row.gtype = rq.gtype;   // เกทใน/นอก (DOM/INT)
+    row.reqN = reqN; row.openN = openN; row.assigned = rq.assigned || '';   // จัดแล้วกี่คน/เหลือกี่คน + ชื่อที่จัดไว้
+    if (openN <= 0) { row.covered = true; row.shortN = 0; }   // ทุกสล็อตมีคนแล้ว → ไม่ต้องแนะนำ
+    else row.shortN = openN;
+    if (rawPh === 'RF') row.phase = 'ปล่อยเครื่อง (RF)';       // แสดงเป็น RF แม้หาคนแบบเกท
+    if (winOv) row.winUser = true; if (!fmap[key] && !winOv) row.noRoster = true;
+    return row;
+  });
+}
+function slaSupportRows_(res, ll) {
+  var flights = slaCollectFlights_(res, ll).filter(function (f) { return !f.ok && !f.noTime; });
+  var teamSys = slaTeamSystems_(res, ll);
+  var pool = slaSupportPool_(res, ll, teamSys, false);         // คน OFF (วันหยุด) ไม่เสนอเป็นตัวเลือกซัพ (เฉพาะคนมาทำงาน/OT-OFF)
   var rows = [];
   flights.forEach(function (f) {
     ['SUP', 'CI', 'GATE', 'ARR'].forEach(function (ph) {
       if (!f.short[ph]) return;
-      var cands = slaCandidates_(f, ph, pool, SLA_MAX_CAND);
-      rows.push({
-        flight: f.flight, airline: f.airline, system: slaSystemOf_(f.airline), team: f.teamList,
-        STD: f.STD || f.STA || '', phase: SLA_PH_LB[ph], shortN: f.short[ph], win: slaWinTxt_(f, ph),
-        needSys: slaNeedSys_(f.airline, ph),
-        cands: cands.map(function (c) {
-          return { name: c.name, pos: slaPosShort_(c.posGroup), team: c.team,
-                   shift: c.shiftDisp, ot: c.otDisp, hrs: c.hrs, n: c.nflt, flts: c.flts };
-        }),
-        nCand: cands.length,
-      });
+      rows.push(slaSupRow_(f, ph, f.short[ph], pool));
     });
+  });
+  return rows;
+}
+/** ตรวจรายชื่อที่จะส่งไปซัพ (วางข้อความ Duty) — เช็ค OFF · กะไม่ครอบเวลางาน · เวลาซ้อน · ลงเทรน
+ *  จับชื่อจาก roster เท่านั้น (กัน false positive จากคำว่า ARR/GATE) · ตามเลขไฟลท์ในบรรทัดเหนือชื่อ */
+function slaCheckDeploy_(res, ll, text) {
+  var people = {};
+  function addP(team, r) {
+    var fn = String(r.name || '').toUpperCase().split(/[\s(]/)[0];
+    if (fn.length < 3) return;
+    var d = acDuty_(r);
+    var train = (r.assignments || []).some(function (a) { return rrIsTrainingTask_(String(a.flight)); });
+    (people[fn] = people[fn] || []).push({ name: r.name, team: team, bucket: r.bucket, ds: d.ds, de: d.de, shift: r.shiftTime || r.shift, train: train });
+  }
+  Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { addP(t, r); }); });
+  if (ll && ll.totals.staff > 0) Object.keys(ll.sections).forEach(function (s) { ll.sections[s].records.forEach(function (r) { addP('LL·' + s, r); }); });
+  var flT = {};
+  slaCollectFlights_(res, ll).forEach(function (f) { flT[slaFlightKey_(f.flight)] = f; });
+  var picks = [], cur = null;
+  String(text || '').split(/\n/).forEach(function (ln) {
+    var fm = ln.match(/\b[A-Z0-9]{2}\s?\d{2,4}\b/);
+    if (fm && acIsFlight_(fm[0])) { var k = slaFlightKey_(fm[0]); cur = flT[k] || { flight: fm[0].trim() }; }
+    (ln.match(/[A-Za-z][A-Za-z']{2,}/g) || []).forEach(function (tk) {
+      var u = tk.toUpperCase(); if (people[u]) picks.push({ name: u, flight: cur, line: ln });
+    });
+  });
+  var seen = {}, list = [];
+  picks.forEach(function (p) { var fk = (p.flight && p.flight.flight) || ''; var k = p.name + '|' + fk; if (seen[k]) return; seen[k] = 1; list.push(p); });
+  var byName = {};
+  var rows = list.map(function (p) {
+    var cand = people[p.name], rec = cand[0], f = p.flight, teamMiss = '';
+    // ทีมที่ระบุในข้อความ (เช่น "SUTHIDA ZF") → เลือก record ของทีมนั้น; ถ้าไม่มี → เตือนทีมไม่ตรง
+    var hints = (String(p.line || '').toUpperCase().match(/\b[A-Z]{2,4}\b/g) || []).filter(function (h) { return h !== p.name; });
+    if (hints.length) {
+      var hit = cand.filter(function (c) { var ct = c.team.toUpperCase(); return hints.some(function (h) { return ct === h || ct.indexOf(h) >= 0; }); });
+      if (hit.length) rec = hit[0];
+      else if (cand.length === 1 && hints.length) {
+        var th = hints.filter(function (h) { return Object.keys(res.teams).some(function (t) { return t.toUpperCase().indexOf(h) >= 0; }); });
+        if (th.length && rec.team.toUpperCase().indexOf(th[0]) < 0) teamMiss = 'ทีมในข้อความ (' + th[0] + ') ≠ ที่พบ (' + rec.team + ') — เช็คสะกด/คนละคน';
+      }
+    }
+    var win = (f && (f.STA || f.STD)) ? slaPhaseWindow_(f, 'GATE') : null;
+    var cover = (win && rec.ds != null && rec.de != null) ? (rec.ds <= win[0] + 30 && rec.de >= win[1] - 30) : null;
+    var issues = [];
+    if (rec.bucket === 'off') issues.push('OFF (วันหยุด — ต้อง re-sked/OT)');
+    else if (rec.bucket !== 'working' && rec.bucket !== 'ot_off') issues.push(rec.bucket);
+    if (cover === false) issues.push('กะ ' + (rec.shift || '') + ' ไม่ครอบเวลางาน');
+    if (rec.train) issues.push('ในตารางลงเทรน/ประชุม');
+    if (teamMiss) issues.push(teamMiss);
+    (byName[p.name] = byName[p.name] || []).push(win);
+    return { name: p.name, team: rec.team, bucket: rec.bucket, shift: rec.shift, flight: (f && f.flight) || '(ไม่ระบุไฟลท์)', issues: issues, overlap: false };
+  });
+  Object.keys(byName).forEach(function (nm) {
+    var a = byName[nm].filter(Boolean);
+    for (var i = 0; i < a.length; i++) for (var j = i + 1; j < a.length; j++)
+      if (a[i][0] < a[j][1] - 10 && a[i][1] > a[j][0] + 10) rows.forEach(function (r) { if (r.name === nm) r.overlap = true; });
   });
   return rows;
 }
@@ -520,6 +1118,32 @@ function slaGroupCands_(cands) {
   var by = {}, order = [];
   cands.forEach(function (c) { if (!by[c.team]) { by[c.team] = []; order.push(c.team); } by[c.team].push(c); });
   return order.map(function (t) { return { team: t, people: by[t] }; });
+}
+
+/** ข้อความ SOS ขอคนซัพ (คัดลอกส่งไลน์) — จัดกลุ่มตามไฟลท์
+ *  · ลิสต์เฉพาะ "คนทีมอื่น" ที่ส่งมาช่วย (cands ตัดทีมเจ้าของไฟลท์ออกแล้วใน slaCandidates_)
+ *  · เลือก top N ตามจำนวนที่ขาด (N = shortN) เป็นตัวตั้งต้น */
+function slaSOSText_(res, ll, dateStr) {
+  var rows = slaSupportRows_(res, ll);
+  var byFlt = {}, order = [];
+  rows.forEach(function (r) {
+    if (!byFlt[r.flight]) { byFlt[r.flight] = { first: r, ph: [] }; order.push(r.flight); }
+    byFlt[r.flight].ph.push(r);
+  });
+  if (!order.length) return '✅ ทุกไฟลท์ส่งคนครบตาม SLA — ไม่ต้องขอ Support';
+  var out = ['🆘 ขอ Support' + (dateStr ? ' — ' + dateStr : '')];
+  order.forEach(function (fl) {
+    var g = byFlt[fl], f = g.first;
+    out.push('');
+    out.push(f.flight + (f.STD ? '  STD ' + f.STD : '') + (f.system ? '  · ' + f.system : ''));
+    g.ph.forEach(function (r) {
+      out.push('• ' + r.phase + ' ขาด ' + r.shortN + (r.win ? ' (' + r.win + ')' : ''));
+      var picks = (r.cands || []).slice(0, r.shortN);
+      if (picks.length) picks.forEach(function (c, i) { out.push('   ' + (i + 1) + '. ' + c.name + ' / ' + c.team + (c.off ? '  (OFF·re-sked)' : '')); });
+      else out.push('   — ' + (r.needSys ? 'ไม่มีคนว่างที่รู้ระบบ ' + r.needSys : 'ไม่มีคนว่าง'));
+    });
+  });
+  return out.join('\n');
 }
 
 /** Sheet tab: 🆘 Support — ไฟลท์ขาด + แนะนำคนที่ว่างและรู้ระบบเช็คอินมาช่วย */
