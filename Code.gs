@@ -11541,11 +11541,18 @@ function pasJobsByShiftDump_(date) {
 var OTC_FILE_ID_FALLBACK = '19Dz_NUdCEgYaY_FHwkolgETc7Z4khqLtJDdKKeO-6IE';
 var OTC_DATES = ['07/09/2026', '08/09/2026', '09/09/2026'];        // วันที่ที่เทียบ (dd/mm/yyyy)
 var OTC_SHEET_MAP = { '07/09/2026': 'วันที่ 7', '08/09/2026': 'วันที่ 8', '09/09/2026': 'วันที่ 9' };
+// URL /exec ของหน้าเว็บ OT Analytics เดิม — แท็บ "ตรวจ OT" ฝัง (iframe) หน้านี้ตรง ๆ
+var OTC_EXEC_URL_FALLBACK = 'https://script.google.com/a/macros/aotga.com/s/AKfycbwj1RrXY77MxO_6uhdutUVYTn33PtZ9IMuhTBhn8UqQu3Ou717jBp-QCgt00x-HmVOYZg/exec';
 
 function otcFileId_() {
   var id = null;
   try { id = PropertiesService.getScriptProperties().getProperty('HUMANSOFT_OT_FILE_ID'); } catch (e) {}
   return id || OTC_FILE_ID_FALLBACK;
+}
+function otcExecUrl_() {
+  var u = null;
+  try { u = PropertiesService.getScriptProperties().getProperty('HUMANSOFT_OT_EXEC_URL'); } catch (e) {}
+  return u || OTC_EXEC_URL_FALLBACK;
 }
 
 /** ── helpers (ยกมาจากโปรเจกต์เดิม) ── */
@@ -11690,8 +11697,18 @@ function rbOTCompareData_(fileId) {
   return { dates: OTC_DATES, summaryByDate: summaryByDate, teamSummaryByDate: teamSummaryByDate, details: unassignedDetails };
 }
 
-/** ── Lazy tab: 🔍 ตรวจ OT (ขอจริง vs แผน) — render server-side สลับวันที่ในตัว ── */
+/** ── Lazy tab: 🔍 ตรวจ OT — ฝังหน้าเว็บ OT Analytics เดิม (/exec) ตรง ๆ ── */
 function rbOTCompareHtml(iso) {
+  var url = otcExecUrl_();
+  return '<div class="sectionlabel">🔍 ตรวจ OT — ขอจริง (HumanSoft) เทียบ แผน (Assignment) ' +
+    '<a href="' + rbEsc_(url) + '" target="_blank" rel="noopener" style="margin-left:8px;font-size:12px">↗ เปิดเต็มจอ</a>' +
+    '<div class="muted" style="font-size:11px;margin-top:2px">ฝังหน้าเว็บ OT Analytics เดิมไว้ตรงนี้ (ข้อมูล/ผลตรงกับต้นทางเสมอ) — ถ้าไม่แสดง ให้กด “เปิดเต็มจอ” (ต้องล็อกอินบัญชี aotga.com)</div></div>' +
+    '<div style="border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#fff">' +
+    '<iframe src="' + rbEsc_(url) + '" style="width:100%;height:82vh;border:0;display:block" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>';
+}
+
+/** (สำรอง) render ตารางในตัว PAS เอง — เผื่ออยากสลับกลับมาไม่ใช้ iframe */
+function rbOTCompareNativeHtml_(iso) {
   try {
     var D = rbOTCompareData_(otcFileId_());
     function f2(n) { return (Math.round((n || 0) * 100) / 100).toFixed(2); }
