@@ -983,7 +983,7 @@ var RB_NAV_ = [
   ['auto','🤖','Auto Assign','loadAuto()'], ['adv','📅','จัดล่วงหน้า','loadAdv()'],
   ['advw','🗂️','ภาพรวมสัปดาห์','loadAdvW()'],
   ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'],
-  ['ot','⏱️','OT Dashboard',''], ['otah','🔮','OT ล่วงหน้า','loadOtah()'], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
+  ['ot','⏱️','OT Dashboard',''], ['otah','🔮','OT ล่วงหน้า','loadOtah()'], ['otc','🔍','ตรวจ OT','loadOtc()'], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
 function rbRail_(shortCount, acCount) {
   var logo = ''; try { logo = rbLogoDataUri_(); } catch (e) {}
@@ -1819,6 +1819,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<div id="view-advw" style="display:none"><div id="advwbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังวางแผนหลายวัน…</div></div></div>' +
     '<div id="view-ot" style="display:none">' + otInner + '</div>' +
     '<div id="view-otah" style="display:none"><div id="otahbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด OT ล่วงหน้า…</div></div></div>' +
+    '<div id="view-otc" style="display:none"><div id="otcbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตรวจ OT (ขอจริง vs แผน)…</div></div></div>' +
     '<div id="view-week" style="display:none"><div id="weekbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลดตารางบินสัปดาห์…</div></div></div>' +
     '<div id="view-wh" style="display:none"><div id="whbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังโหลด…</div></div></div>' +
     '<div id="view-wsum" style="display:none"><div id="wsumbox"><div class="panel muted" style="text-align:center;padding:34px">⏳ กำลังสรุปสัปดาห์…</div></div></div>' +
@@ -1830,10 +1831,11 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>' +
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
-    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","advw","week","rq","ot","otah","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function showView(v){["dash","tt","flt","sup","ac","auto","adv","advw","week","rq","ot","otah","otc","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
     'function exportPdf(){var pt=document.getElementById("pageTitle");var nm=(pt&&pt.textContent.trim())||"PAS";var old=document.title;document.title=nm+" "+ISO;window.print();setTimeout(function(){document.title=old;},600);}' +
     'function exportServerPdf(b){if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน Web App URL (/exec) เพื่อสร้างไฟล์");return;}var old=b?b.textContent:"";if(b){b.textContent="⏳ กำลังสร้างไฟล์ PDF…";b.disabled=true;}google.script.run.withSuccessHandler(function(url){if(b){b.textContent=old;b.disabled=false;}window.open(url,"_blank");}).withFailureHandler(function(e){if(b){b.textContent=old;b.disabled=false;}alert("สร้าง PDF ไม่ได้: "+e.message);}).rbExportDayPdf(ISO);}' +
     'function loadOtah(){lazy("otahbox","rbOTAheadHtml","otah");}' +
+    'function loadOtc(){lazy("otcbox","rbOTCompareHtml","otc");}' +
     'function loadWh(){lazy("whbox","rbWeekHoursHtml","wh");}' +
     'function loadWsum(){lazy("wsumbox","rbWeekSummaryHtml","wsum");}' +
     'function loadWeek(){lazy("weekbox","rbWeekFlightsHtml","week");}' +
