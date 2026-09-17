@@ -236,29 +236,30 @@ function rrExtractFlights_(txt) {
   var reF = /[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?\d{2,4})?/gi, mm, hits = [];
   while ((mm = reF.exec(s))) {
     var code = rrClean_(mm[0]).replace(/\s+/g, '');
-    if (acIsFlight_(code)) hits.push({ code: code, end: reF.lastIndex });
+    if (acIsFlight_(code)) hits.push({ code: code, start: mm.index, end: reF.lastIndex });
   }
-  // หาเวลาช่วง (HH:MM-HH:MM · HHMM-HHMM · (HHMM-HHMM)) ที่อยู่หลังรหัสไฟลท์ ก่อนถึงรหัสถัดไป
-  function timeAfter(pos, before) {
-    var reT = /(\d{1,2})[:.](\d{2})\s*[-–]\s*(\d{1,2})[:.](\d{2})|(?:\()?\b(\d{2})(\d{2})\s*[-–]\s*(\d{2})(\d{2})\b(?:\))?/g;
-    reT.lastIndex = pos; var t;
-    while ((t = reT.exec(s))) {
-      if (before != null && t.index >= before) break;
-      var h1, n1, h2, n2;
-      if (t[1] != null) { h1 = +t[1]; n1 = +t[2]; h2 = +t[3]; n2 = +t[4]; }
-      else { h1 = +t[5]; n1 = +t[6]; h2 = +t[7]; n2 = +t[8]; }
-      if (h1 <= 24 && n1 < 60 && h2 <= 24 && n2 < 60) {
-        var f2 = function (h, n) { return ('0' + h).slice(-2) + ':' + ('0' + n).slice(-2); };
-        return [f2(h1, n1), f2(h2, n2)];
-      }
-    }
-    return null;
+  function hhmm(str) {                                        // "16:40" / "1640" / "(0500)" → "HH:MM" (คืน '' ถ้าไม่ใช่เวลา)
+    var m = String(str).match(/(\d{1,2})[:.](\d{2})/);
+    if (!m) m = String(str).match(/\b(\d{2})(\d{2})\b/);
+    if (!m) return '';
+    var h = +m[1], n = +m[2];
+    return (h <= 24 && n < 60) ? (('0' + h).slice(-2) + ':' + ('0' + n).slice(-2)) : '';
   }
   hits.forEach(function (h, i) {
     var key = (h.code.match(/\d{2,4}/g) || []).join('/');
     if (!key || seen[key]) return; seen[key] = 1;
-    var tm = timeAfter(h.end, i + 1 < hits.length ? hits[i + 1].end - hits[i + 1].code.length : null);   // เวลาที่กรอกไว้ในเซลล์ (ช่วงงานจริง เช่น crew sign 20:00-21:00)
-    out.push({ flight: h.code, task: '', STA: '', STD: '', OP: tm ? tm[0] : '', CL: tm ? tm[1] : '' });
+    // ข้อความหลังรหัสไฟลท์ ถึงรหัสถัดไป = ข้อมูลเวลาของไฟลท์นี้ (crew sign / doc / STA-STD)
+    var seg = s.substring(h.end, i + 1 < hits.length ? hits[i + 1].start : s.length);
+    var STA = '', STD = '', OP = '', CL = '';
+    var msta = seg.match(/STA\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i), mstd = seg.match(/STD\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i);
+    if (msta) STA = hhmm(msta[1]);
+    if (mstd) STD = hhmm(mstd[1]);
+    if (!STA && !STD) {                                       // ไม่มีป้าย STA/STD → หา "ช่วงงาน" (crew sign HH:MM-HH:MM / HHMM-HHMM)
+      var mr = seg.match(/(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/) || seg.match(/\(?\b(\d{2}\d{2})\s*[-–]\s*(\d{2}\d{2})\b\)?/);
+      if (mr) { OP = hhmm(mr[1]); CL = hhmm(mr[2]); }
+      else { var mp = seg.match(/\((\d{1,2}[:.]?\d{2})\)/); if (mp) { OP = hhmm(mp[1]); CL = OP; } }   // เวลาเดี่ยวในวงเล็บ เช่น "(0500)" = กำหนดส่ง/จุดเดียว
+    }
+    out.push({ flight: h.code, task: '', STA: STA, STD: STD, OP: OP, CL: CL });
   });
   return out;
 }
