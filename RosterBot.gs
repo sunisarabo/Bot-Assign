@@ -1017,6 +1017,7 @@ function rbOTAheadData_(startDate, days) {
   var monPrefix = Utilities.formatDate(start, tz, 'yyyy-MM');
 
   var mergedById = {}, infoById = {};                       // id -> {iso:hrs} · id -> {name,team}
+  var workById = {}, jobsById = {};                         // id -> {iso: ชม.งาน(duty)} · id -> {iso:[ไฟลท์]}
   try {
     var lsh = rbOTLedgerSheet_();
     if (lsh && lsh.getLastRow() > 1) {
@@ -1049,6 +1050,12 @@ function rbOTAheadData_(startDate, days) {
           var id = String(r.id || ('~' + r.name));
           (mergedById[id] = mergedById[id] || {})[iso] = r.ot || 0;               // ช่วงล่วงหน้าทับ ledger
           if (!infoById[id]) infoById[id] = { name: r.name, team: team };
+          // ชม.งานที่ทำ (duty รวม incl OT) + ชิพไฟลท์ที่ทำวันนั้น
+          var duty = 0; try { var dd = acDuty_(r); if (dd.ds != null && dd.de != null) duty = (dd.de - dd.ds) / 60; } catch (eD) {}
+          (workById[id] = workById[id] || {})[iso] = Math.round(duty * 10) / 10;
+          var fl = (r.assignments || []).filter(function (a) { return a.flight && acIsFlight_(a.flight) && !a.supportOut; }).map(function (a) { return a.flight; });
+          fl = fl.filter(function (v, i, arr) { return arr.indexOf(v) === i; });
+          if (fl.length) (jobsById[id] = jobsById[id] || {})[iso] = fl;
         }
       }
       Object.keys(x.res.teams).forEach(function (t) {
@@ -1071,9 +1078,18 @@ function rbOTAheadData_(startDate, days) {
     Object.keys(m).forEach(function (iso) { if (iso >= wStart && iso <= wEnd) week += m[iso]; if (iso.indexOf(monPrefix) === 0) month += m[iso]; });
     week = r1(week); month = r1(month);
     var flag = (week > OT_WEEK_LIMIT || month > OT_MONTH_LIMIT) ? 'over' : ((week >= OT_WEEK_NEAR || month >= OT_MONTH_NEAR) ? 'near' : '');
+    var wk = workById[id] || {}, jb = jobsById[id] || {};
+    var workWin = 0, otWin = 0, chipSet = {}, chips = [];
+    winIsos.forEach(function (iso) {
+      if (wk[iso]) workWin += wk[iso];
+      if (m[iso] != null) otWin += m[iso];
+      (jb[iso] || []).forEach(function (f) { if (!chipSet[f]) { chipSet[f] = 1; chips.push(f); } });
+    });
     persons.push({
       id: id, name: infoById[id].name, team: infoById[id].team,
       byIso: winIsos.map(function (iso) { return m[iso] != null ? r1(m[iso]) : null; }),
+      workByIso: winIsos.map(function (iso) { return wk[iso] != null ? r1(wk[iso]) : null; }),
+      workWin: r1(workWin), otWin: r1(otWin), chips: chips,
       week: week, month: month, flag: flag
     });
   });
