@@ -233,7 +233,8 @@ function rrExtractFlights_(txt) {
   if (!txt) return out;
   var s = String(txt);
   // ตำแหน่งรหัสไฟลท์ในข้อความ (เก็บ index เพื่อจับคู่กับเวลาที่ตามหลัง)
-  var reF = /[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?\d{2,4})?/gi, mm, hits = [];
+  // รหัสไฟลท์ — รวมขาที่เขียนเว้นวรรครอบ / (เช่น "CA821 / CA822", "MU5093/ MU5094") ให้เป็นไฟลท์เดียว (กันบาร์ซ้ำ)
+  var reF = /[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?(?:(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s?)?\d{2,4})*/gi, mm, hits = [];
   while ((mm = reF.exec(s))) {
     var code = rrClean_(mm[0]).replace(/\s+/g, '');
     if (acIsFlight_(code)) hits.push({ code: code, start: mm.index, end: reF.lastIndex });
