@@ -257,7 +257,10 @@ function rrExtractFlights_(txt) {
     if (!STA && !STD) {                                       // ไม่มีป้าย STA/STD → หา "ช่วงงาน" (crew sign HH:MM-HH:MM / HHMM-HHMM)
       var mr = seg.match(/(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/) || seg.match(/\(?\b(\d{2}\d{2})\s*[-–]\s*(\d{2}\d{2})\b\)?/);
       if (mr) { OP = hhmm(mr[1]); CL = hhmm(mr[2]); }
-      else { var mp = seg.match(/\((\d{1,2}[:.]?\d{2})\)/); if (mp) { OP = hhmm(mp[1]); CL = OP; } }   // เวลาเดี่ยวในวงเล็บ เช่น "(0500)" = กำหนดส่ง/จุดเดียว
+      else {                                                 // เวลาเดี่ยว: "(0500)" · "TIME 1700" · เลขโดด "0955" = จุดเดียว/กำหนดส่ง
+        var mp = seg.match(/\((\d{1,2}[:.]?\d{2})\)/) || seg.match(/TIME\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i) || seg.match(/(?:^|\s)(\d{1,2}[:.]\d{2}|\d{4})(?:\s|$)/);
+        if (mp) { var one = hhmm(mp[1]); if (one) { OP = one; CL = one; } }
+      }
     }
     out.push({ flight: h.code, task: '', STA: STA, STD: STD, OP: OP, CL: CL });
   });
