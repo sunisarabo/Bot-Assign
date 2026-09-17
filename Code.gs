@@ -10344,7 +10344,7 @@ function rbTtGantt_(res, ll, nowMin) {
   function pct(m) { return (m / 1440 * 100); }
   function seg(lo, hi, cls, label, tip) {
     var out = '';
-    function one(a, b) { if (b <= a) return; out += '<div class="gt-seg ' + cls + '" style="left:' + pct(a) + '%;width:' + pct(b - a) + '%" data-tip="' + rbAttr_(tip || label) + '"><span>' + rbEsc_(label) + '</span></div>'; }
+    function one(a, b) { if (b - a < 8) return; out += '<div class="gt-seg ' + cls + '" style="left:' + pct(a) + '%;width:' + pct(b - a) + '%" data-tip="' + rbAttr_(tip || label) + '"><span>' + rbEsc_(label) + '</span></div>'; }   // ตัดเศษ <8 นาที (สลิเวอร์ตอนข้ามเที่ยงคืน)
     while (lo >= 1440) { lo -= 1440; hi -= 1440; }            // ช่วงที่เริ่มหลัง 24:00 (OT หลังเที่ยงคืนที่จัด timeline แล้ว) → ดึงกลับเข้าวันก่อนวาด
     if (hi > 1440) { one(lo, 1440); one(0, hi - 1440); } else one(lo, hi);
     return out;
@@ -10431,7 +10431,7 @@ function rbTtGantt_(res, ll, nowMin) {
     var nLanes = laneEnd.length;
     flts.forEach(function (f) {
       var top = 30 + f.lane * 18;
-      function fone(x, y) { if (y <= x) return; track += '<div class="gt-flt ' + f.ph + (f.sup ? ' sup' : '') + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%;top:' + top + 'px" data-tip="' + f.tip + '"><span>' + f.lab + '</span></div>'; }
+      function fone(x, y) { if (y - x < 8) return; track += '<div class="gt-flt ' + f.ph + (f.sup ? ' sup' : '') + '" style="left:' + pct(x) + '%;width:' + pct(y - x) + '%;top:' + top + 'px" data-tip="' + f.tip + '"><span>' + f.lab + '</span></div>'; }   // ตัดเศษ <8 นาที
       if (f.hi > 1440) { fone(f.lo, 1440); fone(0, f.hi - 1440); } else fone(f.lo < 0 ? 0 : f.lo, f.hi);
     });
     if (nowMin >= 0) track += '<div class="gt-now" style="left:' + pct(nowMin) + '%"></div>';
