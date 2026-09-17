@@ -9283,7 +9283,7 @@ function rbOTAheadHtml(iso) {
     // ── (1) ภาพรวม OT ต่อวัน ──
     var b1 = '';
     D.days.forEach(function (d) {
-      if (!d.ok) { b1 += '<tr><td class="b">' + rbEsc_(d.label) + '</td><td colspan="7" class="muted">⚠️ ไม่มีไฟล์ assignment ของวันนี้</td></tr>'; return; }
+      if (!d.ok) { b1 += '<tr><td class="b">' + rbEsc_(d.label) + '</td><td colspan="7" class="muted">⚠️ ' + rbEsc_(d.err || 'ไม่มีไฟล์ assignment ของวันนี้') + '</td></tr>'; return; }
       var st = cell(d.ratio, OT_AHEAD_OVER_HI, OT_AHEAD_OVER_MID);
       b1 += '<tr style="' + st + '"><td class="b">' + rbEsc_(d.label) + '</td><td class="tnum">' + d.working + '</td><td class="tnum">' + d.otOff + ' (' + d.otOffH + 'h)</td><td class="tnum">' +
         d.otPre + ' (' + d.otPreH + 'h)</td><td class="tnum">' + d.otPost + ' (' + d.otPostH + 'h)</td><td class="tnum b">' + d.otPpl + '</td><td class="tnum b">' + d.otHrs + 'h</td><td class="tnum">' + Math.round(d.ratio * 100) + '%</td></tr>';
