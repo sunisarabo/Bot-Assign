@@ -255,11 +255,14 @@ function rrExtractFlights_(txt) {
     var msta = seg.match(/STA\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i), mstd = seg.match(/STD\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i);
     if (msta) STA = hhmm(msta[1]);
     if (mstd) STD = hhmm(mstd[1]);
-    if (!STA && !STD) {                                       // ไม่มีป้าย STA/STD → หา "ช่วงงาน" (crew sign HH:MM-HH:MM / HHMM-HHMM)
-      var mr = seg.match(/(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/) || seg.match(/\(?\b(\d{2}\d{2})\s*[-–]\s*(\d{2}\d{2})\b\)?/);
-      if (mr) { OP = hhmm(mr[1]); CL = hhmm(mr[2]); }
-      else {                                                 // เวลาเดี่ยว: "(0500)" · "TIME 1700" · เลขโดด "0955" = จุดเดียว/กำหนดส่ง
-        var mp = seg.match(/\((\d{1,2}[:.]?\d{2})\)/) || seg.match(/TIME\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i) || seg.match(/(?:^|\s)(\d{1,2}[:.]\d{2}|\d{4})(?:\s|$)/);
+    if (!STA && !STD) {                                       // ไม่มีป้าย STA/STD → หา "ช่วงงาน" (เอาช่วง "แรกสุด" ในข้อความ · รองรับ HH:MM และ HHMM)
+      var mr = seg.match(/(\d{1,2}[:.]\d{2}|\d{3,4})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4})/);
+      if (mr && hhmm(mr[1]) && hhmm(mr[2])) { OP = hhmm(mr[1]); CL = hhmm(mr[2]); }
+      else {                                                 // เวลาเดี่ยว: "(0500)" · "TIME '0940" · "APP:1500" · เลขโดด "0955"
+        var mp = seg.match(/\((\d{1,2}[:.]?\d{2})\)/)
+          || seg.match(/TIME\s*['"]?\s*(\d{1,2}[:.]?\d{2})/i)
+          || seg.match(/[:：]\s*(\d{3,4})\b/)                                        // เวลาติดหลัง colon เช่น "PSC&APP:1500"
+          || seg.match(/(?:^|[\s'"])(\d{1,2}[:.]\d{2}|\d{4})(?=\s|$|['"])/);         // เลขเวลาโดด (รวมกรณีมี ' นำหน้า)
         if (mp) { var one = hhmm(mp[1]); if (one) { OP = one; CL = one; } }
       }
     }
