@@ -566,11 +566,14 @@ function rbOTAheadHtml(iso) {
         : '<span class="muted">—</span>';
       b3 += '<tr data-team="' + rbEsc_(p.team) + '" style="' + rst + '"><td>' + tag + '</td><td class="b">' + rbEsc_(p.name) + '</td><td>' + rbEsc_(p.team) + '</td>' +
         p.byIso.map(function (h, i) {
-          var wh = p.workByIso ? p.workByIso[i] : null;
-          if (h == null && (wh == null || wh === 0)) return '<td class="tnum"><span class="muted">·</span></td>';
-          var whTxt = (wh != null && wh > 0) ? '<b>' + wh + 'h</b>' : '<span class="muted">—</span>';   // ชม.งานรวมวันนั้น (บน)
-          var otTxt = (h != null && h > 0) ? '<div style="color:#c2410c;font-size:10px">OT ' + h + 'h</div>' : '';   // OT วันนั้น (ล่าง)
-          return '<td class="tnum">' + whTxt + otTxt + '</td>';
+          var wh = p.workByIso ? p.workByIso[i] : null;      // ชม.งานรวมวันนั้น (ปกติ+OT)
+          if ((wh == null || wh === 0) && (h == null || h === 0)) return '<td class="tnum"><span class="muted">·</span></td>';
+          var ot = (h != null && h > 0) ? h : 0;
+          var reg = (wh != null && wh > 0) ? Math.max(0, Math.round((wh - ot) * 10) / 10) : 0;   // ชม.งานปกติ = รวม − OT (แยก ไม่รวม OT)
+          var pct = (wh && wh > 0) ? Math.round(ot / wh * 100) : 0;
+          var regTxt = '<b>งาน ' + reg + 'h</b>';                                                 // ปกติ (ไม่รวม OT)
+          var otTxt = ot > 0 ? '<div style="color:#c2410c;font-size:10px">OT ' + ot + 'h' + (pct ? ' · ' + pct + '%' : '') + '</div>' : '';
+          return '<td class="tnum">' + regTxt + otTxt + '</td>';
         }).join('') +
         '<td style="white-space:nowrap">' + woCell + '</td>' +
         '<td class="tnum" style="' + wcl + '">' + p.week + 'h</td><td class="tnum" style="' + mcl + '">' + p.month + 'h</td>' +
@@ -579,7 +582,7 @@ function rbOTAheadHtml(iso) {
     if (!b3) b3 = '<tr><td colspan="' + (D.days.length + 7) + '" class="okk" style="text-align:center;padding:14px">✅ ไม่มีคนทำ OT ในช่วงล่วงหน้านี้</td></tr>';
     var sec3 = rbTblCard_('👤 OT รายคน — สัปดาห์ (' + rbEsc_(D.wStart) + '→' + rbEsc_(D.wEnd) + ') · เดือน ' + rbEsc_(D.monPrefix) +
       ' <span style="font-weight:400;font-size:11px">(🔴 เกิน ' + OT_WEEK_LIMIT + 'h/สัปดาห์ หรือ ' + OT_MONTH_LIMIT + 'h/เดือน · 🟠 ใกล้)</span>' +
-      '<div class="muted" style="font-size:11px;margin-top:2px">เซลล์รายวัน: <b>ตัวเลขบน = ชม.งานรวมวันนั้น</b> · <span style="color:#c2410c">ล่าง = ในนั้นเป็น OT กี่ชม.</span> &nbsp;|&nbsp; คอลัมน์สรุป: 🟩 ปกติ (ชม./จำนวนไฟลท์ ✈) เทียบ 🟧 OT (ชม./✈)</div>',
+      '<div class="muted" style="font-size:11px;margin-top:2px">เซลล์รายวัน (แยกไม่รวมกัน): <b>งาน = ชม.ปกติ</b> · <span style="color:#c2410c">OT = โอที · % = OT ÷ ชม.งานรวม</span> &nbsp;|&nbsp; คอลัมน์สรุป: 🟩 ปกติ (ชม./ไฟลท์ ✈) เทียบ 🟧 OT (ชม./✈)</div>',
       '<tr><th>สถานะ</th><th>ชื่อ</th><th>ทีม</th>' + dayTh + '<th>งาน/OT ช่วงนี้<br><span style="font-weight:400;font-size:10px">ปกติ vs OT (ชม.+✈)</span></th><th>OT สัปดาห์</th><th>OT เดือน</th><th>งานที่ทำ (ชิพ)</th></tr>', b3, rbCtrls_('view-otah', false));
 
     var hd = '<div class="sectionlabel">🔮 OT ล่วงหน้า 3 วัน (จาก ' + rbEsc_(iso) + ') · <b class="badd">🔴 เกินเกณฑ์ ' + nOver + ' คน</b> · 🟠 ใกล้ ' + nNear + ' คน' +
