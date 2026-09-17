@@ -1116,6 +1116,7 @@ function rbOTAheadData_(startDate, days) {
       workByIso: winIsos.map(function (iso) { return wk[iso] != null ? r1(wk[iso]) : null; }),
       workWin: r1(workWin), otWin: r1(otWin), regWin: r1(workWin - otWin),
       nOtWin: nOtWin, nShWin: nShWin, chips: chips,
+      chipsByIso: winIsos.map(function (iso) { return jb[iso] || []; }),   // ไฟลท์แยกรายวัน
       week: week, month: month, flag: flag
     });
   });

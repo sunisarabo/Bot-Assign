@@ -8770,6 +8770,7 @@ function rbOTAheadData_(startDate, days) {
       workByIso: winIsos.map(function (iso) { return wk[iso] != null ? r1(wk[iso]) : null; }),
       workWin: r1(workWin), otWin: r1(otWin), regWin: r1(workWin - otWin),
       nOtWin: nOtWin, nShWin: nShWin, chips: chips,
+      chipsByIso: winIsos.map(function (iso) { return jb[iso] || []; }),   // ไฟลท์แยกรายวัน
       week: week, month: month, flag: flag
     });
   });
@@ -9345,9 +9346,14 @@ function rbOTAheadHtml(iso) {
       var woCell = '<div><b>งานรวม ' + (p.workWin || 0) + 'h</b></div>' +
         '<div class="muted" style="font-size:11px">🟩 ปกติ ' + (p.regWin || 0) + 'h · ✈' + (p.nShWin || 0) + '</div>' +
         '<div style="color:#c2410c;font-size:11px">🟧 OT ' + (p.otWin || 0) + 'h · ✈' + (p.nOtWin || 0) + (pctOt ? ' (' + pctOt + '%)' : '') + '</div>';
-      var chipsHtml = (p.chips && p.chips.length)
-        ? p.chips.slice(0, 10).map(function (f) { return '<span style="display:inline-block;background:#eef2f7;border:1px solid #d5deea;border-radius:6px;padding:1px 6px;margin:1px;font-size:11px">' + rbEsc_(f) + '</span>'; }).join('') + (p.chips.length > 10 ? ' <span class="muted">+' + (p.chips.length - 10) + '</span>' : '')
-        : '<span class="muted">—</span>';
+      var chip = function (f) { return '<span style="display:inline-block;background:#eef2f7;border:1px solid #d5deea;border-radius:6px;padding:1px 6px;margin:1px;font-size:11px">' + rbEsc_(f) + '</span>'; };
+      var chipsHtml = D.days.map(function (d, i) {
+        var fls = (p.chipsByIso && p.chipsByIso[i]) ? p.chipsByIso[i] : [];
+        if (!fls.length) return '';
+        var lab = String(d.label).replace(' (วันนี้)', '');
+        return '<div style="margin-bottom:3px;line-height:1.5"><span class="muted" style="font-size:10px;display:inline-block;min-width:46px;font-weight:600">' + rbEsc_(lab) + '</span> ' + fls.map(chip).join('') + '</div>';
+      }).join('');
+      if (!chipsHtml) chipsHtml = '<span class="muted">—</span>';
       b3 += '<tr data-team="' + rbEsc_(p.team) + '" style="' + rst + '"><td>' + tag + '</td><td class="b">' + rbEsc_(p.name) + '</td><td>' + rbEsc_(p.team) + '</td>' +
         p.byIso.map(function (h, i) {
           var wh = p.workByIso ? p.workByIso[i] : null;      // ชม.งานรวมวันนั้น (ปกติ+OT)
