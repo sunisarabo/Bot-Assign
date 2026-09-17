@@ -8687,6 +8687,7 @@ function rbOTAheadData_(startDate, days) {
 
   var mergedById = {}, infoById = {};                       // id -> {iso:hrs} · id -> {name,team}
   var workById = {}, jobsById = {};                         // id -> {iso: ชม.งาน(duty)} · id -> {iso:[ไฟลท์]}
+  var otFltById = {}, shFltById = {};                       // id -> {iso: #ไฟลท์ในช่วง OT} · {iso: #ไฟลท์ในกะปกติ}
   try {
     var lsh = rbOTLedgerSheet_();
     if (lsh && lsh.getLastRow() > 1) {
@@ -8719,12 +8720,20 @@ function rbOTAheadData_(startDate, days) {
           var id = String(r.id || ('~' + r.name));
           (mergedById[id] = mergedById[id] || {})[iso] = r.ot || 0;               // ช่วงล่วงหน้าทับ ledger
           if (!infoById[id]) infoById[id] = { name: r.name, team: team };
-          // ชม.งานที่ทำ (duty รวม incl OT) + ชิพไฟลท์ที่ทำวันนั้น
-          var duty = 0; try { var dd = acDuty_(r); if (dd.ds != null && dd.de != null) duty = (dd.de - dd.ds) / 60; } catch (eD) {}
+          // ชม.งานที่ทำ (duty รวม incl OT) + ชิพไฟลท์ + แยกจำนวนไฟลท์ที่ทำในกะปกติ vs ในช่วง OT
+          var dd = null; try { dd = acDuty_(r); } catch (eD) {}
+          var duty = (dd && dd.ds != null && dd.de != null) ? (dd.de - dd.ds) / 60 : 0;
           (workById[id] = workById[id] || {})[iso] = Math.round(duty * 10) / 10;
-          var fl = (r.assignments || []).filter(function (a) { return a.flight && acIsFlight_(a.flight) && !a.supportOut; }).map(function (a) { return a.flight; });
-          fl = fl.filter(function (v, i, arr) { return arr.indexOf(v) === i; });
+          var seen = {}, fl = [], nOt = 0, nSh = 0;
+          (r.assignments || []).forEach(function (a) {
+            if (!a.flight || !acIsFlight_(a.flight) || a.supportOut) return;
+            if (seen[a.flight]) return; seen[a.flight] = 1; fl.push(a.flight);
+            var z = ''; try { z = acJobZone_(acFlightWin_(a), dd || {}); } catch (ez) {}
+            if (z && z.indexOf('ot') === 0) nOt++; else nSh++;   // อยู่ในช่วง OT ที่กรอก vs ในกะปกติ
+          });
           if (fl.length) (jobsById[id] = jobsById[id] || {})[iso] = fl;
+          (otFltById[id] = otFltById[id] || {})[iso] = nOt;
+          (shFltById[id] = shFltById[id] || {})[iso] = nSh;
         }
       }
       Object.keys(x.res.teams).forEach(function (t) {
@@ -8747,18 +8756,20 @@ function rbOTAheadData_(startDate, days) {
     Object.keys(m).forEach(function (iso) { if (iso >= wStart && iso <= wEnd) week += m[iso]; if (iso.indexOf(monPrefix) === 0) month += m[iso]; });
     week = r1(week); month = r1(month);
     var flag = (week > OT_WEEK_LIMIT || month > OT_MONTH_LIMIT) ? 'over' : ((week >= OT_WEEK_NEAR || month >= OT_MONTH_NEAR) ? 'near' : '');
-    var wk = workById[id] || {}, jb = jobsById[id] || {};
-    var workWin = 0, otWin = 0, chipSet = {}, chips = [];
+    var wk = workById[id] || {}, jb = jobsById[id] || {}, oj = otFltById[id] || {}, sj = shFltById[id] || {};
+    var workWin = 0, otWin = 0, nOtWin = 0, nShWin = 0, chipSet = {}, chips = [];
     winIsos.forEach(function (iso) {
       if (wk[iso]) workWin += wk[iso];
       if (m[iso] != null) otWin += m[iso];
+      nOtWin += oj[iso] || 0; nShWin += sj[iso] || 0;
       (jb[iso] || []).forEach(function (f) { if (!chipSet[f]) { chipSet[f] = 1; chips.push(f); } });
     });
     persons.push({
       id: id, name: infoById[id].name, team: infoById[id].team,
       byIso: winIsos.map(function (iso) { return m[iso] != null ? r1(m[iso]) : null; }),
       workByIso: winIsos.map(function (iso) { return wk[iso] != null ? r1(wk[iso]) : null; }),
-      workWin: r1(workWin), otWin: r1(otWin), chips: chips,
+      workWin: r1(workWin), otWin: r1(otWin), regWin: r1(workWin - otWin),
+      nOtWin: nOtWin, nShWin: nShWin, chips: chips,
       week: week, month: month, flag: flag
     });
   });
@@ -9329,19 +9340,21 @@ function rbOTAheadHtml(iso) {
       var tag = p.flag === 'over' ? '🔴 เกิน' : (p.flag === 'near' ? '🟠 ใกล้' : '');
       var wcl = p.week > OT_WEEK_LIMIT ? 'color:#b02a2a;font-weight:700' : (p.week >= OT_WEEK_NEAR ? 'color:#b26a00;font-weight:700' : '');
       var mcl = p.month > OT_MONTH_LIMIT ? 'color:#b02a2a;font-weight:700' : (p.month >= OT_MONTH_NEAR ? 'color:#b26a00;font-weight:700' : '');
-      // ชม.งานที่ทำ (duty) เทียบ OT · %OT ของงานทั้งหมด
+      // สรุป "ช่วงนี้" แยก ปกติ vs OT ให้ชัด (ชั่วโมง + จำนวนไฟลท์)
       var pctOt = p.workWin > 0 ? Math.round(p.otWin / p.workWin * 100) : 0;
-      var woCell = '<b>' + (p.workWin || 0) + 'h</b> <span class="muted">งาน</span> / <b style="color:#c2410c">' + (p.otWin || 0) + 'h</b> OT' +
-        (pctOt ? ' <span class="muted">(' + pctOt + '%)</span>' : '');
+      var woCell = '<div><b>งานรวม ' + (p.workWin || 0) + 'h</b></div>' +
+        '<div class="muted" style="font-size:11px">🟩 ปกติ ' + (p.regWin || 0) + 'h · ✈' + (p.nShWin || 0) + '</div>' +
+        '<div style="color:#c2410c;font-size:11px">🟧 OT ' + (p.otWin || 0) + 'h · ✈' + (p.nOtWin || 0) + (pctOt ? ' (' + pctOt + '%)' : '') + '</div>';
       var chipsHtml = (p.chips && p.chips.length)
         ? p.chips.slice(0, 10).map(function (f) { return '<span style="display:inline-block;background:#eef2f7;border:1px solid #d5deea;border-radius:6px;padding:1px 6px;margin:1px;font-size:11px">' + rbEsc_(f) + '</span>'; }).join('') + (p.chips.length > 10 ? ' <span class="muted">+' + (p.chips.length - 10) + '</span>' : '')
         : '<span class="muted">—</span>';
       b3 += '<tr data-team="' + rbEsc_(p.team) + '" style="' + rst + '"><td>' + tag + '</td><td class="b">' + rbEsc_(p.name) + '</td><td>' + rbEsc_(p.team) + '</td>' +
         p.byIso.map(function (h, i) {
           var wh = p.workByIso ? p.workByIso[i] : null;
-          var otTxt = h == null ? '<span class="muted">·</span>' : (h > 0 ? h + 'h' : '<span class="muted">OFF</span>');
-          var whTxt = (wh != null && wh > 0) ? '<div class="muted" style="font-size:10px">งาน ' + wh + 'h</div>' : '';
-          return '<td class="tnum">' + otTxt + whTxt + '</td>';
+          if (h == null && (wh == null || wh === 0)) return '<td class="tnum"><span class="muted">·</span></td>';
+          var whTxt = (wh != null && wh > 0) ? '<b>' + wh + 'h</b>' : '<span class="muted">—</span>';   // ชม.งานรวมวันนั้น (บน)
+          var otTxt = (h != null && h > 0) ? '<div style="color:#c2410c;font-size:10px">OT ' + h + 'h</div>' : '';   // OT วันนั้น (ล่าง)
+          return '<td class="tnum">' + whTxt + otTxt + '</td>';
         }).join('') +
         '<td style="white-space:nowrap">' + woCell + '</td>' +
         '<td class="tnum" style="' + wcl + '">' + p.week + 'h</td><td class="tnum" style="' + mcl + '">' + p.month + 'h</td>' +
@@ -9349,8 +9362,9 @@ function rbOTAheadHtml(iso) {
     });
     if (!b3) b3 = '<tr><td colspan="' + (D.days.length + 7) + '" class="okk" style="text-align:center;padding:14px">✅ ไม่มีคนทำ OT ในช่วงล่วงหน้านี้</td></tr>';
     var sec3 = rbTblCard_('👤 OT รายคน — สัปดาห์ (' + rbEsc_(D.wStart) + '→' + rbEsc_(D.wEnd) + ') · เดือน ' + rbEsc_(D.monPrefix) +
-      ' <span style="font-weight:400;font-size:11px">(🔴 เกิน ' + OT_WEEK_LIMIT + 'h/สัปดาห์ หรือ ' + OT_MONTH_LIMIT + 'h/เดือน · 🟠 ใกล้ · เซลล์รายวัน = OT + ชม.งาน)</span>',
-      '<tr><th>สถานะ</th><th>ชื่อ</th><th>ทีม</th>' + dayTh + '<th>ชม.งาน / OT<br><span style="font-weight:400;font-size:10px">ช่วงนี้</span></th><th>OT สัปดาห์</th><th>OT เดือน</th><th>งานที่ทำ (ชิพ)</th></tr>', b3, rbCtrls_('view-otah', false));
+      ' <span style="font-weight:400;font-size:11px">(🔴 เกิน ' + OT_WEEK_LIMIT + 'h/สัปดาห์ หรือ ' + OT_MONTH_LIMIT + 'h/เดือน · 🟠 ใกล้)</span>' +
+      '<div class="muted" style="font-size:11px;margin-top:2px">เซลล์รายวัน: <b>ตัวเลขบน = ชม.งานรวมวันนั้น</b> · <span style="color:#c2410c">ล่าง = ในนั้นเป็น OT กี่ชม.</span> &nbsp;|&nbsp; คอลัมน์สรุป: 🟩 ปกติ (ชม./จำนวนไฟลท์ ✈) เทียบ 🟧 OT (ชม./✈)</div>',
+      '<tr><th>สถานะ</th><th>ชื่อ</th><th>ทีม</th>' + dayTh + '<th>งาน/OT ช่วงนี้<br><span style="font-weight:400;font-size:10px">ปกติ vs OT (ชม.+✈)</span></th><th>OT สัปดาห์</th><th>OT เดือน</th><th>งานที่ทำ (ชิพ)</th></tr>', b3, rbCtrls_('view-otah', false));
 
     var hd = '<div class="sectionlabel">🔮 OT ล่วงหน้า 3 วัน (จาก ' + rbEsc_(iso) + ') · <b class="badd">🔴 เกินเกณฑ์ ' + nOver + ' คน</b> · 🟠 ใกล้ ' + nNear + ' คน' +
       '<div class="muted" style="font-size:11px;margin-top:2px">เตือนแดง 3 ระดับ: ภาพรวมต่อวัน · รายทีม · รายคน (อิง OT สะสมจริงจาก ledger + ที่จัดล่วงหน้า)</div></div>';
