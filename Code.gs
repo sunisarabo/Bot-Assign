@@ -8780,6 +8780,34 @@ function rbOTAheadData_(startDate, days) {
   return { days: daysArr, teamList: Object.keys(teamSet).sort(), persons: persons, wStart: wStart, wEnd: wEnd, monPrefix: monPrefix };
 }
 
+/** เติม ledger OT ย้อนหลังทั้งเดือน (อ่าน OT อย่างเดียว ไม่เจนรายงานเต็ม → เบา ไม่ OOM)
+ *  ทำให้ "OT เดือน" ใน 🔮 OT ล่วงหน้า / ⚠️ OT เตือน รวม OT ตั้งแต่ต้นเดือน (ต่างจาก "OT สัปดาห์")
+ *  runOTLedgerBackfill()          → เดือนปัจจุบัน (วันที่ 1 ถึงวันนี้)
+ *  runOTLedgerBackfill(2026, 9)   → ระบุเดือน
+ *  มี time-budget กันชน limit 6 นาที + resume (จำวันค้าง) → กด Run ซ้ำจะทำต่อจนครบ */
+function runOTLedgerBackfill(y, m, fromDay) {
+  var now = new Date();
+  if (!y || !m) { y = now.getFullYear(); m = now.getMonth() + 1; }
+  var props = PropertiesService.getScriptProperties(), ckey = 'otBackfill_' + y + '_' + m;
+  if (fromDay == null) { var saved = props.getProperty(ckey); if (saved) fromDay = +saved; }   // ทำต่อจากที่ค้างอัตโนมัติ
+  var start = new Date().getTime(), BUDGET = 5 * 60 * 1000;
+  var lastDay = new Date(y, m, 0).getDate();
+  var isCur = (now.getFullYear() === y && now.getMonth() === m - 1);
+  var endDay = isCur ? now.getDate() : lastDay;                     // เดือนปัจจุบัน → ถึงวันนี้ · เดือนก่อน → ทั้งเดือน
+  var d0 = Math.max(1, fromDay || 1), done = 0, fail = 0, stopAt = 0;
+  for (var d = d0; d <= endDay; d++) {
+    if (new Date().getTime() - start > BUDGET) { stopAt = d; break; }
+    try {
+      var dt = new Date(y, m - 1, d);
+      var x = rbLoadResLL_(dt);
+      rbUpdateOTLedger_(dt, x.res, x.ll);                          // upsert รายคน/วัน (idempotent · prune >70 วัน)
+      done++;
+    } catch (e) { fail++; Logger.log('⚠️ backfill ' + d + '/' + m + ': ' + e.message); }
+  }
+  if (stopAt) { props.setProperty(ckey, String(stopAt)); Logger.log('⏸️ เติม ledger ถึงวันที่ ' + (stopAt - 1) + '/' + m + ' แล้ว (ใกล้หมดเวลา) · รอบนี้ ' + done + ' วัน · 👉 กด Run ฟังก์ชันนี้ซ้ำเพื่อทำต่อจนครบ'); }
+  else { props.deleteProperty(ckey); Logger.log('✅ เติม ledger OT เดือน ' + m + '/' + y + ' ครบแล้ว (ถึงวันที่ ' + endDay + ') · รอบนี้ ' + done + ' วัน' + (fail ? ' · พลาด ' + fail + ' วัน (ดู log)' : '')); }
+}
+
 
 // ===== WebDashboard.gs =====
 
