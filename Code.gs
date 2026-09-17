@@ -239,12 +239,34 @@ function rrRemarkActivity_(remark) {
 function rrExtractFlights_(txt) {
   var out = [], seen = {};
   if (!txt) return out;
-  (String(txt).match(/[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?\d{2,4})?/gi) || []).forEach(function (code) {
-    code = rrClean_(code).replace(/\s+/g, '');
-    if (!acIsFlight_(code)) return;
-    var key = (code.match(/\d{2,4}/g) || []).join('/');
+  var s = String(txt);
+  // ตำแหน่งรหัสไฟลท์ในข้อความ (เก็บ index เพื่อจับคู่กับเวลาที่ตามหลัง)
+  var reF = /[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?\d{2,4})?/gi, mm, hits = [];
+  while ((mm = reF.exec(s))) {
+    var code = rrClean_(mm[0]).replace(/\s+/g, '');
+    if (acIsFlight_(code)) hits.push({ code: code, end: reF.lastIndex });
+  }
+  // หาเวลาช่วง (HH:MM-HH:MM · HHMM-HHMM · (HHMM-HHMM)) ที่อยู่หลังรหัสไฟลท์ ก่อนถึงรหัสถัดไป
+  function timeAfter(pos, before) {
+    var reT = /(\d{1,2})[:.](\d{2})\s*[-–]\s*(\d{1,2})[:.](\d{2})|(?:\()?\b(\d{2})(\d{2})\s*[-–]\s*(\d{2})(\d{2})\b(?:\))?/g;
+    reT.lastIndex = pos; var t;
+    while ((t = reT.exec(s))) {
+      if (before != null && t.index >= before) break;
+      var h1, n1, h2, n2;
+      if (t[1] != null) { h1 = +t[1]; n1 = +t[2]; h2 = +t[3]; n2 = +t[4]; }
+      else { h1 = +t[5]; n1 = +t[6]; h2 = +t[7]; n2 = +t[8]; }
+      if (h1 <= 24 && n1 < 60 && h2 <= 24 && n2 < 60) {
+        var f2 = function (h, n) { return ('0' + h).slice(-2) + ':' + ('0' + n).slice(-2); };
+        return [f2(h1, n1), f2(h2, n2)];
+      }
+    }
+    return null;
+  }
+  hits.forEach(function (h, i) {
+    var key = (h.code.match(/\d{2,4}/g) || []).join('/');
     if (!key || seen[key]) return; seen[key] = 1;
-    out.push({ flight: code, task: '', STA: '', STD: '', OP: '', CL: '' });
+    var tm = timeAfter(h.end, i + 1 < hits.length ? hits[i + 1].end - hits[i + 1].code.length : null);   // เวลาที่กรอกไว้ในเซลล์ (ช่วงงานจริง เช่น crew sign 20:00-21:00)
+    out.push({ flight: h.code, task: '', STA: '', STD: '', OP: tm ? tm[0] : '', CL: tm ? tm[1] : '' });
   });
   return out;
 }
