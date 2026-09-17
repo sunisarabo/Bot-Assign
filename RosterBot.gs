@@ -1004,6 +1004,21 @@ function runOTAhead(days) {
   return out.getUrl();
 }
 
+/** ตรวจ 🔮 OT ล่วงหน้า — กด Run ในหน้า editor (รันด้วยสิทธิ์เจ้าของ) → ดู log
+ *  ถ้า log ✅ = โค้ด/สิทธิ์เจ้าของ OK → ปัญหาอยู่ที่ web app deployment (execute-as / re-authorize)
+ *  ถ้า log ❌ = โชว์ error + step จริงที่พัง */
+function otahDiag() {
+  try {
+    var d = rbOTAheadData_(new Date(), 3);
+    var okN = d.days.filter(function (x) { return x.ok; }).length;
+    var errs = d.days.filter(function (x) { return !x.ok; }).map(function (x) { return '   ' + x.iso + ': ' + (x.err || 'ไม่มีไฟล์'); });
+    Logger.log('✅ rbOTAheadData_ OK · วันโหลดได้ ' + okN + '/' + d.days.length + ' · รายคน ' + d.persons.length +
+      (errs.length ? '\nวันที่โหลดไม่ได้:\n' + errs.join('\n') : ''));
+    try { var html = rbOTAheadHtml(rbDayIso_(new Date())); Logger.log('✅ rbOTAheadHtml OK · ยาว ' + html.length + ' ตัวอักษร'); }
+    catch (eh) { Logger.log('❌ rbOTAheadHtml THREW: ' + eh.message); }
+  } catch (e) { Logger.log('❌ rbOTAheadData_ THREW: ' + e.message + '\n' + (e.stack || '')); }
+}
+
 /** ข้อมูล OT ล่วงหน้า (ใช้ทั้งแท็บชีต + หน้าเว็บ) — คืน { days, teamList, persons, wStart, wEnd, monPrefix }
  *  persons.week/month = OT สะสมจริง (ledger ก่อนหน้า + ช่วงล่วงหน้า) → เตือน "แดงรายคน" ตามเกณฑ์สัปดาห์/เดือน */
 function rbOTAheadData_(startDate, days) {
