@@ -2157,6 +2157,10 @@ function wfSelfTest(dateIso) {
 var SLA_POST = 20;   // fallback post-flight (นาที) เมื่อสายการบินไม่มีฟิลด์ post
 var SLA_TRANSIT_MIN = 55;   // เวลาเบรค/เดินทางต่อไฟลท์ขั้นต่ำ (นาที) — ต้องมีช่องว่าง > 50 นาที ระหว่างไฟลท์ (กันเสนอคนไปช่วยชิดเกินไป)
 var SLA_REST_MIN = 60;      // ถ้าทำ 2 ไฟลท์ติดกันมาแล้ว → ต้องพักก่อนไฟลท์ถัดไป ≥ ค่านี้ (นาที, ปรับเป็น 90 ได้ถ้าต้องการ 1.5 ชม.)
+// สายที่ "เช็คอิน (CI) เฉพาะคนในทีมเท่านั้น" — ไม่รับซัพข้ามทีมแม้จะรู้ระบบ (GATE/ARR ยังเปิดปกติ)
+// เพิ่ม/ลบรหัสสายได้ตรงนี้ (เว้นว่าง {} = ไม่บังคับ ใช้กฎ "รู้ระบบ" ตามเดิม)
+var SLA_CI_INTEAM = { 'EY': 1, 'QR': 1, 'EK': 1 };
+function slaCiInTeam_(airline) { return !!SLA_CI_INTEAM[String(airline || '').toUpperCase()]; }
 // ── ระเบียบชั่วโมงทำงาน (AOTGA) — กะ 7-12 ชม./วัน · OT แยก · เพดานรวม/สัปดาห์ดูทั้งสัปดาห์ ──
 var WH_SHIFT_MIN = 7, WH_SHIFT_MAX = 12, WH_DAY_HIGH = 14;   // กะ 7-12 ชม. · รวม(กะ+OT) >14ช = เตือนพักไม่พอ
 /** สถานะชั่วโมงทำงานรายวันของพนักงาน 1 คน → {shift, ot, total, level, txt}
@@ -2996,6 +3000,7 @@ function slaTransitBuf_(busy, winStart) {
 function slaCandidates_(f, ph, pool, max, winOverride) {
   var win = winOverride || slaPhaseWindow_(f, ph);           // winOverride = ช่วงเวลาที่ Duty ระบุเอง
   if (!win) return [];                                       // ไฟลท์ไม่มีเวลา → เช็คคนว่างไม่ได้ → ไม่แนะคนข้ามทีม (กันแนะคนกะไม่ตรงเวลาจริง)
+  if (ph === 'CI' && slaCiInTeam_(f.airline)) return [];      // สายที่เช็คอินเฉพาะทีมตัวเอง (เช่น EY/QR/EK) → ไม่เสนอคนข้ามทีมช่วยเช็คอิน
   var needSys = slaNeedSys_(f.airline, ph);                   // '' = iPort/ไม่จำกัด → ทุกคนช่วยได้
   var needNorm = needSys ? slaSysNorm_(needSys) : '';
   var cands = pool.filter(function (p) {
@@ -3056,6 +3061,7 @@ function slaCandidates_(f, ph, pool, max, winOverride) {
 function slaOtherCands_(f, ph, pool, max, exclude, winOverride) {
   var win = winOverride || slaPhaseWindow_(f, ph);
   if (!win) return [];
+  if (ph === 'CI' && slaCiInTeam_(f.airline)) return [];      // สายที่เช็คอินเฉพาะทีมตัวเอง → ไม่เสนอคนข้ามทีม (แม้เป็น "คนอื่นๆ")
   var ex = {}; (exclude || []).forEach(function (n) { ex[n] = 1; });
   var cands = pool.filter(function (p) {
     if (ex[p.name]) return false;                           // อยู่ในรายการหลักแล้ว
