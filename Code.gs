@@ -5883,12 +5883,19 @@ function apNotifyMissingAssignments(daysAhead) {
 
 /** ตั้ง trigger รายวัน (รันครั้งเดียวใน Apps Script) · ลบตัวเก่าก่อน กันซ้ำ */
 function apSetupMissingNotify(hour) {
+  // กัน error: ถ้าถูกเรียกจาก "trigger" (ตั้ง handler ผิดมาที่ฟังก์ชันนี้) hour จะเป็น event object → ใช้ค่า default แทน
+  var h = (typeof hour === 'number' && hour >= 0 && hour <= 23) ? hour : AP_NOTIFY_HOUR;
+  // ถ้าถูกเรียกโดย trigger (มี event object) → ลบ trigger ที่ชี้ผิดมาที่ตัวเอง (self-heal)
+  var firedByTrigger = hour != null && typeof hour === 'object';
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'apNotifyMissingDaily') ScriptApp.deleteTrigger(t);
+    var fn = t.getHandlerFunction();
+    if (fn === 'apNotifyMissingDaily') ScriptApp.deleteTrigger(t);
+    if (firedByTrigger && fn === 'apSetupMissingNotify') ScriptApp.deleteTrigger(t);   // ลบ trigger ที่ตั้งผิด (ชี้มาที่ setup)
   });
-  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().everyDays(1).atHour(hour || AP_NOTIFY_HOUR).create();   // รูปแบบรายวันมาตรฐาน (ตัด nearMinute กัน error)
+  ScriptApp.newTrigger('apNotifyMissingDaily').timeBased().everyDays(1).atHour(h).create();   // รูปแบบรายวันมาตรฐาน (ตัด nearMinute กัน error)
+  if (firedByTrigger) { try { apNotifyMissingDaily(); } catch (e) {} }                          // ยิงแจ้งเตือนรอบนี้ให้ด้วย (กันวันนี้ตกหล่น)
   var n = ScriptApp.getProjectTriggers().filter(function (t) { return t.getHandlerFunction() === 'apNotifyMissingDaily'; }).length;
-  return 'ตั้งแจ้งเตือนรายวันเวลา ' + (hour || AP_NOTIFY_HOUR) + ':00 แล้ว — ตอนนี้มี trigger ' + n + ' ตัว (เช็กล่วงหน้า 7 วัน)';
+  return 'ตั้งแจ้งเตือนรายวันเวลา ' + h + ':00 แล้ว — ตอนนี้มี trigger ' + n + ' ตัว (เช็กล่วงหน้า 7 วัน)';
 }
 /** ฟังก์ชันที่ trigger เรียก (fix 7 วัน) */
 function apNotifyMissingDaily() { return apNotifyMissingAssignments(7); }
