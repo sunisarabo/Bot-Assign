@@ -9,3 +9,5 @@ Code.gs
 .git/**
 .github/**
 .clasp.json
+
+ai-app/**
