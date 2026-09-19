@@ -38,11 +38,18 @@ function porterMonthFileId_(date) {
 function porterInt_(v) { var n = parseInt(String(v == null ? '' : v).replace(/[^\d\-]/g, ''), 10); return isNaN(n) ? null : n; }
 function porterStr_(v) { return String(v == null ? '' : v).replace(/ /g, ' ').trim(); }
 function porterBool_(v) { var s = porterStr_(v).toUpperCase(); return s === 'TRUE' || s === '✓' || s === 'YES'; }
-/** วันที่จาก banner คอลัมน์ A → เลขวันของเดือน (รองรับ "01SEP26","11 SEP 26"; ไม่สน typo เดือน เพราะยึดไฟล์รายเดือนแล้ว) */
-function porterBannerDay_(v) {
-  var s = porterStr_(v).toUpperCase().replace(/\s+/g, '');
-  var m = s.match(/^(\d{1,2})([A-Z]{3})(\d{2})$/);
-  return m ? parseInt(m[1], 10) : null;
+/** วันที่จาก banner คอลัมน์ A → {day,mon,yr} (รองรับ Date object, serial number, ข้อความ "01SEP26"/"1 SEP 2026"/"01-SEP-26"; ไม่สน typo เดือน เพราะยึดไฟล์รายเดือนแล้ว) */
+function porterBannerDate_(v) {
+  if (v instanceof Date) { return { day: v.getDate(), mon: v.getMonth(), yr: v.getFullYear() }; }
+  if (typeof v === 'number' && v > 40000 && v < 60000) {          // Google Sheets date serial
+    var dt = new Date(1899, 11, 30); dt.setDate(dt.getDate() + Math.floor(v));
+    return { day: dt.getDate(), mon: dt.getMonth(), yr: dt.getFullYear() };
+  }
+  var s = porterStr_(v).toUpperCase().replace(/[\s.\-\/]/g, '');
+  var m = s.match(/^(\d{1,2})([A-Z]{3})(\d{2,4})$/);              // 01SEP26 / 1SEP2026
+  if (m) { var mi = PORTER_MON_.indexOf(m[2]); return { day: parseInt(m[1], 10), mon: mi >= 0 ? mi : null, yr: null }; }
+  m = s.match(/^(\d{1,2})(\d{1,2})(\d{2,4})$/);                   // 190926 (ddmmyy) — เผื่อไว้
+  return null;
 }
 
 /** อ่านงาน Porter ของวันที่ระบุ → {found, fileName, jobs[], staff[]} */
@@ -55,11 +62,14 @@ function porterReadDay_(date) {
   var W = V.length ? V[0].length : 0;
   var day = date.getDate();
 
-  // หาแถว banner ของแต่ละวัน (คอลัมน์ A เป็นวันที่)
+  // หาแถว banner ของแต่ละวัน (คอลัมน์ A เป็นวันที่) — merge → ค่าอยู่เซลล์ซ้ายบนเท่านั้น
   var banners = [];
-  for (var r = 0; r < V.length; r++) { var d = porterBannerDay_(V[r][0]); if (d) banners.push({ row: r, day: d }); }
+  for (var r = 0; r < V.length; r++) {
+    var bd = porterBannerDate_(V[r][0]);
+    if (bd && bd.day >= 1 && bd.day <= 31) banners.push({ row: r, day: bd.day });   // ยึดเลขวัน (ไฟล์รายเดือนอยู่แล้ว) → รองรับ typo เดือน เช่น 05AUG26
+  }
   var idx = -1; for (var i = 0; i < banners.length; i++) if (banners[i].day === day) { idx = i; break; }
-  if (idx < 0) return { found: false, fileName: ss.getName(), reason: 'ยังไม่มีข้อมูล Porter ของวันที่ ' + day };
+  if (idx < 0) return { found: false, fileName: ss.getName(), reason: 'ยังไม่มีข้อมูล Porter ของวันที่ ' + day, days: banners.map(function (b) { return b.day; }) };
 
   var lo = banners[idx].row + 1;
   var hi = (idx + 1 < banners.length) ? banners[idx + 1].row : V.length;
@@ -187,7 +197,23 @@ function rbPorterHtml(iso) {
 /** ปุ่มเมนู/ทดสอบใน editor */
 function porterDayTest() {
   var d = porterReadDay_(new Date());
-  Logger.log(JSON.stringify({ found: d.found, file: d.fileName, jobs: (d.jobs || []).length, staff: (d.staff || []).length, sample: (d.jobs || []).slice(0, 3) }, null, 2));
+  Logger.log(JSON.stringify({ found: d.found, file: d.fileName, reason: d.reason || '', daysDetected: d.days || null, jobs: (d.jobs || []).length, staff: (d.staff || []).length, sample: (d.jobs || []).slice(0, 3) }, null, 2));
+}
+
+/** วินิจฉัยชีต Porter: ดูค่าดิบคอลัมน์ A เพื่อรู้ว่าหัววันเป็น Date/ข้อความแบบไหน */
+function porterDiag_() {
+  var date = new Date(), fid = porterMonthFileId_(date);
+  if (!fid) { Logger.log('ไม่พบไฟล์เดือนนี้'); return; }
+  var ss = SpreadsheetApp.openById(fid), sh = ss.getSheets()[0], V = sh.getDataRange().getValues();
+  var out = [];
+  for (var r = 0; r < V.length; r++) {
+    var v = V[r][0]; if (v === '' || v == null) continue;
+    var bd = porterBannerDate_(v);
+    out.push({ row: r + 1, type: (v instanceof Date ? 'Date' : typeof v), raw: (v instanceof Date ? v.toString() : String(v)).slice(0, 30), parsedDay: bd ? bd.day : null });
+    if (out.length >= 60) break;
+  }
+  Logger.log('FILE: ' + ss.getName() + ' · rows=' + V.length + ' cols=' + (V[0] ? V[0].length : 0));
+  Logger.log(JSON.stringify(out, null, 2));
 }
 
 function rbPorterCss_() {
