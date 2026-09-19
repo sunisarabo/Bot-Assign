@@ -455,13 +455,17 @@ function rbTimetableHtml(iso) {
     // เส้นเวลาปัจจุบัน — เฉพาะเมื่อดูวันที่ = วันนี้ (ตามเขต Asia/Bangkok)
     var nowMin = -1;
     try { var nw = new Date(), tz = Session.getScriptTimeZone(); if (Utilities.formatDate(nw, tz, 'yyyy-MM-dd') === iso) nowMin = +Utilities.formatDate(nw, tz, 'H') * 60 + +Utilities.formatDate(nw, tz, 'm'); } catch (eN) {}
-    var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll, nowMin) + '</div>';
+    var prod = null; try { prod = rbProductivity_(d.res, d.ll); } catch (eP) { prod = null; }
+    var puBar = prod ? rbProductivityBar_(prod) : '';
+    var puPanel = prod ? rbProductivityPanel_(prod) : '';
+    var puKeys = prod ? prod.byKey : {};
+    var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll, nowMin, puKeys) + '</div>';
     var table = '<div id="gtTable" style="display:none">' + rbTblCard_('',
       '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
       rbTtRows_(d.res, d.ll), '') + '</div>';
-    return '<style>' + rbVIEW_CSS_ + '</style>' + rbGanttCss_() +
+    return '<style>' + rbVIEW_CSS_ + '</style>' + rbGanttCss_() + rbProductivityCss_() +
       '<div class="tablecard">' + head + '<div style="padding:0 16px 16px">' +
-      rbCtrls_('view-tt', false) + gantt + table + '</div></div>';
+      puBar + rbCtrls_('view-tt', false) + gantt + puPanel + table + '</div></div>';
   } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 /** Lazy tab: Flights & SLA HTML. */
@@ -1489,8 +1493,9 @@ function rbFltPhase_(task) {
   return 'na';
 }
 /** มุมมอง Gantt: 1 คน = 1 แถบเวลา 24 ชม. (กะ=น้ำเงิน · OT=ส้ม · ไฟลท์=สีตามเฟส) · nowMin>=0 → เส้นเวลาปัจจุบัน */
-function rbTtGantt_(res, ll, nowMin) {
+function rbTtGantt_(res, ll, nowMin, puKeys) {
   if (nowMin == null) nowMin = -1;
+  if (!puKeys) puKeys = {};
   var owner = acOwnerTeams_(res, ll);
   var rows = [];
   Object.keys(res.teams).forEach(function (t) { res.teams[t].records.forEach(function (r) { rows.push(r); }); });
@@ -1513,7 +1518,15 @@ function rbTtGantt_(res, ll, nowMin) {
   var body = rows.map(function (r) {
     var dn = rbAttr_(String(r.name + ' ' + r.team + ' ' + (r.id || '')).toLowerCase());
     var bkkTag = r.bkk ? ' <span style="font:600 8.5px/1 monospace;background:#eef2ff;color:#3b5bdb;padding:1px 4px;border-radius:4px;vertical-align:1px">BKK</span>' : '';   // พนักงาน BKK มาช่วย (ID ขึ้นต้น B)
-    var head = '<div class="gt-lbl"><b>' + rbEsc_(r.name) + bkkTag + '</b><small>' + rbEsc_(r.team) + (r.pos ? ' · ' + rbEsc_(r.pos) : '') + '</small></div>';
+    var pk = puKeys[String(r.team) + '|' + String(r.name)];
+    if (!pk) { var _sfx = '|' + String(r.name); for (var _kk in puKeys) { if (_kk.slice(-_sfx.length) === _sfx) { pk = puKeys[_kk]; break; } } }
+    var puTag = '';
+    if (pk && pk.dutyMin > 0) {
+      var _u = Math.round(pk.util * 100), _uc = pk.util >= 0.75 ? 'hi' : (pk.util >= 0.5 ? 'ok' : (pk.util >= 0.3 ? 'lo' : 'vlo'));
+      var _idh = Math.round(pk.idleMin / 60 * 10) / 10;
+      puTag = ' <span class="pu-u pu-' + _uc + '" data-tip="Utilization ' + _u + '% · ว่าง ' + _idh + ' ชม.">' + _u + '%</span>';
+    }
+    var head = '<div class="gt-lbl"><b>' + rbEsc_(r.name) + bkkTag + puTag + '</b><small>' + rbEsc_(r.team) + (r.pos ? ' · ' + rbEsc_(r.pos) : '') + '</small></div>';
     var stl = STLB[r.bucket];
     if (stl) return '<div class="gt-row gt-dim" data-team="' + rbEsc_(r.team) + '" data-name="' + dn + '">' + head + '<div class="gt-track"><div class="gt-status ' + STCLS[r.bucket] + '">' + stl + '</div>' + (nowMin >= 0 ? '<div class="gt-now" style="left:' + pct(nowMin) + '%"></div>' : '') + '</div></div>';
     var du = acDuty_(r), track = '';
