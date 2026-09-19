@@ -10468,7 +10468,7 @@ function rbGanttCss_() {
   '.gt-lbl small{font-size:10.5px;color:#5b7189;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
   '.gt-axis{position:relative;height:26px}'+
   '.gt-tick{position:absolute;top:5px;font-size:10.5px;color:#5b7189;transform:translateX(-50%);font-variant-numeric:tabular-nums}'+
-  '.gt-track{position:relative;min-height:44px;background:'+
+  '.gt-track{position:relative;min-height:44px;overflow:hidden;background:'+
     'repeating-linear-gradient(90deg,#eef3f9 0 1px,transparent 1px,transparent calc(100%/24)),'+
     'repeating-linear-gradient(90deg,#dbe6f2 0 1px,transparent 1px,transparent calc(100%/12))}'+
   '.gt-seg{position:absolute;top:5px;height:20px;border-radius:6px;display:flex;align-items:center;padding:0 7px;overflow:hidden;box-shadow:0 1px 3px rgba(16,40,64,.18);min-width:3px}'+
@@ -10537,7 +10537,10 @@ function rbTtGantt_(res, ll, nowMin, puKeys) {
   }
   var STLB = { off: 'OFF', sick: 'SL (ป่วย)', vac: 'ลา' }, STCLS = { off: 'off', sick: 'sl', vac: 'vac' };
   var ticks = '';
-  for (var h = 0; h <= 24; h += 2) ticks += '<span class="gt-tick" style="left:' + pct(h * 60) + '%">' + ('0' + h).slice(-2) + '</span>';
+  for (var h = 0; h <= 24; h += 2) {                       // ป้ายเวลาชิดขอบให้อยู่ในกรอบพอดี: 00 ชิดซ้าย · 24 ชิดขวา · ที่เหลือกึ่งกลาง
+    var tf = h === 0 ? 'translateX(0)' : (h === 24 ? 'translateX(-100%)' : 'translateX(-50%)');
+    ticks += '<span class="gt-tick" style="left:' + pct(h * 60) + '%;transform:' + tf + '">' + ('0' + h).slice(-2) + '</span>';
+  }
   var ruler = '<div class="gt-row gt-ruler"><div class="gt-lbl">คน (' + rows.length + ')</div><div class="gt-axis">' + ticks + '</div></div>';
   var body = rows.map(function (r) {
     var dn = rbAttr_(String(r.name + ' ' + r.team + ' ' + (r.id || '')).toLowerCase());
