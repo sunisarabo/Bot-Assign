@@ -9292,6 +9292,8 @@ function rbLoadResLLraw_(date) {
   var res = readRosterFromSpreadsheet(ss, date);
   // คำขอซัพพอร์ตจากแท็บ "SUPPORT REQUEST" (ฟอร์มใหม่ ก.ย.) — อ่านจาก ss ตัวจริง (ครบทุกแถว ไม่ติด cap fast-read)
   try { res.supportReq = (typeof rrReadSupportReq_ === 'function') ? rrReadSupportReq_(roster.ss) : []; } catch (eSR) { res.supportReq = []; }
+  // แท็บ MANPOWER (สรุปกำลังพลรายวันที่ทีมกรอกเอง) → ใช้เทียบกับยอด "ทำงานจริง" ที่ PAS นับจากชีตทีม
+  try { res.manpower = rbReadManpower_(roster.ss); } catch (eMp) { res.manpower = null; }
   // แท็บ "COUNTER" ในไฟล์ตารางเวรเอง (อ่านก่อนลบไฟล์ชั่วคราว) — วิธีที่ไม่ต้องแชร์ไฟล์ท่า
   res.counters = null;
   try { res.counters = counterReadFromRoster_(ss); } catch (e4) {}   // ใช้ ss ที่ดึงมาแล้ว (ไม่อ่านซ้ำ)
@@ -10510,6 +10512,60 @@ function rbMasterMissingCard_(res, ll, master) {
     '<tr><th>ทีม(แท็บเวร)</th><th>รหัส</th><th>ชื่อ</th></tr>', rows,
     '<span class="muted" style="font-weight:400">ทำให้ยอดทีมไม่ตรง master · เพิ่มคนเหล่านี้เข้าไฟล์รายชื่อให้ครบ</span>') + '</div>';
 }
+/** อ่านแท็บ MANPOWER (แบบฟอร์มรายงานกำลังพลประจำวัน) → { CODE: {working, otH, total, upd} } · หัว: A=ทีม J(9)=ทำงานจริง K(10)=ชม.โอทีรวม */
+function rbReadManpower_(ss) {
+  if (!ss || typeof ss.getSheets !== 'function') return null;
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) {
+    var V; try { V = sheets[i].getDataRange().getDisplayValues(); } catch (e) { continue; }
+    var hdr = -1;
+    for (var r = 0; r < Math.min(14, V.length); r++) {
+      var row = V[r]; if (String(row[0] || '').trim() === 'ทีม' && row.join('|').indexOf('ทำงานจริง') >= 0) { hdr = r; break; }
+    }
+    if (hdr < 0) continue;
+    function num(v) { var n = parseFloat(String(v == null ? '' : v).replace(/[^\d.\-]/g, '')); return isNaN(n) ? null : n; }
+    var out = {};
+    for (var rr = hdr + 1; rr < V.length; rr++) {
+      var a = String(V[rr][0] || '').trim(); if (!a) continue; if (/^รวม/.test(a)) break;
+      var m = a.match(/\(([^)]+)\)/); var code = (m ? m[1] : a).replace(/^team\s*/i, '').trim().toUpperCase();
+      out[code] = { working: num(V[rr][9]), otH: num(V[rr][10]), total: num(V[rr][1]), upd: String(V[rr][12] || '').trim() };
+    }
+    return Object.keys(out).length ? out : null;
+  }
+  return null;
+}
+
+/** การ์ดตรวจยอด MANPOWER: เทียบ "ทำงานจริง/OT" ที่ PAS นับจากชีตทีม กับที่ทีมกรอกในแท็บ MANPOWER */
+function rbManpowerReconCard_(res, ll, mp) {
+  if (!mp) return '';
+  var rows = [], nMis = 0;
+  var teams = Object.keys(res.teams || {}).sort();
+  teams.forEach(function (t) {
+    var recs = res.teams[t].records || [];
+    var pasW = 0, pasOt = 0;
+    recs.forEach(function (r) {
+      if (r.support) return;
+      if ((r.bucket === 'working' || r.bucket === 'ot_off') && !r.training) pasW++;
+      if (r.ot > 0) pasOt += r.ot;
+    });
+    var code = String(t).toUpperCase(), m = mp[code];
+    if (!m) { m = mp[code.replace(/\s+/g, '')] || null; }
+    var mW = m && m.working != null ? m.working : null, mOt = m && m.otH != null ? m.otH : null;
+    var dW = (mW != null) ? (pasW - mW) : null, dOt = (mOt != null) ? Math.round((pasOt - mOt) * 10) / 10 : null;
+    var bad = (dW != null && dW !== 0) || (dOt != null && Math.abs(dOt) >= 1);
+    if (bad) nMis++;
+    function dc(v) { return v == null ? '<span class="muted">—</span>' : (v === 0 ? '<span class="okk">0</span>' : '<b class="badd">' + (v > 0 ? '+' : '') + v + '</b>'); }
+    rows.push('<tr' + (bad ? ' style="background:#fff6f6"' : '') + '><td class="b">' + rbEsc_(t) + '</td>' +
+      '<td class="tnum">' + pasW + '</td><td class="tnum">' + (mW == null ? '—' : mW) + '</td><td class="tnum">' + dc(dW) + '</td>' +
+      '<td class="tnum">' + (Math.round(pasOt * 10) / 10) + '</td><td class="tnum">' + (mOt == null ? '—' : mOt) + '</td><td class="tnum">' + dc(dOt) + '</td>' +
+      '<td class="muted" style="font-size:11px">' + rbEsc_(m ? m.upd : '') + '</td></tr>');
+  });
+  if (!rows.length) return '';
+  var head = '<tr><th>ทีม</th><th>ปฏิบัติงาน<br>(ชีตทีม)</th><th>ทำงานจริง<br>(MANPOWER)</th><th>Δ</th><th>OT ชม.<br>(ชีตทีม)</th><th>OT ชม.<br>(MANPOWER)</th><th>Δ</th><th>อัปเดตล่าสุด</th></tr>';
+  return '<div style="margin-top:16px">' + rbTblCard_('🔎 ตรวจยอด MANPOWER — ชีตทีม vs แท็บ MANPOWER' + (nMis ? ' <span class="badd" style="font-size:12px">(' + nMis + ' ทีมไม่ตรง)</span>' : ' <span class="okk" style="font-size:12px">(ตรงทุกทีม)</span>'),
+    head, rows.join(''), '<span class="muted" style="font-weight:400;font-size:12px">Δ ≠ 0 = ยอดในแท็บ MANPOWER ไม่ตรงกับที่ PAS นับจากชีตทีม (มักค้างจากวันเก่า — ดูคอลัมน์อัปเดตล่าสุด)</span>') + '</div>';
+}
+
 /** การ์ดแยกกำลังพลตามแหล่ง: HKT / BKK / Globex — ยอดคน + แยกตามตำแหน่ง + รวม (นับเฉพาะคนปฏิบัติงานวันนี้) */
 function rbSourceSplitCard_(res, ll, master) {
   var bkkIds = (master && master.bkkIds) || {};
@@ -11023,6 +11079,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     rbSourceSplitCard_(res, ll, master) +
     rbOTAlertCard_(date) +
     '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
+    rbManpowerReconCard_(res, ll, res.manpower) +
     rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
     (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +
