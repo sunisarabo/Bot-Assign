@@ -1843,6 +1843,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
+    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbOTAlertCard_(date) +
     rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
@@ -1950,6 +1951,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function hidePsn(){var p=document.getElementById("psnpop");if(p)p.style.display="none";}' +
     'document.addEventListener("click",function(e){var p=document.getElementById("psnpop");if(p&&p.style.display==="block"&&!p.contains(e.target)&&!(e.target.classList&&e.target.closest(".supchip")))hidePsn();});' +
     'window.addEventListener("load",function(){makeSortable();buildTeamSels();});' +
+    'window.addEventListener("load",function(){if(STATIC)return;if(!(window.google&&google.script&&google.script.run))return;google.script.run.withSuccessHandler(function(h){var b=document.getElementById("porterCardBox");if(!b)return;if(h)b.innerHTML=h;else b.style.display="none";}).withFailureHandler(function(){var b=document.getElementById("porterCardBox");if(b)b.style.display="none";}).rbPorterCardHtml(ISO);});' +
     'window.addEventListener("load",function(){if(!window.Chart)return;if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
     'Chart.defaults.color="'+CI.sub+'";Chart.defaults.font.family="Kanit,sans-serif";Chart.defaults.font.weight="600";' +
     'new Chart(c1,{type:"bar",data:{labels:CD.tn,datasets:[{label:"Working",data:CD.tw,backgroundColor:CD.c.teal,borderRadius:5},{label:"Total",data:CD.tt,backgroundColor:"#c9d6e8",borderRadius:5}]},options:{plugins:{legend:{labels:{boxWidth:12}},datalabels:{anchor:"end",align:"end",font:{size:9,weight:"700"},color:"#15233f"}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"},suggestedMax:Math.max.apply(null,CD.tt)+3}}}});' +

@@ -10867,6 +10867,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
+    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbOTAlertCard_(date) +
     rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
@@ -10974,6 +10975,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     'function hidePsn(){var p=document.getElementById("psnpop");if(p)p.style.display="none";}' +
     'document.addEventListener("click",function(e){var p=document.getElementById("psnpop");if(p&&p.style.display==="block"&&!p.contains(e.target)&&!(e.target.classList&&e.target.closest(".supchip")))hidePsn();});' +
     'window.addEventListener("load",function(){makeSortable();buildTeamSels();});' +
+    'window.addEventListener("load",function(){if(STATIC)return;if(!(window.google&&google.script&&google.script.run))return;google.script.run.withSuccessHandler(function(h){var b=document.getElementById("porterCardBox");if(!b)return;if(h)b.innerHTML=h;else b.style.display="none";}).withFailureHandler(function(){var b=document.getElementById("porterCardBox");if(b)b.style.display="none";}).rbPorterCardHtml(ISO);});' +
     'window.addEventListener("load",function(){if(!window.Chart)return;if(window.ChartDataLabels)Chart.register(window.ChartDataLabels);' +
     'Chart.defaults.color="'+CI.sub+'";Chart.defaults.font.family="Kanit,sans-serif";Chart.defaults.font.weight="600";' +
     'new Chart(c1,{type:"bar",data:{labels:CD.tn,datasets:[{label:"Working",data:CD.tw,backgroundColor:CD.c.teal,borderRadius:5},{label:"Total",data:CD.tt,backgroundColor:"#c9d6e8",borderRadius:5}]},options:{plugins:{legend:{labels:{boxWidth:12}},datalabels:{anchor:"end",align:"end",font:{size:9,weight:"700"},color:"#15233f"}},scales:{x:{grid:{display:false}},y:{beginAtZero:true,grid:{color:"#eef2f8"},suggestedMax:Math.max.apply(null,CD.tt)+3}}}});' +
@@ -12304,6 +12306,38 @@ function rbPorterHtml(iso) {
   }
 }
 
+/** การ์ดสรุปเคส Porter สำหรับ Dashboard หลัก (โหลด lazy) */
+function rbPorterCardHtml(iso) {
+  try {
+    var date = rbDateFromIso_(iso), ck = 'PORTER_CARD_' + iso, cache = null;
+    try { cache = CacheService.getScriptCache(); var h = cache.get(ck); if (h != null) return h; } catch (eC) {}
+    var out = rbPorterCard_(date);
+    try { if (cache) cache.put(ck, out, 300); } catch (eP) {}
+    return out;
+  } catch (e) { return ''; }
+}
+function rbPorterCard_(date) {
+  var data; try { data = porterReadDay_(date); } catch (e) { return ''; }
+  if (!data || !data.found) {
+    return '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3>' +
+      '<button class="btn" style="margin-left:auto" onclick="showView(\'porter\');loadPorter()">เปิดแท็บ →</button></div>' +
+      '<div style="padding:12px 18px" class="muted">ยังไม่มีข้อมูล Porter ของวันนี้' + (data && data.reason ? ' (' + rbEsc_(data.reason) + ')' : '') + '</div></div>';
+  }
+  var S = porterSummarize_(data);
+  function kp(big, lbl, tone) { return '<div class="pt-kpi ' + (tone || '') + '"><div class="pt-big">' + big + '</div><div class="pt-lbl">' + lbl + '</div></div>'; }
+  var top = S.air.slice(0, 5).map(function (a) { return '<span class="pt-airchip">' + rbEsc_(a.airline) + ' <b>' + a.n + '</b></span>'; }).join('');
+  var pre = S.preWC ? kp(S.preWC, 'Pre-WC จอง') : '';
+  return rbPorterCss_() +
+    '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้ <span class="tt-cnt">' + rbEsc_(data.tab || '') + '</span></h3>' +
+    '<button class="btn" style="margin-left:auto" onclick="showView(\'porter\');loadPorter()">ดูทั้งหมด →</button></div>' +
+    '<div style="padding:4px 16px 16px">' +
+    '<div class="pt-bar">' + kp(S.total, 'เคสทั้งหมด') + kp(S.arr, 'ขาเข้า') + kp(S.dep, 'ขาออก') +
+    kp(S.svc.WCHR + '/' + S.svc.WCHS + '/' + S.svc.WCHC, 'WCHR/S/C') + pre +
+    kp(S.staffActive, 'พอตเตอร์ทำงาน') + kp(S.delays.length, 'ล่าช้า', S.delays.length ? 'warn' : '') + '</div>' +
+    (top ? '<div class="pt-airrow">สายที่ใช้มาก: ' + top + '</div>' : '') +
+    '</div></div>';
+}
+
 /** ปุ่มเมนู/ทดสอบใน editor */
 function porterDayTest() {
   var d = porterReadDay_(new Date());
@@ -12340,6 +12374,9 @@ function rbPorterCss_() {
     '.pt-det>summary{cursor:pointer;padding:11px 15px;font-weight:700;color:#1f4e79}' +
     '.pt-detbox{padding:0 12px 12px;overflow-x:auto}' +
     '.pt-detbox td.r,.pt-track+td{color:#c0392b;font-weight:700}' +
+    '.pt-airrow{font-size:12.5px;color:#475569;font-weight:600;display:flex;flex-wrap:wrap;gap:6px;align-items:center}' +
+    '.pt-airchip{background:#eef2ff;color:#3b5bdb;border-radius:20px;padding:2px 10px;font-size:12px}' +
+    '.pt-airchip b{color:#1f2d5c}' +
     '</style>';
 }
 

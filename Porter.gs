@@ -200,6 +200,38 @@ function rbPorterHtml(iso) {
   }
 }
 
+/** การ์ดสรุปเคส Porter สำหรับ Dashboard หลัก (โหลด lazy) */
+function rbPorterCardHtml(iso) {
+  try {
+    var date = rbDateFromIso_(iso), ck = 'PORTER_CARD_' + iso, cache = null;
+    try { cache = CacheService.getScriptCache(); var h = cache.get(ck); if (h != null) return h; } catch (eC) {}
+    var out = rbPorterCard_(date);
+    try { if (cache) cache.put(ck, out, 300); } catch (eP) {}
+    return out;
+  } catch (e) { return ''; }
+}
+function rbPorterCard_(date) {
+  var data; try { data = porterReadDay_(date); } catch (e) { return ''; }
+  if (!data || !data.found) {
+    return '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3>' +
+      '<button class="btn" style="margin-left:auto" onclick="showView(\'porter\');loadPorter()">เปิดแท็บ →</button></div>' +
+      '<div style="padding:12px 18px" class="muted">ยังไม่มีข้อมูล Porter ของวันนี้' + (data && data.reason ? ' (' + rbEsc_(data.reason) + ')' : '') + '</div></div>';
+  }
+  var S = porterSummarize_(data);
+  function kp(big, lbl, tone) { return '<div class="pt-kpi ' + (tone || '') + '"><div class="pt-big">' + big + '</div><div class="pt-lbl">' + lbl + '</div></div>'; }
+  var top = S.air.slice(0, 5).map(function (a) { return '<span class="pt-airchip">' + rbEsc_(a.airline) + ' <b>' + a.n + '</b></span>'; }).join('');
+  var pre = S.preWC ? kp(S.preWC, 'Pre-WC จอง') : '';
+  return rbPorterCss_() +
+    '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้ <span class="tt-cnt">' + rbEsc_(data.tab || '') + '</span></h3>' +
+    '<button class="btn" style="margin-left:auto" onclick="showView(\'porter\');loadPorter()">ดูทั้งหมด →</button></div>' +
+    '<div style="padding:4px 16px 16px">' +
+    '<div class="pt-bar">' + kp(S.total, 'เคสทั้งหมด') + kp(S.arr, 'ขาเข้า') + kp(S.dep, 'ขาออก') +
+    kp(S.svc.WCHR + '/' + S.svc.WCHS + '/' + S.svc.WCHC, 'WCHR/S/C') + pre +
+    kp(S.staffActive, 'พอตเตอร์ทำงาน') + kp(S.delays.length, 'ล่าช้า', S.delays.length ? 'warn' : '') + '</div>' +
+    (top ? '<div class="pt-airrow">สายที่ใช้มาก: ' + top + '</div>' : '') +
+    '</div></div>';
+}
+
 /** ปุ่มเมนู/ทดสอบใน editor */
 function porterDayTest() {
   var d = porterReadDay_(new Date());
@@ -236,5 +268,8 @@ function rbPorterCss_() {
     '.pt-det>summary{cursor:pointer;padding:11px 15px;font-weight:700;color:#1f4e79}' +
     '.pt-detbox{padding:0 12px 12px;overflow-x:auto}' +
     '.pt-detbox td.r,.pt-track+td{color:#c0392b;font-weight:700}' +
+    '.pt-airrow{font-size:12.5px;color:#475569;font-weight:600;display:flex;flex-wrap:wrap;gap:6px;align-items:center}' +
+    '.pt-airchip{background:#eef2ff;color:#3b5bdb;border-radius:20px;padding:2px 10px;font-size:12px}' +
+    '.pt-airchip b{color:#1f2d5c}' +
     '</style>';
 }
