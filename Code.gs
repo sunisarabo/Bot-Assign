@@ -8904,7 +8904,16 @@ function rbPUCalc_(r) {
   var nFlt = 0, seen = {};
   flts.forEach(function (x) { if (x.real) { var k = x.f.split('/')[0]; if (!seen[k]) { seen[k] = 1; nFlt++; } } });
   return { dutyMin: dutyMin, busyMin: busy, idleMin: dutyMin - busy, util: dutyMin > 0 ? busy / dutyMin : 0,
-           maxGap: maxGap, nFlt: nFlt, outMin: outMin, overlaps: overlaps };
+           maxGap: maxGap, nFlt: nFlt, outMin: outMin, overlaps: overlaps, ds: d.ds, de: d.de, busyIv: merged };
+}
+
+/** บวก FTE รายชั่วโมง (27 ช่อง = 00:00→03:00 วันถัดไป) ของช่วง [a,b] ลง arr */
+function rbPUAddHourly_(arr, a, b) {
+  if (a == null || b == null || b <= a) return;
+  for (var h = 0; h < 27; h++) {
+    var lo = h * 60, hi = lo + 60, ov = Math.min(b, hi) - Math.max(a, lo);
+    if (ov > 0) arr[h] += ov / 60;
+  }
 }
 
 /** รวมประสิทธิภาพทั้งวัน → { kpi, teams[], byKey{}, flags{} } */
@@ -8912,6 +8921,7 @@ function rbProductivity_(res, ll) {
   var teams = {}, byKey = {}, persons = [];
   var flagOverlap = [], flagOut = [], flagIdle = [];
   var flightSet = {}, supOutTot = 0;
+  var hrOn = [], hrBusy = []; for (var _h = 0; _h < 27; _h++) { hrOn.push(0); hrBusy.push(0); }   // FTE รายชั่วโมง: อยู่เวร / ติดงานไฟลท์
   function key(team, name) { return String(team) + '|' + String(name); }
   function walk(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
@@ -8928,7 +8938,9 @@ function rbProductivity_(res, ll) {
     if (r.support) t.supIn++;
     if (pu) {
       t.dutyMin += pu.dutyMin; t.busyMin += pu.busyMin; t.idleMin += pu.idleMin;
-      byKey[key(team, r.name)] = { util: pu.util, idleMin: pu.idleMin, dutyMin: pu.dutyMin };
+      rbPUAddHourly_(hrOn, pu.ds, pu.de);                                    // อยู่เวรรายชั่วโมง
+      (pu.busyIv || []).forEach(function (w) { rbPUAddHourly_(hrBusy, w[0], w[1]); });   // ติดงานไฟลท์รายชั่วโมง
+      byKey[key(team, r.name)] = { util: pu.util, idleMin: pu.idleMin, dutyMin: pu.dutyMin, busyMin: pu.busyMin, nFlt: pu.nFlt };
       if (pu.overlaps.length) pu.overlaps.forEach(function (o) { flagOverlap.push({ team: team, name: r.name, pair: o }); });
       if (pu.outMin >= 60) flagOut.push({ team: team, name: r.name, shift: r.shiftTime || r.shift || '', min: pu.outMin });
       if (pu.maxGap >= 240) flagIdle.push({ team: team, name: r.name, shift: r.shiftTime || r.shift || '', gap: pu.maxGap });
@@ -8950,7 +8962,39 @@ function rbProductivity_(res, ll) {
     otHrs: Math.round(TOT / 60 * 10) / 10, idleHrs: Math.round((TD - TB) / 60),
     nOverlap: flagOverlap.length, nOut: flagOut.length, nIdle: flagIdle.length
   };
-  return { kpi: kpi, teams: teamArr, byKey: byKey, flags: { overlap: flagOverlap, out: flagOut, idle: flagIdle } };
+  return { kpi: kpi, teams: teamArr, byKey: byKey, flags: { overlap: flagOverlap, out: flagOut, idle: flagIdle }, hourly: { on: hrOn, busy: hrBusy } };
+}
+
+/** กราฟแท่งรายชั่วโมง (SVG) — อยู่เวร (อ่อน) vs ติดงานไฟลท์ (เข้ม) + ป้าย % ต่อชั่วโมง · 27 ช่อง 00:00→03:00 */
+function rbProductivityChartCard_(p) {
+  var H = p.hourly; if (!H || !H.on) return '';
+  var on = H.on, busy = H.busy, n = 27;
+  var maxY = 1; for (var i = 0; i < n; i++) maxY = Math.max(maxY, on[i]);
+  var W = 960, HT = 250, padL = 34, padR = 8, padT = 20, padB = 26;
+  var cw = W - padL - padR, ch = HT - padT - padB, gw = cw / n, bw = Math.min(13, gw / 2 - 1);
+  function y(v) { return padT + ch - (v / maxY * ch); }
+  var bars = '', labels = '', ticks = '';
+  for (var h = 0; h < n; h++) {
+    var gx = padL + h * gw + (gw - bw * 2 - 1) / 2;
+    var onH = on[h] / maxY * ch, buH = busy[h] / maxY * ch;
+    bars += '<rect x="' + gx.toFixed(1) + '" y="' + y(on[h]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, onH).toFixed(1) + '" fill="#cfe0f2" rx="1.5"/>';
+    bars += '<rect x="' + (gx + bw + 1).toFixed(1) + '" y="' + y(busy[h]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, buH).toFixed(1) + '" fill="#2f74ad" rx="1.5"/>';
+    if (on[h] >= 0.5) {
+      var pct = Math.round(busy[h] / on[h] * 100);
+      labels += '<text x="' + (gx + bw + 1).toFixed(1) + '" y="' + (y(busy[h]) - 3).toFixed(1) + '" font-size="8.5" fill="#1f4e79" text-anchor="middle" font-weight="700">' + pct + '</text>';
+    }
+    if (h % 3 === 0 || h === n - 1) ticks += '<text x="' + (padL + h * gw + gw / 2).toFixed(1) + '" y="' + (HT - 8) + '" font-size="9" fill="#64748b" text-anchor="middle">' + ('0' + (h % 24)).slice(-2) + '</text>';
+  }
+  // เส้น grid + แกน Y
+  var grid = '';
+  for (var g = 0; g <= 4; g++) { var gy = padT + ch - g / 4 * ch, val = Math.round(maxY * g / 4); grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#eef2f7"/><text x="' + (padL - 4) + '" y="' + (gy + 3).toFixed(1) + '" font-size="8.5" fill="#94a3b8" text-anchor="end">' + val + '</text>'; }
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + HT + '" width="100%" style="max-width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">' + grid + bars + labels + ticks + '</svg>';
+  var legend = '<div style="display:flex;gap:16px;font-size:12px;color:#64748b;margin-top:2px">' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#cfe0f2;border-radius:2px;vertical-align:-1px"></i> อยู่เวร (FTE)</span>' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#2f74ad;border-radius:2px;vertical-align:-1px"></i> ติดงานไฟลท์ (FTE)</span>' +
+    '<span style="margin-left:auto">ตัวเลขบนแท่ง = % ของคนอยู่เวรที่ติดงานในชั่วโมงนั้น</span></div>';
+  return '<div class="tablecard" style="margin:0 0 14px"><div class="tablecard__hd"><h3>📊 กำลังพลรายชั่วโมง — อยู่เวร vs ติดงานไฟลท์</h3></div>' +
+    '<div style="padding:4px 16px 14px">' + legend + svg + '</div></div>';
 }
 
 /** แถบ KPI (บนหัว Timetable) */
@@ -9483,6 +9527,7 @@ function rbTimetableHtml(iso) {
     try { var nw = new Date(), tz = Session.getScriptTimeZone(); if (Utilities.formatDate(nw, tz, 'yyyy-MM-dd') === iso) nowMin = +Utilities.formatDate(nw, tz, 'H') * 60 + +Utilities.formatDate(nw, tz, 'm'); } catch (eN) {}
     var prod = null; try { prod = rbProductivity_(d.res, d.ll); } catch (eP) { prod = null; }
     var puBar = prod ? rbProductivityBar_(prod) : '';
+    var puChart = prod ? rbProductivityChartCard_(prod) : '';
     var puPanel = prod ? rbProductivityPanel_(prod) : '';
     var puKeys = prod ? prod.byKey : {};
     var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll, nowMin, puKeys) + '</div>';
@@ -9491,7 +9536,7 @@ function rbTimetableHtml(iso) {
       rbTtRows_(d.res, d.ll), '') + '</div>';
     return '<style>' + rbVIEW_CSS_ + '</style>' + rbGanttCss_() + rbProductivityCss_() +
       '<div class="tablecard">' + head + '<div style="padding:0 16px 16px">' +
-      puBar + rbCtrls_('view-tt', false) + gantt + puPanel + table + '</div></div>';
+      puBar + puChart + rbCtrls_('view-tt', false) + gantt + puPanel + table + '</div></div>';
   } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 /** Lazy tab: Flights & SLA HTML. */
@@ -9512,6 +9557,15 @@ function rbAssignHtml(iso) {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var an = acAnalyze_(d.res, d.ll), s = an.summary;
     var okN = (s.checked - s.bad - s.warn);
+    var acProd = null; try { acProd = rbProductivity_(d.res, d.ll); } catch (ePr) { acProd = null; }
+    var acPK = acProd ? acProd.byKey : {};
+    function acUtilCell_(r) {
+      var pk = acPK[String(r.team) + '|' + String(r.name)];
+      if (!pk) { var sfx = '|' + String(r.name); for (var k in acPK) { if (k.slice(-sfx.length) === sfx) { pk = acPK[k]; break; } } }
+      if (!pk || !pk.dutyMin) return '<td class="tnum muted">—</td>';
+      var u = Math.round(pk.util * 100), c = pk.util >= 0.75 ? '#c0392b' : (pk.util >= 0.5 ? '#1c7a4f' : (pk.util >= 0.3 ? '#b26a10' : '#8a4f06'));
+      return '<td class="tnum" style="color:' + c + ';font-weight:700" title="ติดงาน ' + (Math.round(pk.busyMin / 6) / 10) + 'h ÷ พร้อมทำงาน ' + (Math.round(pk.dutyMin / 6) / 10) + 'h">' + u + '%</td>';
+    }
     var hd = '<style>#view-ac .acok{display:none}</style>' +
       '<div class="sectionlabel">ตรวจ <b>' + s.checked + '</b>/' + s.working +
       ' คนที่มาทำงาน · <b class="badd">🔴 ไฟลท์นอกเวลา/ขาด OT ' + s.bad + '</b> · 🟡 ควรตรวจ ' + s.warn +
@@ -9531,14 +9585,14 @@ function rbAssignHtml(iso) {
         '<td class="tnum ' + ((+zp[2] > 0) ? 'badd' : 'muted') + '" data-zout="' + (+zp[2] || 0) + '">' + (zp[2] || '0') + '</td>';
       return '<tr class="' + (r.status === 'bad' ? 'rowbad' : '') + okCls + '" data-status="' + r.status + '" data-team="' + rbEsc_(r.team) + '" data-gaps="' + rbEsc_(r.gapsRaw || '') + '"><td>' + emo + '</td><td class="b">' +
         rbEsc_(r.team) + '</td><td class="tnum">' + rbEsc_(r.id || '') + '</td><td>' + rbEsc_(r.name) + '</td><td>' + rbEsc_(r.pos) + '</td><td class="tnum">' +
-        rbEsc_(r.shift) + '</td><td>' + (r.ot && r.ot !== '-' ? rbEsc_(r.ot) : '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.flights) + '</td>' + zcell + '<td>' +
+        rbEsc_(r.shift) + '</td><td>' + (r.ot && r.ot !== '-' ? rbEsc_(r.ot) : '<span class="muted">—</span>') + '</td>' + acUtilCell_(r) + '<td>' + rbEsc_(r.flights) + '</td>' + zcell + '<td>' +
         (rbEsc_(r.job) || '<span class="muted">—</span>') + '</td><td class="' + (r.uncovered ? 'badd' : 'muted') + '">' +
         (rbEsc_(r.uncovered) || '—') + '</td><td>' + (rbEsc_(r.gaps) || '<span class="muted">—</span>') + '</td><td>' +
         (rbEsc_(r.otVerdict) || '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.issue) + '</td></tr>';
     }).join('');
-    if (!rows) rows = '<tr><td colspan="16" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
+    if (!rows) rows = '<tr><td colspan="17" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
     return hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
-      '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>ไฟลท์</th>' +
+      '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th title="ติดงานไฟลท์ ÷ เวลาพร้อมทำงาน (กะ+OT)">Util</th><th>ไฟลท์</th>' +
       '<th title="งานในเวลากะปกติ">🟩 ในกะ</th><th title="งานที่อยู่ในช่วง OT ที่กรอกไว้">🟧 OT</th><th title="งานตกนอกกะ ต้องใช้ OT">🟥 นอกกะ</th><th>ไฟลท์ที่ทำ</th>' +
       '<th>ไฟลท์นอกเวลา</th><th>ช่วงว่าง</th><th>OT เหมาะสม?</th><th>ปัญหา/คำแนะนำ</th></tr>',
       rows, rbCtrls_('view-ac', true) + rbGapCtrl_('view-ac'));

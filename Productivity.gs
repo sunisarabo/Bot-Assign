@@ -45,7 +45,16 @@ function rbPUCalc_(r) {
   var nFlt = 0, seen = {};
   flts.forEach(function (x) { if (x.real) { var k = x.f.split('/')[0]; if (!seen[k]) { seen[k] = 1; nFlt++; } } });
   return { dutyMin: dutyMin, busyMin: busy, idleMin: dutyMin - busy, util: dutyMin > 0 ? busy / dutyMin : 0,
-           maxGap: maxGap, nFlt: nFlt, outMin: outMin, overlaps: overlaps };
+           maxGap: maxGap, nFlt: nFlt, outMin: outMin, overlaps: overlaps, ds: d.ds, de: d.de, busyIv: merged };
+}
+
+/** บวก FTE รายชั่วโมง (27 ช่อง = 00:00→03:00 วันถัดไป) ของช่วง [a,b] ลง arr */
+function rbPUAddHourly_(arr, a, b) {
+  if (a == null || b == null || b <= a) return;
+  for (var h = 0; h < 27; h++) {
+    var lo = h * 60, hi = lo + 60, ov = Math.min(b, hi) - Math.max(a, lo);
+    if (ov > 0) arr[h] += ov / 60;
+  }
 }
 
 /** รวมประสิทธิภาพทั้งวัน → { kpi, teams[], byKey{}, flags{} } */
@@ -53,6 +62,7 @@ function rbProductivity_(res, ll) {
   var teams = {}, byKey = {}, persons = [];
   var flagOverlap = [], flagOut = [], flagIdle = [];
   var flightSet = {}, supOutTot = 0;
+  var hrOn = [], hrBusy = []; for (var _h = 0; _h < 27; _h++) { hrOn.push(0); hrBusy.push(0); }   // FTE รายชั่วโมง: อยู่เวร / ติดงานไฟลท์
   function key(team, name) { return String(team) + '|' + String(name); }
   function walk(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
@@ -69,7 +79,9 @@ function rbProductivity_(res, ll) {
     if (r.support) t.supIn++;
     if (pu) {
       t.dutyMin += pu.dutyMin; t.busyMin += pu.busyMin; t.idleMin += pu.idleMin;
-      byKey[key(team, r.name)] = { util: pu.util, idleMin: pu.idleMin, dutyMin: pu.dutyMin };
+      rbPUAddHourly_(hrOn, pu.ds, pu.de);                                    // อยู่เวรรายชั่วโมง
+      (pu.busyIv || []).forEach(function (w) { rbPUAddHourly_(hrBusy, w[0], w[1]); });   // ติดงานไฟลท์รายชั่วโมง
+      byKey[key(team, r.name)] = { util: pu.util, idleMin: pu.idleMin, dutyMin: pu.dutyMin, busyMin: pu.busyMin, nFlt: pu.nFlt };
       if (pu.overlaps.length) pu.overlaps.forEach(function (o) { flagOverlap.push({ team: team, name: r.name, pair: o }); });
       if (pu.outMin >= 60) flagOut.push({ team: team, name: r.name, shift: r.shiftTime || r.shift || '', min: pu.outMin });
       if (pu.maxGap >= 240) flagIdle.push({ team: team, name: r.name, shift: r.shiftTime || r.shift || '', gap: pu.maxGap });
@@ -91,7 +103,39 @@ function rbProductivity_(res, ll) {
     otHrs: Math.round(TOT / 60 * 10) / 10, idleHrs: Math.round((TD - TB) / 60),
     nOverlap: flagOverlap.length, nOut: flagOut.length, nIdle: flagIdle.length
   };
-  return { kpi: kpi, teams: teamArr, byKey: byKey, flags: { overlap: flagOverlap, out: flagOut, idle: flagIdle } };
+  return { kpi: kpi, teams: teamArr, byKey: byKey, flags: { overlap: flagOverlap, out: flagOut, idle: flagIdle }, hourly: { on: hrOn, busy: hrBusy } };
+}
+
+/** กราฟแท่งรายชั่วโมง (SVG) — อยู่เวร (อ่อน) vs ติดงานไฟลท์ (เข้ม) + ป้าย % ต่อชั่วโมง · 27 ช่อง 00:00→03:00 */
+function rbProductivityChartCard_(p) {
+  var H = p.hourly; if (!H || !H.on) return '';
+  var on = H.on, busy = H.busy, n = 27;
+  var maxY = 1; for (var i = 0; i < n; i++) maxY = Math.max(maxY, on[i]);
+  var W = 960, HT = 250, padL = 34, padR = 8, padT = 20, padB = 26;
+  var cw = W - padL - padR, ch = HT - padT - padB, gw = cw / n, bw = Math.min(13, gw / 2 - 1);
+  function y(v) { return padT + ch - (v / maxY * ch); }
+  var bars = '', labels = '', ticks = '';
+  for (var h = 0; h < n; h++) {
+    var gx = padL + h * gw + (gw - bw * 2 - 1) / 2;
+    var onH = on[h] / maxY * ch, buH = busy[h] / maxY * ch;
+    bars += '<rect x="' + gx.toFixed(1) + '" y="' + y(on[h]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, onH).toFixed(1) + '" fill="#cfe0f2" rx="1.5"/>';
+    bars += '<rect x="' + (gx + bw + 1).toFixed(1) + '" y="' + y(busy[h]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, buH).toFixed(1) + '" fill="#2f74ad" rx="1.5"/>';
+    if (on[h] >= 0.5) {
+      var pct = Math.round(busy[h] / on[h] * 100);
+      labels += '<text x="' + (gx + bw + 1).toFixed(1) + '" y="' + (y(busy[h]) - 3).toFixed(1) + '" font-size="8.5" fill="#1f4e79" text-anchor="middle" font-weight="700">' + pct + '</text>';
+    }
+    if (h % 3 === 0 || h === n - 1) ticks += '<text x="' + (padL + h * gw + gw / 2).toFixed(1) + '" y="' + (HT - 8) + '" font-size="9" fill="#64748b" text-anchor="middle">' + ('0' + (h % 24)).slice(-2) + '</text>';
+  }
+  // เส้น grid + แกน Y
+  var grid = '';
+  for (var g = 0; g <= 4; g++) { var gy = padT + ch - g / 4 * ch, val = Math.round(maxY * g / 4); grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#eef2f7"/><text x="' + (padL - 4) + '" y="' + (gy + 3).toFixed(1) + '" font-size="8.5" fill="#94a3b8" text-anchor="end">' + val + '</text>'; }
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + HT + '" width="100%" style="max-width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">' + grid + bars + labels + ticks + '</svg>';
+  var legend = '<div style="display:flex;gap:16px;font-size:12px;color:#64748b;margin-top:2px">' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#cfe0f2;border-radius:2px;vertical-align:-1px"></i> อยู่เวร (FTE)</span>' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#2f74ad;border-radius:2px;vertical-align:-1px"></i> ติดงานไฟลท์ (FTE)</span>' +
+    '<span style="margin-left:auto">ตัวเลขบนแท่ง = % ของคนอยู่เวรที่ติดงานในชั่วโมงนั้น</span></div>';
+  return '<div class="tablecard" style="margin:0 0 14px"><div class="tablecard__hd"><h3>📊 กำลังพลรายชั่วโมง — อยู่เวร vs ติดงานไฟลท์</h3></div>' +
+    '<div style="padding:4px 16px 14px">' + legend + svg + '</div></div>';
 }
 
 /** แถบ KPI (บนหัว Timetable) */
