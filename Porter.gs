@@ -154,6 +154,8 @@ function rbPorterHtml(iso) {
       kp(S.delays.length, 'เคสล่าช้า', S.delays.length ? 'warn' : '') + '</div>';
     // สถานะ
     html += '<div class="pt-status">✅ COMPLETED ' + S.completed + ' · 🔄 ON PROCESS ' + S.onProcess + ' · ⏸️ STANDBY ' + S.standby + '</div>';
+    // Pre-book Wheelchair (จองล่วงหน้า)
+    try { html += prewcPanelHtml_(date); } catch (ePW) {}
 
     // ตารางสายการบิน + พอตเตอร์ (2 คอลัมน์)
     var airRows = S.air.map(function (a) { return '<tr><td class="b">' + rbEsc_(a.airline) + '</td><td class="tnum">' + a.n + '</td></tr>'; }).join('') || '<tr><td colspan="2" class="muted">—</td></tr>';
@@ -220,7 +222,8 @@ function rbPorterCard_(date) {
   var S = porterSummarize_(data);
   function kp(big, lbl, tone) { return '<div class="pt-kpi ' + (tone || '') + '"><div class="pt-big">' + big + '</div><div class="pt-lbl">' + lbl + '</div></div>'; }
   var top = S.air.slice(0, 5).map(function (a) { return '<span class="pt-airchip">' + rbEsc_(a.airline) + ' <b>' + a.n + '</b></span>'; }).join('');
-  var pre = S.preWC ? kp(S.preWC, 'Pre-WC จอง') : '';
+  var preN = null; try { preN = prewcDayTotal_(date); } catch (ePW) { preN = null; }
+  var pre = (preN != null) ? kp(preN, '♿ Pre-WC จอง') : '';
   return rbPorterCss_() +
     '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้ <span class="tt-cnt">' + rbEsc_(data.tab || '') + '</span></h3>' +
     '<button class="btn" style="margin-left:auto" onclick="showView(\'porter\');loadPorter()">ดูทั้งหมด →</button></div>' +
@@ -271,5 +274,8 @@ function rbPorterCss_() {
     '.pt-airrow{font-size:12.5px;color:#475569;font-weight:600;display:flex;flex-wrap:wrap;gap:6px;align-items:center}' +
     '.pt-airchip{background:#eef2ff;color:#3b5bdb;border-radius:20px;padding:2px 10px;font-size:12px}' +
     '.pt-airchip b{color:#1f2d5c}' +
+    '.pt-prewc{margin:14px 0 4px;padding:12px 14px;border:1px solid #dbe7f3;border-radius:12px;background:#f4f9ff}' +
+    '.pt-prewc-hd{font-weight:800;color:#1f4e79;font-size:14px;margin-bottom:2px}' +
+    '.pt-prewc .pt-kpi{background:#fff;border-color:#dbe7f3}' +
     '</style>';
 }
