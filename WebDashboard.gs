@@ -1846,8 +1846,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
-    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbOTAlertCard_(date) +
+    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
     (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +

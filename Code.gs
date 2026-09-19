@@ -1368,33 +1368,35 @@ function readMasterHeadcount(masterFileId) {
   }
 }
 
-/** หาชีต "BKK Batch 1" (ชื่อมีเว้นวรรค/ตัวเลขต่อท้ายได้) */
+/** หาชีต "BKK Batch 1" ตัวแรก (ใช้ตอนเติมคนเข้าไฟล์) */
 function rbFindBkkBatchSheet_(ss) {
-  var found = null;
-  ss.getSheets().forEach(function (s) {
-    var n = s.getName();
-    if (!found && /BKK/i.test(n) && /BATCH/i.test(n)) found = s;
-  });
+  return rbFindBkkBatchSheets_(ss)[0] || null;
+}
+/** หาชีต BKK Batch ทุกตัว (Batch 1, Batch 2, …) — ชื่อมีทั้ง "BKK" และ "BATCH" */
+function rbFindBkkBatchSheets_(ss) {
+  var found = [];
+  ss.getSheets().forEach(function (s) { var n = s.getName(); if (/BKK/i.test(n) && /BATCH/i.test(n)) found.push(s); });
   return found;
 }
-/** แถวคน BKK Batch → { id(เลขล้วน), team, nameTh, pos } · หัวตาราง: รหัส(1) ทีม(2) คำนำหน้า(3) ชื่อ(4) สกุล(5) แผนก(6) ตำแหน่ง(7) */
+/** แถวคน BKK Batch (รวมทุกแท็บ Batch) → { id(เลขล้วน), team, nameTh, pos } · หัวตาราง: รหัส(1) ทีม(2) คำนำหน้า(3) ชื่อ(4) สกุล(5) แผนก(6) ตำแหน่ง(7) */
 function rbReadBkkBatch_(ss) {
-  var out = [], ws = rbFindBkkBatchSheet_(ss);
-  if (!ws) return out;
-  var data = ws.getDataRange().getValues();
-  var hi = 0;
-  for (var h = 0; h < Math.min(6, data.length); h++) {
-    var u = data[h].map(function (c) { return String(c == null ? '' : c); });
-    if (u.some(function (c) { return /รหัส/.test(c); }) && u.some(function (c) { return /ชื่อ/.test(c); })) { hi = h; break; }
-  }
-  for (var i = hi + 1; i < data.length; i++) {
-    var row = data[i];
-    var idNum = String(row[1] == null ? '' : row[1]).replace(/\D/g, '');   // "B2607384" → "2607384"
-    if (!/^\d{6,8}$/.test(idNum)) continue;
-    out.push({ id: idNum, team: String(row[2] || '').trim(),
-      nameTh: (String(row[4] || '').trim() + ' ' + String(row[5] || '').trim()).trim(),
-      pos: String(row[7] || 'Passenger Services Agent').trim() });
-  }
+  var out = [];
+  rbFindBkkBatchSheets_(ss).forEach(function (ws) {          // อ่าน Batch 1 + Batch 2 + … ให้ครบ
+    var data = ws.getDataRange().getValues();
+    var hi = -1;
+    for (var h = 0; h < Math.min(8, data.length); h++) {
+      var u = data[h].map(function (c) { return String(c == null ? '' : c); });
+      if (u.some(function (c) { return /รหัส/.test(c); }) && u.some(function (c) { return /ชื่อ/.test(c); })) { hi = h; break; }
+    }
+    for (var i = (hi >= 0 ? hi + 1 : 1); i < data.length; i++) {
+      var row = data[i];
+      var idNum = String(row[1] == null ? '' : row[1]).replace(/\D/g, '');   // "B2607384"→"2607384" · "2607435"→"2607435"
+      if (!/^\d{6,8}$/.test(idNum)) continue;
+      out.push({ id: idNum, team: String(row[2] || '').trim(),
+        nameTh: (String(row[4] || '').trim() + ' ' + String(row[5] || '').trim()).trim(),
+        pos: String(row[7] || 'Passenger Services Agent').trim() });
+    }
+  });
   return out;
 }
 /** ใส่คน BKK Batch เข้า headcount: hc.ids + นับ PSA (ทุกคนเป็น PSA การโดยสาร) */
@@ -10870,8 +10872,8 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
-    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbOTAlertCard_(date) +
+    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
     (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +
@@ -12359,8 +12361,13 @@ function rbPorterHtml(iso) {
     var data = porterReadDay_(date);
     var html = rbPorterCss_() + '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 งาน Porter รายวัน';
     if (!data.found) {
-      html += '</h3></div><div style="padding:22px"><div class="panel muted" style="text-align:center;padding:30px">' +
-        rbEsc_(data.reason || 'ไม่พบข้อมูล') + (data.fileName ? '<div style="margin-top:6px;font-size:12px">ไฟล์: ' + rbEsc_(data.fileName) + '</div>' : '') + '</div></div></div>';
+      // เคสจริงของ Porter ดูล่วงหน้าไม่ได้ (บันทึกเฉพาะวันที่ทำงานจริง) — แต่ยอดจองรถเข็นล่วงหน้า (Pre-WC) ดูล่วงหน้าได้
+      var pwAhead = ''; try { pwAhead = prewcPanelHtml_(date); } catch (ePWa) { pwAhead = ''; }
+      html += ' <span class="tt-cnt">ดูล่วงหน้า</span></h3></div><div style="padding:8px 16px 18px">' +
+        '<div class="panel muted" style="text-align:center;padding:18px;box-shadow:none">📋 เคสจริงของ Porter ดูล่วงหน้าไม่ได้ — บันทึกเฉพาะวันที่ทำงานจริง' +
+        (data.reason ? '<div style="margin-top:4px;font-size:12px">' + rbEsc_(data.reason) + '</div>' : '') + '</div>' +
+        (pwAhead || '<div class="muted" style="padding:10px 2px">วันนี้ยังไม่มีการจองรถเข็นล่วงหน้า</div>') +
+        '</div></div>';
       return html;
     }
     var S = porterSummarize_(data);
@@ -12436,16 +12443,20 @@ function rbPorterCardHtml(iso) {
   } catch (e) { return ''; }
 }
 function rbPorterCard_(date) {
-  var data; try { data = porterReadDay_(date); } catch (e) { return ''; }
+  function kp(big, lbl, tone) { return '<div class="pt-kpi ' + (tone || '') + '"><div class="pt-big">' + big + '</div><div class="pt-lbl">' + lbl + '</div></div>'; }
+  var data; try { data = porterReadDay_(date); } catch (e) { data = { found: false }; }
+  var preN = null; try { preN = prewcDayTotal_(date); } catch (ePW) { preN = null; }
   if (!data || !data.found) {
-    return '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3>' +
-      '<button class="btn" style="margin-left:auto" onclick="showView(\'porter\');loadPorter()">เปิดแท็บ →</button></div>' +
-      '<div style="padding:12px 18px" class="muted">ยังไม่มีข้อมูล Porter ของวันนี้' + (data && data.reason ? ' (' + rbEsc_(data.reason) + ')' : '') + '</div></div>';
+    // เคสจริงดูล่วงหน้าไม่ได้ → ถ้ามียอดจองล่วงหน้า (Pre-WC) ก็ยังโชว์ได้
+    var body = (preN != null && preN > 0)
+      ? '<div style="padding:4px 16px 14px"><div class="pt-bar">' + kp(preN, '♿ Pre-WC จอง') + '</div>' +
+        '<div class="muted" style="font-size:12px">เคสจริงของ Porter ดูล่วงหน้าไม่ได้ — แสดงเฉพาะยอดจองรถเข็นล่วงหน้า</div></div>'
+      : '<div style="padding:12px 18px" class="muted">ยังไม่มีข้อมูล Porter ของวันนี้' + (data && data.reason ? ' (' + rbEsc_(data.reason) + ')' : '') + '</div>';
+    return rbPorterCss_() + '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3>' +
+      '<button class="btn" style="margin-left:auto" onclick="showView(\'porter\');loadPorter()">เปิดแท็บ →</button></div>' + body + '</div>';
   }
   var S = porterSummarize_(data);
-  function kp(big, lbl, tone) { return '<div class="pt-kpi ' + (tone || '') + '"><div class="pt-big">' + big + '</div><div class="pt-lbl">' + lbl + '</div></div>'; }
   var top = S.air.slice(0, 5).map(function (a) { return '<span class="pt-airchip">' + rbEsc_(a.airline) + ' <b>' + a.n + '</b></span>'; }).join('');
-  var preN = null; try { preN = prewcDayTotal_(date); } catch (ePW) { preN = null; }
   var pre = (preN != null) ? kp(preN, '♿ Pre-WC จอง') : '';
   return rbPorterCss_() +
     '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้ <span class="tt-cnt">' + rbEsc_(data.tab || '') + '</span></h3>' +
