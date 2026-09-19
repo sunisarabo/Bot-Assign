@@ -1331,7 +1331,7 @@ function readMasterHeadcount(masterFileId) {
     if (!ws) { Logger.log('⚠️ Master: ไม่พบชีต "Total" → ข้าม'); return null; }
     var data = ws.getDataRange().getValues();
 
-    var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0, ids: {} };
+    var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0, ids: {}, bkkIds: {} };
     var now = new Date();
 
     for (var i = 1; i < data.length; i++) {
@@ -1402,6 +1402,7 @@ function rbReadBkkBatch_(ss) {
 /** ใส่คน BKK Batch เข้า headcount: hc.ids + นับ PSA (ทุกคนเป็น PSA การโดยสาร) */
 function rbAddBkkBatch_(ss, hc) {
   rbReadBkkBatch_(ss).forEach(function (p) {
+    hc.bkkIds[p.id] = 1;                                       // รหัสคน BKK (ทุก Batch) → ใช้แยกกลุ่ม HKT/BKK/Globex บน Dashboard
     if (hc.ids[p.id]) return;                                  // มีใน Total อยู่แล้ว → ไม่นับซ้ำ
     hc.ids[p.id] = 1;
     var grp = (typeof rrPosGroup_ === 'function') ? rrPosGroup_(p.pos, p.team) : 'Agent';
@@ -8966,7 +8967,6 @@ function rbProductivityBar_(p) {
     card(k.flights, 'คู่ไฟลท์') +
     card(k.support, 'ซัพข้ามทีม') +
     card(k.otHrs, 'OT ชม.') +
-    card((k.nOverlap + k.nOut + k.nIdle), 'ควรทบทวน', (k.nOverlap + k.nOut + k.nIdle) ? 'warn' : '') +
     '</div>';
 }
 
@@ -10402,6 +10402,45 @@ function rbMasterMissingCard_(res, ll, master) {
     '<tr><th>ทีม(แท็บเวร)</th><th>รหัส</th><th>ชื่อ</th></tr>', rows,
     '<span class="muted" style="font-weight:400">ทำให้ยอดทีมไม่ตรง master · เพิ่มคนเหล่านี้เข้าไฟล์รายชื่อให้ครบ</span>') + '</div>';
 }
+/** การ์ดแยกกำลังพลตามแหล่ง: HKT / BKK / Globex — ยอดคน + แยกตามตำแหน่ง + รวม (นับเฉพาะคนปฏิบัติงานวันนี้) */
+function rbSourceSplitCard_(res, ll, master) {
+  var bkkIds = (master && master.bkkIds) || {};
+  var POS = ['PSS', 'SNR', 'PSA', 'AdminD', 'Crewsign', 'Porter'];     // Globlex แยกเป็นคอลัมน์ Globex แล้ว
+  var mat = {}, colTot = { HKT: 0, BKK: 0, Globex: 0 }, otG = { HKT: 0, BKK: 0, Globex: 0 }, grand = 0;
+  POS.forEach(function (p) { mat[p] = { HKT: 0, BKK: 0, Globex: 0 }; });
+  function grp(r) {
+    var id = String(r.id || '').replace(/\D/g, '');
+    if (r.bkk || (id && bkkIds[id])) return 'BKK';               // B-prefix หรืออยู่รายชื่อ BKK Batch (รวม Batch 2 รหัส 2607xxx)
+    var pg0 = (typeof rrPosGroup_ === 'function') ? rrPosGroup_(r.pos, r.team) : '';
+    if (pg0 === 'Globlex') return 'Globex';
+    return 'HKT';
+  }
+  Object.keys(res.teams || {}).forEach(function (t) {
+    (res.teams[t].records || []).forEach(function (r) {
+      if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;   // เฉพาะคนปฏิบัติงาน (ทำงาน + OT วันหยุด)
+      var g = grp(r), pg = (typeof rrPosGroup_ === 'function') ? rrPosGroup_(r.pos, r.team) : 'PSA';
+      if (g === 'Globex') pg = 'Globlex';
+      if (!mat[pg]) mat[pg] = { HKT: 0, BKK: 0, Globex: 0 };
+      mat[pg][g]++; colTot[g]++; grand++;
+      if (r.ot > 0 || r.bucket === 'ot_off') otG[g]++;
+    });
+  });
+  if (!grand) return '';
+  var posOrder = POS.concat(Object.keys(mat).filter(function (p) { return POS.indexOf(p) < 0; }));
+  var rows = posOrder.filter(function (p) { var m = mat[p]; return m && (m.HKT + m.BKK + m.Globex) > 0; }).map(function (p) {
+    var m = mat[p];
+    return '<tr><td class="b">' + rbEsc_(p) + '</td><td class="tnum">' + m.HKT + '</td><td class="tnum">' + m.BKK + '</td><td class="tnum">' + m.Globex + '</td><td class="tnum b">' + (m.HKT + m.BKK + m.Globex) + '</td></tr>';
+  }).join('');
+  rows += '<tr style="background:#f1f6fc;font-weight:800"><td class="b">รวม</td><td class="tnum">' + colTot.HKT + '</td><td class="tnum">' + colTot.BKK + '</td><td class="tnum">' + colTot.Globex + '</td><td class="tnum">' + grand + '</td></tr>';
+  function gc(g, sub) { return '<div class="pt-kpi"><div class="pt-big">' + colTot[g] + '</div><div class="pt-lbl">' + g + ' · OT ' + otG[g] + '</div></div>'; }
+  var kpis = '<div class="pt-bar" style="margin:6px 0 12px">' + gc('HKT') + gc('BKK') + gc('Globex') +
+    '<div class="pt-kpi" style="background:#eef6ff;border-color:#bcd4ee"><div class="pt-big">' + grand + '</div><div class="pt-lbl">รวมทั้งหมด</div></div></div>';
+  var tbl = rbTblCard_('', '<tr><th>ตำแหน่ง</th><th>HKT</th><th>BKK</th><th>Globex</th><th>รวม</th></tr>', rows);
+  return (typeof rbPorterCss_ === 'function' ? rbPorterCss_() : '') +
+    '<div style="margin-top:16px" class="tablecard"><div class="tablecard__hd"><h3>👷 กำลังพลแยกกลุ่ม (HKT / BKK / Globex)</h3>' +
+    '<span class="muted" style="font-weight:400;margin-left:auto;font-size:12px">นับเฉพาะคนปฏิบัติงานวันนี้ · BKK อิงรายชื่อ BKK Batch ในไฟล์ master</span></div>' +
+    '<div style="padding:0 16px 16px">' + kpis + tbl + '</div></div>';
+}
 function rbPosRows_(positions, order) {
   return order.map(function (p) {
     var b = positions[p]; if (!b) return '';
@@ -10571,8 +10610,9 @@ function rbTtGantt_(res, ll, nowMin, puKeys) {
       (du.otSegs || []).forEach(function (sg) {                // ใช้ช่วง OT ที่ acDuty_ จัด timeline แล้ว (PRE/POST จากเวลาจริง) → วางตรงตำแหน่ง ไม่หล่นซ้าย/ข้ามวัน
         var a = sg[0], b = sg[1];
         var pre = (du.ss != null && a < du.ss);
-        track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : ''),
-          r.name + '¦OT' + (r.ot ? ' ' + r.ot + ' ชม.' : '') + (pre ? ' (ก่อนกะ)' : ' (หลังกะ)') + '¦เวลา ' + rrFmtMin_(((a % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((b % 1440) + 1440) % 1440));
+        var otRange = rrFmtMin_(((a % 1440) + 1440) % 1440) + '-' + rrFmtMin_(((b % 1440) + 1440) % 1440);
+        track += seg(a, b, 'gt-ot', 'OT' + (r.ot ? ' ' + r.ot + 'h' : '') + ' ' + otRange,   // โชว์เวลา OT บนแท่ง → เห็นชัดว่าแท่งอยู่ตามเวลาที่ลงในเวร
+          r.name + '¦OT' + (r.ot ? ' ' + r.ot + ' ชม.' : '') + (pre ? ' (ก่อนกะ)' : ' (หลังกะ)') + '¦เวลา ' + otRange);
       });
     }
     // เก็บช่วงเวลาไฟลท์ (วางตามเวลาที่ถูก assign จริง: เคาน์เตอร์ OP–CL ก่อน · ไม่งั้น STA–STD)
@@ -10872,6 +10912,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
+    rbSourceSplitCard_(res, ll, master) +
     rbOTAlertCard_(date) +
     '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbMasterMissingCard_(res, ll, master) +
@@ -11174,7 +11215,7 @@ body {
 .rail-live { display: inline-flex; align-items: center; gap: 7px; font-size: 11.5px; color: #d8e8f8; padding: 0 4px; }
 .pl-dot { width: 8px; height: 8px; border-radius: 50%; background: #58e6a0; animation: pl 2s infinite; flex: 0 0 auto; }
 @keyframes pl { 0%{box-shadow:0 0 0 0 rgba(88,230,160,.5)} 70%{box-shadow:0 0 0 7px rgba(88,230,160,0)} 100%{box-shadow:0 0 0 0 rgba(88,230,160,0)} }
-.app-main { flex: 1; min-width: 0; height: 100vh; overflow: auto; background:
+.app-main { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; overflow-x: hidden; background:
   radial-gradient(1000px 480px at 88% -12%, rgba(78,195,224,.16), transparent 60%),
   radial-gradient(820px 420px at -6% 0%, rgba(29,66,138,.09), transparent 55%), #eef3fa; }
 .app-pad { padding: 20px 24px 44px; max-width: 1400px; margin: 0 auto; }

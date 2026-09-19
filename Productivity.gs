@@ -108,7 +108,6 @@ function rbProductivityBar_(p) {
     card(k.flights, 'คู่ไฟลท์') +
     card(k.support, 'ซัพข้ามทีม') +
     card(k.otHrs, 'OT ชม.') +
-    card((k.nOverlap + k.nOut + k.nIdle), 'ควรทบทวน', (k.nOverlap + k.nOut + k.nIdle) ? 'warn' : '') +
     '</div>';
 }
 

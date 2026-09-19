@@ -24,7 +24,7 @@ function readMasterHeadcount(masterFileId) {
     if (!ws) { Logger.log('⚠️ Master: ไม่พบชีต "Total" → ข้าม'); return null; }
     var data = ws.getDataRange().getValues();
 
-    var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0, ids: {} };
+    var hc = { PSA: { total: 0, byPos: {} }, LL: { total: 0, byPos: {} }, active: 0, ids: {}, bkkIds: {} };
     var now = new Date();
 
     for (var i = 1; i < data.length; i++) {
@@ -95,6 +95,7 @@ function rbReadBkkBatch_(ss) {
 /** ใส่คน BKK Batch เข้า headcount: hc.ids + นับ PSA (ทุกคนเป็น PSA การโดยสาร) */
 function rbAddBkkBatch_(ss, hc) {
   rbReadBkkBatch_(ss).forEach(function (p) {
+    hc.bkkIds[p.id] = 1;                                       // รหัสคน BKK (ทุก Batch) → ใช้แยกกลุ่ม HKT/BKK/Globex บน Dashboard
     if (hc.ids[p.id]) return;                                  // มีใน Total อยู่แล้ว → ไม่นับซ้ำ
     hc.ids[p.id] = 1;
     var grp = (typeof rrPosGroup_ === 'function') ? rrPosGroup_(p.pos, p.team) : 'Agent';
