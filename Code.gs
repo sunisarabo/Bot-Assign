@@ -12180,7 +12180,8 @@ function porterReadDay_(date) {
   var ss = SpreadsheetApp.openById(fid), day = date.getDate();
   var pick = porterFindSheet_(ss, date);
   if (!pick.sheet) return { found: false, fileName: ss.getName(), reason: 'ไม่พบแท็บของวันที่ ' + day, tabs: pick.names };
-  var sh = pick.sheet, V = sh.getDataRange().getValues(), W = V.length ? V[0].length : 0;
+  // ใช้ค่าที่แสดงจริง (string) → ช่องเวลาได้ "6:20" ตรง ๆ ไม่ใช่ Date 1899 · checkbox = "TRUE"/"FALSE"
+  var sh = pick.sheet, V = sh.getDataRange().getDisplayValues(), W = V.length ? V[0].length : 0;
 
   var jobs = [], staff = [];
   for (var rr = 0; rr < V.length; rr++) {
@@ -12216,7 +12217,7 @@ function porterSummarize_(data) {
     var sv = j.svc && svc[j.svc] != null ? j.svc : (j.svc ? 'ETC' : null); if (sv != null) svc[sv]++;
     if (j.airline) air[j.airline] = (air[j.airline] || 0) + 1;
     if (j.status) st[j.status] = (st[j.status] || 0) + 1;
-    if (j.wait) delays.push(j);
+    if (j.wait && !/^0+[:.]0+(?:[:.]0+)?$/.test(j.wait)) delays.push(j);
     var b = bandOf(j.arr ? j.eta : (j.dep ? j.etd : (j.eta || j.etd)));
     if (b) { if (j.arr) bands[b][0]++; else bands[b][1]++; }
   });
