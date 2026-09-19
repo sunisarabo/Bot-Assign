@@ -52,35 +52,40 @@ function porterBannerDate_(v) {
   return null;
 }
 
-/** อ่านงาน Porter ของวันที่ระบุ → {found, fileName, jobs[], staff[]} */
+/** รวมชื่อพอตเตอร์ในเซลล์ (มักเป็นชิพหลายบรรทัด/มี ,) → "A, B, C" */
+function porterNames_(v) {
+  return porterStr_(v).split(/[\n,\/]+/).map(function (s) { return s.trim(); }).filter(function (s) { return s; }).join(', ');
+}
+
+/** เลือกแท็บของวันที่ระบุ (แต่ละวัน = 1 แท็บ ชื่อ "19SEP26") */
+function porterFindSheet_(ss, date) {
+  var sheets = ss.getSheets(), day = date.getDate(), names = [];
+  var exact = null, byDay = null;
+  for (var i = 0; i < sheets.length; i++) {
+    var nm = sheets[i].getName(); names.push(nm);
+    var bd = porterBannerDate_(nm);
+    if (bd && bd.day === day) { byDay = byDay || sheets[i]; if (bd.mon == null || bd.mon === date.getMonth()) exact = exact || sheets[i]; }
+  }
+  return { sheet: exact || byDay, names: names };
+}
+
+/** อ่านงาน Porter ของวันที่ระบุ → {found, fileName, tab, jobs[], staff[]} */
 function porterReadDay_(date) {
   var fid = porterMonthFileId_(date);
   if (!fid) return { found: false, reason: 'ไม่พบไฟล์สรุป Porter ของเดือนนี้' };
-  var ss = SpreadsheetApp.openById(fid);
-  var sh = ss.getSheets()[0];
-  var V = sh.getDataRange().getValues();
-  var W = V.length ? V[0].length : 0;
-  var day = date.getDate();
+  var ss = SpreadsheetApp.openById(fid), day = date.getDate();
+  var pick = porterFindSheet_(ss, date);
+  if (!pick.sheet) return { found: false, fileName: ss.getName(), reason: 'ไม่พบแท็บของวันที่ ' + day, tabs: pick.names };
+  var sh = pick.sheet, V = sh.getDataRange().getValues(), W = V.length ? V[0].length : 0;
 
-  // หาแถว banner ของแต่ละวัน (คอลัมน์ A เป็นวันที่) — merge → ค่าอยู่เซลล์ซ้ายบนเท่านั้น
-  var banners = [];
-  for (var r = 0; r < V.length; r++) {
-    var bd = porterBannerDate_(V[r][0]);
-    if (bd && bd.day >= 1 && bd.day <= 31) banners.push({ row: r, day: bd.day });   // ยึดเลขวัน (ไฟล์รายเดือนอยู่แล้ว) → รองรับ typo เดือน เช่น 05AUG26
-  }
-  var idx = -1; for (var i = 0; i < banners.length; i++) if (banners[i].day === day) { idx = i; break; }
-  if (idx < 0) return { found: false, fileName: ss.getName(), reason: 'ยังไม่มีข้อมูล Porter ของวันที่ ' + day, days: banners.map(function (b) { return b.day; }) };
-
-  var lo = banners[idx].row + 1;
-  var hi = (idx + 1 < banners.length) ? banners[idx + 1].row : V.length;
   var jobs = [], staff = [];
-  for (var rr = lo; rr < hi; rr++) {
+  for (var rr = 0; rr < V.length; rr++) {
     var row = V[rr];
     var num = porterInt_(row[1]), airline = porterStr_(row[2]);
-    if (num != null && airline) {
+    if (num != null && airline && airline.toUpperCase() !== 'IATA CODE') {
       jobs.push({
         no: num, airline: airline.toUpperCase(), flight: porterStr_(row[3]).replace(/^\-$/, ''),
-        porter: porterStr_(row[4]), status: porterStr_(row[5]).toUpperCase(),
+        porter: porterNames_(row[4]), status: porterStr_(row[5]).toUpperCase(),
         eta: porterStr_(row[6]), etd: porterStr_(row[8]),
         gate: porterStr_(row[12]).replace(/^\-$/, ''), notified: porterStr_(row[13]),
         pickup: porterStr_(row[15]), delivered: porterStr_(row[16]),
@@ -93,7 +98,7 @@ function porterReadDay_(date) {
       if (sn != null && nm && nm.toUpperCase() !== 'NAME') staff.push({ no: sn, name: nm, cases: porterInt_(row[28]) || 0 });
     }
   }
-  return { found: true, fileName: ss.getName(), jobs: jobs, staff: staff };
+  return { found: true, fileName: ss.getName(), tab: sh.getName(), jobs: jobs, staff: staff };
 }
 
 /** สรุปตัวเลขจากงาน Porter ของวัน */
@@ -136,7 +141,7 @@ function rbPorterHtml(iso) {
     }
     var S = porterSummarize_(data);
     html += ' <span class="tt-cnt">' + S.total + ' รายการ · ' + S.staffActive + '/' + S.staffN + ' พอตเตอร์ทำงาน</span></h3>' +
-      '<div style="margin-left:auto;font-size:12px;color:#64748b">ที่มา: ' + rbEsc_(data.fileName) + '</div></div>' +
+      '<div style="margin-left:auto;font-size:12px;color:#64748b">ที่มา: ' + rbEsc_(data.fileName) + ' · แท็บ ' + rbEsc_(data.tab || '') + '</div></div>' +
       '<div style="padding:0 16px 18px">';
     // KPI
     function kp(big, lbl, tone) { return '<div class="pt-kpi ' + (tone || '') + '"><div class="pt-big">' + big + '</div><div class="pt-lbl">' + lbl + '</div></div>'; }
@@ -197,22 +202,16 @@ function rbPorterHtml(iso) {
 /** ปุ่มเมนู/ทดสอบใน editor */
 function porterDayTest() {
   var d = porterReadDay_(new Date());
-  Logger.log(JSON.stringify({ found: d.found, file: d.fileName, reason: d.reason || '', daysDetected: d.days || null, jobs: (d.jobs || []).length, staff: (d.staff || []).length, sample: (d.jobs || []).slice(0, 3) }, null, 2));
+  Logger.log(JSON.stringify({ found: d.found, file: d.fileName, tab: d.tab || '', reason: d.reason || '', tabs: d.tabs || null, jobs: (d.jobs || []).length, staff: (d.staff || []).length, sample: (d.jobs || []).slice(0, 3) }, null, 2));
 }
 
-/** วินิจฉัยชีต Porter: ดูค่าดิบคอลัมน์ A เพื่อรู้ว่าหัววันเป็น Date/ข้อความแบบไหน */
+/** วินิจฉัยชีต Porter: ลิสต์ชื่อแท็บทั้งหมด + parse เป็นวันได้ไหม */
 function porterDiag_() {
   var date = new Date(), fid = porterMonthFileId_(date);
   if (!fid) { Logger.log('ไม่พบไฟล์เดือนนี้'); return; }
-  var ss = SpreadsheetApp.openById(fid), sh = ss.getSheets()[0], V = sh.getDataRange().getValues();
-  var out = [];
-  for (var r = 0; r < V.length; r++) {
-    var v = V[r][0]; if (v === '' || v == null) continue;
-    var bd = porterBannerDate_(v);
-    out.push({ row: r + 1, type: (v instanceof Date ? 'Date' : typeof v), raw: (v instanceof Date ? v.toString() : String(v)).slice(0, 30), parsedDay: bd ? bd.day : null });
-    if (out.length >= 60) break;
-  }
-  Logger.log('FILE: ' + ss.getName() + ' · rows=' + V.length + ' cols=' + (V[0] ? V[0].length : 0));
+  var ss = SpreadsheetApp.openById(fid), sheets = ss.getSheets();
+  var out = sheets.map(function (s) { var bd = porterBannerDate_(s.getName()); return { tab: s.getName(), parsedDay: bd ? bd.day : null, mon: bd ? bd.mon : null }; });
+  Logger.log('FILE: ' + ss.getName() + ' · ' + sheets.length + ' แท็บ · วันนี้=' + date.getDate());
   Logger.log(JSON.stringify(out, null, 2));
 }
 
