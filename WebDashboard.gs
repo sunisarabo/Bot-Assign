@@ -457,7 +457,7 @@ function rbTimetableHtml(iso) {
     try { var nw = new Date(), tz = Session.getScriptTimeZone(); if (Utilities.formatDate(nw, tz, 'yyyy-MM-dd') === iso) nowMin = +Utilities.formatDate(nw, tz, 'H') * 60 + +Utilities.formatDate(nw, tz, 'm'); } catch (eN) {}
     var prod = null; try { prod = rbProductivity_(d.res, d.ll); } catch (eP) { prod = null; }
     var puBar = prod ? rbProductivityBar_(prod) : '';
-    var puChart = prod ? rbProductivityChartCard_(prod) : '';
+    var puChart = prod ? (rbProductivityChartCard_(prod) + rbProductivityFlightChartCard_(prod)) : '';
     var puPanel = prod ? rbProductivityPanel_(prod) : '';
     var puKeys = prod ? prod.byKey : {};
     var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll, nowMin, puKeys) + '</div>';

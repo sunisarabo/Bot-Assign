@@ -8922,6 +8922,7 @@ function rbProductivity_(res, ll) {
   var flagOverlap = [], flagOut = [], flagIdle = [];
   var flightSet = {}, supOutTot = 0;
   var hrOn = [], hrBusy = []; for (var _h = 0; _h < 27; _h++) { hrOn.push(0); hrBusy.push(0); }   // FTE รายชั่วโมง: อยู่เวร / ติดงานไฟลท์
+  var flightWins = {};   // รหัสไฟลท์ → ช่วงเวลาที่มีงานพนักงาน (รวมทุกคน) → นับจำนวนไฟลท์ที่ให้บริการต่อชั่วโมง
   function key(team, name) { return String(team) + '|' + String(name); }
   function walk(team, r) {
     if (r.bucket !== 'working' && r.bucket !== 'ot_off') return;
@@ -8933,6 +8934,12 @@ function rbProductivity_(res, ll) {
     (r.assignments || []).forEach(function (a) {
       if (a.supportOut) { t.supOut++; supOutTot++; }
       else if (a.flight && acIsFlight_(a.flight) && !slaSkipTeam_(team)) { var k = a.flight.split('/')[0]; t.fset[k] = 1; flightSet[k] = 1; }
+      // ช่วงบริการของแต่ละไฟลท์ (รวมทุกคน) → นับไฟลท์ต่อชั่วโมง
+      if (a.flight && acIsFlight_(a.flight) && !(typeof acIsActivity_ === 'function' && (a.activity || acIsActivity_(a.flight)))) {
+        var fw = null; try { fw = acFlightWin_(a); } catch (eFw) {}
+        if (fw) { var flo = fw[0], fhi = fw[1]; while (flo < 0) { flo += 1440; fhi += 1440; } while (flo >= 1440) { flo -= 1440; fhi -= 1440; }
+          var kk = a.flight.split('/')[0]; (flightWins[kk] || (flightWins[kk] = [])).push([flo, fhi]); }
+      }
       if (r.support && a.flight) t.supIn = (t.supIn || 0);   // supIn นับจาก r.support ด้านล่าง
     });
     if (r.support) t.supIn++;
@@ -8962,7 +8969,54 @@ function rbProductivity_(res, ll) {
     otHrs: Math.round(TOT / 60 * 10) / 10, idleHrs: Math.round((TD - TB) / 60),
     nOverlap: flagOverlap.length, nOut: flagOut.length, nIdle: flagIdle.length
   };
-  return { kpi: kpi, teams: teamArr, byKey: byKey, flags: { overlap: flagOverlap, out: flagOut, idle: flagIdle }, hourly: { on: hrOn, busy: hrBusy } };
+  var hrFlt = []; for (var _f = 0; _f < 27; _f++) hrFlt.push(0);       // จำนวนไฟลท์ที่ให้บริการ (มีงาน ≥15 นาที) ต่อชั่วโมง
+  Object.keys(flightWins).forEach(function (k) {
+    var ivs = flightWins[k].slice().sort(function (a, b) { return a[0] - b[0]; }), mg = [];
+    ivs.forEach(function (w) { var last = mg[mg.length - 1]; if (last && w[0] <= last[1]) last[1] = Math.max(last[1], w[1]); else mg.push([w[0], w[1]]); });
+    for (var h = 0; h < 27; h++) { var lo = h * 60, hi = lo + 60, ov = false; mg.forEach(function (w) { if (Math.min(w[1], hi) - Math.max(w[0], lo) >= 15) ov = true; }); if (ov) hrFlt[h]++; }
+  });
+  return { kpi: kpi, teams: teamArr, byKey: byKey, flags: { overlap: flagOverlap, out: flagOut, idle: flagIdle }, hourly: { on: hrOn, busy: hrBusy, flt: hrFlt } };
+}
+
+/** กราฟหน้า 2: จำนวนไฟลท์ vs จำนวนพนักงาน รายชั่วโมง (แท่ง=คน อ่านซ้าย · เส้นส้ม=ไฟลท์ อ่านขวา) + แถบ คน/ไฟลท์ */
+function rbProductivityFlightChartCard_(p) {
+  var H = p.hourly; if (!H || !H.on || !H.flt) return '';
+  var on = H.on, busy = H.busy, flt = H.flt, n = 27;
+  var maxP = 1, maxF = 1; for (var i = 0; i < n; i++) { maxP = Math.max(maxP, on[i]); maxF = Math.max(maxF, flt[i]); }
+  var W = 960, HT = 250, padL = 34, padR = 34, padT = 18, padB = 26;
+  var cw = W - padL - padR, ch = HT - padT - padB, gw = cw / n, bw = Math.min(13, gw / 2 - 1);
+  function yP(v) { return padT + ch - (v / maxP * ch); }
+  function yF(v) { return padT + ch - (v / maxF * ch); }
+  var bars = '', ticks = '', pts = [], dots = '';
+  for (var h = 0; h < n; h++) {
+    var gx = padL + h * gw + (gw - bw * 2 - 1) / 2, cx = padL + h * gw + gw / 2;
+    bars += '<rect x="' + gx.toFixed(1) + '" y="' + yP(on[h]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, on[h] / maxP * ch).toFixed(1) + '" fill="#cfe0f2" rx="1.5"/>';
+    bars += '<rect x="' + (gx + bw + 1).toFixed(1) + '" y="' + yP(busy[h]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, busy[h] / maxP * ch).toFixed(1) + '" fill="#2f74ad" rx="1.5"/>';
+    pts.push(cx.toFixed(1) + ',' + yF(flt[h]).toFixed(1));
+    if (flt[h] > 0) { dots += '<circle cx="' + cx.toFixed(1) + '" cy="' + yF(flt[h]).toFixed(1) + '" r="2.4" fill="#e8842a"/><text x="' + cx.toFixed(1) + '" y="' + (yF(flt[h]) - 5).toFixed(1) + '" font-size="8.5" fill="#c56a15" text-anchor="middle" font-weight="700">' + flt[h] + '</text>'; }
+    if (h % 3 === 0 || h === n - 1) ticks += '<text x="' + cx.toFixed(1) + '" y="' + (HT - 8) + '" font-size="9" fill="#64748b" text-anchor="middle">' + ('0' + (h % 24)).slice(-2) + '</text>';
+  }
+  var grid = '';
+  for (var g = 0; g <= 4; g++) { var gy = padT + ch - g / 4 * ch; grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#eef2f7"/>' +
+    '<text x="' + (padL - 4) + '" y="' + (gy + 3).toFixed(1) + '" font-size="8.5" fill="#94a3b8" text-anchor="end">' + Math.round(maxP * g / 4) + '</text>' +
+    '<text x="' + (W - padR + 4) + '" y="' + (gy + 3).toFixed(1) + '" font-size="8.5" fill="#e8842a" text-anchor="start">' + Math.round(maxF * g / 4) + '</text>'; }
+  var line = '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#e8842a" stroke-width="1.6"/>';
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + HT + '" width="100%" style="max-width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">' + grid + bars + line + dots + ticks + '</svg>';
+  // แถบ คน/ไฟลท์ (ตึง/พอดี/หลวม)
+  var strip = '';
+  for (var s = 0; s < n; s++) {
+    var rp = flt[s] > 0 ? Math.round(on[s] / flt[s]) : null, bg = '#eef2f7', col = '#94a3b8';
+    if (rp != null) { if (rp < 8) { bg = '#f8d7da'; col = '#b02a2a'; } else if (rp <= 14) { bg = '#d7f0e0'; col = '#1c7a4f'; } else if (rp <= 24) { bg = '#fdecc8'; col = '#b26a10'; } else { bg = '#ffe0c2'; col = '#c56a15'; } }
+    strip += '<div style="flex:1;min-width:0;text-align:center;background:' + bg + ';color:' + col + ';font-size:9.5px;font-weight:700;padding:3px 0;border-radius:3px">' + (rp == null ? '–' : rp) + '<div style="font-size:7.5px;font-weight:400;opacity:.8">' + ('0' + (s % 24)).slice(-2) + '</div></div>';
+  }
+  var legend = '<div style="display:flex;gap:14px;font-size:12px;color:#64748b;margin-top:2px;flex-wrap:wrap">' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#cfe0f2;border-radius:2px;vertical-align:-1px"></i> คนอยู่เวร</span>' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#2f74ad;border-radius:2px;vertical-align:-1px"></i> คนติดงานไฟลท์</span>' +
+    '<span><i style="display:inline-block;width:14px;height:3px;background:#e8842a;vertical-align:2px"></i> จำนวนไฟลท์ (แกนขวา)</span></div>';
+  return '<div class="tablecard" style="margin:0 0 14px"><div class="tablecard__hd"><h3>✈️ จำนวนไฟลท์ vs จำนวนพนักงาน รายชั่วโมง</h3></div>' +
+    '<div style="padding:4px 16px 14px">' + legend + svg +
+    '<div style="font-size:11px;color:#64748b;margin:6px 0 3px">คนอยู่เวรต่อ 1 ไฟลท์ (ยิ่งมาก = ยิ่งมีคนเหลือ) · <span style="color:#b02a2a">&lt;8 ตึง</span> · <span style="color:#1c7a4f">8–14 พอดี</span> · <span style="color:#b26a10">15–24 หลวม</span> · <span style="color:#c56a15">≥25 หลวมมาก</span></div>' +
+    '<div style="display:flex;gap:2px">' + strip + '</div></div></div>';
 }
 
 /** กราฟแท่งรายชั่วโมง (SVG) — อยู่เวร (อ่อน) vs ติดงานไฟลท์ (เข้ม) + ป้าย % ต่อชั่วโมง · 27 ช่อง 00:00→03:00 */
@@ -9527,7 +9581,7 @@ function rbTimetableHtml(iso) {
     try { var nw = new Date(), tz = Session.getScriptTimeZone(); if (Utilities.formatDate(nw, tz, 'yyyy-MM-dd') === iso) nowMin = +Utilities.formatDate(nw, tz, 'H') * 60 + +Utilities.formatDate(nw, tz, 'm'); } catch (eN) {}
     var prod = null; try { prod = rbProductivity_(d.res, d.ll); } catch (eP) { prod = null; }
     var puBar = prod ? rbProductivityBar_(prod) : '';
-    var puChart = prod ? rbProductivityChartCard_(prod) : '';
+    var puChart = prod ? (rbProductivityChartCard_(prod) + rbProductivityFlightChartCard_(prod)) : '';
     var puPanel = prod ? rbProductivityPanel_(prod) : '';
     var puKeys = prod ? prod.byKey : {};
     var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll, nowMin, puKeys) + '</div>';
@@ -12479,6 +12533,8 @@ function rbPorterHtml(iso) {
       kp(S.delays.length, 'เคสล่าช้า', S.delays.length ? 'warn' : '') + '</div>';
     // สถานะ
     html += '<div class="pt-status">✅ COMPLETED ' + S.completed + ' · 🔄 ON PROCESS ' + S.onProcess + ' · ⏸️ STANDBY ' + S.standby + '</div>';
+    // กราฟ Porter รายชั่วโมง
+    try { html += porterHourlyChart_(data); } catch (ePH) {}
     // Pre-book Wheelchair (จองล่วงหน้า)
     try { html += prewcPanelHtml_(date); } catch (ePW) {}
 
@@ -12562,6 +12618,37 @@ function rbPorterCard_(date) {
     kp(S.staffActive, 'พอตเตอร์ทำงาน') + kp(S.delays.length, 'ล่าช้า', S.delays.length ? 'warn' : '') + '</div>' +
     (top ? '<div class="pt-airrow">สายที่ใช้มาก: ' + top + '</div>' : '') +
     '</div></div>';
+}
+
+/** กราฟ Porter รายชั่วโมง (SVG): พอตเตอร์ที่กำลังทำเคส (แท่ง) + เคสที่ดำเนินอยู่ (เส้น) · 27 ช่อง 00:00→03:00 */
+function porterHourlyChart_(data) {
+  function pm(s) { var m = String(s || '').match(/(\d{1,2})[:.](\d{2})/); return m ? (+m[1] * 60 + +m[2]) : null; }
+  var cases = [], porters = []; for (var h = 0; h < 27; h++) { cases.push(0); porters.push({}); }
+  (data.jobs || []).forEach(function (j) {
+    var a = pm(j.pickup), b = pm(j.delivered); if (a == null) return;
+    if (b == null) b = a + 30; if (b < a) b += 1440;
+    var names = String(j.porter || '').split(/[,/]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    for (var h = 0; h < 27; h++) { var lo = h * 60, hi = lo + 60; if (Math.min(b, hi) - Math.max(a, lo) > 0) { cases[h]++; names.forEach(function (nm) { porters[h][nm] = 1; }); } }
+  });
+  var pcnt = porters.map(function (o) { return Object.keys(o).length; });
+  var maxC = 1, maxP = 1; for (var i = 0; i < 27; i++) { maxC = Math.max(maxC, cases[i]); maxP = Math.max(maxP, pcnt[i]); }
+  var maxY = Math.max(maxC, maxP);
+  var W = 960, HT = 220, padL = 30, padR = 8, padT = 16, padB = 24, cw = W - padL - padR, ch = HT - padT - padB, gw = cw / 27, bw = Math.min(15, gw - 3);
+  function y(v) { return padT + ch - v / maxY * ch; }
+  var bars = '', pts = [], ticks = '', grid = '';
+  for (var g = 0; g <= 4; g++) { var gy = padT + ch - g / 4 * ch; grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#eef2f7"/><text x="' + (padL - 4) + '" y="' + (gy + 3).toFixed(1) + '" font-size="8.5" fill="#94a3b8" text-anchor="end">' + Math.round(maxY * g / 4) + '</text>'; }
+  for (var h2 = 0; h2 < 27; h2++) {
+    var cx = padL + h2 * gw + gw / 2, gx = cx - bw / 2;
+    bars += '<rect x="' + gx.toFixed(1) + '" y="' + y(pcnt[h2]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, pcnt[h2] / maxY * ch).toFixed(1) + '" fill="#bcdcc9" rx="1.5"/>';
+    pts.push(cx.toFixed(1) + ',' + y(cases[h2]).toFixed(1));
+    if (cases[h2] > 0) bars += '<circle cx="' + cx.toFixed(1) + '" cy="' + y(cases[h2]).toFixed(1) + '" r="2.2" fill="#e8842a"/>';
+    if (h2 % 3 === 0 || h2 === 26) ticks += '<text x="' + cx.toFixed(1) + '" y="' + (HT - 7) + '" font-size="9" fill="#64748b" text-anchor="middle">' + ('0' + (h2 % 24)).slice(-2) + '</text>';
+  }
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + HT + '" width="100%" style="max-width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">' + grid + bars + '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#e8842a" stroke-width="1.6"/>' + ticks + '</svg>';
+  var legend = '<div style="display:flex;gap:14px;font-size:12px;color:#64748b;margin-top:2px;flex-wrap:wrap">' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#bcdcc9;border-radius:2px;vertical-align:-1px"></i> พอตเตอร์ที่กำลังทำเคส</span>' +
+    '<span><i style="display:inline-block;width:14px;height:3px;background:#e8842a;vertical-align:2px"></i> เคสที่ดำเนินอยู่</span></div>';
+  return '<div class="pt-prewc" style="background:#f7fbf8;border-color:#cfe6d8"><div class="pt-prewc-hd">🕐 Porter รายชั่วโมง — คนทำเคส vs เคสที่ดำเนินอยู่</div>' + legend + svg + '</div>';
 }
 
 /** ปุ่มเมนู/ทดสอบใน editor */

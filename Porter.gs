@@ -159,6 +159,8 @@ function rbPorterHtml(iso) {
       kp(S.delays.length, 'เคสล่าช้า', S.delays.length ? 'warn' : '') + '</div>';
     // สถานะ
     html += '<div class="pt-status">✅ COMPLETED ' + S.completed + ' · 🔄 ON PROCESS ' + S.onProcess + ' · ⏸️ STANDBY ' + S.standby + '</div>';
+    // กราฟ Porter รายชั่วโมง
+    try { html += porterHourlyChart_(data); } catch (ePH) {}
     // Pre-book Wheelchair (จองล่วงหน้า)
     try { html += prewcPanelHtml_(date); } catch (ePW) {}
 
@@ -242,6 +244,37 @@ function rbPorterCard_(date) {
     kp(S.staffActive, 'พอตเตอร์ทำงาน') + kp(S.delays.length, 'ล่าช้า', S.delays.length ? 'warn' : '') + '</div>' +
     (top ? '<div class="pt-airrow">สายที่ใช้มาก: ' + top + '</div>' : '') +
     '</div></div>';
+}
+
+/** กราฟ Porter รายชั่วโมง (SVG): พอตเตอร์ที่กำลังทำเคส (แท่ง) + เคสที่ดำเนินอยู่ (เส้น) · 27 ช่อง 00:00→03:00 */
+function porterHourlyChart_(data) {
+  function pm(s) { var m = String(s || '').match(/(\d{1,2})[:.](\d{2})/); return m ? (+m[1] * 60 + +m[2]) : null; }
+  var cases = [], porters = []; for (var h = 0; h < 27; h++) { cases.push(0); porters.push({}); }
+  (data.jobs || []).forEach(function (j) {
+    var a = pm(j.pickup), b = pm(j.delivered); if (a == null) return;
+    if (b == null) b = a + 30; if (b < a) b += 1440;
+    var names = String(j.porter || '').split(/[,/]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    for (var h = 0; h < 27; h++) { var lo = h * 60, hi = lo + 60; if (Math.min(b, hi) - Math.max(a, lo) > 0) { cases[h]++; names.forEach(function (nm) { porters[h][nm] = 1; }); } }
+  });
+  var pcnt = porters.map(function (o) { return Object.keys(o).length; });
+  var maxC = 1, maxP = 1; for (var i = 0; i < 27; i++) { maxC = Math.max(maxC, cases[i]); maxP = Math.max(maxP, pcnt[i]); }
+  var maxY = Math.max(maxC, maxP);
+  var W = 960, HT = 220, padL = 30, padR = 8, padT = 16, padB = 24, cw = W - padL - padR, ch = HT - padT - padB, gw = cw / 27, bw = Math.min(15, gw - 3);
+  function y(v) { return padT + ch - v / maxY * ch; }
+  var bars = '', pts = [], ticks = '', grid = '';
+  for (var g = 0; g <= 4; g++) { var gy = padT + ch - g / 4 * ch; grid += '<line x1="' + padL + '" y1="' + gy.toFixed(1) + '" x2="' + (W - padR) + '" y2="' + gy.toFixed(1) + '" stroke="#eef2f7"/><text x="' + (padL - 4) + '" y="' + (gy + 3).toFixed(1) + '" font-size="8.5" fill="#94a3b8" text-anchor="end">' + Math.round(maxY * g / 4) + '</text>'; }
+  for (var h2 = 0; h2 < 27; h2++) {
+    var cx = padL + h2 * gw + gw / 2, gx = cx - bw / 2;
+    bars += '<rect x="' + gx.toFixed(1) + '" y="' + y(pcnt[h2]).toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(0, pcnt[h2] / maxY * ch).toFixed(1) + '" fill="#bcdcc9" rx="1.5"/>';
+    pts.push(cx.toFixed(1) + ',' + y(cases[h2]).toFixed(1));
+    if (cases[h2] > 0) bars += '<circle cx="' + cx.toFixed(1) + '" cy="' + y(cases[h2]).toFixed(1) + '" r="2.2" fill="#e8842a"/>';
+    if (h2 % 3 === 0 || h2 === 26) ticks += '<text x="' + cx.toFixed(1) + '" y="' + (HT - 7) + '" font-size="9" fill="#64748b" text-anchor="middle">' + ('0' + (h2 % 24)).slice(-2) + '</text>';
+  }
+  var svg = '<svg viewBox="0 0 ' + W + ' ' + HT + '" width="100%" style="max-width:100%;height:auto" xmlns="http://www.w3.org/2000/svg">' + grid + bars + '<polyline points="' + pts.join(' ') + '" fill="none" stroke="#e8842a" stroke-width="1.6"/>' + ticks + '</svg>';
+  var legend = '<div style="display:flex;gap:14px;font-size:12px;color:#64748b;margin-top:2px;flex-wrap:wrap">' +
+    '<span><i style="display:inline-block;width:11px;height:11px;background:#bcdcc9;border-radius:2px;vertical-align:-1px"></i> พอตเตอร์ที่กำลังทำเคส</span>' +
+    '<span><i style="display:inline-block;width:14px;height:3px;background:#e8842a;vertical-align:2px"></i> เคสที่ดำเนินอยู่</span></div>';
+  return '<div class="pt-prewc" style="background:#f7fbf8;border-color:#cfe6d8"><div class="pt-prewc-hd">🕐 Porter รายชั่วโมง — คนทำเคส vs เคสที่ดำเนินอยู่</div>' + legend + svg + '</div>';
 }
 
 /** ปุ่มเมนู/ทดสอบใน editor */
