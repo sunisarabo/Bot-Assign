@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="th" data-theme="corporate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAS · Prototype (DB)</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --royal:#1D428A; --sky:#4EC3E0; --ink:#12242f; --ink2:#5b7189; --line:#e2e8f0; --bg:#eef3fa; --surface:#fff; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:Kanit,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .top{ background:linear-gradient(120deg,var(--royal),#2a5bbf); color:#fff; padding:16px 22px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .top b{ font-size:20px; letter-spacing:.5px; } .top .sub{ font-size:12px; opacity:.85; }
+  .top .sp{ margin-left:auto; display:flex; gap:10px; align-items:center; }
+  select,button{ font:inherit; border-radius:9px; border:1px solid rgba(255,255,255,.4); background:rgba(255,255,255,.14); color:#fff; padding:7px 12px; }
+  .wrap{ max-width:1100px; margin:0 auto; padding:18px 16px 40px; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
+  .kpi{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .kpi .n{ font-size:26px; font-weight:800; color:var(--royal); line-height:1.1; }
+  .kpi .l{ font-size:12px; color:var(--ink2); margin-top:4px; font-weight:600; }
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; margin-top:16px; overflow:hidden; }
+  .card h3{ margin:0; padding:13px 16px; font-size:15px; border-bottom:1px solid var(--line); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ text-align:left; padding:8px 12px; border-bottom:1px solid #f1f5f9; }
+  th{ background:#f6f9fd; color:var(--ink2); font-weight:700; font-size:11.5px; }
+  td.n,th.n{ text-align:right; font-variant-numeric:tabular-nums; }
+  .pill{ display:inline-block; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:700; }
+  .pill.HKT{ background:#eef2ff; color:#3b5bdb; } .pill.BKK{ background:#e6f6ec; color:#1c7a4f; } .pill.GLOBEX{ background:#fff4e6; color:#b26a10; }
+  .util{ height:8px; background:#eef2f7; border-radius:5px; overflow:hidden; min-width:70px; }
+  .util>i{ display:block; height:100%; background:#7ecfa0; }
+  .muted{ color:var(--ink2); } .foot{ text-align:center; color:var(--ink2); font-size:12px; margin-top:20px; }
+  .err{ background:#fdecec; color:#b02a2a; padding:12px 16px; border-radius:10px; margin-top:16px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><b>PAS</b> <span class="sub">Prototype · อ่านจาก PostgreSQL</span></div>
+  <div class="sp">
+    <span class="sub" id="dbinfo">…</span>
+    <select id="date" onchange="load()"></select>
+  </div>
+</div>
+<div class="wrap">
+  <div class="kpis" id="kpis"></div>
+  <div id="err"></div>
+  <div class="card"><h3>👷 กำลังพลแยกกลุ่ม (HKT / BKK / Globex)</h3><div id="split" style="padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap"></div></div>
+  <div class="card"><h3>📌 สรุปรายทีม</h3><div style="overflow-x:auto"><table id="teams"><thead><tr><th>ทีม</th><th class="n">ทำงาน</th><th class="n">หยุด</th><th class="n">อบรม</th><th class="n">OT ชม.</th><th class="n">BKK</th></tr></thead><tbody></tbody></table></div></div>
+  <div class="foot">Node http + pg · vendor-neutral · <span id="dt"></span></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+async function api(p){ const r = await fetch(p); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
+function kpi(n,l){ return `<div class="kpi"><div class="n">${n}</div><div class="l">${l}</div></div>`; }
+
+async function boot(){
+  try { const h = await api('/api/health'); $('#dbinfo').textContent = h.db; } catch(e){}
+  let dates = [];
+  try { dates = await api('/api/dates'); } catch(e){}
+  if(!dates.length) dates = [new Date().toISOString().slice(0,10)];
+  $('#date').innerHTML = dates.map(d=>`<option>${d}</option>`).join('');
+  load();
+}
+async function load(){
+  const date = $('#date').value;
+  $('#err').innerHTML=''; $('#dt').textContent = date;
+  try {
+    const s = await api('/api/summary?date='+date);
+    const k = s.kpi;
+    $('#kpis').innerHTML = [
+      kpi(k.working,'คนทำงาน'), kpi(k.teams,'ทีม'), kpi(k.flights,'ไฟลท์'),
+      kpi(k.ot_hours,'OT ชม.'), kpi(k.bkk,'BKK'), kpi(k.porter_cases,'เคส Porter')
+    ].join('');
+    $('#split').innerHTML = s.split.length
+      ? s.split.map(x=>`<span class="pill ${x.grp}">${x.grp} · ${x.on_duty} คน</span>`).join('')
+      : '<span class="muted">— ไม่มีข้อมูล</span>';
+    const tb = $('#teams tbody');
+    tb.innerHTML = s.teams.length
+      ? s.teams.map(t=>`<tr><td><b>${t.team_code}</b></td><td class="n">${t.working}</td><td class="n">${t.off}</td><td class="n">${t.training}</td><td class="n">${(+t.ot_hours).toFixed(1)}</td><td class="n">${t.bkk_count}</td></tr>`).join('')
+      : '<tr><td colspan="6" class="muted" style="text-align:center;padding:16px">— ไม่มีข้อมูลของวันนี้ (import ก่อน)</td></tr>';
+  } catch(e){ $('#err').innerHTML = '<div class="err">โหลดไม่ได้: '+e.message+'</div>'; }
+}
+boot();
+</script>
+</body>
+</html>

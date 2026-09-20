@@ -6,7 +6,9 @@ Code.gs
 *.xlsx
 *.json
 *.sql
+*.js
 db/**
+backend/**
 !appsscript.json
 .git/**
 .github/**
