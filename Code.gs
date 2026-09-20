@@ -10834,8 +10834,20 @@ function rbTtGantt_(res, ll, nowMin, puKeys) {
     var tf = h === 0 ? 'translateX(0)' : (h === 24 ? 'translateX(-100%)' : 'translateX(-50%)');
     ticks += '<span class="gt-tick" style="left:' + pct(h * 60) + '%;transform:' + tf + '">' + ('0' + h).slice(-2) + '</span>';
   }
-  var ruler = '<div class="gt-row gt-ruler"><div class="gt-lbl">คน (' + rows.length + ')</div><div class="gt-axis">' + ticks + '</div></div>';
-  var body = rows.map(function (r) {
+  // dedup ข้ามทีม: คนที่ไปช่วยทีมอื่น (โผล่ในแท็บทีมอื่นแบบไม่มีกะจริง) → ซ่อน แสดงเฉพาะทีมตัวเอง (ทีมที่มีกะ/สถานะ)
+  function rowHasShift_(r) {
+    if (r.bucket === 'off' || r.bucket === 'sick' || r.bucket === 'vac') return true;   // สถานะ = อยู่แท็บบ้านตัวเอง
+    var d = acDuty_(r); return (r.bucket === 'ot_off') ? (d.ds != null) : (d.ss != null);
+  }
+  var homeTeam = {};
+  rows.forEach(function (r) { var id = String(r.id || '').replace(/\D/g, ''); if (/^\d{6,8}$/.test(id) && rowHasShift_(r) && !homeTeam[id]) homeTeam[id] = r.team; });
+  var vis = rows.filter(function (r) {
+    var id = String(r.id || '').replace(/\D/g, '');
+    if (!/^\d{6,8}$/.test(id)) return true;
+    return !(!rowHasShift_(r) && homeTeam[id] && homeTeam[id] !== r.team);   // ไปช่วยทีมอื่น (ไม่มีกะที่นี่) → ซ่อน
+  });
+  var ruler = '<div class="gt-row gt-ruler"><div class="gt-lbl">คน (' + vis.length + ')</div><div class="gt-axis">' + ticks + '</div></div>';
+  var body = vis.map(function (r) {
     var dn = rbAttr_(String(r.name + ' ' + r.team + ' ' + (r.id || '')).toLowerCase());
     var bkkTag = r.bkk ? ' <span style="font:600 8.5px/1 monospace;background:#eef2ff;color:#3b5bdb;padding:1px 4px;border-radius:4px;vertical-align:1px">BKK</span>' : '';   // พนักงาน BKK มาช่วย (ID ขึ้นต้น B)
     var pk = puKeys[String(r.team) + '|' + String(r.name)];
