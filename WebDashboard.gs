@@ -1744,6 +1744,22 @@ function rbTtGantt_(res, ll, nowMin, puKeys) {
           r.name + '¦กะไม่ระบุเวลา — แสดงแถบคลุมช่วงงานให้เห็นบริบท¦' + r.team + (r.pos ? ' · ' + r.pos : ''));
       }
     }
+    // ทีมเอกสาร (ADMIN DOC / PORTER CREWSIGN) ทำ crew sign หลายไฟลท์ → ยุบเหลือแถบเดียว "📄 เอกสาร N ไฟลท์" (hover ดูรายชื่อ)
+    var isDocTeam = (typeof acIsDocTeam_ === 'function' && acIsDocTeam_(r.team)) || /CREW\s?SIGN/i.test(String(r.team || ''));
+    if (isDocTeam && flts.length > 1) {
+      var keep = [], docBars = [];
+      flts.forEach(function (f) { (f.ph === 'train' || f.ph === 'stby') ? keep.push(f) : docBars.push(f); });
+      if (docBars.length > 1) {
+        var dlo = null, dhi = null, names = [], seenN = {};
+        docBars.forEach(function (f) {
+          var a = f.lo < 0 ? 0 : f.lo; if (dlo == null || a < dlo) dlo = a; if (dhi == null || f.hi > dhi) dhi = f.hi;
+          var nm = String(f.lab).replace(/<[^>]+>/g, '').replace(/[📄🔁]/g, '').trim();
+          if (nm && !seenN[nm]) { seenN[nm] = 1; names.push(nm); }
+        });
+        var tip = r.name + '¦📄 งานเอกสาร (crew sign) ' + names.length + ' ไฟลท์¦' + names.join(', ') + '¦' + r.team + (r.pos ? ' · ' + r.pos : '');
+        flts = keep.concat([{ lo: dlo, hi: dhi, ph: 'doc', sup: false, lab: '📄 เอกสาร ' + names.length + ' ไฟลท์', tip: rbAttr_(tip) }]);
+      }
+    }
     // จัดเลนกันทับ: เรียงตามเวลาเริ่ม แล้ววางเลนแรกที่ว่าง
     flts.sort(function (x, y) { return x.lo - y.lo; });
     var laneEnd = [];
