@@ -135,6 +135,8 @@ function debugDumpMaster(masterFileId) {
     hc.active, hc.PSA.total, hc.LL.total, hc.PSA.total + hc.LL.total);
   Logger.log('PSA byPos: %s', JSON.stringify(hc.PSA.byPos));
   Logger.log('LL  byPos: %s', JSON.stringify(hc.LL.byPos));
+  var bk = Object.keys(hc.bkkIds || {});
+  Logger.log('BKK Batch (ทุกแท็บ): %s คน · ตัวอย่างรหัส: %s', bk.length, bk.slice(0, 12).join(', '));
   return hc;
 }
 

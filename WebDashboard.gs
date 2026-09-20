@@ -1478,7 +1478,7 @@ function rbSourceSplitCard_(res, ll, master) {
   var tbl = rbTblCard_('', '<tr><th>ตำแหน่ง</th><th>HKT</th><th>BKK</th><th>Globex</th><th>รวม</th></tr>', rows);
   return (typeof rbPorterCss_ === 'function' ? rbPorterCss_() : '') +
     '<div style="margin-top:16px" class="tablecard"><div class="tablecard__hd"><h3>👷 กำลังพลแยกกลุ่ม (HKT / BKK / Globex)</h3>' +
-    '<span class="muted" style="font-weight:400;margin-left:auto;font-size:12px">นับเฉพาะคนปฏิบัติงานวันนี้ · BKK อิงรายชื่อ BKK Batch ในไฟล์ master</span></div>' +
+    '<span class="muted" style="font-weight:400;margin-left:auto;font-size:12px">นับเฉพาะคนปฏิบัติงานวันนี้ · BKK อิงรายชื่อทุกแท็บ BKK Batch (1+2) ในไฟล์ master</span></div>' +
     '<div style="padding:0 16px 16px">' + kpis + tbl + '</div></div>';
 }
 function rbPosRows_(positions, order) {
