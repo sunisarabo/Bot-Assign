@@ -12693,8 +12693,7 @@ function rbPorterHtml(iso) {
       kp(S.total, 'เคสทั้งหมด') + kp(S.arr, 'ขาเข้า (ARR)') + kp(S.dep, 'ขาออก (DEP)') +
       kp(S.svc.WCHR + '/' + S.svc.WCHS + '/' + S.svc.WCHC, 'WCHR/S/C') +
       kp(S.svc.MAAS + '/' + S.svc.AVIH, 'MAAS/AVIH') +
-      kp(S.staffActive, 'พอตเตอร์ที่ทำงาน') +
-      kp(S.delays.length, 'เคสล่าช้า', S.delays.length ? 'warn' : '') + '</div>';
+      kp(S.staffActive, 'พอตเตอร์ที่ทำงาน') + '</div>';
     // สถานะ
     html += '<div class="pt-status">✅ COMPLETED ' + S.completed + ' · 🔄 ON PROCESS ' + S.onProcess + ' · ⏸️ STANDBY ' + S.standby + '</div>';
     // กราฟ Porter รายชั่วโมง
@@ -12716,15 +12715,6 @@ function rbPorterHtml(iso) {
     // ช่วงเวลา
     var bandRows = Object.keys(S.bands).map(function (b) { var x = S.bands[b]; return '<tr><td class="b">' + b + '</td><td class="tnum">' + x[0] + '</td><td class="tnum">' + x[1] + '</td><td class="tnum">' + (x[0] + x[1]) + '</td></tr>'; }).join('');
     html += rbTblCard_('🕐 กระจายตามช่วงเวลา', '<tr><th>ช่วงเวลา</th><th>ARR</th><th>DEP</th><th>รวม</th></tr>', bandRows);
-
-    // เคสล่าช้า
-    if (S.delays.length) {
-      var dRows = S.delays.map(function (j) {
-        return '<tr><td class="b">' + rbEsc_(j.airline) + (j.flight ? ' ' + rbEsc_(j.flight) : '') + '</td><td>' + rbEsc_(j.svc) + '</td><td>' + rbEsc_(j.porter) + '</td>' +
-          '<td class="tnum">' + rbEsc_(j.notified || '-') + '</td><td class="tnum">' + rbEsc_(j.pickup || '-') + '</td><td class="tnum r">' + rbEsc_(j.wait) + '</td><td>' + rbEsc_(j.remark) + '</td></tr>';
-      }).join('');
-      html += rbTblCard_('⏳ เคสที่รอ/ล่าช้า', '<tr><th>ไฟลท์</th><th>บริการ</th><th>พอตเตอร์</th><th>แจ้งเคส</th><th>รับเคส</th><th>รอ</th><th>หมายเหตุ</th></tr>', dRows);
-    }
 
     // รายการงานทั้งหมด (พับได้)
     var jRows = data.jobs.map(function (j) {
@@ -12779,7 +12769,7 @@ function rbPorterCard_(date) {
     '<div style="padding:4px 16px 16px">' +
     '<div class="pt-bar">' + kp(S.total, 'เคสทั้งหมด') + kp(S.arr, 'ขาเข้า') + kp(S.dep, 'ขาออก') +
     kp(S.svc.WCHR + '/' + S.svc.WCHS + '/' + S.svc.WCHC, 'WCHR/S/C') + pre +
-    kp(S.staffActive, 'พอตเตอร์ทำงาน') + kp(S.delays.length, 'ล่าช้า', S.delays.length ? 'warn' : '') + '</div>' +
+    kp(S.staffActive, 'พอตเตอร์ทำงาน') + '</div>' +
     (top ? '<div class="pt-airrow">สายที่ใช้มาก: ' + top + '</div>' : '') +
     '</div></div>';
 }
