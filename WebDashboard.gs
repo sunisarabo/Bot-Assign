@@ -1591,6 +1591,7 @@ function rbGanttCss_() {
   '.gt-seg{position:absolute;top:5px;height:20px;border-radius:6px;display:flex;align-items:center;padding:0 7px;overflow:hidden;box-shadow:0 1px 3px rgba(16,40,64,.18);min-width:3px}'+
   '.gt-seg span{font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
   '.gt-shift{background:linear-gradient(180deg,#2f74ad,#245d8f);color:#fff}'+
+  '.gt-ghost{background:repeating-linear-gradient(45deg,#eef2f7,#eef2f7 6px,#e3e9f1 6px,#e3e9f1 12px);color:#6b7b8e;box-shadow:none;border:1px dashed #c3ccd8}'+   /* กะไม่ระบุ — แถบพื้นกันบาร์ลอย */
   '.gt-ot{background:linear-gradient(180deg,#f7b733,#e39a10);color:#3a2800}'+
   '.gt-flt{position:absolute;height:16px;border-radius:5px;padding:0 5px;display:flex;align-items:center;overflow:hidden;min-width:3px;z-index:1;border:1px solid}'+
   '.gt-flt span{font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
@@ -1711,7 +1712,7 @@ function rbTtGantt_(res, ll, nowMin, puKeys) {
       var capMax = (typeof AC_WIN_MAX !== 'undefined') ? AC_WIN_MAX : 840;
       if (!win || (win[1] - win[0]) > capMax) return;           // ไม่มีเวลา/หน้าต่างเพี้ยน → ไม่วางแถบ
       var lo = win[0], hi = win[1];
-      if (hi - lo < 35) hi = lo + 35;                           // min 35 นาที ให้ป้ายพออ่าน
+      if (hi - lo < 45) hi = lo + 45;                           // min 45 นาที ให้ป้ายพออ่าน
       var isDoc = /\bDE-?BRIEF\b|\bMANIFEST\b|STAFF\s*LIST/i.test(String(a.task || ''));   // เอกสารตามกำหนดส่ง (Debrief/Manifest/Staff list)
       var ph = isDoc ? 'doc' : (/^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? 'lp' : rbFltPhase_(a.task));   // โซน LP / เอกสาร → สีแยก
       var supFlt = isSupCol ? rrCleanFltName_(String(a.flight).replace(/^(SUPPORT|ซัพ)\s*/i, '')) : '';   // ดึงรหัสไฟลท์จาก "SUPPORT 6E1493-1494"
@@ -1733,6 +1734,15 @@ function rbTtGantt_(res, ll, nowMin, puKeys) {
     if (!flts.length && r.bucket === 'working' && du.ss != null && du.se != null && typeof slaIsFloatTeam_ === 'function' && slaIsFloatTeam_(r.team)) {
       flts.push({ lo: du.ss, hi: du.se, ph: 'stby', sup: false, lab: 'STBY · รอ assign',
         tip: rbAttr_(r.name + '¦STBY (พูลสแตนด์บาย) — รอจัดไฟลท์¦' + r.team + (r.shiftTime ? ' · กะ ' + r.shiftTime : '')) });
+    }
+    // ไม่มีแถบกะ (กะอ่านไม่ออก/คนมาช่วยจากทีมอื่น) แต่มีไฟลท์ → วาดแถบพื้นจางคลุมช่วงงาน กันบาร์ลอยเดี่ยว ๆ
+    if (barLo == null && !isOtOff && flts.length) {
+      var _glo = null, _ghi = null;
+      flts.forEach(function (f) { var a = f.lo < 0 ? 0 : f.lo, b = f.hi; if (_glo == null || a < _glo) _glo = a; if (_ghi == null || b > _ghi) _ghi = b; });
+      if (_glo != null && _ghi > _glo) {
+        track += seg(_glo, _ghi, 'gt-ghost', (r.shiftTime || r.shift || 'กะไม่ระบุ'),
+          r.name + '¦กะไม่ระบุเวลา — แสดงแถบคลุมช่วงงานให้เห็นบริบท¦' + r.team + (r.pos ? ' · ' + r.pos : ''));
+      }
     }
     // จัดเลนกันทับ: เรียงตามเวลาเริ่ม แล้ววางเลนแรกที่ว่าง
     flts.sort(function (x, y) { return x.lo - y.lo; });
