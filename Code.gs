@@ -10201,18 +10201,34 @@ var RB_NAV_ = [
   ['week','🗓️','ไฟลท์สัปดาห์','loadWeek()'],
   ['ot','⏱️','OT Dashboard',''], ['otah','🔮','OT ล่วงหน้า','loadOtah()'], ['otc','🔍','ตรวจ OT','loadOtc()'], ['porter','🧳','Porter','loadPorter()'], ['wh','📆','ชม./สัปดาห์','loadWh()'], ['wsum','📊','สรุปสัปดาห์','loadWsum()'], ['dc','🩺','ตรวจข้อมูล','loadDc()']
 ];
+/** จัดเมนูเป็นหมวด (ใช้ label/ไอคอนจาก RB_NAV_) */
+var RB_NAVGRP_ = [
+  ['', ['dash']],
+  ['ตารางงาน', ['tt', 'flt', 'porter']],
+  ['จัดกำลังพล', ['sup', 'auto', 'adv', 'advw']],
+  ['ตรวจสอบ', ['ac', 'dc']],
+  ['OT', ['ot', 'otah', 'otc']],
+  ['ไฟลท์ & สรุปสัปดาห์', ['week', 'wh', 'wsum']]
+];
 function rbRail_(shortCount, acCount) {
   var logo = ''; try { logo = rbLogoDataUri_(); } catch (e) {}
-  var nav = RB_NAV_.map(function (it) {
+  var byId = {}; RB_NAV_.forEach(function (it) { byId[it[0]] = it; });
+  function item(id) {
+    var it = byId[id]; if (!it) return '';
     var click = "showView('" + it[0] + "')" + (it[3] ? ';' + it[3] : '');
     var bn = it[4] === 's' ? shortCount : (it[4] === 'a' ? acCount : 0);
     var badge = bn ? '<span class="rail-badge tnum">' + bn + '</span>' : '';
-    return '<button class="rail-item' + (it[0] === 'dash' ? ' active' : '') + '" id="tab-' + it[0] + '" data-title="' + rbEsc_(it[2]) + '" onclick="' + click + '">' +
+    return '<button class="rail-item' + (it[0] === 'dash' ? ' active' : '') + '" id="tab-' + it[0] + '" data-title="' + rbEsc_(it[2]) + '" data-lbl="' + rbEsc_(String(it[2]).toLowerCase()) + '" onclick="' + click + '">' +
       '<span class="rail-ic">' + it[1] + '</span><span class="rail-txt">' + it[2] + '</span>' + badge + '</button>';
+  }
+  var nav = RB_NAVGRP_.map(function (g) {
+    var hd = g[0] ? '<div class="rail-grp">' + rbEsc_(g[0]) + '</div>' : '';
+    return '<div class="rail-sec">' + hd + g[1].map(item).join('') + '</div>';
   }).join('');
   return '<aside class="app-rail">' +
     '<div class="rail-brand">' + (logo ? '<img class="rail-logo" src="' + logo + '" alt="AOTGA">' : '<div class="rail-mark">✈</div>') +
       '<div class="rail-brandtxt"><b>P<span>AS</span></b><small>Passenger Services</small></div></div>' +
+    '<div class="rail-search"><input id="railSearch" placeholder="🔍 ค้นหาเมนู…" oninput="railFilter(this.value)" autocomplete="off"></div>' +
     '<nav class="rail-nav">' + nav + '</nav>' +
     '<div class="rail-foot"><button class="rail-refresh" onclick="rbRefresh(this)" title="ล้างแคช ดึงข้อมูลล่าสุด">🔄 รีเฟรช</button>' +
       '<div class="rail-live"><i class="pl-dot"></i>Live · sync</div></div>' +
@@ -11160,6 +11176,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>' +
     '<script>var CD=' + JSON.stringify(cd) + ';var ISO=' + JSON.stringify(iso) + ';var STATIC=' + (staticMode ? 'true' : 'false') + ';' +
     'function showView(v){["dash","tt","flt","sup","ac","auto","adv","advw","week","rq","ot","otah","otc","porter","wh","wsum","dc"].forEach(function(x){var vv=document.getElementById("view-"+x),tb=document.getElementById("tab-"+x);if(vv)vv.style.display=v===x?"":"none";if(tb){tb.classList.toggle("active",v===x);if(v===x){var pt=document.getElementById("pageTitle");if(pt)pt.textContent=tb.getAttribute("data-title")||pt.textContent;}}});var m=document.getElementById("app-main-scroll")||document.querySelector(".app-main");if(m)m.scrollTop=0;}' +
+    'function railFilter(q){q=(q||"").toLowerCase().trim();[].forEach.call(document.querySelectorAll(".app-rail .rail-item"),function(b){var m=!q||(b.getAttribute("data-lbl")||"").indexOf(q)>=0;b.style.display=m?"":"none";});[].forEach.call(document.querySelectorAll(".app-rail .rail-sec"),function(s){var any=[].some.call(s.querySelectorAll(".rail-item"),function(b){return b.style.display!=="none";});s.style.display=any?"":"none";});}' +
     'function exportPdf(){var pt=document.getElementById("pageTitle");var nm=(pt&&pt.textContent.trim())||"PAS";var old=document.title;document.title=nm+" "+ISO;window.print();setTimeout(function(){document.title=old;},600);}' +
     'function exportServerPdf(b){if(!(window.google&&google.script&&google.script.run)){alert("เปิดผ่าน Web App URL (/exec) เพื่อสร้างไฟล์");return;}var old=b?b.textContent:"";if(b){b.textContent="⏳ กำลังสร้างไฟล์ PDF…";b.disabled=true;}google.script.run.withSuccessHandler(function(url){if(b){b.textContent=old;b.disabled=false;}window.open(url,"_blank");}).withFailureHandler(function(e){if(b){b.textContent=old;b.disabled=false;}alert("สร้าง PDF ไม่ได้: "+e.message);}).rbExportDayPdf(ISO);}' +
     'function loadOtah(){lazy("otahbox","rbOTAheadHtml","otah");}' +
@@ -11417,7 +11434,14 @@ body {
 .rail-brandtxt b { font-size: 17px; font-weight: 800; letter-spacing: .5px; display: block; }
 .rail-brandtxt b span { color: #4EC3E0; }
 .rail-brandtxt small { font-size: 10px; color: #cfe1f5; font-weight: 300; }
-.rail-nav { display: flex; flex-direction: column; gap: 3px; overflow-y: auto; flex: 1; margin: 4px 0; }
+.rail-nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; margin: 4px 0; }
+.rail-search { padding: 0 2px 8px; }
+.rail-search input { width: 100%; box-sizing: border-box; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: #eaf1fb; border-radius: 9px; padding: 7px 10px; font: inherit; font-size: 12.5px; }
+.rail-search input::placeholder { color: rgba(234,241,251,.55); }
+.rail-search input:focus { outline: none; border-color: rgba(255,255,255,.4); background: rgba(255,255,255,.14); }
+.rail-sec { display: flex; flex-direction: column; gap: 2px; }
+.rail-sec + .rail-sec { margin-top: 8px; }
+.rail-grp { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgba(234,241,251,.5); padding: 4px 10px 2px; }
 .rail-nav::-webkit-scrollbar { width: 5px; } .rail-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 4px; }
 .rail-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; border: 0; cursor: pointer;
   background: transparent; color: #d8e8f8; font-family: inherit; font-size: 13px; font-weight: 600; padding: 9px 11px; border-radius: 10px; transition: background .13s, color .13s; }
@@ -11443,7 +11467,7 @@ body {
 .topbar-actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .topbar-actions .datepill { background: #fff; border: 1px solid #e4ebf4; border-radius: 11px; padding: 7px 13px; }
 .topbar-actions .datepill .d { font-size: 14px; font-weight: 800; color: #1D428A; }
-@media (max-width: 900px) { .app-rail { width: 60px; padding: 16px 8px; } .rail-txt, .rail-brandtxt, .rail-live, .rail-refresh { display: none !important; } .rail-badge { position: absolute; margin-left: 22px; margin-top: -14px; } .rail-item { justify-content: center; position: relative; } }
+@media (max-width: 900px) { .app-rail { width: 60px; padding: 16px 8px; } .rail-txt, .rail-brandtxt, .rail-live, .rail-refresh, .rail-grp, .rail-search { display: none !important; } .rail-badge { position: absolute; margin-left: 22px; margin-top: -14px; } .rail-item { justify-content: center; position: relative; } .rail-sec + .rail-sec { margin-top: 4px; border-top: 1px solid rgba(255,255,255,.1); padding-top: 4px; } }
 @media (max-width: 560px) { .app-pad { padding: 14px 12px 36px; } .topbar { flex-direction: column; align-items: flex-start; } }
 @media print { .app-shell { display: block; height: auto; overflow: visible; } .app-rail { display: none; } .app-main { height: auto; overflow: visible; background: #fff; } }
 
