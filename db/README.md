@@ -58,8 +58,23 @@ cat day.json | node db/import.js | psql "$DATABASE_URL"
 ## เส้นทางย้ายข้อมูล (ภาพรวม)
 1. **duty + assignment** — `rbSaveDayJson` → `db/import.js` → DB  ✅ *(ทำแล้ว)*
 2. **master (employee)** — `rbSaveMasterJson` → `db/import_master.js` → DB  ✅ *(ทำแล้ว)*
-3. flights, porter, pre-WC, manpower — ทำถัดไป
-3. ตั้ง import รายวัน (cron/trigger) ให้ DB เป็น system of record
-4. Dashboard ต่อ DB ตรง ๆ (Metabase/Grafana) · เว็บแอปใหม่ query จาก DB
+3. **flights · porter · pre-WC · manpower** — export + importer  ✅ *(ทำแล้ว)*
+4. ตั้ง import รายวัน (cron/trigger) ให้ DB เป็น system of record
+5. Dashboard ต่อ DB ตรง ๆ (Metabase/Grafana) · เว็บแอปใหม่ query จาก DB
+
+## Importer ที่เหลือ (flights / porter / pre-WC / manpower) — พร้อมใช้
+Export ทุกไฟล์ของวันเดียวทีเดียว (Apps Script): `rbSaveAllDay('2026-09-19')`
+→ ได้ 5 ไฟล์ JSON บน Drive: `pas_day_ · pas_flights_ · pas_porter_ · pas_prewc_ · pas_manpower_`
+
+รัน importer (ไม่พึ่ง driver · idempotent ต่อวัน · helper ร่วมใน `db/_util.js`):
+```bash
+node db/import.js          pas_day_2026-09-19.json      | psql -d pas   # duty + assignment
+node db/import_flights.js  pas_flights_2026-09-19.json  | psql -d pas   # flight_schedule (ข้ามไฟลท์ cancelled)
+node db/import_porter.js   pas_porter_2026-09-19.json   | psql -d pas   # porter_job + porter_staff_day
+node db/import_prewc.js    pas_prewc_2026-09-19.json    | psql -d pas   # prewheelchair_booking (normalize/ชนิด)
+node db/import_manpower.js pas_manpower_2026-09-19.json | psql -d pas   # manpower_report (upsert)
+node db/import_master.js   pas_master.json              | psql -d pas   # employee (รันเมื่อรายชื่อเปลี่ยน)
+```
+ทุกตัวทดสอบโหลดผ่าน PostgreSQL 16 แล้ว
 
 > เก็บ Sheets/Excel ไว้เป็น "ไฟล์นำเข้า" ได้ แต่ **ระบบหลักอ้างอิง DB** เพื่อไม่ผูกผู้ให้บริการเจ้าใดเจ้าหนึ่ง

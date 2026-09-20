@@ -104,6 +104,75 @@ function rbExportMasterTest() {
   Logger.log('employees=' + n + ' · ' + JSON.stringify(by) + ' · ตัวอย่าง: ' + JSON.stringify(o.employees.slice(0, 2)));
 }
 
+/** ---------- flights / porter / pre-WC / manpower export ---------- */
+/** ตารางบินของวัน (จากไฟล์ตารางบินสัปดาห์) → {date, flights:[{flightNo,airline,ac,sta,std,cancelled}]} */
+function rbExportFlightsObj_(iso) {
+  var date = rbDateFromIso_(iso), flights = [];
+  var id = (typeof wfFileId_ === 'function') ? wfFileId_() : '';
+  if (id) {
+    try {
+      var ss = SpreadsheetApp.openById(id), sched = (typeof wfLoadScheduleFromSs_ === 'function') ? wfLoadScheduleFromSs_(ss, date) : null;
+      if (sched) Object.keys(sched).forEach(function (k) {
+        var w = sched[k];
+        flights.push({ flightNo: (w.airline || '') + (w.flt || ''), airline: w.airline || '', ac: w.ac || '', sta: w.sta || '', std: w.std || '', cancelled: !!w.cancelled });
+      });
+    } catch (e) {}
+  }
+  return { date: iso, flights: flights };
+}
+
+/** Porter case log ของวัน → {date, tab, jobs:[...], staff:[...]} (ใช้ porterReadDay_) */
+function rbExportPorterObj_(iso) {
+  var d = porterReadDay_(rbDateFromIso_(iso));
+  return { date: iso, found: !!d.found, tab: d.tab || '', jobs: d.jobs || [], staff: d.staff || [] };
+}
+
+/** Pre-book wheelchair ของวัน → {date, tab, flights:[{airline,flt,routing,sta,std,ctOpen,ctClose,arr[5],dep[5]}]} */
+function rbExportPrewcObj_(iso) {
+  var d = prewcReadDay_(rbDateFromIso_(iso));
+  return { date: iso, found: !!d.found, tab: d.tab || '', flights: d.flights || [] };
+}
+
+/** MANPOWER ของวัน (อ่านทุกคอลัมน์จากแท็บสรุป) → {date, teams:[{team,total,scheduled,sick,...,working,otHours,otHoliday,updatedAt,updatedBy}]} */
+function rbExportManpowerObj_(iso) {
+  var date = rbDateFromIso_(iso), rows = [], roster = null;
+  try {
+    roster = rbOpenTodayRoster_(date);
+    var sheets = roster.ss.getSheets();
+    for (var i = 0; i < sheets.length; i++) {
+      var V = sheets[i].getDataRange().getDisplayValues(), hdr = -1;
+      for (var r = 0; r < Math.min(14, V.length); r++) { if (String(V[r][0] || '').trim() === 'ทีม' && V[r].join('|').indexOf('ทำงานจริง') >= 0) { hdr = r; break; } }
+      if (hdr < 0) continue;
+      for (var rr = hdr + 1; rr < V.length; rr++) {
+        var a = String(V[rr][0] || '').trim(); if (!a) continue; if (/^รวม/.test(a)) break;
+        var m = a.match(/\(([^)]+)\)/), code = (m ? m[1] : a).replace(/^team\s*/i, '').trim().toUpperCase();
+        var row = V[rr];
+        function n(x) { var v = parseFloat(String(row[x] == null ? '' : row[x]).replace(/[^\d.\-]/g, '')); return isFinite(v) ? v : null; }
+        rows.push({ team: code, total: n(1), scheduled: n(2), sick: n(3), personal: n(4), annual: n(5), maternity: n(6), other: n(7), training: n(8), working: n(9), otHours: n(10), otHoliday: n(11), updatedAt: String(row[12] || '').trim(), updatedBy: String(row[13] || '').trim() });
+      }
+      break;
+    }
+  } catch (e) {}
+  if (roster && roster.tempId) { try { DriveApp.getFileById(roster.tempId).setTrashed(true); } catch (eT) {} }
+  return { date: iso, teams: rows };
+}
+
+/** เซฟทุก export ของวันลง Drive (ยกเว้น master แยกต่างหาก) → คืนรายการ URL */
+function rbSaveAllDay(iso) {
+  iso = iso || Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd');
+  var fid = (typeof CONFIG_RB !== 'undefined' && CONFIG_RB.OUTPUT_FOLDER_ID) ? CONFIG_RB.OUTPUT_FOLDER_ID : '';
+  var folder = fid ? DriveApp.getFolderById(fid) : null;
+  function save(name, obj) { var s = JSON.stringify(obj); return (folder ? folder.createFile(name, s, 'application/json') : DriveApp.createFile(name, s, 'application/json')).getUrl(); }
+  var urls = {
+    day:      save('pas_day_' + iso + '.json', rbExportDayObj_(iso)),
+    flights:  save('pas_flights_' + iso + '.json', rbExportFlightsObj_(iso)),
+    porter:   save('pas_porter_' + iso + '.json', rbExportPorterObj_(iso)),
+    prewc:    save('pas_prewc_' + iso + '.json', rbExportPrewcObj_(iso)),
+    manpower: save('pas_manpower_' + iso + '.json', rbExportManpowerObj_(iso))
+  };
+  Logger.log(JSON.stringify(urls, null, 2)); return urls;
+}
+
 /** ทดสอบใน editor */
 function rbExportDayTest() {
   var o = rbExportDayObj_(Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd'));
