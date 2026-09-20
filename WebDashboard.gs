@@ -1971,12 +1971,14 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (คน)</h3></div><canvas id="c3" height="140"></canvas></div>' +
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
-    '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
     rbOTAlertCard_(date) +
     rbManpowerReconCard_(res, ll, res.manpower) +
     rbMasterMissingCard_(res, ll, master) +
-    '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
-    (L ? '<div style="margin-top:16px">'+llCards+'</div>' : '') +
+    '<details class="dash-more"' + (staticMode ? ' open' : '') + '><summary>📋 ตารางกำลังพลละเอียด — Manpower by Team · PSA by Position' + (L ? ' · LL' : '') + '</summary><div class="dash-more__bd">' +
+      '<div style="margin-top:12px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
+      '<div style="margin-top:12px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
+      (L ? '<div style="margin-top:12px">'+llCards+'</div>' : '') +
+    '</div></details>' +
     '</div>' +
     '<div id="view-tt" style="display:none">' + ttInner + '</div>' +
     '<div id="view-flt" style="display:none">' + fltInner + '</div>' +
@@ -2810,6 +2812,14 @@ body{ -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 .tab.active{ background:var(--brand); color:#fff; box-shadow:0 4px 12px rgba(29,66,138,.30); }
 /* ระยะห่าง/จังหวะ */
 .tablecard{ margin-bottom:16px; }
+.dash-more{ margin-top:16px; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
+.dash-more>summary{ cursor:pointer; padding:13px 18px; font-weight:700; color:var(--ink); font-size:14.5px; list-style:none; display:flex; align-items:center; gap:8px; }
+.dash-more>summary::-webkit-details-marker{ display:none; }
+.dash-more>summary::before{ content:"▸"; color:var(--ink-2,#64748b); transition:transform .15s ease; }
+.dash-more[open]>summary::before{ transform:rotate(90deg); }
+.dash-more>summary:hover{ background:#f5f8fc; border-radius:14px; }
+.dash-more__bd{ padding:0 14px 12px; }
+.dash-more__bd .tablecard{ margin-bottom:0; }
 @media (max-width:860px){ .tabs{ border-radius:13px; padding:5px; } }
 @media print{
   .weeknav,.tabs,.btn,.ttbar,.foot,.app-rail,.psnpop{display:none!important}
