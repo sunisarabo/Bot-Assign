@@ -459,7 +459,7 @@ function rbTimetableHtml(iso) {
     try { var nw = new Date(), tz = Session.getScriptTimeZone(); if (Utilities.formatDate(nw, tz, 'yyyy-MM-dd') === iso) nowMin = +Utilities.formatDate(nw, tz, 'H') * 60 + +Utilities.formatDate(nw, tz, 'm'); } catch (eN) {}
     var prod = null; try { prod = rbProductivity_(d.res, d.ll); } catch (eP) { prod = null; }
     var puBar = prod ? rbProductivityBar_(prod) : '';
-    var puChart = prod ? (rbProductivityChartCard_(prod) + rbProductivityFlightChartCard_(prod)) : '';
+    var puChart = prod ? rbProductivityHourlyCard_(prod) : '';
     var puPanel = prod ? rbProductivityPanel_(prod) : '';
     var puKeys = prod ? prod.byKey : {};
     var gantt = '<div id="gtWrap">' + rbTtGantt_(d.res, d.ll, nowMin, puKeys) + '</div>';
@@ -1264,16 +1264,16 @@ function rbKpiHero_(C, master, shortCount, fltTotal, urgent) {
         '<div class="hkpi"><div class="hkpi__n tnum" style="color:'+(shortCount>0?'#ffd0cb':'#bff0da')+'">'+(shortCount||0)+'</div><div class="hkpi__l">ไฟลท์ขาดคน</div><div class="hkpi__s">ต่ำกว่า SLA</div></div>' +
         '<div class="hkpi"><div class="hkpi__n tnum">'+(fltTotal||0)+'</div><div class="hkpi__l">ไฟลท์วันนี้</div><div class="hkpi__s">'+okFlt+' ครบ SLA</div></div>' +
       '</div></div>';
-  // ── Urgent flights strip (top short flights) ──
-  var urg = '';
-  if (urgent && urgent.length) {
-    urg = '<div class="urgent rise"><div class="urgent__hd"><h3>🚨 ไฟลท์ต้องเสริมด่วน</h3><button class="urgent__all" onclick="showView(\'flt\');loadFlt()">ดูทั้งหมด '+shortCount+' ไฟลท์ →</button></div>' +
-      '<div class="urgent__list">' + urgent.slice(0,4).map(function(u){
-        return '<div class="ufl"><div class="ufl__l"><div class="ufl__flt">'+rbEsc_(u.flt)+'</div><div class="ufl__std">STD '+rbEsc_(u.std||'—')+' · '+rbEsc_(u.team||'')+'</div></div>' +
-          '<div class="ufl__x">'+rbEsc_(u.txt||'ขาดคน')+'</div></div>';
-      }).join('') + '</div></div>';
-  }
-  return hero + urg;
+  return hero;
+}
+/** แถบ 🚨 ไฟลท์ต้องเสริมด่วน (แยกออกจาก hero เพื่อจัดลำดับการ์ดได้) */
+function rbUrgentCard_(urgent, shortCount) {
+  if (!urgent || !urgent.length) return '';
+  return '<div class="urgent rise" style="margin-top:16px"><div class="urgent__hd"><h3>🚨 ไฟลท์ต้องเสริมด่วน</h3><button class="urgent__all" onclick="showView(\'flt\');loadFlt()">ดูทั้งหมด '+shortCount+' ไฟลท์ →</button></div>' +
+    '<div class="urgent__list">' + urgent.slice(0,4).map(function(u){
+      return '<div class="ufl"><div class="ufl__l"><div class="ufl__flt">'+rbEsc_(u.flt)+'</div><div class="ufl__std">STD '+rbEsc_(u.std||'—')+' · '+rbEsc_(u.team||'')+'</div></div>' +
+        '<div class="ufl__x">'+rbEsc_(u.txt||'ขาดคน')+'</div></div>';
+    }).join('') + '</div></div>';
 }
 
 // ── table rows ──────────────────────────────────────────────────────────────
@@ -1943,7 +1943,11 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
     '<main class="app-main"><div class="app-pad">' +
     rbTopbar_(date) + rbWeekNav_(date, iso, base, tz) +
     '<div id="view-dash">' +
-    holBanner + rbKpiHero_(C, master, shortCount, fltTotal, urgent) + masterLine +
+    holBanner + rbKpiHero_(C, master, shortCount, fltTotal, urgent) +
+    rbSourceSplitCard_(res, ll, master) +
+    rbUrgentCard_(urgent, shortCount) +
+    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
+    masterLine +
     '<div class="grid grid--charts" style="margin-top:16px">' +
       '<div class="panel"><div class="panel__hd"><h3>📊 Working / Total ต่อทีม</h3></div><canvas id="c1" height="150"></canvas></div>' +
       '<div class="panel"><div class="panel__hd"><h3>🧭 ภาพรวมสถานะ</h3></div><canvas id="c2" height="150"></canvas></div></div>' +
@@ -1952,9 +1956,7 @@ function rbBuildDashboardHtml_(res, ll, master, date, iso, base, tz, staticMode)
       '<div class="panel"><div class="panel__hd"><h3>⏱️ OT แยกประเภท (ชม.)</h3></div><canvas id="c4" height="140"></canvas></div>' +
       '<div class="panel">' + otbar + '</div></div>' +
     '<div style="margin-top:16px">' + rbTblCard_('📌 Manpower by Team (PSA)', teamHead, rbTeamRows_(res.teams, teamOrder)) + '</div>' +
-    rbSourceSplitCard_(res, ll, master) +
     rbOTAlertCard_(date) +
-    '<div id="porterCardBox" style="margin-top:16px">' + (staticMode ? rbPorterCard_(date) : '<div class="tablecard"><div class="tablecard__hd"><h3>🧳 เคส Porter วันนี้</h3></div><div class="panel muted" style="text-align:center;padding:20px;box-shadow:none">⏳ กำลังโหลดเคส Porter…</div></div>') + '</div>' +
     rbManpowerReconCard_(res, ll, res.manpower) +
     rbMasterMissingCard_(res, ll, master) +
     '<div style="margin-top:16px">' + rbTblCard_('👥 PSA by Position', posHead, rbPosRows_(res.positions, ['PSS','SNR','PSA','Globlex','AdminD','Porter','Crewsign'])) + '</div>' +
