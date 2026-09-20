@@ -85,6 +85,13 @@ function rbWarmCache() {
     var iso = Utilities.formatDate(now, tz, 'yyyy-MM-dd');
     var out = rbLoadResLLraw_(now);                       // อ่านสด (ข้าม cache) แล้วเขียนทับให้สด
     rbCachePutBig_('resll_' + iso, JSON.stringify(out), RB_RESLL_TTL);
+    // อุ่น HTML แท็บหนักของวันนี้ล่วงหน้า (ล้างของเก่า → คำนวณ+เก็บใหม่) → ผู้ใช้เปิดปุ๊บติดปั๊บ + เส้นเวลาปัจจุบันสดทุก 5 นาที
+    try {
+      var cc = CacheService.getScriptCache(), rmk = [];
+      ['tt_html_' + iso, 'flt_html_' + iso, 'ac_html_' + iso].forEach(function (base) { var nn = cc.get(base + '_n'); rmk.push(base + '_n'); if (nn) for (var i = 0; i < +nn; i++) rmk.push(base + '_' + i); });
+      cc.removeAll(rmk);
+      rbTimetableHtml(iso); rbFlightsHtml(iso); rbAssignHtml(iso);
+    } catch (eH) {}
     // อุ่น "เมื่อวาน" ด้วย ถ้า cache เย็น (อ่านครั้งเดียวต่อ 6 ชม.) — หน้าเมื่อวาน + สรุปสัปดาห์เร็วขึ้น
     try {
       var yst = new Date(now.getTime() - 86400000);
@@ -337,8 +344,8 @@ function rbApplyCounterTimes_(res) {
   });
 }
 /** CacheService แบบแบ่งชิ้น (รองรับค่า >100KB) */
-function rbCachePutBig_(key, str, ttl) {
-  var c = CacheService.getScriptCache(), CH = 95000, n = Math.ceil(str.length / CH), parts = {};
+function rbCachePutBig_(key, str, ttl, chunk) {
+  var c = CacheService.getScriptCache(), CH = chunk || 95000, n = Math.ceil(str.length / CH), parts = {};
   parts[key + '_n'] = String(n);
   for (var i = 0; i < n; i++) parts[key + '_' + i] = str.substr(i * CH, CH);
   c.putAll(parts, ttl || 180);
@@ -357,15 +364,22 @@ function rbClearCache(iso) {
   try {
     var c = CacheService.getScriptCache(), keys = [];
     // ล้างทุก cache ที่เกี่ยวกับวันนั้น + master + ตารางบิน (ให้ 🔄 ดึงสดจริง)
-    ['resll_' + iso, 'wfsched_' + iso, 'master_hc_' + MASTER_FILE_ID_RB].forEach(function (base) {
+    ['resll_' + iso, 'wfsched_' + iso, 'master_hc_' + MASTER_FILE_ID_RB,
+     'tt_html_' + iso, 'flt_html_' + iso, 'ac_html_' + iso].forEach(function (base) {   // big-chunk (มี _n)
       var nn = c.get(base + '_n'); keys.push(base + '_n');
       if (nn) for (var i = 0; i < +nn; i++) keys.push(base + '_' + i);
     });
+    keys.push('PORTER_HTML_' + iso, 'PORTER_CARD_' + iso);   // Porter cache = คีย์เดี่ยว (ไม่ chunk)
     c.removeAll(keys);
   } catch (e) {}
   return true;
 }
 function rbDateFromIso_(iso) { var a = String(iso).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
+
+/** cache HTML ของแท็บหนัก (Timetable/Flights/ตรวจ Assign) ต่อวัน → เปิดซ้ำ/หลายคนพร้อมกัน = เร็ว
+ *  (rbWarmCache อุ่นไว้ล่วงหน้าทุก 5 นาที · 🔄 รีเฟรช ล้าง key เหล่านี้ให้ดึงสด) */
+function rbCacheHtmlGet_(key, iso) { try { return rbCacheGetBig_(key + '_' + iso); } catch (e) { return null; } }
+function rbCacheHtmlPut_(key, iso, html) { try { if (html && html.indexOf('class="panel">โหลด') < 0) rbCachePutBig_(key + '_' + iso, html, rbResllTtl_(iso), 30000); } catch (e) {} }   // 30000 อักษร × 3 ไบต์ (ไทย) < 100KB/ค่า
 
 /** Sheet → PDF blob (server-side · ผ่าน export URL + OAuth) — landscape/fit-width ให้เต็มหน้า */
 function rbSheetToPdfBlob_(ssId, gid, name) {
@@ -445,6 +459,7 @@ function rbLogoDataUri_() {
 
 /** Lazy tab: Timetable HTML (called from client via google.script.run). */
 function rbTimetableHtml(iso) {
+  var _cc = rbCacheHtmlGet_('tt_html', iso); if (_cc != null) return _cc;
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var P = d.res.totals, L = d.ll && d.ll.totals.staff>0 ? d.ll.totals : null;
@@ -466,25 +481,29 @@ function rbTimetableHtml(iso) {
     var table = '<div id="gtTable" style="display:none">' + rbTblCard_('',
       '<tr><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th>#</th><th>เที่ยวบิน</th></tr>',
       rbTtRows_(d.res, d.ll), '') + '</div>';
-    return '<style>' + rbVIEW_CSS_ + '</style>' + rbGanttCss_() + rbProductivityCss_() +
+    var _h = '<style>' + rbVIEW_CSS_ + '</style>' + rbGanttCss_() + rbProductivityCss_() +
       '<div class="tablecard">' + head + '<div style="padding:0 16px 16px">' +
       puBar + puChart + rbCtrls_('view-tt', false) + gantt + puPanel + table + '</div></div>';
+    rbCacheHtmlPut_('tt_html', iso, _h); return _h;
   } catch (e) { return '<div class="panel">โหลด Timetable ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 /** Lazy tab: Flights & SLA HTML. */
 function rbFlightsHtml(iso) {
+  var _cc = rbCacheHtmlGet_('flt_html', iso); if (_cc != null) return _cc;
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var flts = slaCollectFlights_(d.res, d.ll).filter(function(f){ return !(f.noTime && f.fragment); });
     var ok = flts.filter(function(f){ return f.ok && !f.noTime; }).length;
-    return '<style>' + rbVIEW_CSS_ + '</style>' +
+    var _h = '<style>' + rbVIEW_CSS_ + '</style>' +
       '<div class="tablecard"><div class="tablecard__hd"><h3>✈️ ไฟลท์บินประจำวัน + เช็ค SLA <span class="tt-cnt">'+flts.length+' ไฟลท์ · '+ok+' ครบ</span></h3></div>' +
       '<div style="padding:0 18px 16px">' + rbCtrls_('view-flt', true) + rbFltCards_(d.res, d.ll) + '</div></div>';
+    rbCacheHtmlPut_('flt_html', iso, _h); return _h;
   } catch (e) { return '<div class="panel">โหลด Flights ไม่ได้: ' + rbEsc_((e && (e.message || e.stack || e.toString())) || 'unknown') + '</div>'; }
 }
 
 /** Lazy tab: ตรวจความเหมาะสมการ Assign (ครอบคลุมไฟลท์ / OT / ช่วงว่าง). */
 function rbAssignHtml(iso) {
+  var _cc = rbCacheHtmlGet_('ac_html', iso); if (_cc != null) return _cc;
   try {
     var d = rbLoadResLL_(rbDateFromIso_(iso));
     var an = acAnalyze_(d.res, d.ll), s = an.summary;
@@ -523,11 +542,12 @@ function rbAssignHtml(iso) {
         (rbEsc_(r.otVerdict) || '<span class="muted">—</span>') + '</td><td>' + rbEsc_(r.issue) + '</td></tr>';
     }).join('');
     if (!rows) rows = '<tr><td colspan="17" class="okk" style="text-align:center;padding:20px">✅ ไม่พบการ Assign ที่ผิดปกติ — ทุกคนเวลากะครอบคลุมไฟลท์และ OT เหมาะสม</td></tr>';
-    return hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
+    var _h = hd + rbTblCard_('🧭 ตรวจความเหมาะสมการ Assign รายคน',
       '<tr><th>สถานะ</th><th>ทีม</th><th>รหัส</th><th>ชื่อ</th><th>ตำแหน่ง</th><th>กะ (เข้า-ออก)</th><th>OT</th><th title="ติดงานไฟลท์ ÷ เวลาพร้อมทำงาน (กะ+OT)">Util</th><th>ไฟลท์</th>' +
       '<th title="งานในเวลากะปกติ">🟩 ในกะ</th><th title="งานที่อยู่ในช่วง OT ที่กรอกไว้">🟧 OT</th><th title="งานตกนอกกะ ต้องใช้ OT">🟥 นอกกะ</th><th>ไฟลท์ที่ทำ</th>' +
       '<th>ไฟลท์นอกเวลา</th><th>ช่วงว่าง</th><th>OT เหมาะสม?</th><th>ปัญหา/คำแนะนำ</th></tr>',
       rows, rbCtrls_('view-ac', true) + rbGapCtrl_('view-ac'));
+    rbCacheHtmlPut_('ac_html', iso, _h); return _h;
   } catch (e) { return '<div class="panel">โหลดตรวจ Assign ไม่ได้: ' + rbEsc_(e.message) + '</div>'; }
 }
 
