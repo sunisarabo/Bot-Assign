@@ -5,6 +5,8 @@ Code.gs
 *.html
 *.xlsx
 *.json
+*.sql
+db/**
 !appsscript.json
 .git/**
 .github/**
