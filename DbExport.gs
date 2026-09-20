@@ -53,6 +53,57 @@ function rbSaveDayJson(iso) {
   return file.getUrl();
 }
 
+/** ---------- master (employee) export ---------- */
+/** อ่านรายชื่อเต็มจากไฟล์ master (Total + ทุกแท็บ BKK Batch) → {employees:[...]} */
+function rbExportMasterObj_() {
+  var ss = SpreadsheetApp.openById(MASTER_FILE_ID_RB);
+  var tz = Session.getScriptTimeZone() || 'Asia/Bangkok';
+  function dstr(v) { return (v instanceof Date) ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : ''; }   // เฉพาะเซลล์ที่เป็น Date จริง
+  function pg(pos, team, dept) {
+    if (dept === 'LL' && typeof rrLLPosGroup_ === 'function') return rrLLPosGroup_(pos);
+    return (typeof rrPosGroup_ === 'function') ? rrPosGroup_(pos, team) : 'PSA';
+  }
+  var emp = {};
+  var ws = ss.getSheetByName('Total'), data = ws ? ws.getDataRange().getValues() : [];
+  for (var i = 1; i < data.length; i++) {                     // Total: 1=รหัส 2=ทีม 3=คำนำหน้า 4=ชื่อ 5=สกุล 6=แผนก 7=ตำแหน่ง 8=เริ่มงาน 10=Name 11=Surname 12=พ้นสภาพ 13=สถานะ
+    var row = data[i], code = String(row[1] == null ? '' : row[1]).replace(/\D/g, '');
+    if (!/^\d{6,8}$/.test(code)) continue;
+    var team = String(row[2] || '').trim();
+    var deptRaw = String(row[6] || ''), dept = deptRaw.indexOf(DEPT_PSA_TH) >= 0 ? 'PSA' : (deptRaw.indexOf(DEPT_LL_TH) >= 0 ? 'LL' : null);
+    var pos = String(row[7] || '').trim();
+    emp[code] = {
+      code: code, nameTh: (String(row[4] || '').trim() + ' ' + String(row[5] || '').trim()).trim(),
+      nameEn: (String(row[10] || '').trim() + ' ' + String(row[11] || '').trim()).trim(),
+      team: team, dept: dept, position: pos, posGroup: pg(pos, team, dept), source: 'HKT',
+      startDate: dstr(row[8]), resignDate: dstr(row[12]),
+      status: (String(row[13] || '').trim().toUpperCase() === 'RESIGNED') ? 'RESIGNED' : 'ACTIVE'
+    };
+  }
+  var bkkIds = {};
+  try {
+    (typeof rbReadBkkBatch_ === 'function' ? rbReadBkkBatch_(ss) : []).forEach(function (p) {
+      bkkIds[p.id] = 1;
+      if (!emp[p.id]) emp[p.id] = { code: p.id, nameTh: p.nameTh || '', nameEn: '', team: p.team || '', dept: 'PSA',
+        position: p.pos || 'Passenger Services Agent', posGroup: pg(p.pos, p.team, 'PSA'), source: 'BKK',
+        startDate: '', resignDate: '', status: 'ACTIVE' };
+    });
+  } catch (eB) {}
+  Object.keys(emp).forEach(function (c) { var e = emp[c]; e.source = bkkIds[c] ? 'BKK' : (e.posGroup === 'Globlex' ? 'GLOBEX' : 'HKT'); });
+  return { employees: Object.keys(emp).map(function (c) { return emp[c]; }) };
+}
+function rbExportMasterJson() { return JSON.stringify(rbExportMasterObj_()); }
+function rbSaveMasterJson() {
+  var json = JSON.stringify(rbExportMasterObj_()), name = 'pas_master.json';
+  var fid = (typeof CONFIG_RB !== 'undefined' && CONFIG_RB.OUTPUT_FOLDER_ID) ? CONFIG_RB.OUTPUT_FOLDER_ID : '';
+  var file = fid ? DriveApp.getFolderById(fid).createFile(name, json, 'application/json') : DriveApp.createFile(name, json, 'application/json');
+  Logger.log('บันทึกแล้ว: ' + file.getUrl()); return file.getUrl();
+}
+function rbExportMasterTest() {
+  var o = rbExportMasterObj_(), n = o.employees.length, by = {};
+  o.employees.forEach(function (e) { by[e.source] = (by[e.source] || 0) + 1; });
+  Logger.log('employees=' + n + ' · ' + JSON.stringify(by) + ' · ตัวอย่าง: ' + JSON.stringify(o.employees.slice(0, 2)));
+}
+
 /** ทดสอบใน editor */
 function rbExportDayTest() {
   var o = rbExportDayObj_(Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Bangkok', 'yyyy-MM-dd'));

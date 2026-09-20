@@ -48,9 +48,17 @@ cat day.json | node db/import.js | psql "$DATABASE_URL"
 - ล้างข้อมูลของวันนั้นก่อน insert → รันซ้ำได้ปลอดภัย
 - แมป bucket/OT/เวลา/ไฟลท์ ตามตรรกะเดิม · ทดสอบโหลด + view ผ่าน PostgreSQL 16 แล้ว
 
+## Importer: master (employee) — พร้อมใช้
+- **Apps Script:** `rbSaveMasterJson()` → เซฟ `pas_master.json` (Total + ทุกแท็บ BKK Batch) · `rbExportMasterTest` ดูสรุป
+- **Node:** `node db/import_master.js pas_master.json | psql -d pas`
+- **upsert DO UPDATE** → เติมข้อมูลเต็ม (ชื่อ TH/EN, ตำแหน่ง, pos_group, dept PSA/LL, source HKT/BKK/Globex, start/resign, status)
+  ทับ stub ที่ duty importer สร้างไว้ · รันซ้ำได้ (idempotent) · ทดสอบผ่าน PostgreSQL 16
+- ลำดับแนะนำ: รัน **master ก่อน** duty (ให้ employee ครบ) หรือรัน duty ก่อนก็ได้ (สร้าง stub แล้ว master มา enrich)
+
 ## เส้นทางย้ายข้อมูล (ภาพรวม)
-1. **duty + assignment** — export JSON (`rbSaveDayJson`) → `db/import.js` → DB  ✅ *(ทำแล้ว)*
-2. master importer (employee เต็ม), flights, porter, pre-WC, manpower — ทำถัดไป
+1. **duty + assignment** — `rbSaveDayJson` → `db/import.js` → DB  ✅ *(ทำแล้ว)*
+2. **master (employee)** — `rbSaveMasterJson` → `db/import_master.js` → DB  ✅ *(ทำแล้ว)*
+3. flights, porter, pre-WC, manpower — ทำถัดไป
 3. ตั้ง import รายวัน (cron/trigger) ให้ DB เป็น system of record
 4. Dashboard ต่อ DB ตรง ๆ (Metabase/Grafana) · เว็บแอปใหม่ query จาก DB
 
