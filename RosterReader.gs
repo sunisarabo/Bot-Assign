@@ -1270,6 +1270,8 @@ function rrReadSupportReq_(ss) {
 // ─── debug ──────────────────────────────────────────────────────────────────
 function debugDumpRoster(ssId) {
   var ss = ssId ? SpreadsheetApp.openById(ssId) : SpreadsheetApp.getActiveSpreadsheet();
+  if (!ss && typeof rbOpenTodayRoster_ === 'function') { try { ss = rbOpenTodayRoster_(new Date()).ss; } catch (eR) {} }   // รันเดี่ยว ๆ ในเอดิเตอร์ → เปิดไฟล์เวรวันนี้ให้เอง
+  if (!ss) { Logger.log('debugDumpRoster: ไม่มีไฟล์ให้อ่าน — ส่ง ssId เข้ามา หรือรันจากไฟล์เวรโดยตรง'); return null; }
   var res = readRosterFromSpreadsheet(ss);
   var lines = ['TEAM              staff work otoff off sick leave otppl   oth  flts'];
   Object.keys(res.teams).forEach(function (t) {
