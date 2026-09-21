@@ -61,9 +61,18 @@ DATABASE_URL="postgres://pas:pas@127.0.0.1:5432/pas" npm start   # http://localh
 แท็บ: 📊 ภาพรวม · 🧑‍✈️ Timetable · ✈️ ไฟลท์ · 🧳 Porter · ♿ Pre-WC จอง (ดูวันอนาคตได้)
 รายละเอียด API ดู `backend/README.md`
 
-## 5) อัตโนมัติรายวัน (ทางเลือก)
+## 5) อัตโนมัติรายวัน
 
-- **ช่วงยังใช้ Sheets:** ตั้ง trigger (Apps Script) รัน `rbSaveAllDay(todayIso)` ทุกคืน → เครื่อง import ดึงไฟล์แล้วรัน importer (cron)
+โหลดทุกไฟล์ของวันในคำสั่งเดียว (idempotent · ข้ามไฟล์ที่ไม่มี):
+```bash
+DATABASE_URL="postgres://pas:pas@host/pas" db/load_all.sh <โฟลเดอร์> 2026-09-19          # รายวัน
+DATABASE_URL="postgres://pas:pas@host/pas" db/load_all.sh <โฟลเดอร์> 2026-09-19 --master  # โหลด master ด้วย
+```
+ตั้ง **cron** (เช่นตี 1 ทุกวัน โหลดของเมื่อวาน หลัง Apps Script export ลงโฟลเดอร์ sync):
+```cron
+0 1 * * *  DATABASE_URL="postgres://pas:pas@host/pas" /path/db/load_all.sh /path/exports "$(date -d yesterday +\%F)" >> /var/log/pas_import.log 2>&1
+```
+- **ช่วงยังใช้ Sheets:** trigger (Apps Script) รัน `rbSaveAllDay(iso)` ทุกคืน → sync ไฟล์ลงโฟลเดอร์ → cron ข้างบนโหลดเข้า DB
 - **หลังเลิกใช้ Sheets:** กรอกผ่านเว็บ → เขียนลง DB ตรง ไม่ต้อง export/import อีก
 
 ---
@@ -89,6 +98,9 @@ DATABASE_URL="postgres://pas:pas@127.0.0.1:5432/pas" npm start   # http://localh
 - ✅ schema (17 ตาราง + view) — โหลดผ่าน PostgreSQL 16
 - ✅ importer ครบ: master · duty+assignment · flights · porter · pre-WC · manpower (idempotent ต่อวัน)
 - ✅ exporter ฝั่ง Apps Script (`DbExport.gs`) — `rbSaveAllDay` / `rbSaveMasterJson`
-- ✅ backend Node + เว็บ 5 แท็บ อ่านจาก DB จริง (health/dates/summary/timetable/flights/porter/prewc)
+- ✅ backend Node + เว็บ 7 แท็บ อ่านจาก DB จริง (ภาพรวม/Timetable/Productivity/Gantt/ไฟลท์/Porter/Pre-WC)
 - ✅ **Login ด้วย Microsoft (OIDC/Entra)** + **แจ้งเตือนอีเมลผ่าน Microsoft 365 (SMTP)** — ตั้งค่าผ่าน env (ดู `backend/README.md`)
-- ⬜ ยก SLA/Productivity/Gantt เต็มมาเป็น query/โมดูลใน backend · ตั้ง import อัตโนมัติรายวัน · session store ร่วม (Redis) สำหรับหลาย instance
+- ✅ **Productivity + Gantt** ยกเป็นโมดูลบน DB (`backend/productivity.js`) · Util% รายคน/ทีม + รายชั่วโมง
+- ✅ **session/สถานะ login ใน Postgres** (`backend/store.js`) → รองรับหลาย instance (สลับ Redis ได้)
+- ✅ **auto-import รายวัน** (`db/load_all.sh` + ตัวอย่าง cron)
+- ⬜ ยก **SLA เต็ม** (coverage/ครบ-ขาด/ซัพ) มาเป็น query/โมดูล — ต้อง populate `sla_rule`/`manning_rule` + export `win_lo/win_hi` เพื่อ Util แม่นเต็ม

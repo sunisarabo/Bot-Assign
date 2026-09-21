@@ -15,6 +15,7 @@
  * โครงเป็น OIDC มาตรฐาน → ย้าย Entra↔Google↔Keycloak ได้โดยเปลี่ยนแค่ env */
 const crypto = require('crypto');
 const { Issuer, generators } = require('openid-client');
+const store = require('./store');
 
 const CFG = {
   issuer: process.env.OIDC_ISSUER || '',
@@ -74,22 +75,16 @@ function appendHeader(res, name, val) {
   res.setHeader(name, cur ? (Array.isArray(cur) ? cur.concat(val) : [cur, val]) : val);
 }
 
-// ---- state (prototype: in-memory · จริงควรใช้ store ร่วม) ----
-const pending = new Map();   // state -> { code_verifier, nonce, ts }
-const sessions = new Map();  // sid   -> { sub, email, name, exp }
-function sweep() {
-  const now = Date.now();
-  for (const [k, v] of pending) if (now - v.ts > PENDING_TTL) pending.delete(k);
-  for (const [k, v] of sessions) if (v.exp < now) sessions.delete(k);
-}
-setInterval(sweep, 5 * 60 * 1000).unref();
+// ---- state เก็บใน Postgres (store.js) → รองรับหลาย instance ----
+setInterval(() => store.cleanup(), 15 * 60 * 1000).unref();
 
-function currentUser(req) {
+async function currentUser(req) {
   const sid = unsign(parseCookies(req).pas_sid || '');
   if (!sid) return null;
-  const s = sessions.get(sid);
-  if (!s || s.exp < Date.now()) { if (s) sessions.delete(sid); return null; }
-  return { sub: s.sub, email: s.email, name: s.name };
+  try {
+    const s = await store.getSession(sid);
+    return s ? { sub: s.sub, email: s.email, name: s.name } : null;
+  } catch (e) { return null; }
 }
 
 // ---- route handlers ----
@@ -101,7 +96,7 @@ async function login(req, res) {
     const code_challenge = generators.codeChallenge(code_verifier);
     const state = generators.state();
     const nonce = generators.nonce();
-    pending.set(state, { code_verifier, nonce, ts: Date.now() });
+    await store.putPending(state, code_verifier, nonce);
     setCookie(res, 'pas_state', sign(state), PENDING_TTL);
     const url = client.authorizationUrl({ scope: CFG.scope, code_challenge, code_challenge_method: 'S256', state, nonce });
     res.writeHead(302, { Location: url }); res.end();
@@ -113,28 +108,28 @@ async function callback(req, res, query) {
   try {
     const client = await getClient();
     const cookieState = unsign(parseCookies(req).pas_state || '');
-    const p = cookieState && pending.get(cookieState);
-    if (!p || !query.state || query.state !== cookieState) return json(res, 400, { error: 'invalid or expired login state' });
-    pending.delete(cookieState);
+    if (!cookieState || !query.state || query.state !== cookieState) return json(res, 400, { error: 'invalid login state' });
+    const p = await store.takePending(cookieState, PENDING_TTL);
+    if (!p) return json(res, 400, { error: 'expired login state' });
     const tokenSet = await client.callback(CFG.redirectUri, query, { code_verifier: p.code_verifier, state: cookieState, nonce: p.nonce });
     const c = tokenSet.claims();
     const sid = crypto.randomBytes(32).toString('hex');
-    sessions.set(sid, { sub: c.sub, email: c.email || c.preferred_username || '', name: c.name || '', exp: Date.now() + SESSION_TTL });
+    await store.putSession(sid, { sub: c.sub, email: c.email || c.preferred_username || '', name: c.name || '' }, SESSION_TTL);
     clearCookie(res, 'pas_state');
     setCookie(res, 'pas_sid', sign(sid), SESSION_TTL);
     res.writeHead(302, { Location: '/' }); res.end();
   } catch (e) { json(res, 500, { error: 'callback failed: ' + (e.message || e) }); }
 }
 
-function logout(req, res) {
+async function logout(req, res) {
   const sid = unsign(parseCookies(req).pas_sid || '');
-  if (sid) sessions.delete(sid);
+  if (sid) { try { await store.delSession(sid); } catch (e) {} }
   clearCookie(res, 'pas_sid');
   res.writeHead(302, { Location: '/' }); res.end();
 }
 
-function me(req, res) {
-  json(res, 200, { enabled: isEnabled(), required: authRequired(), user: currentUser(req) });
+async function me(req, res) {
+  json(res, 200, { enabled: isEnabled(), required: authRequired(), user: await currentUser(req) });
 }
 
 function json(res, code, obj) {

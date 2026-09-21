@@ -17,7 +17,9 @@ DATABASE_URL="postgres://pas:pas@127.0.0.1:5432/pas" npm start
 |---|---|
 | `db.js` | Pool เชื่อม Postgres (env `DATABASE_URL`) |
 | `queries.js` | ชั้น query อ่านอย่างเดียว (summary / timetable / flights / porter / prewc / dates) |
+| `productivity.js` | คำนวณ Util% ต่อคน/ทีม + รายชั่วโมง + gantt (ยกจาก Apps Script) |
 | `auth.js` | OIDC login มาตรฐาน (Entra-ready · ตั้งค่าผ่าน env) |
+| `store.js` | session + OIDC state ใน Postgres (รองรับหลาย instance · สลับ Redis ได้) |
 | `mailer.js` | ส่งอีเมลผ่าน SMTP (Microsoft 365-ready · ตั้งค่าผ่าน env) |
 | `server.js` | HTTP + routing + auth gate + เสิร์ฟหน้า dashboard |
 | `public/index.html` | หน้า dashboard (โทน AOTGA) เรียก API + ปุ่ม login |
@@ -42,7 +44,8 @@ COOKIE_SECURE=1        # เมื่อรันหลัง HTTPS
 ```
 routes: `/auth/login` · `/auth/callback` · `/auth/logout` · `/auth/me`
 ไม่ตั้ง OIDC_* → login ปิด เว็บยังรันแบบเปิด (prototype)
-> prototype เก็บ session ใน memory · โปรดักชันควรใช้ store ร่วม (Redis) + หลาย instance
+> session + OIDC state เก็บใน **Postgres** (`store.js` · ตาราง `web_session`/`oidc_login`) → รองรับหลาย instance
+> ย้ายไป Redis ได้โดยเปลี่ยนเฉพาะ `store.js` (interface เดิม)
 
 ## แจ้งเตือนอีเมลผ่าน Microsoft 365 (SMTP)
 ```bash
@@ -57,14 +60,19 @@ SMTP_FROM=PAS แจ้งเตือน <notify@yourdomain.com>
 - ไม่ตั้ง SMTP_* → แจ้งเตือนปิด ระบบยังรันได้
 
 ## หน้าเว็บ (แท็บ)
-📊 ภาพรวม · 🧑‍✈️ Timetable · ✈️ ไฟลท์ · 🧳 Porter · ♿ Pre-WC จอง — เลือกวันที่มุมขวาบน
+📊 ภาพรวม · 🧑‍✈️ Timetable · 📈 Productivity · 🗓️ Gantt · ✈️ ไฟลท์ · 🧳 Porter · ♿ Pre-WC จอง — เลือกวันที่มุมขวาบน
 (dropdown วันที่รวมทั้งวันที่มี duty และวันที่มี **จองล่วงหน้า** → เลือกวันอนาคตดู Pre-WC ได้)
 
 ## API
 - `GET /api/health` · `GET /api/dates` (รวม duty + จองล่วงหน้า)
 - `GET /api/summary?date=YYYY-MM-DD` — KPI + รายทีม (`v_team_daily`) + แยกกลุ่ม (`v_source_split`) + ไฟลท์ + porter + manpower
 - `GET /api/timetable?date=` — รายคน + กะ + งาน/ไฟลท์ที่ได้รับ
+- `GET /api/productivity?date=` — Util% ต่อคน/ทีม + รายชั่วโมง (อยู่เวร vs ติดงาน) + top/bottom Util
+- `GET /api/gantt?date=` — ช่วงกะ + ช่วงงานต่อคน (วาดแท่ง 0–24h)
 - `GET /api/flights?date=` · `GET /api/porter?date=` · `GET /api/prewc?date=` (จองล่วงหน้า · ดูอนาคตได้)
+
+> **Productivity/Gantt:** ยกตรรกะจาก Apps Script มาเป็นโมดูล `productivity.js` บน DB · ช่วงงานประมาณจาก
+> เคาน์เตอร์ OP–CL / ขาออก gate→STD / ขาเข้า STA+buffer (ให้ exporter ส่ง `win_lo/win_hi` มาเพื่อความแม่นเต็ม)
 
 ## ทำไมแบบนี้ = ย้ายได้
 - data อยู่ใน **Postgres ของเราเอง** · โค้ดเป็น Node ใส่ Docker รันที่ไหนก็ได้

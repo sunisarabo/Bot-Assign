@@ -7,6 +7,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const Q = require('./queries');
+const P = require('./productivity');
 const auth = require('./auth');
 const mailer = require('./mailer');
 
@@ -27,6 +28,8 @@ const API = {
   '/api/flights': (q) => Q.flights(q.date),
   '/api/porter': (q) => Q.porter(q.date),
   '/api/prewc': (q) => Q.prewc(q.date),
+  '/api/productivity': (q) => P.productivity(q.date),
+  '/api/gantt': (q) => P.gantt(q.date),
 };
 
 async function readBody(req) {
@@ -53,7 +56,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ---- gate everything below behind login (เมื่อ AUTH_REQUIRED=1) ----
-    if (auth.authRequired() && !auth.currentUser(req)) {
+    if (auth.authRequired() && !(await auth.currentUser(req))) {
       return sendJson(res, 401, { error: 'login required', login: '/auth/login' });
     }
 

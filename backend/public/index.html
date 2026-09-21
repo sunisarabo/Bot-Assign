@@ -66,7 +66,8 @@ function card(title,inner){ return `<div class="card"><h3>${title}</h3>${inner}<
 function tbl(head,rows,empty){ return `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="20" class="muted" style="text-align:center;padding:16px">${empty||'— ไม่มีข้อมูล'}</td></tr>`}</tbody></table></div>`; }
 
 const TABS = [
-  ['dash','📊 ภาพรวม'], ['tt','🧑‍✈️ Timetable'], ['fl','✈️ ไฟลท์'], ['po','🧳 Porter'], ['wc','♿ Pre-WC จอง'],
+  ['dash','📊 ภาพรวม'], ['tt','🧑‍✈️ Timetable'], ['pu','📈 Productivity'], ['gt','🗓️ Gantt'],
+  ['fl','✈️ ไฟลท์'], ['po','🧳 Porter'], ['wc','♿ Pre-WC จอง'],
 ];
 let CUR = 'dash';
 
@@ -142,7 +143,61 @@ async function renderWc(date){
     '— ไม่มียอดจองของวันนี้'));
 }
 
-const RENDER = { dash:renderDash, tt:renderTt, fl:renderFl, po:renderPo, wc:renderWc };
+function utilBar(u){ if(u==null) return '<span class="muted">—</span>'; const c=u>=80?'#e8590c':u>=50?'#7ecfa0':'#f0b429';
+  return `<div style="display:flex;align-items:center;gap:6px"><div class="util" style="min-width:60px"><i style="width:${u}%;background:${c}"></i></div><b>${u}%</b></div>`; }
+
+// SVG กราฟรายชั่วโมง: แท่ง on-duty (อ่อน) + on-flight (เข้ม) + เส้นจำนวนไฟลท์ · hover = <title>
+function svgHourly(hourly){
+  const W=760,H=220,pad=28,n=hourly.length, bw=(W-pad*2)/n;
+  const max=Math.max(1,...hourly.map(x=>x.onDuty));
+  const y=v=>H-pad-(v/max)*(H-pad*2);
+  let bars='';
+  hourly.forEach((x,i)=>{ const bx=pad+i*bw+2, w=bw-4;
+    bars+=`<rect x="${bx}" y="${y(x.onDuty)}" width="${w}" height="${H-pad-y(x.onDuty)}" fill="#cfe0f5"><title>${x.h}:00 · ปฏิบัติงาน ${x.onDuty} · ติดงาน ${x.onFlight} · ไฟลท์ ${x.flights}</title></rect>`;
+    bars+=`<rect x="${bx}" y="${y(x.onFlight)}" width="${w}" height="${H-pad-y(x.onFlight)}" fill="#1D428A"><title>${x.h}:00 · ติดงาน ${x.onFlight}/${x.onDuty}</title></rect>`;
+  });
+  const pts=hourly.map((x,i)=>`${pad+i*bw+bw/2},${y(x.flights)}`).join(' ');
+  const axis=hourly.filter((_,i)=>i%3===0).map((x,i)=>`<text x="${pad+hourly.indexOf(x)*bw+bw/2}" y="${H-8}" font-size="10" fill="#5b7189" text-anchor="middle">${x.h}</text>`).join('');
+  return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:640px;height:auto">
+    ${bars}<polyline points="${pts}" fill="none" stroke="#e8590c" stroke-width="1.5" opacity=".8"/>${axis}
+    <text x="${pad}" y="14" font-size="11" fill="#5b7189">คน · แท่งอ่อน=อยู่เวร · แท่งเข้ม=ติดงาน · เส้นส้ม=จำนวนไฟลท์เริ่ม</text></svg></div>`;
+}
+
+async function renderPu(date){
+  const s = await api('/api/productivity?date='+date);
+  const k=s.kpi;
+  const kpis=`<div class="kpis">${[kpi((k.avg_util??'—')+'%','Util เฉลี่ย'),kpi(k.idle_hours,'ชม.ว่างรวม'),kpi(k.flights,'ไฟลท์ที่รับ'),kpi(k.peak_on_duty,'พีคคนอยู่เวร'),kpi(k.peak_on_flight,'พีคคนติดงาน'),kpi(k.people,'คน')].join('')}</div>`;
+  const chart=card('📈 กำลังคนรายชั่วโมง (อยู่เวร vs ติดงาน)', svgHourly(s.hourly));
+  const teams=card('รายทีม', tbl(`<th>ทีม</th><th class="n">คน</th><th>Util เฉลี่ย</th><th class="n">ว่าง(ชม.)</th><th class="n">ไฟลท์</th>`,
+    s.teams.map(t=>`<tr><td><b>${esc(t.team_code)}</b></td><td class="n">${t.n}</td><td>${utilBar(t.util)}</td><td class="n">${t.idle_hours}</td><td class="n">${t.flights}</td></tr>`).join('')));
+  const low = s.low_util.length?card('⚠️ Util ต่ำสุด (อาจว่าง/ควรทบทวน)', tbl(`<th>พนักงาน</th><th>ทีม</th><th>Util</th><th class="n">ว่าง(นาที)</th>`,
+    s.low_util.map(p=>`<tr><td>${esc(p.emp_name)}</td><td>${esc(p.team_code)}</td><td>${utilBar(p.util)}</td><td class="n">${p.idleMin}</td></tr>`).join('')):'';
+  const ppl=card(`รายคน · ${s.people.length} คน (เรียงตาม Util)`, tbl(
+    `<th>พนักงาน</th><th>ทีม</th><th>Util</th><th class="n">ติดงาน(น.)</th><th class="n">ว่าง(น.)</th><th class="n">ไฟลท์</th>`,
+    s.people.map(p=>`<tr><td>${esc(p.emp_name)}${p.is_bkk?' <span class="pill BKK">BKK</span>':''}</td><td>${esc(p.team_code)}</td><td>${utilBar(p.util)}</td><td class="n">${p.busyMin}</td><td class="n">${p.idleMin}</td><td class="n">${p.nFlt}</td></tr>`).join('')));
+  return kpis+chart+teams+low+ppl;
+}
+
+async function renderGt(date){
+  const s = await api('/api/gantt?date='+date);
+  if(!s.rows.length) return card('🗓️ Gantt', `<div class="muted" style="padding:16px">— ไม่มีข้อมูลของวันนี้</div>`);
+  let lo=Infinity,hi=-Infinity;
+  s.rows.forEach(r=>{ if(r.shift_start!=null){lo=Math.min(lo,r.shift_start);hi=Math.max(hi,r.shift_end);} r.bars.forEach(b=>{lo=Math.min(lo,b.lo);hi=Math.max(hi,b.hi);}); });
+  if(!isFinite(lo)){lo=0;hi=1440;} lo=Math.floor(lo/60)*60; hi=Math.ceil(hi/60)*60; const span=Math.max(60,hi-lo);
+  const rowH=22, labW=150, W=900, plotW=W-labW-10, H=s.rows.length*rowH+34;
+  const x=m=>labW+((m-lo)/span)*plotW;
+  let grid='',rows='';
+  for(let m=lo;m<=hi;m+=120){ const gx=x(m); grid+=`<line x1="${gx}" y1="24" x2="${gx}" y2="${H-6}" stroke="#eef2f7"/><text x="${gx}" y="16" font-size="10" fill="#5b7189" text-anchor="middle">${String(Math.floor((m/60)%24)).padStart(2,'0')}</text>`; }
+  s.rows.forEach((r,i)=>{ const y=28+i*rowH;
+    rows+=`<text x="6" y="${y+14}" font-size="11" fill="#12242f">${esc((r.emp_name||'').slice(0,16))}</text>`;
+    if(r.shift_start!=null) rows+=`<rect x="${x(r.shift_start)}" y="${y+4}" width="${Math.max(1,x(r.shift_end)-x(r.shift_start))}" height="14" rx="3" fill="#eef2f7"><title>${esc(r.team_code||'')} กะ</title></rect>`;
+    r.bars.forEach(b=>{ rows+=`<rect x="${x(b.lo)}" y="${y+5}" width="${Math.max(2,x(b.hi)-x(b.lo))}" height="12" rx="3" fill="${b.is_flight?'#1D428A':'#7ecfa0'}"><title>${esc(b.label)} · ${String(Math.floor(b.lo/60)%24).padStart(2,'0')}:${String(b.lo%60).padStart(2,'0')}–${String(Math.floor(b.hi/60)%24).padStart(2,'0')}:${String(b.hi%60).padStart(2,'0')}</title></rect>`; });
+  });
+  return card(`🗓️ Gantt · ${s.rows.length} คน`, `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:760px;height:auto"><line x1="${labW}" y1="24" x2="${W}" y2="24" stroke="#e2e8f0"/>${grid}${rows}</svg></div>`
+    + `<div class="note">แท่งน้ำเงิน = งานไฟลท์ · แท่งเขียว = งานอื่น/โซน · แท่งเทา = ช่วงกะ · ช่วงงานประมาณจากเวลาเคาน์เตอร์/STA/STD</div>`);
+}
+
+const RENDER = { dash:renderDash, tt:renderTt, pu:renderPu, gt:renderGt, fl:renderFl, po:renderPo, wc:renderWc };
 
 function setTab(t){ CUR=t; [...document.querySelectorAll('.tabs button')].forEach(b=>b.classList.toggle('on', b.dataset.t===t)); load(); }
 

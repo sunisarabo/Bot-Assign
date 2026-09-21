@@ -306,3 +306,23 @@ SELECT d.work_date,
 FROM duty d
 LEFT JOIN employee e ON e.emp_code = d.emp_code
 GROUP BY d.work_date, grp;
+
+-- ============================================================
+-- Web app: session + OIDC login state (ใช้แทน in-memory เพื่อรองรับหลาย instance)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS web_session (
+  sid         TEXT PRIMARY KEY,
+  sub         TEXT,
+  email       TEXT,
+  name        TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at  TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_web_session_exp ON web_session(expires_at);
+
+CREATE TABLE IF NOT EXISTS oidc_login (            -- state ระหว่าง flow (PKCE/nonce) · อายุสั้น
+  state         TEXT PRIMARY KEY,
+  code_verifier TEXT NOT NULL,
+  nonce         TEXT NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
