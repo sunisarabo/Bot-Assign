@@ -20,6 +20,7 @@
 2. **`02-powerfx.md`** — สร้าง Canvas App + สูตรหน้าจอ (Timetable / Productivity / Gantt / Porter / Pre-WC)
 3. **`03-power-automate.md`** — flow นำเข้าข้อมูลรายวัน + แจ้งเตือน
 4. **`04-power-bi.md`** — โมเดล + DAX + หน้ารายงาน (เทียบกราฟที่ทำอยู่)
+5. **`05-import-source.md`** — ไฟล์ต้นทางจริง (Drive `1Uk-…` = ROOT_FOLDER_ID) + mapping ไฟล์→JSON→Dataverse + route นำเข้า
 
 ## ไลเซนส์ (ต้องรู้ก่อน)
 - Dataverse + Power Apps ใช้ตาราง Dataverse = **premium** → ต้อง **Power Apps per-user** (หรือ per-app) ต่อผู้ใช้ที่เปิดแอป
