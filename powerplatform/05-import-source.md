@@ -50,6 +50,18 @@ rbSaveAllDay(iso) → JSON → db/load_all.sh <dir> <date>
 
 > เวลา (STA/STD/OP/CL, shift) แปลงเป็น **นาทีตั้งแต่เที่ยงคืน** ตอน import (ตรงกับ schema)
 
+## ตัวอ่านสำรอง (best-effort) — `tools/parse_daily_workbook.py`
+ถ้าต้องอ่านแท็บรายทีมตรง ๆ โดยไม่ผ่าน Apps Script (เช่น export markdown/ข้อความจาก Drive):
+```bash
+python3 powerplatform/tools/parse_daily_workbook.py 19SEP.txt --date 2026-09-19 --src 19SEP > pas_day.json
+node db/import.js pas_day.json | psql -d pas
+```
+**พิสูจน์กับไฟล์จริง 19SEP:** parse ได้ **19 ทีม · 571 คน · ~640 assignment** → import เข้า DB สำเร็จ
+(flight_asg 549 · productivity คำนวณได้จริง: avg Util 25%, peak on-duty 282)
+
+⚠️ ข้อจำกัด: text rep ไม่มีชื่อแท็บ → เดา "ทีม" จาก**ลำดับตาราง**เทียบลำดับใน MANPOWER ·
+ช่วงงานอ่านจากหัวบล็อกไฟลท์ · เป็น best-effort — **ตัวอ่านทางการยังเป็น `rbSaveAllDay`** (มีชื่อแท็บ + ตรรกะ RosterReader ครบ)
+
 ## ช่วงเปลี่ยนผ่าน → ถาวร
 - **ช่วงเปลี่ยนผ่าน:** เก็บ workbook บน Google Drive ต่อได้ · `rbSaveAllDay` + flow ดันเข้า Dataverse ทุกคืน
 - **ถาวร (เลิก Google):** ย้าย workbook เป็น **Excel บน SharePoint** → Power Automate อ่าน Excel ตรง ไม่ต้องผ่าน Apps Script
