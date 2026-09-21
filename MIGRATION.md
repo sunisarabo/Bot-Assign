@@ -74,8 +74,8 @@ DATABASE_URL="postgres://pas:pas@127.0.0.1:5432/pas" npm start   # http://localh
 |---|---|---|---|
 | ที่เก็บข้อมูล | Google Sheets | **PostgreSQL** ของเราเอง | ทำแล้ว (schema + importer) |
 | แอป/โลจิก | Apps Script | **Node** ใน Docker | prototype ใน `backend/` แล้ว |
-| Login | บัญชี Google | **OIDC** → ต่อ Microsoft Entra / Google / Keycloak ก็ได้ | เพิ่มทีหลัง ไม่ล็อกเจ้า |
-| อีเมลแจ้งเตือน | Gmail/GAS | **SMTP** (Microsoft 365 SMTP ก็ได้) | เปลี่ยนปลายทางได้โดยไม่แก้โลจิก |
+| Login | บัญชี Google | **OIDC** → Microsoft Entra ID (`backend/auth.js`) | ✅ ทำแล้ว · ตั้งค่าผ่าน env ย้ายเจ้าได้ |
+| อีเมลแจ้งเตือน | Gmail/GAS | **SMTP** → Microsoft 365 (`backend/mailer.js`) | ✅ ทำแล้ว · เปลี่ยนปลายทางได้โดยไม่แก้โลจิก |
 | ไฟล์แนบ/รายงาน | Google Drive | **S3-compatible** (MinIO/Azure Blob) | มาตรฐานเดียว ย้ายได้ |
 | แดชบอร์ด | เว็บ GAS | เว็บ Node เอง หรือ **Metabase/Grafana** ต่อ DB | อ่านจาก DB ตัวเดียวกัน |
 
@@ -90,4 +90,5 @@ DATABASE_URL="postgres://pas:pas@127.0.0.1:5432/pas" npm start   # http://localh
 - ✅ importer ครบ: master · duty+assignment · flights · porter · pre-WC · manpower (idempotent ต่อวัน)
 - ✅ exporter ฝั่ง Apps Script (`DbExport.gs`) — `rbSaveAllDay` / `rbSaveMasterJson`
 - ✅ backend Node + เว็บ 5 แท็บ อ่านจาก DB จริง (health/dates/summary/timetable/flights/porter/prewc)
-- ⬜ ต่อ OIDC login · ยก SLA/Productivity/Gantt เต็มมาเป็น query/โมดูลใน backend · ตั้ง import อัตโนมัติรายวัน
+- ✅ **Login ด้วย Microsoft (OIDC/Entra)** + **แจ้งเตือนอีเมลผ่าน Microsoft 365 (SMTP)** — ตั้งค่าผ่าน env (ดู `backend/README.md`)
+- ⬜ ยก SLA/Productivity/Gantt เต็มมาเป็น query/โมดูลใน backend · ตั้ง import อัตโนมัติรายวัน · session store ร่วม (Redis) สำหรับหลาย instance
