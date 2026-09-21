@@ -15,7 +15,8 @@
 > เอกสารชุดนี้คือ **พิมพ์เขียวครบ** — schema, สูตร Power Fx, flow, DAX — เอาไปสร้างตามได้เร็ว
 
 ## ลำดับการสร้าง
-1. **`01-dataverse-schema.md`** — สร้างตาราง + คอลัมน์ + choice + ความสัมพันธ์ (ใน solution เดียว)
+1. **`01-dataverse-schema.md`** — สร้างตาราง + คอลัมน์ + choice + ความสัมพันธ์
+   → มี **สคริปต์อัตโนมัติ** `create-tables.js` + `tables.def.json` (สร้างครบจากไฟล์เดียว · idempotent)
 2. **`02-powerfx.md`** — สร้าง Canvas App + สูตรหน้าจอ (Timetable / Productivity / Gantt / Porter / Pre-WC)
 3. **`03-power-automate.md`** — flow นำเข้าข้อมูลรายวัน + แจ้งเตือน
 4. **`04-power-bi.md`** — โมเดล + DAX + หน้ารายงาน (เทียบกราฟที่ทำอยู่)

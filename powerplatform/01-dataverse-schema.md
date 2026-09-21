@@ -53,7 +53,9 @@ Dataverse ไม่มีชนิด TIME ล้วน → **เก็บเว
 | pas_is_training | Yes/No | |
 | pas_source_file | Text | เช่น 19SEP |
 
-> Key ป้องกันซ้ำ: ตั้ง **Alternate Key** = (pas_work_date, pas_employee, pas_team, pas_is_support) → upsert รายวันได้
+> Key ป้องกันซ้ำ: ตั้ง **Alternate Key** = (pas_work_date, pas_employee, pas_team) → upsert รายวันได้
+> (Dataverse **ไม่รับ Yes/No เป็นคอลัมน์ของ alternate key** จึงไม่ใส่ pas_is_support · แถว home กับ support
+> ต่างทีมกันอยู่แล้ว → ไม่ชน · เคสหายากที่คนเดียวเป็นทั้ง home+support ในทีมเดียวกันวันเดียว ค่อยเพิ่มคอลัมน์ discriminator แบบ Choice/Text)
 
 ### Assignment (`pas_assignment`) — 1 งาน/ไฟลท์ ต่อ duty
 | คอลัมน์ | ชนิด | หมายเหตุ |
@@ -94,7 +96,28 @@ Duty 1─* Assignment    (pas_duty, parental → ลบ duty แล้ว assign
 Team 1─* ManpowerReport(pas_team)
 ```
 
-## วิธีสร้างเร็ว
-- make.powerapps.com → Solutions → New solution (publisher prefix `pas`) → New → Table
-- หรือใช้ **Power Platform CLI** (`pac`) สร้างจาก solution ที่ export/version ไว้ (แนะนำเก็บ solution ลง repo แยกภายหลัง)
-- ใส่ข้อมูลนำเข้าครั้งแรก: **Dataflow / Import from Excel** (แมปคอลัมน์ตามด้านบน) — ดู `03-power-automate.md`
+## วิธีสร้างเร็ว — สคริปต์อัตโนมัติ (แนะนำ)
+สร้างทุกตาราง/คอลัมน์/choice/ความสัมพันธ์/alternate key จากไฟล์เดียว `tables.def.json`
+ผ่าน **Dataverse Web API** — idempotent (มีอยู่แล้วข้าม) · รันซ้ำได้
+
+**เตรียมสิทธิ์ (ครั้งเดียว):**
+1. Entra → App registration ใหม่ → สร้าง client secret
+2. Power Platform admin → Environment → **S2S / Application user** → เพิ่ม app นั้น → ให้ security role **System Customizer** (หรือ System Administrator)
+
+**รัน:**
+```bash
+node powerplatform/create-tables.js --dry-run     # ดูแผน 88 ขั้น (ไม่ยิงเน็ต)
+
+export DATAVERSE_URL="https://<org>.crm.dynamics.com"
+export TENANT_ID="<tenant>"  CLIENT_ID="<app>"  CLIENT_SECRET="<secret>"
+export SOLUTION="<solution unique name>"          # ทางเลือก: ให้ table ไปอยู่ solution นี้
+node powerplatform/create-tables.js               # สร้างจริง
+```
+
+**เก็บเป็น solution (version control) ด้วย `pac`:**
+```bash
+pac auth create --url $DATAVERSE_URL
+pac solution export --name <solution> --path pas_solution.zip     # export เก็บ/ย้าย env ได้
+```
+> วิธีมือ (ทางเลือก): make.powerapps.com → Solutions → New → Table
+> ใส่ข้อมูลนำเข้าครั้งแรก: **Dataflow / Import from Excel** หรือ flow ใน `03-power-automate.md`
