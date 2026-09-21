@@ -7,6 +7,11 @@ Code.gs
 *.json
 *.sql
 *.js
+*.yml
+*.yaml
+.env*
+.dockerignore
+Dockerfile
 db/**
 backend/**
 !appsscript.json

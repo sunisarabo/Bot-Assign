@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 backend/node_modules/
+
+# local secrets — never commit
+backend/.env
+.env

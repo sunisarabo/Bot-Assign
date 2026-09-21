@@ -1,0 +1,42 @@
+# PAS · docker-compose — รันแอป + Postgres ในชุดเดียว (dev / VM เดียว)
+#
+# เริ่ม:  cp backend/.env.example backend/.env   # แล้วแก้ค่า (Entra/SMTP)
+#         docker compose up -d --build
+#         เปิด http://localhost:3000
+#
+# บน Azure มี 2 แบบ:
+#   (A) VM เดียว: ใช้ compose นี้ทั้งชุด (app + db) — ง่ายสุด
+#   (B) Managed: ใช้ "Azure Database for PostgreSQL" + deploy เฉพาะ image app
+#       ไป Azure Container Apps / App Service → ตั้ง DATABASE_URL ชี้ Azure PG
+#       (ดู DEPLOY_AZURE ใน MIGRATION.md) · กรณีนี้ไม่ต้องใช้ service `db` ข้างล่าง
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pas
+      POSTGRES_PASSWORD: pas
+      POSTGRES_DB: pas
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # โหลด schema อัตโนมัติครั้งแรกที่ volume ว่าง
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pas -d pas"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  app:
+    build: ./backend
+    env_file:
+      - ./backend/.env          # DATABASE_URL / OIDC_* / SMTP_* (คัดจาก .env.example)
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:

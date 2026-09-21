@@ -77,6 +77,50 @@ DATABASE_URL="postgres://pas:pas@host/pas" db/load_all.sh <โฟลเดอร
 
 ---
 
+## Deploy บน Azure (Docker) <a name="deploy_azure"></a>
+
+ไฟล์ที่เกี่ยวข้อง: `backend/Dockerfile` · `backend/.env.example` · `docker-compose.yml`
+
+**เตรียม env:**
+```bash
+cp backend/.env.example backend/.env      # แก้ค่า DATABASE_URL / OIDC_* / SMTP_*
+```
+
+### แบบ A — VM เดียว (app + db ใน compose) · ง่ายสุด
+```bash
+docker compose up -d --build              # schema โหลดอัตโนมัติครั้งแรก
+# เปิด http://<vm>:3000  (แนะนำมี reverse proxy + HTTPS หน้าเว็บ)
+```
+
+### แบบ B — Managed (แนะนำสำหรับ production)
+ใช้ **Azure Database for PostgreSQL** + deploy เฉพาะ image ของแอป
+
+```bash
+# 1) build + push image ขึ้น Azure Container Registry (ACR)
+az acr build -r <registry> -t pas-backend:latest backend
+
+# 2) โหลด schema เข้า Azure PG ครั้งเดียว (บังคับ SSL)
+psql "host=<srv>.postgres.database.azure.com user=<u> dbname=pas sslmode=require" -f db/schema.sql
+
+# 3) deploy → Azure Container Apps (หรือ App Service for Containers)
+az containerapp create -n pas -g <rg> --image <registry>.azurecr.io/pas-backend:latest \
+  --target-port 3000 --ingress external \
+  --secrets db="postgres://<u>:<pw>@<srv>.postgres.database.azure.com:5432/pas?sslmode=require" \
+            oidcsecret="<client-secret>" smtppass="<smtp-pass>" sessionsecret="<random>" \
+  --env-vars DATABASE_URL=secretref:db AUTH_REQUIRED=1 COOKIE_SECURE=1 \
+             OIDC_ISSUER="https://login.microsoftonline.com/<tenant>/v2.0" \
+             OIDC_CLIENT_ID="<client-id>" OIDC_CLIENT_SECRET=secretref:oidcsecret \
+             OIDC_REDIRECT_URI="https://<fqdn>/auth/callback" \
+             SESSION_SECRET=secretref:sessionsecret \
+             SMTP_HOST=smtp.office365.com SMTP_PORT=587 SMTP_USER="notify@yourdomain.com" \
+             SMTP_PASS=secretref:smtppass SMTP_FROM="PAS <notify@yourdomain.com>"
+```
+- Azure PG **บังคับ SSL** → `db.js` เปิด TLS อัตโนมัติเมื่อเจอ `sslmode=require` (verify ด้วย CA มาตรฐาน)
+- ใส่ค่าลับผ่าน **secret/Key Vault** เสมอ — อย่าใส่ตรง ๆ ใน env-vars หรือ commit `.env`
+- อย่าลืมเพิ่ม `https://<fqdn>/auth/callback` เป็น Redirect URI ใน Entra app registration
+
+---
+
 ## Google → Microsoft: checklist ให้ "ไม่ผูกเจ้าใดเจ้าหนึ่ง"
 
 | เรื่อง | เดิม (Google) | ทำให้เป็นกลาง | หมายเหตุ |
