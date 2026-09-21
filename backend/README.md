@@ -20,11 +20,15 @@ DATABASE_URL="postgres://pas:pas@127.0.0.1:5432/pas" npm start
 | `server.js` | HTTP + routing + เสิร์ฟหน้า dashboard |
 | `public/index.html` | หน้า dashboard (โทน AOTGA) เรียก API |
 
+## หน้าเว็บ (แท็บ)
+📊 ภาพรวม · 🧑‍✈️ Timetable · ✈️ ไฟลท์ · 🧳 Porter · ♿ Pre-WC จอง — เลือกวันที่มุมขวาบน
+(dropdown วันที่รวมทั้งวันที่มี duty และวันที่มี **จองล่วงหน้า** → เลือกวันอนาคตดู Pre-WC ได้)
+
 ## API
-- `GET /api/health` · `GET /api/dates`
-- `GET /api/summary?date=YYYY-MM-DD` — KPI + รายทีม (`v_team_daily`) + แยกกลุ่ม (`v_source_split`) + ไฟลท์ + porter
-- `GET /api/timetable?date=` — รายคน + งานที่ได้รับ
-- `GET /api/flights?date=` · `GET /api/porter?date=`
+- `GET /api/health` · `GET /api/dates` (รวม duty + จองล่วงหน้า)
+- `GET /api/summary?date=YYYY-MM-DD` — KPI + รายทีม (`v_team_daily`) + แยกกลุ่ม (`v_source_split`) + ไฟลท์ + porter + manpower
+- `GET /api/timetable?date=` — รายคน + กะ + งาน/ไฟลท์ที่ได้รับ
+- `GET /api/flights?date=` · `GET /api/porter?date=` · `GET /api/prewc?date=` (จองล่วงหน้า · ดูอนาคตได้)
 
 ## ทำไมแบบนี้ = ย้ายได้
 - data อยู่ใน **Postgres ของเราเอง** · โค้ดเป็น Node ใส่ Docker รันที่ไหนก็ได้

@@ -58,10 +58,27 @@ async function porter(date) {
   return { date, jobs: jobs.rows, byAirline: byair.rows, staff: staff.rows };
 }
 
-// วันที่ที่มีข้อมูล (ให้ UI เลือก)
+// Pre-book wheelchair — จองล่วงหน้า (ดูวันอนาคตได้)
+async function prewc(date) {
+  const [rows, byType, byAir] = await Promise.all([
+    db.query(`SELECT airline_iata,flight_no,routing,sta,std,ct_open,ct_close,direction,service,qty
+              FROM prewheelchair_booking WHERE work_date=$1
+              ORDER BY direction, COALESCE(sta,std), flight_no`, [date]),
+    db.query(`SELECT service, sum(qty)::int AS qty FROM prewheelchair_booking WHERE work_date=$1 GROUP BY service ORDER BY service`, [date]),
+    db.query(`SELECT airline_iata, sum(qty)::int AS qty FROM prewheelchair_booking WHERE work_date=$1 GROUP BY airline_iata ORDER BY qty DESC`, [date]),
+  ]);
+  const total = rows.rows.reduce((s, x) => s + (+x.qty || 0), 0);
+  return { date, total, byType: byType.rows, byAirline: byAir.rows, rows: rows.rows };
+}
+
+// วันที่ที่มีข้อมูล (ให้ UI เลือก) — รวม duty + จองล่วงหน้า (อนาคต)
 async function dates() {
-  const r = await db.query(`SELECT DISTINCT work_date FROM duty ORDER BY work_date DESC LIMIT 60`);
+  const r = await db.query(`
+    SELECT work_date FROM (
+      SELECT work_date FROM duty
+      UNION SELECT work_date FROM prewheelchair_booking
+    ) x ORDER BY work_date DESC LIMIT 90`);
   return r.rows.map(x => (x.work_date instanceof Date ? x.work_date.toISOString().slice(0, 10) : x.work_date));
 }
 
-module.exports = { health, summary, timetable, flights, porter, dates };
+module.exports = { health, summary, timetable, flights, porter, prewc, dates };

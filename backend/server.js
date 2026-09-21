@@ -23,6 +23,7 @@ const API = {
   '/api/timetable': (q) => Q.timetable(q.date),
   '/api/flights': (q) => Q.flights(q.date),
   '/api/porter': (q) => Q.porter(q.date),
+  '/api/prewc': (q) => Q.prewc(q.date),
 };
 
 const server = http.createServer(async (req, res) => {
