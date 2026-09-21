@@ -21,6 +21,11 @@
 3. **`03-power-automate.md`** — flow นำเข้าข้อมูลรายวัน + แจ้งเตือน
 4. **`04-power-bi.md`** — โมเดล + DAX + หน้ารายงาน (เทียบกราฟที่ทำอยู่)
 5. **`05-import-source.md`** — ไฟล์ต้นทางจริง (Drive `1Uk-…` = ROOT_FOLDER_ID) + mapping ไฟล์→JSON→Dataverse + route นำเข้า
+6. **`templates/`** — CSV หัวคอลัมน์ตายตัว (route ถาวรบน SharePoint) 1 ไฟล์/ตาราง + README แมป→Dataverse
+7. **`office-script-util.ts`** — Office Script คำนวณ Util (merge ช่วงซ้อนเป๊ะ) เรียกจาก Power Automate
+
+> ✅ ทดสอบด้วยข้อมูลจริง: อ่าน MANPOWER ของ 19SEP จาก Drive → import เข้า DB ได้ตัวเลขตรงชีต
+> (SQ 29 คน · QR OT 85 · WYWK OT 72.5 · PORTER 51) · Office Script util ให้ผลตรงกับ backend module
 
 ## ไลเซนส์ (ต้องรู้ก่อน)
 - Dataverse + Power Apps ใช้ตาราง Dataverse = **premium** → ต้อง **Power Apps per-user** (หรือ per-app) ต่อผู้ใช้ที่เปิดแอป
