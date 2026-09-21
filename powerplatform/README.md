@@ -23,6 +23,7 @@
 5. **`05-import-source.md`** — ไฟล์ต้นทางจริง (Drive `1Uk-…` = ROOT_FOLDER_ID) + mapping ไฟล์→JSON→Dataverse + route นำเข้า
 6. **`templates/`** — CSV หัวคอลัมน์ตายตัว (route ถาวรบน SharePoint) 1 ไฟล์/ตาราง + README แมป→Dataverse
 7. **`office-script-util.ts`** — Office Script คำนวณ Util (merge ช่วงซ้อนเป๊ะ) เรียกจาก Power Automate
+8. **`06-canvas-build.md`** — สร้าง Canvas App จากเทมเพลต HeaderMainFooter (คลิก-ต่อ-คลิก + วางสูตรจากข้อ 02)
 
 > ✅ ทดสอบด้วยข้อมูลจริง: อ่าน MANPOWER ของ 19SEP จาก Drive → import เข้า DB ได้ตัวเลขตรงชีต
 > (SQ 29 คน · QR OT 85 · WYWK OT 72.5 · PORTER 51) · Office Script util ให้ผลตรงกับ backend module
