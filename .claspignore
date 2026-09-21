@@ -14,6 +14,7 @@ Code.gs
 Dockerfile
 db/**
 backend/**
+powerplatform/**
 !appsscript.json
 .git/**
 .github/**
