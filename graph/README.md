@@ -47,9 +47,27 @@ node db/import.js pas_day.json | psql -d pas        # (ถ้าจะเก็�
 - โครงในไฟล์เหมือนเดิม: แท็บ `MANPOWER` + แท็บรายทีม (ชื่อแท็บ = รหัสทีม)
 - Graph workbook API อ่าน `.xlsx` ได้ตรง ไม่ต้อง export
 
-## ต่อไป (ยังไม่ทำในชุดนี้)
-- `server.js` เสิร์ฟ dashboard จากข้อมูล Excel ตรง ๆ (เอา `../backend/productivity.js` มาคำนวณ Util/Gantt ได้เลย — โครงข้อมูลเดียวกัน)
-- cache ต่อวัน + refresh · deploy Azure (Dockerfile เดียวกับ backend ได้)
+## เว็บ Dashboard (`server.js`)
+เสิร์ฟหน้าเว็บ (โทน AOTGA) อ่าน Excel ผ่าน Graph ตรง ๆ · cache ต่อวัน · แท็บ ภาพรวม/Timetable/Productivity/Gantt/Manpower
+```bash
+# ต่อ SharePoint จริง (ตั้ง env GRAPH_*/SP_* ตามด้านบน)
+node graph/server.js            # เปิด http://localhost:3000
+
+# พรีวิว UI โดยยังไม่ต่อ Graph (ใช้ข้อมูลตัวอย่าง graph/demo.json)
+PAS_DEMO=1 node graph/server.js
+```
+API: `/api/day` · `/api/timetable` · `/api/productivity` · `/api/gantt` (ทุกตัวรับ `?date=YYYY-MM-DD`) · `/api/health`
+
+| ไฟล์เพิ่ม | หน้าที่ |
+|---|---|
+| `compute.js` | คำนวณ Util/Gantt/รายชั่วโมง/รายทีม จากผล parse (ยกจาก backend/productivity.js) |
+| `server.js` | HTTP + cache ต่อวัน + เสิร์ฟ dashboard/API |
+| `public/index.html` | หน้า dashboard (แท็บ · SVG กราฟ+Gantt · hover) |
+| `demo.json` | ข้อมูลตัวอย่างสำหรับ `PAS_DEMO=1` |
+
+## Deploy Azure
+Dockerfile แบบเดียวกับ `backend/` ได้ (Node 20-alpine · `CMD node server.js`) → Azure Container Apps
+ตั้ง env `GRAPH_*` + `SP_*` เป็น secret · เปิด egress ให้ `graph.microsoft.com` + `login.microsoftonline.com`
 
 ## หมายเหตุ
 - ต้องมี Node 18+ (ใช้ global fetch)
