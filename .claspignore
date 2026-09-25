@@ -15,6 +15,7 @@ Dockerfile
 db/**
 backend/**
 graph/**
+docs/**
 powerplatform/**
 !appsscript.json
 .git/**
