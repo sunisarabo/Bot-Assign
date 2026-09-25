@@ -34,10 +34,10 @@
 <body>
 <div class="top">
   <div><b>PAS</b> <span class="sub">Dashboard · Excel บน SharePoint</span></div>
-  <div class="sp"><span class="sub" id="who"></span><input type="date" id="date" onchange="load()" style="display:none"><button class="btn" id="loginBtn" onclick="signIn()">เข้าสู่ระบบ (Microsoft)</button></div>
+  <div class="sp"><span class="sub" id="who"></span><input type="date" id="date" onchange="load()" style="display:none"></div>
 </div>
 <div class="tabs" id="tabs" style="display:none"></div>
-<div class="wrap"><div id="err"></div><div id="view"><div class="center muted">กรุณาเข้าสู่ระบบด้วยบัญชี Microsoft ขององค์กร</div></div><div class="foot" id="foot"></div></div>
+<div class="wrap"><div id="err"></div><div id="view"><div class="center muted">กำลังเข้าสู่ระบบด้วยบัญชี Microsoft…</div></div><div class="foot" id="foot"></div></div>
 
 <script>
 // ===== CONFIG (ไม่ลับ — clientId/tenantId เปิดเผยได้) =====
@@ -56,19 +56,16 @@ let msalApp, account = null;
 async function initMsal(){
   msalApp = new msal.PublicClientApplication({ auth:{ clientId:CONFIG.clientId, authority:"https://login.microsoftonline.com/"+CONFIG.tenantId, redirectUri: window.location.origin + window.location.pathname }, cache:{ cacheLocation:"localStorage" } });
   await msalApp.initialize();
-  const accts = msalApp.getAllAccounts();
-  if(accts.length){ account = accts[0]; onSignedIn(); }
-}
-async function signIn(){
-  try{ const r = await msalApp.loginPopup({ scopes:CONFIG.scopes }); account = r.account; onSignedIn(); }
-  catch(e){ showErr("เข้าสู่ระบบไม่สำเร็จ: "+(e.message||e)); }
+  const resp = await msalApp.handleRedirectPromise();               // กลับจาก redirect
+  account = (resp && resp.account) || msalApp.getAllAccounts()[0] || null;
+  if(account){ msalApp.setActiveAccount(account); onSignedIn(); }
+  else { await msalApp.loginRedirect({ scopes:CONFIG.scopes }); }    // auto — ถ้าล็อกอิน M365 อยู่แล้วเด้งกลับทันที (ไม่มีหน้า login)
 }
 async function getToken(){
   try{ const r = await msalApp.acquireTokenSilent({ scopes:CONFIG.scopes, account }); return r.accessToken; }
-  catch(e){ const r = await msalApp.acquireTokenPopup({ scopes:CONFIG.scopes }); return r.accessToken; }
+  catch(e){ await msalApp.acquireTokenRedirect({ scopes:CONFIG.scopes }); throw new Error("redirecting"); }
 }
 function onSignedIn(){
-  document.getElementById("loginBtn").style.display="none";
   document.getElementById("date").style.display="";
   document.getElementById("tabs").style.display="";
   document.getElementById("who").textContent = "👤 " + (account.name || account.username || "");
