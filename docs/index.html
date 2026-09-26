@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAS · Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3.10.0/lib/msal-browser.min.js"></script>
+<style>
+  :root{ --royal:#1D428A; --ink:#12242f; --ink2:#5b7189; --line:#e2e8f0; --bg:#eef3fa; --surface:#fff; }
+  *{ box-sizing:border-box; } body{ margin:0; font-family:Kanit,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .top{ background:linear-gradient(120deg,var(--royal),#2a5bbf); color:#fff; padding:16px 22px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .top b{ font-size:20px; } .top .sub{ font-size:12px; opacity:.85; } .top .sp{ margin-left:auto; display:flex; gap:10px; align-items:center; }
+  input[type=date]{ font:inherit; border-radius:9px; border:1px solid rgba(255,255,255,.5); background:rgba(255,255,255,.16); color:#fff; padding:7px 12px; }
+  .btn{ font:inherit; cursor:pointer; border-radius:9px; border:1px solid rgba(255,255,255,.5); background:rgba(255,255,255,.16); color:#fff; padding:7px 14px; }
+  .tabs{ background:#fff; border-bottom:1px solid var(--line); padding:0 12px; display:flex; gap:2px; overflow-x:auto; }
+  .tabs button{ background:none; border:none; color:var(--ink2); border-bottom:3px solid transparent; padding:12px 16px; font-weight:600; white-space:nowrap; cursor:pointer; }
+  .tabs button.on{ color:var(--royal); border-bottom-color:var(--royal); }
+  .wrap{ max-width:1100px; margin:0 auto; padding:18px 16px 40px; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+  .kpi{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .kpi .n{ font-size:26px; font-weight:800; color:var(--royal); } .kpi .l{ font-size:12px; color:var(--ink2); margin-top:4px; font-weight:600; }
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; margin-top:16px; overflow:hidden; }
+  .card h3{ margin:0; padding:13px 16px; font-size:15px; border-bottom:1px solid var(--line); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; } th,td{ text-align:left; padding:8px 12px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+  th{ background:#f6f9fd; color:var(--ink2); font-weight:700; font-size:11.5px; } td.n,th.n{ text-align:right; font-variant-numeric:tabular-nums; }
+  .tag{ display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; background:#eef2f7; color:var(--ink2); margin:1px 2px 1px 0; } .tag.f{ background:#e7f5ff; color:#1971c2; }
+  .util{ height:8px; background:#eef2f7; border-radius:5px; overflow:hidden; min-width:60px; } .util>i{ display:block; height:100%; }
+  .muted{ color:var(--ink2); } .scroll{ overflow-x:auto; } .foot{ text-align:center; color:var(--ink2); font-size:12px; margin-top:20px; }
+  .err{ background:#fdecec; color:#b02a2a; padding:12px 16px; border-radius:10px; margin-top:16px; white-space:pre-wrap; }
+  .center{ text-align:center; padding:60px 20px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><b>PAS</b> <span class="sub">Dashboard · Excel บน SharePoint</span></div>
+  <div class="sp"><span class="sub" id="who"></span><input type="date" id="date" onchange="load()" style="display:none"></div>
+</div>
+<div class="tabs" id="tabs" style="display:none"></div>
+<div class="wrap"><div id="err"></div><div id="view"><div class="center muted">กำลังเข้าสู่ระบบด้วยบัญชี Microsoft…</div></div><div class="foot" id="foot"></div></div>
+
+<script>
+// ===== CONFIG (ไม่ลับ — clientId/tenantId เปิดเผยได้) =====
+const CONFIG = {
+  clientId: "a5222571-7de5-458a-a648-702004a84526",
+  tenantId: "619b9081-4c12-4243-af65-d67cb3b41d81",
+  spHostname: "aotgath.sharepoint.com",
+  spSitePath: "/sites/0AAYJ05_KoLORUk9PVA",
+  spRootFolder: "/Shared Documents/2025",
+  scopes: ["Sites.Read.All", "Files.Read.All"]
+};
+const G = "https://graph.microsoft.com/v1.0";
+
+// ===== MSAL =====
+let msalApp, account = null;
+async function initMsal(){
+  msalApp = new msal.PublicClientApplication({ auth:{ clientId:CONFIG.clientId, authority:"https://login.microsoftonline.com/"+CONFIG.tenantId, redirectUri: window.location.origin + window.location.pathname }, cache:{ cacheLocation:"localStorage" } });
+  await msalApp.initialize();
+  const resp = await msalApp.handleRedirectPromise();               // กลับจาก redirect
+  account = (resp && resp.account) || msalApp.getAllAccounts()[0] || null;
+  if(account){ msalApp.setActiveAccount(account); onSignedIn(); }
+  else { await msalApp.loginRedirect({ scopes:CONFIG.scopes }); }    // auto — ถ้าล็อกอิน M365 อยู่แล้วเด้งกลับทันที (ไม่มีหน้า login)
+}
+async function getToken(){
+  try{ const r = await msalApp.acquireTokenSilent({ scopes:CONFIG.scopes, account }); return r.accessToken; }
+  catch(e){ await msalApp.acquireTokenRedirect({ scopes:CONFIG.scopes }); throw new Error("redirecting"); }
+}
+function onSignedIn(){
+  document.getElementById("date").style.display="";
+  document.getElementById("tabs").style.display="";
+  document.getElementById("who").textContent = "👤 " + (account.name || account.username || "");
+  if(!document.getElementById("date").value) document.getElementById("date").value = new Date().toISOString().slice(0,10);
+  load();
+}
+
+// ===== Graph =====
+async function gGet(pathOrUrl){
+  const t = await getToken();
+  const r = await fetch(pathOrUrl.startsWith("http")?pathOrUrl:G+pathOrUrl, { headers:{ Authorization:"Bearer "+t, Accept:"application/json" } });
+  if(!r.ok) throw new Error("Graph "+r.status+": "+(await r.text()).slice(0,200));
+  return r.json();
+}
+let _site=null, _drive=null;
+async function siteDrive(){
+  if(_drive) return _drive;
+  const s = await gGet(`/sites/${CONFIG.spHostname}:${CONFIG.spSitePath}`); _site=s.id;
+  const d = await gGet(`/sites/${_site}/drive`); _drive=d.id; return _drive;
+}
+async function listChildren(driveId, folderPath){
+  const p = folderPath && folderPath!=="/" ? `/drives/${driveId}/root:${encodeURI(folderPath)}:/children` : `/drives/${driveId}/root/children`;
+  const out=[]; let url=G+p; while(url){ const j=await gGet(url); out.push(...(j.value||[])); url=j["@odata.nextLink"]||null; } return out;
+}
+async function listWorksheets(driveId,itemId){ const j=await gGet(`/drives/${driveId}/items/${itemId}/workbook/worksheets?$select=id,name`); return j.value||[]; }
+async function readUsedRange(driveId,itemId,name){ const j=await gGet(`/drives/${driveId}/items/${itemId}/workbook/worksheets('${encodeURIComponent(name)}')/usedRange(valuesOnly=true)?$select=values`); return j.values||[]; }
+
+const MON=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+const normS=s=>String(s||"").toUpperCase().replace(/[\s._-]/g,"");
+function dayTokens(iso){ const [y,m,d]=iso.split("-").map(Number); return { m, mon:MON[m-1], dayTok:String(d)+MON[m-1] }; }
+async function readDay(iso){
+  const driveId = await siteDrive();
+  const t = dayTokens(iso);
+  const months = await listChildren(driveId, CONFIG.spRootFolder);
+  const mf = months.find(x=>x.folder && normS(x.name).includes(t.mon) && normS(x.name).includes(String(t.m).padStart(2,"0"))) || months.find(x=>x.folder && normS(x.name).includes(t.mon));
+  if(!mf) throw new Error(`ไม่พบโฟลเดอร์เดือน ${t.mon} ใน ${CONFIG.spRootFolder}\nที่มี: ${months.filter(x=>x.folder).map(x=>x.name).join(", ")}`);
+  const files = await listChildren(driveId, `${CONFIG.spRootFolder}/${mf.name}`);
+  const dt=normS(t.dayTok);
+  const file = files.find(x=>x.file && normS(x.name).startsWith(dt)) || files.find(x=>x.file && normS(x.name).includes(dt));
+  if(!file) throw new Error(`ไม่พบไฟล์เวร ${t.dayTok} ใน ${mf.name}\nที่มี: ${files.filter(x=>x.file).map(x=>x.name).slice(0,40).join(", ")}`);
+  const ws = await listWorksheets(driveId, file.id);
+  const sheets=[];
+  for(const s of ws){ try{ sheets.push({ name:s.name, rows: await readUsedRange(driveId, file.id, s.name) }); }catch(e){} }
+  return parseDay(iso, file.name, sheets);
+}
+
+// ===== parse (port graph/parseDay.js) =====
+const DEP_LEAD=60,ARR_TAIL=45,DEF_JOB=45,HN=24;
+const S=v=>(v==null?"":String(v)).trim();
+const t2m=t=>{const m=S(t).match(/(\d{1,2})[:.](\d{2})/);return m?(+m[1])*60+(+m[2]):null;};
+const isFlight=c=>{const u=S(c).toUpperCase().replace(/\s/g,"");return /^[A-Z]{1,2}\d{2,4}/.test(u)&&!u.includes("BRIEF")&&!u.includes("BREIF");};
+const numV=v=>{const n=parseFloat(S(v).replace(/[^0-9.\-]/g,""));return Number.isFinite(n)?n:null;};
+function bucketOf(status,remark){const s=S(status).toUpperCase(),r=S(remark).toUpperCase(),txt=r||s;
+  if(txt.includes("SICK")||txt==="SL"||txt==="MC")return{bucket:"sick",training:false};
+  if(txt.includes("VAC")||["AL","BL","VL","ML","PL"].includes(txt))return{bucket:"vac",training:false};
+  if(txt.includes("OT OFF")||txt.includes("OT-OFF"))return{bucket:"ot_off",training:false};
+  if(txt.startsWith("OFF")||txt==="X")return{bucket:"off",training:false};
+  return{bucket:"working",training:/TRAIN|อบรม|BRIEF|COURSE|MEETING|ประชุม|สัมมนา|OJT|E-?LEARN/.test(r+" "+s)};}
+function findKeyRow(rows){for(let i=0;i<rows.length;i++){const up=rows[i].map(x=>S(x).toUpperCase());if(up.includes("NAME")&&up.includes("SHIFT")&&up.includes("STATUS")&&up.some(x=>x.includes("JOB")))return i;}return -1;}
+function hdrC18(rows,label){for(const r of rows)if(S(r[18]).toUpperCase().startsWith(label))return r;return null;}
+function parseTeam(code,rows){
+  const k=findKeyRow(rows); if(k<0)return null;
+  const flRow=hdrC18(rows,"FLIGHT"),staRow=hdrC18(rows,"STA"),opRow=hdrC18(rows,"OP"); const flights=[];
+  if(flRow)for(let base=19;base<flRow.length;base+=4){const codeF=S(flRow[base]); if(!codeF||codeF==="หมายเลขไฟลท์"||!/\d|BRE?IF|GOM/.test(codeF))continue;
+    let sta="",std="",op="",cl=""; if(staRow){const a=S(staRow[base]).match(/(\d{1,2}[:.]\d{2})/),d=S(staRow[base+2]).match(/(\d{1,2}[:.]\d{2})/);sta=a?a[1]:"";std=d?d[1]:"";}
+    if(opRow){const o=S(opRow[base]).match(/(\d{1,2}[:.]\d{2})/),c=S(opRow[base+2]).match(/(\d{1,2}[:.]\d{2})/);op=o?o[1]:"";cl=c?c[1]:"";} flights.push({base,code:codeF,STA:sta,STD:std,OP:op,CL:cl});}
+  const people=[];
+  for(let i=k+1;i<rows.length;i++){const r=rows[i]; if(r.length<18)continue; const name=S(r[2]); if(!name||name.startsWith("Ex.")||name.includes("ตัวอย่าง"))continue;
+    const total=numV(r[6]); const {bucket,training}=bucketOf(r[16],r[17]); const remark=S(r[17]); const asg=[];
+    for(const f of flights){const jobs=[0,1,2,3].map(n=>S(r[f.base+n])).filter(x=>x&&x!=="JOB →"); if(jobs.length)asg.push({flight:f.code,task:jobs.join(" ").slice(0,30),STA:f.STA,STD:f.STD,OP:f.OP,CL:f.CL,isFlight:isFlight(f.code)});}
+    people.push({id:S(r[0]).replace(/\D/g,""),name,shift:S(r[3]),shiftStart:t2m(r[4]),shiftHrs:total||0,bucket,ot:0,support:remark.includes("ซัพ")||remark.toUpperCase().includes("SUPP"),training,remark,assignments:asg});}
+  return people;
+}
+function parseMp(rows){const out=[];for(const r of rows){const m=S(r[0]).match(/Team\s*\((.+?)\)/);if(!m)continue;
+  out.push({team:m[1].trim(),total:numV(r[1]),working:numV(r[9]),sick:numV(r[3]),annual:numV(r[5]),training:numV(r[8]),otHours:numV(r[10]),updatedAt:S(r[12])||null,updatedBy:S(r[13])||null});}return out;}
+function parseDay(iso,src,sheets){const teams={};let manpower=[];
+  for(const sh of sheets){const nm=S(sh.name); if(nm.toUpperCase()==="MANPOWER"){manpower=parseMp(sh.rows);continue;} const ppl=parseTeam(nm,sh.rows); if(ppl&&ppl.length)teams[nm]=ppl;}
+  return {date:iso,sourceFile:src||iso,teams,manpower};}
+
+// ===== compute (port graph/compute.js) =====
+function winOf(a){const op=t2m(a.OP),cl=t2m(a.CL),sta=t2m(a.STA),std=t2m(a.STD);
+  if(op!=null&&cl!=null)return[op,cl<op?cl+1440:cl]; if(std!=null)return[Math.max(0,std-DEP_LEAD),std]; if(sta!=null)return[sta,sta+ARR_TAIL]; if(op!=null)return[op,op+DEF_JOB]; return null;}
+function mergeM(iv){if(!iv.length)return 0;iv=iv.slice().sort((a,b)=>a[0]-b[0]);let tot=0,lo=iv[0][0],hi=iv[0][1];for(let i=1;i<iv.length;i++){if(iv[i][0]<=hi)hi=Math.max(hi,iv[i][1]);else{tot+=hi-lo;lo=iv[i][0];hi=iv[i][1];}}return tot+(hi-lo);}
+const clampIv=(iv,lo,hi)=>iv.map(([a,b])=>[Math.max(a,lo),Math.min(b,hi)]).filter(([a,b])=>b>a);
+const ov=(lo,hi,a,b)=>Math.min(hi,b)>Math.max(lo,a); const ovD=(ds,de,a,b)=>ov(ds,de,a,b)||ov(ds,de,a+1440,b+1440);
+function compute(day){
+  const hOn=Array(HN).fill(0),hFl=Array(HN).fill(0); const people=[],gantt=[],tm=new Map(); let sU=0,nU=0,sI=0,tF=0,work=0;
+  for(const team of Object.keys(day.teams))for(const p of day.teams[team]){
+    const isW=(p.bucket==="working"||p.bucket==="ot_off")&&!p.training; const t=tm.get(team)||{team,ppl:0,working:0,sU:0,nU:0,idle:0,fl:0}; t.ppl++; tm.set(team,t);
+    if(!isW)continue; work++; t.working++;
+    let ds=p.shiftStart, de=(ds!=null&&p.shiftHrs)?Math.round(ds+p.shiftHrs*60):null; if(ds!=null&&de!=null&&de<=ds)de+=1440;
+    const dutyMin=(ds!=null&&de!=null)?de-ds:0; const raw=(p.assignments||[]).map(winOf).filter(Boolean); const nFlt=(p.assignments||[]).filter(a=>a.isFlight).length; tF+=nFlt; t.fl+=nFlt;
+    const busyIv=dutyMin>0?clampIv(raw,ds,de):raw; const busy=mergeM(busyIv); const util=dutyMin>0?Math.min(100,Math.round(busy/dutyMin*100)):null; const idle=dutyMin>0?Math.max(0,dutyMin-busy):0;
+    if(util!=null){sU+=util;nU++;sI+=idle;t.sU+=util;t.nU++;t.idle+=idle;}
+    if(dutyMin>0)for(let h=0;h<HN;h++){const a=h*60;if(ovD(ds,de,a,a+60))hOn[h]++;}
+    for(const [lo,hi] of busyIv)for(let h=0;h<HN;h++){const a=h*60;if(ov(lo,hi,a,a+60)||ov(lo,hi,a+1440,a+1500)){hFl[h]++;break;}}
+    people.push({name:p.name,team,shift:p.shift,dutyMin,busyMin:busy,idleMin:idle,util,nFlt});
+    gantt.push({name:p.name,team,shift_start:ds,shift_end:de,bars:busyIv.length?(p.assignments||[]).map(a=>{const w=winOf(a);return w?{lo:w[0],hi:w[1],label:a.flight||a.task||"",is_flight:a.isFlight}:null;}).filter(Boolean):[]});
+  }
+  const teams=[...tm.values()].map(t=>({team:t.team,ppl:t.ppl,working:t.working,util:t.nU?Math.round(t.sU/t.nU):null,idle_hours:+(t.idle/60).toFixed(1),flights:t.fl})).sort((a,b)=>a.team.localeCompare(b.team));
+  const hourly=Array.from({length:HN},(_,h)=>({h,onDuty:hOn[h],onFlight:hFl[h]}));
+  const kpi={people:work,avg_util:nU?Math.round(sU/nU):null,idle_hours:+(sI/60).toFixed(1),flights:tF,teams:teams.length,peak_on_duty:Math.max(0,...hOn),peak_on_flight:Math.max(0,...hFl)};
+  return {date:day.date,sourceFile:day.sourceFile,kpi,teams,hourly,manpower:day.manpower||[],people:people.sort((a,b)=>(b.util??-1)-(a.util??-1)),
+    timetable:Object.keys(day.teams).flatMap(tc=>day.teams[tc].map(p=>({name:p.name,team:tc,shift:p.shift,bucket:p.bucket,assignments:p.assignments}))),
+    gantt:gantt.sort((a,b)=>a.team.localeCompare(b.team)||(a.shift_start??9999)-(b.shift_start??9999))};
+}
+
+// ===== UI =====
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?"":s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const mn=m=>(m==null||m==="")?"—":String(Math.floor(m/60)%24).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+function kpiC(n,l){return `<div class="kpi"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`;}
+function card(t,i){return `<div class="card"><h3>${t}</h3>${i}</div>`;}
+function tbl(h,rows,e){return `<div class="scroll"><table><thead><tr>${h}</tr></thead><tbody>${rows||`<tr><td colspan="20" class="muted" style="text-align:center;padding:16px">${e||"—"}</td></tr>`}</tbody></table></div>`;}
+function ubar(u){if(u==null)return'<span class="muted">—</span>';const c=u>=80?"#e8590c":u>=50?"#7ecfa0":"#f0b429";return `<div style="display:flex;align-items:center;gap:6px"><div class="util"><i style="width:${u}%;background:${c}"></i></div><b>${u}%</b></div>`;}
+function svgHourly(h){const W=760,H=210,pad=26,n=h.length,bw=(W-pad*2)/n,max=Math.max(1,...h.map(x=>x.onDuty)),y=v=>H-pad-(v/max)*(H-pad*2);let b="";
+  h.forEach(x=>{const bx=pad+x.h*bw+2,w=bw-4; b+=`<rect x="${bx}" y="${y(x.onDuty)}" width="${w}" height="${H-pad-y(x.onDuty)}" fill="#cfe0f5"><title>${x.h}:00 · อยู่เวร ${x.onDuty} · ติดงาน ${x.onFlight}</title></rect><rect x="${bx}" y="${y(x.onFlight)}" width="${w}" height="${H-pad-y(x.onFlight)}" fill="#1D428A"></rect>`;});
+  const ax=h.filter((_,i)=>i%3===0).map(x=>`<text x="${pad+x.h*bw+bw/2}" y="${H-6}" font-size="10" fill="#5b7189" text-anchor="middle">${x.h}</text>`).join("");
+  return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:640px"><text x="${pad}" y="13" font-size="11" fill="#5b7189">แท่งอ่อน=อยู่เวร · แท่งเข้ม=ติดงาน</text>${b}${ax}</svg></div>`;}
+
+const TABS=[["dash","📊 ภาพรวม"],["tt","🧑‍✈️ Timetable"],["pu","📈 Productivity"],["gt","🗓️ Gantt"],["mp","📋 Manpower"]];
+let CUR="dash", DAY=null;
+function renderDash(){const s=DAY,k=s.kpi;
+  return `<div class="kpis">${[kpiC(k.people,"คนทำงาน"),kpiC(k.teams,"ทีม"),kpiC(k.flights,"ไฟลท์"),kpiC((k.avg_util??"—")+"%","Util เฉลี่ย"),kpiC(k.peak_on_duty,"พีคอยู่เวร"),kpiC(k.idle_hours,"ชม.ว่าง")].join("")}</div>`
+   +card("📌 รายทีม",tbl(`<th>ทีม</th><th class="n">ทั้งหมด</th><th class="n">ทำงาน</th><th>Util</th><th class="n">ไฟลท์</th>`,s.teams.map(t=>`<tr><td><b>${esc(t.team)}</b></td><td class="n">${t.ppl}</td><td class="n">${t.working}</td><td>${ubar(t.util)}</td><td class="n">${t.flights}</td></tr>`).join("")));}
+function renderTt(){return card(`🧑‍✈️ Timetable · ${DAY.timetable.length} คน`,tbl(`<th>พนักงาน</th><th>ทีม</th><th>กะ</th><th>สถานะ</th><th>งาน/ไฟลท์</th>`,DAY.timetable.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.team)}</td><td>${esc(p.shift)}</td><td>${esc(p.bucket)}</td><td>${(p.assignments||[]).map(a=>`<span class="tag ${a.isFlight?"f":""}">${esc(a.flight||a.task)}</span>`).join("")||'<span class="muted">—</span>'}</td></tr>`).join("")));}
+function renderPu(){const s=DAY,k=s.kpi;
+  return `<div class="kpis">${[kpiC((k.avg_util??"—")+"%","Util เฉลี่ย"),kpiC(k.idle_hours,"ชม.ว่าง"),kpiC(k.flights,"ไฟลท์"),kpiC(k.peak_on_duty,"พีคอยู่เวร"),kpiC(k.peak_on_flight,"พีคติดงาน")].join("")}</div>`
+   +card("📈 กำลังคนรายชั่วโมง",svgHourly(s.hourly))
+   +card(`รายคน · ${s.people.length}`,tbl(`<th>พนักงาน</th><th>ทีม</th><th>Util</th><th class="n">ติดงาน(น.)</th><th class="n">ว่าง(น.)</th><th class="n">ไฟลท์</th>`,s.people.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.team)}</td><td>${ubar(p.util)}</td><td class="n">${p.busyMin}</td><td class="n">${p.idleMin}</td><td class="n">${p.nFlt}</td></tr>`).join("")));}
+function renderGt(){const s=DAY; if(!s.gantt.length)return card("🗓️ Gantt",'<div class="muted" style="padding:16px">—</div>');
+  let lo=Infinity,hi=-Infinity; s.gantt.forEach(r=>{if(r.shift_start!=null){lo=Math.min(lo,r.shift_start);hi=Math.max(hi,r.shift_end);}r.bars.forEach(b=>{lo=Math.min(lo,b.lo);hi=Math.max(hi,b.hi);});});
+  if(!isFinite(lo)){lo=0;hi=1440;} lo=Math.floor(lo/60)*60;hi=Math.ceil(hi/60)*60; const span=Math.max(60,hi-lo),labW=140,W=900,plotW=W-labW-10,rowH=20,H=s.gantt.length*rowH+30,x=m=>labW+((m-lo)/span)*plotW;
+  let g="",rows=""; for(let m=lo;m<=hi;m+=120){const gx=x(m);g+=`<line x1="${gx}" y1="22" x2="${gx}" y2="${H-6}" stroke="#eef2f7"/><text x="${gx}" y="14" font-size="10" fill="#5b7189" text-anchor="middle">${String(Math.floor((m/60)%24)).padStart(2,"0")}</text>`;}
+  s.gantt.forEach((r,i)=>{const y=26+i*rowH; rows+=`<text x="6" y="${y+13}" font-size="11">${esc((r.name||"").slice(0,15))}</text>`; if(r.shift_start!=null)rows+=`<rect x="${x(r.shift_start)}" y="${y+3}" width="${Math.max(1,x(r.shift_end)-x(r.shift_start))}" height="13" rx="3" fill="#eef2f7"/>`;
+    r.bars.forEach(b=>{rows+=`<rect x="${x(b.lo)}" y="${y+4}" width="${Math.max(2,x(b.hi)-x(b.lo))}" height="11" rx="3" fill="${b.is_flight?"#1D428A":"#7ecfa0"}"><title>${esc(b.label)} ${mn(b.lo)}–${mn(b.hi)}</title></rect>`;});});
+  return card(`🗓️ Gantt · ${s.gantt.length} คน`,`<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:760px"><line x1="${labW}" y1="22" x2="${W}" y2="22" stroke="#e2e8f0"/>${g}${rows}</svg></div>`);}
+function renderMp(){return card("📋 MANPOWER รายวัน",tbl(`<th>ทีม</th><th class="n">ทั้งหมด</th><th class="n">ทำงานจริง</th><th class="n">ป่วย</th><th class="n">พักร้อน</th><th class="n">อบรม</th><th class="n">OT</th><th>อัปเดตโดย</th>`,(DAY.manpower||[]).map(m=>`<tr><td><b>${esc(m.team)}</b></td><td class="n">${m.total??""}</td><td class="n">${m.working??""}</td><td class="n">${m.sick??""}</td><td class="n">${m.annual??""}</td><td class="n">${m.training??""}</td><td class="n">${m.otHours??""}</td><td>${esc(m.updatedBy||"")}</td></tr>`).join("")));}
+const R={dash:renderDash,tt:renderTt,pu:renderPu,gt:renderGt,mp:renderMp};
+function draw(){ $("#view").innerHTML = DAY ? R[CUR]() : ""; }
+function setTab(t){ CUR=t; [...document.querySelectorAll(".tabs button")].forEach(b=>b.classList.toggle("on",b.dataset.t===t)); draw(); }
+function showErr(m){ $("#err").innerHTML = `<div class="err">${esc(m)}</div>`; }
+async function load(){
+  if(!account) return; const d=$("#date").value; $("#err").innerHTML=""; $("#foot").textContent=d;
+  $("#view").innerHTML='<div class="center muted">กำลังโหลดจาก SharePoint… (อาจใช้เวลาสักครู่)</div>';
+  try{ DAY=compute(await readDay(d)); $("#who").title=DAY.sourceFile; draw(); }
+  catch(e){ $("#view").innerHTML=""; showErr("โหลดไม่ได้:\n"+(e.message||e)); }
+}
+$("#tabs").innerHTML=TABS.map(([t,l])=>`<button data-t="${t}" class="${t==CUR?"on":""}" onclick="setTab('${t}')">${l}</button>`).join("");
+initMsal().catch(e=>showErr("เริ่มระบบไม่ได้: "+(e.message||e)));
+</script>
+</body>
+</html>

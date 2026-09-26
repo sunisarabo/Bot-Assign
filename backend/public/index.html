@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="th" data-theme="corporate">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAS · Prototype (DB)</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --royal:#1D428A; --sky:#4EC3E0; --ink:#12242f; --ink2:#5b7189; --line:#e2e8f0; --bg:#eef3fa; --surface:#fff; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; font-family:Kanit,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .top{ background:linear-gradient(120deg,var(--royal),#2a5bbf); color:#fff; padding:16px 22px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .top b{ font-size:20px; letter-spacing:.5px; } .top .sub{ font-size:12px; opacity:.85; }
+  .top .sp{ margin-left:auto; display:flex; gap:10px; align-items:center; }
+  select,button{ font:inherit; border-radius:9px; border:1px solid rgba(255,255,255,.4); background:rgba(255,255,255,.14); color:#fff; padding:7px 12px; }
+  .tabs{ background:#fff; border-bottom:1px solid var(--line); padding:0 12px; display:flex; gap:2px; overflow-x:auto; }
+  .tabs button{ background:none; border:none; color:var(--ink2); border-radius:0; border-bottom:3px solid transparent; padding:12px 16px; font-weight:600; white-space:nowrap; cursor:pointer; }
+  .tabs button.on{ color:var(--royal); border-bottom-color:var(--royal); }
+  .wrap{ max-width:1100px; margin:0 auto; padding:18px 16px 40px; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+  .kpi{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .kpi .n{ font-size:26px; font-weight:800; color:var(--royal); line-height:1.1; }
+  .kpi .l{ font-size:12px; color:var(--ink2); margin-top:4px; font-weight:600; }
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; margin-top:16px; overflow:hidden; }
+  .card h3{ margin:0; padding:13px 16px; font-size:15px; border-bottom:1px solid var(--line); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ text-align:left; padding:8px 12px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+  th{ background:#f6f9fd; color:var(--ink2); font-weight:700; font-size:11.5px; position:sticky; top:0; }
+  td.n,th.n{ text-align:right; font-variant-numeric:tabular-nums; }
+  .pill{ display:inline-block; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:700; }
+  .pill.HKT{ background:#eef2ff; color:#3b5bdb; } .pill.BKK{ background:#e6f6ec; color:#1c7a4f; } .pill.GLOBEX{ background:#fff4e6; color:#b26a10; }
+  .pill.ARR{ background:#e7f5ff; color:#1971c2; } .pill.DEP{ background:#fff0f6; color:#c2255c; }
+  .tag{ display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; background:#eef2f7; color:var(--ink2); margin:1px 2px 1px 0; }
+  .tag.f{ background:#e7f5ff; color:#1971c2; }
+  .util{ height:8px; background:#eef2f7; border-radius:5px; overflow:hidden; min-width:70px; }
+  .util>i{ display:block; height:100%; background:#7ecfa0; }
+  .muted{ color:var(--ink2); } .foot{ text-align:center; color:var(--ink2); font-size:12px; margin-top:20px; }
+  .err{ background:#fdecec; color:#b02a2a; padding:12px 16px; border-radius:10px; margin-top:16px; }
+  .note{ background:#eef6ff; color:#1c4e8a; padding:9px 14px; border-radius:10px; font-size:12.5px; margin-top:12px; }
+  .scroll{ overflow-x:auto; } .hide{ display:none; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><b>PAS</b> <span class="sub">Prototype · อ่านจาก PostgreSQL (vendor-neutral)</span></div>
+  <div class="sp">
+    <span class="sub" id="dbinfo">…</span>
+    <span id="auth"></span>
+    <select id="date" onchange="load()"></select>
+  </div>
+</div>
+<div class="tabs" id="tabs"></div>
+<div class="wrap">
+  <div id="err"></div>
+  <div id="view"></div>
+  <div class="foot">Node http + pg · vendor-neutral · <span id="dt"></span></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const hm = t => t==null?'—':String(t).slice(0,5);
+const mn = m => (m==null||m==='')?'—':String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); // นาที→HH:MM
+async function api(p){ const r = await fetch(p); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
+function kpi(n,l){ return `<div class="kpi"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`; }
+function card(title,inner){ return `<div class="card"><h3>${title}</h3>${inner}</div>`; }
+function tbl(head,rows,empty){ return `<div class="scroll"><table><thead><tr>${head}</tr></thead><tbody>${rows||`<tr><td colspan="20" class="muted" style="text-align:center;padding:16px">${empty||'— ไม่มีข้อมูล'}</td></tr>`}</tbody></table></div>`; }
+
+const TABS = [
+  ['dash','📊 ภาพรวม'], ['tt','🧑‍✈️ Timetable'], ['pu','📈 Productivity'], ['gt','🗓️ Gantt'],
+  ['fl','✈️ ไฟลท์'], ['po','🧳 Porter'], ['wc','♿ Pre-WC จอง'],
+];
+let CUR = 'dash';
+
+async function renderDash(date){
+  const s = await api('/api/summary?date='+date);
+  const k = s.kpi;
+  const kpis = `<div class="kpis">${[
+    kpi(k.working,'คนทำงาน'), kpi(k.teams,'ทีม'), kpi(k.flights,'ไฟลท์'),
+    kpi(k.ot_hours,'OT ชม.'), kpi(k.bkk,'BKK'), kpi(k.porter_cases,'เคส Porter')
+  ].join('')}</div>`;
+  const split = card('👷 กำลังพลแยกกลุ่ม (HKT / BKK / Globex)',
+    `<div style="padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap">${
+      s.split.length ? s.split.map(x=>`<span class="pill ${x.grp}">${x.grp} · ${x.on_duty} คน</span>`).join('')
+                     : '<span class="muted">— ไม่มีข้อมูล</span>'}</div>`);
+  const teams = card('📌 สรุปรายทีม', tbl(
+    `<th>ทีม</th><th class="n">ทำงาน</th><th class="n">หยุด</th><th class="n">อบรม</th><th class="n">OT ชม.</th><th class="n">BKK</th>`,
+    s.teams.length ? s.teams.map(t=>`<tr><td><b>${esc(t.team_code)}</b></td><td class="n">${t.working}</td><td class="n">${t.off}</td><td class="n">${t.training}</td><td class="n">${(+t.ot_hours).toFixed(1)}</td><td class="n">${t.bkk_count}</td></tr>`).join('') : '',
+    '— ไม่มีข้อมูลของวันนี้ (import ก่อน)'));
+  return kpis + split + teams;
+}
+
+async function renderTt(date){
+  const s = await api('/api/timetable?date='+date);
+  const rows = s.people.map(p=>{
+    const tasks = (p.assignments||[]).map(a=>`<span class="tag ${a.is_flight?'f':''}">${esc(a.flight||a.task||'?')}</span>`).join('');
+    return `<tr><td><b>${esc(p.emp_name)}</b><div class="muted" style="font-size:11px">${esc(p.emp_code||'')}</div></td>`
+      + `<td>${esc(p.team_code)}</td><td>${esc(p.shift_code||'')}<div class="muted" style="font-size:11px">${mn(p.shift_start)}–${mn(p.shift_end)}</div></td>`
+      + `<td class="n">${p.ot_hours?(+p.ot_hours).toFixed(1):''}</td><td>${p.is_bkk?'<span class="pill BKK">BKK</span>':''}</td>`
+      + `<td>${tasks||'<span class="muted">—</span>'}</td></tr>`;
+  }).join('');
+  return card(`🧑‍✈️ Timetable · ${s.people.length} คน`, tbl(
+    `<th>พนักงาน</th><th>ทีม</th><th>กะ</th><th class="n">OT</th><th>ที่มา</th><th>งาน / ไฟลท์ที่ได้รับ</th>`, rows,
+    '— ไม่มีข้อมูล (import duty ของวันนี้)'));
+}
+
+async function renderFl(date){
+  const s = await api('/api/flights?date='+date);
+  const rows = s.flights.map(f=>`<tr><td><b>${esc(f.flight_no)}</b></td><td>${esc(f.airline_iata||'')}</td>`
+    + `<td><span class="pill ${f.direction==='DEP'?'DEP':'ARR'}">${esc(f.direction||'')}</span></td>`
+    + `<td class="n">${hm(f.sta)}</td><td class="n">${hm(f.std)}</td><td>${esc(f.aircraft_type||'')}</td></tr>`).join('');
+  return card(`✈️ ตารางบิน · ${s.flights.length} ไฟลท์`, tbl(
+    `<th>เที่ยวบิน</th><th>สายการบิน</th><th>ทิศ</th><th class="n">STA</th><th class="n">STD</th><th>อากาศยาน</th>`, rows,
+    '— ไม่มีตารางบินของวันนี้'));
+}
+
+async function renderPo(date){
+  const s = await api('/api/porter?date='+date);
+  const air = s.byAirline.length ? `<div style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap">${
+    s.byAirline.map(a=>`<span class="tag">${esc(a.airline_iata||'?')} · ${a.n}</span>`).join('')}</div>` : '';
+  const jobs = s.jobs.map(j=>`<tr><td>${esc(j.airline_iata||'')} <b>${esc(j.flight_no||'')}</b></td>`
+    + `<td>${esc(j.service||'')}</td><td>${j.is_arrival?'<span class="pill ARR">ARR</span>':''}${j.is_departure?'<span class="pill DEP">DEP</span>':''}</td>`
+    + `<td class="n">${hm(j.pickup_at)}</td><td class="n">${hm(j.delivered_at)}</td><td>${esc(j.porter_names||'')}</td></tr>`).join('');
+  const staff = s.staff.length ? card('👤 พนักงาน Porter (จำนวนเคส)', tbl(
+    `<th>ชื่อ</th><th class="n">เคส</th>`, s.staff.map(x=>`<tr><td>${esc(x.name)}</td><td class="n">${x.cases}</td></tr>`).join('')))
+    : '';
+  return card(`🧳 Porter · ${s.jobs.length} เคส`, air + tbl(
+    `<th>ไฟลท์</th><th>บริการ</th><th>ทิศ</th><th class="n">รับ</th><th class="n">ส่ง</th><th>พนักงาน</th>`, jobs,
+    '— ไม่มีเคส Porter ของวันนี้ (ดูอดีต/วันนี้ได้ · อนาคตใช้แท็บ Pre-WC)')) + staff;
+}
+
+async function renderWc(date){
+  const s = await api('/api/prewc?date='+date);
+  const kpis = `<div class="kpis">${[kpi(s.total,'จองรวม (คน)')]
+    .concat(s.byType.map(t=>kpi(t.qty,t.service))).join('')}</div>`;
+  const air = s.byAirline.length ? card('สายการบิน', `<div style="padding:10px 16px;display:flex;gap:8px;flex-wrap:wrap">${
+    s.byAirline.map(a=>`<span class="tag">${esc(a.airline_iata||'?')} · ${a.qty}</span>`).join('')}</div>`) : '';
+  const rows = s.rows.map(r=>`<tr><td>${esc(r.airline_iata||'')} <b>${esc(r.flight_no||'')}</b></td>`
+    + `<td>${esc(r.routing||'')}</td><td><span class="pill ${r.direction==='DEP'?'DEP':'ARR'}">${esc(r.direction)}</span></td>`
+    + `<td>${esc(r.service)}</td><td class="n">${r.qty}</td><td class="n">${hm(r.sta)}</td><td class="n">${hm(r.std)}</td></tr>`).join('');
+  const note = '<div class="note">♿ Pre-book Wheelchair = ยอด<b>จองล่วงหน้า</b> · ดู<b>วันอนาคต</b>ได้ (ต่างจากเคส Porter จริงที่เห็นได้เฉพาะอดีต/วันนี้)</div>';
+  return note + kpis + air + card('♿ รายการจองรถเข็นล่วงหน้า', tbl(
+    `<th>ไฟลท์</th><th>เส้นทาง</th><th>ทิศ</th><th>ชนิด</th><th class="n">จำนวน</th><th class="n">STA</th><th class="n">STD</th>`, rows,
+    '— ไม่มียอดจองของวันนี้'));
+}
+
+function utilBar(u){ if(u==null) return '<span class="muted">—</span>'; const c=u>=80?'#e8590c':u>=50?'#7ecfa0':'#f0b429';
+  return `<div style="display:flex;align-items:center;gap:6px"><div class="util" style="min-width:60px"><i style="width:${u}%;background:${c}"></i></div><b>${u}%</b></div>`; }
+
+// SVG กราฟรายชั่วโมง: แท่ง on-duty (อ่อน) + on-flight (เข้ม) + เส้นจำนวนไฟลท์ · hover = <title>
+function svgHourly(hourly){
+  const W=760,H=220,pad=28,n=hourly.length, bw=(W-pad*2)/n;
+  const max=Math.max(1,...hourly.map(x=>x.onDuty));
+  const y=v=>H-pad-(v/max)*(H-pad*2);
+  let bars='';
+  hourly.forEach((x,i)=>{ const bx=pad+i*bw+2, w=bw-4;
+    bars+=`<rect x="${bx}" y="${y(x.onDuty)}" width="${w}" height="${H-pad-y(x.onDuty)}" fill="#cfe0f5"><title>${x.h}:00 · ปฏิบัติงาน ${x.onDuty} · ติดงาน ${x.onFlight} · ไฟลท์ ${x.flights}</title></rect>`;
+    bars+=`<rect x="${bx}" y="${y(x.onFlight)}" width="${w}" height="${H-pad-y(x.onFlight)}" fill="#1D428A"><title>${x.h}:00 · ติดงาน ${x.onFlight}/${x.onDuty}</title></rect>`;
+  });
+  const pts=hourly.map((x,i)=>`${pad+i*bw+bw/2},${y(x.flights)}`).join(' ');
+  const axis=hourly.filter((_,i)=>i%3===0).map((x,i)=>`<text x="${pad+hourly.indexOf(x)*bw+bw/2}" y="${H-8}" font-size="10" fill="#5b7189" text-anchor="middle">${x.h}</text>`).join('');
+  return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:640px;height:auto">
+    ${bars}<polyline points="${pts}" fill="none" stroke="#e8590c" stroke-width="1.5" opacity=".8"/>${axis}
+    <text x="${pad}" y="14" font-size="11" fill="#5b7189">คน · แท่งอ่อน=อยู่เวร · แท่งเข้ม=ติดงาน · เส้นส้ม=จำนวนไฟลท์เริ่ม</text></svg></div>`;
+}
+
+async function renderPu(date){
+  const s = await api('/api/productivity?date='+date);
+  const k=s.kpi;
+  const kpis=`<div class="kpis">${[kpi((k.avg_util??'—')+'%','Util เฉลี่ย'),kpi(k.idle_hours,'ชม.ว่างรวม'),kpi(k.flights,'ไฟลท์ที่รับ'),kpi(k.peak_on_duty,'พีคคนอยู่เวร'),kpi(k.peak_on_flight,'พีคคนติดงาน'),kpi(k.people,'คน')].join('')}</div>`;
+  const chart=card('📈 กำลังคนรายชั่วโมง (อยู่เวร vs ติดงาน)', svgHourly(s.hourly));
+  const teams=card('รายทีม', tbl(`<th>ทีม</th><th class="n">คน</th><th>Util เฉลี่ย</th><th class="n">ว่าง(ชม.)</th><th class="n">ไฟลท์</th>`,
+    s.teams.map(t=>`<tr><td><b>${esc(t.team_code)}</b></td><td class="n">${t.n}</td><td>${utilBar(t.util)}</td><td class="n">${t.idle_hours}</td><td class="n">${t.flights}</td></tr>`).join('')));
+  const low = s.low_util.length?card('⚠️ Util ต่ำสุด (อาจว่าง/ควรทบทวน)', tbl(`<th>พนักงาน</th><th>ทีม</th><th>Util</th><th class="n">ว่าง(นาที)</th>`,
+    s.low_util.map(p=>`<tr><td>${esc(p.emp_name)}</td><td>${esc(p.team_code)}</td><td>${utilBar(p.util)}</td><td class="n">${p.idleMin}</td></tr>`).join('')):'';
+  const ppl=card(`รายคน · ${s.people.length} คน (เรียงตาม Util)`, tbl(
+    `<th>พนักงาน</th><th>ทีม</th><th>Util</th><th class="n">ติดงาน(น.)</th><th class="n">ว่าง(น.)</th><th class="n">ไฟลท์</th>`,
+    s.people.map(p=>`<tr><td>${esc(p.emp_name)}${p.is_bkk?' <span class="pill BKK">BKK</span>':''}</td><td>${esc(p.team_code)}</td><td>${utilBar(p.util)}</td><td class="n">${p.busyMin}</td><td class="n">${p.idleMin}</td><td class="n">${p.nFlt}</td></tr>`).join('')));
+  return kpis+chart+teams+low+ppl;
+}
+
+async function renderGt(date){
+  const s = await api('/api/gantt?date='+date);
+  if(!s.rows.length) return card('🗓️ Gantt', `<div class="muted" style="padding:16px">— ไม่มีข้อมูลของวันนี้</div>`);
+  let lo=Infinity,hi=-Infinity;
+  s.rows.forEach(r=>{ if(r.shift_start!=null){lo=Math.min(lo,r.shift_start);hi=Math.max(hi,r.shift_end);} r.bars.forEach(b=>{lo=Math.min(lo,b.lo);hi=Math.max(hi,b.hi);}); });
+  if(!isFinite(lo)){lo=0;hi=1440;} lo=Math.floor(lo/60)*60; hi=Math.ceil(hi/60)*60; const span=Math.max(60,hi-lo);
+  const rowH=22, labW=150, W=900, plotW=W-labW-10, H=s.rows.length*rowH+34;
+  const x=m=>labW+((m-lo)/span)*plotW;
+  let grid='',rows='';
+  for(let m=lo;m<=hi;m+=120){ const gx=x(m); grid+=`<line x1="${gx}" y1="24" x2="${gx}" y2="${H-6}" stroke="#eef2f7"/><text x="${gx}" y="16" font-size="10" fill="#5b7189" text-anchor="middle">${String(Math.floor((m/60)%24)).padStart(2,'0')}</text>`; }
+  s.rows.forEach((r,i)=>{ const y=28+i*rowH;
+    rows+=`<text x="6" y="${y+14}" font-size="11" fill="#12242f">${esc((r.emp_name||'').slice(0,16))}</text>`;
+    if(r.shift_start!=null) rows+=`<rect x="${x(r.shift_start)}" y="${y+4}" width="${Math.max(1,x(r.shift_end)-x(r.shift_start))}" height="14" rx="3" fill="#eef2f7"><title>${esc(r.team_code||'')} กะ</title></rect>`;
+    r.bars.forEach(b=>{ rows+=`<rect x="${x(b.lo)}" y="${y+5}" width="${Math.max(2,x(b.hi)-x(b.lo))}" height="12" rx="3" fill="${b.is_flight?'#1D428A':'#7ecfa0'}"><title>${esc(b.label)} · ${String(Math.floor(b.lo/60)%24).padStart(2,'0')}:${String(b.lo%60).padStart(2,'0')}–${String(Math.floor(b.hi/60)%24).padStart(2,'0')}:${String(b.hi%60).padStart(2,'0')}</title></rect>`; });
+  });
+  return card(`🗓️ Gantt · ${s.rows.length} คน`, `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:760px;height:auto"><line x1="${labW}" y1="24" x2="${W}" y2="24" stroke="#e2e8f0"/>${grid}${rows}</svg></div>`
+    + `<div class="note">แท่งน้ำเงิน = งานไฟลท์ · แท่งเขียว = งานอื่น/โซน · แท่งเทา = ช่วงกะ · ช่วงงานประมาณจากเวลาเคาน์เตอร์/STA/STD</div>`);
+}
+
+const RENDER = { dash:renderDash, tt:renderTt, pu:renderPu, gt:renderGt, fl:renderFl, po:renderPo, wc:renderWc };
+
+function setTab(t){ CUR=t; [...document.querySelectorAll('.tabs button')].forEach(b=>b.classList.toggle('on', b.dataset.t===t)); load(); }
+
+async function load(){
+  const date = $('#date').value; $('#err').innerHTML=''; $('#dt').textContent = date;
+  $('#view').innerHTML = '<div class="muted" style="padding:24px 4px">กำลังโหลด…</div>';
+  try { $('#view').innerHTML = await RENDER[CUR](date); }
+  catch(e){ $('#view').innerHTML=''; $('#err').innerHTML = '<div class="err">โหลดไม่ได้: '+esc(e.message)+'</div>'; }
+}
+
+function btn(href,label){ return `<a href="${href}" style="color:#fff;text-decoration:none;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.4);border-radius:9px;padding:7px 12px;font-size:13px">${label}</a>`; }
+
+async function boot(){
+  $('#tabs').innerHTML = TABS.map(([t,l])=>`<button data-t="${t}" class="${t===CUR?'on':''}" onclick="setTab('${t}')">${l}</button>`).join('');
+  // auth chip
+  let a = { enabled:false, required:false, user:null };
+  try { a = await api('/auth/me'); } catch(e){}
+  if(a.enabled){
+    $('#auth').innerHTML = a.user
+      ? `<span class="sub">👤 ${esc(a.user.name||a.user.email||'ผู้ใช้')}</span> ${btn('/auth/logout','ออก')}`
+      : btn('/auth/login','เข้าสู่ระบบ (Microsoft)');
+  }
+  if(a.required && !a.user){
+    $('#tabs').innerHTML=''; $('#date').style.display='none';
+    $('#view').innerHTML = `<div class="card"><h3>🔒 ต้องเข้าสู่ระบบ</h3><div style="padding:22px 16px">`
+      + `กรุณาเข้าสู่ระบบด้วยบัญชี Microsoft ขององค์กรก่อนใช้งาน<div style="margin-top:14px">`
+      + `<a href="/auth/login" style="background:var(--royal);color:#fff;text-decoration:none;border-radius:10px;padding:10px 18px;font-weight:600">เข้าสู่ระบบ (Microsoft)</a></div></div></div>`;
+    return;
+  }
+  try { const h = await api('/api/health'); $('#dbinfo').textContent = h.db; } catch(e){}
+  let dates = [];
+  try { dates = await api('/api/dates'); } catch(e){}
+  if(!dates.length) dates = [new Date().toISOString().slice(0,10)];
+  $('#date').innerHTML = dates.map(d=>`<option>${d}</option>`).join('');
+  load();
+}
+boot();
+</script>
+</body>
+</html>

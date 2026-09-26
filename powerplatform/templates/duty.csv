@@ -1,0 +1,2 @@
+work_date,emp_code,emp_name,team,bucket,shift_code,shift_start,shift_end,shift_hours,ot_hours,ot_type,is_support,support_from,is_bkk,is_training,source_file
+2026-09-19,2607384,SOMCHAI JAIDEE,EY,WORKING,D1,06:00,15:00,9,1,PRE,FALSE,,FALSE,FALSE,19SEP

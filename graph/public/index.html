@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAS · Dashboard (Excel/SharePoint)</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{ --royal:#1D428A; --ink:#12242f; --ink2:#5b7189; --line:#e2e8f0; --bg:#eef3fa; --surface:#fff; }
+  *{ box-sizing:border-box; } body{ margin:0; font-family:Kanit,system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+  .top{ background:linear-gradient(120deg,var(--royal),#2a5bbf); color:#fff; padding:16px 22px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .top b{ font-size:20px; letter-spacing:.5px; } .top .sub{ font-size:12px; opacity:.85; }
+  .top .sp{ margin-left:auto; display:flex; gap:10px; align-items:center; }
+  input[type=date]{ font:inherit; border-radius:9px; border:1px solid rgba(255,255,255,.5); background:rgba(255,255,255,.16); color:#fff; padding:7px 12px; }
+  .tabs{ background:#fff; border-bottom:1px solid var(--line); padding:0 12px; display:flex; gap:2px; overflow-x:auto; }
+  .tabs button{ background:none; border:none; color:var(--ink2); border-bottom:3px solid transparent; padding:12px 16px; font-weight:600; white-space:nowrap; cursor:pointer; }
+  .tabs button.on{ color:var(--royal); border-bottom-color:var(--royal); }
+  .wrap{ max-width:1100px; margin:0 auto; padding:18px 16px 40px; }
+  .kpis{ display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px; }
+  .kpi{ background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:14px 16px; }
+  .kpi .n{ font-size:26px; font-weight:800; color:var(--royal); line-height:1.1; } .kpi .l{ font-size:12px; color:var(--ink2); margin-top:4px; font-weight:600; }
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:14px; margin-top:16px; overflow:hidden; }
+  .card h3{ margin:0; padding:13px 16px; font-size:15px; border-bottom:1px solid var(--line); }
+  table{ width:100%; border-collapse:collapse; font-size:13px; } th,td{ text-align:left; padding:8px 12px; border-bottom:1px solid #f1f5f9; vertical-align:top; }
+  th{ background:#f6f9fd; color:var(--ink2); font-weight:700; font-size:11.5px; } td.n,th.n{ text-align:right; font-variant-numeric:tabular-nums; }
+  .tag{ display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; background:#eef2f7; color:var(--ink2); margin:1px 2px 1px 0; } .tag.f{ background:#e7f5ff; color:#1971c2; }
+  .util{ height:8px; background:#eef2f7; border-radius:5px; overflow:hidden; min-width:60px; } .util>i{ display:block; height:100%; }
+  .muted{ color:var(--ink2); } .scroll{ overflow-x:auto; } .foot{ text-align:center; color:var(--ink2); font-size:12px; margin-top:20px; }
+  .err{ background:#fdecec; color:#b02a2a; padding:12px 16px; border-radius:10px; margin-top:16px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <div><b>PAS</b> <span class="sub">Dashboard · อ่านจาก Excel บน SharePoint</span></div>
+  <div class="sp"><span class="sub" id="src"></span><input type="date" id="date" onchange="load()"></div>
+</div>
+<div class="tabs" id="tabs"></div>
+<div class="wrap"><div id="err"></div><div id="view"></div><div class="foot">Microsoft Graph → Excel · <span id="dt"></span></div></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const mn=m=>(m==null||m==='')?'—':String(Math.floor(m/60)%24).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+async function api(p){ const r=await fetch(p); if(!r.ok) throw new Error((await r.json()).error||r.status); return r.json(); }
+function kpi(n,l){ return `<div class="kpi"><div class="n">${n}</div><div class="l">${esc(l)}</div></div>`; }
+function card(t,i){ return `<div class="card"><h3>${t}</h3>${i}</div>`; }
+function tbl(h,rows,empty){ return `<div class="scroll"><table><thead><tr>${h}</tr></thead><tbody>${rows||`<tr><td colspan="20" class="muted" style="text-align:center;padding:16px">${empty||'—'}</td></tr>`}</tbody></table></div>`; }
+function ubar(u){ if(u==null)return'<span class="muted">—</span>'; const c=u>=80?'#e8590c':u>=50?'#7ecfa0':'#f0b429'; return `<div style="display:flex;align-items:center;gap:6px"><div class="util"><i style="width:${u}%;background:${c}"></i></div><b>${u}%</b></div>`; }
+function svgHourly(h){ const W=760,H=210,pad=26,n=h.length,bw=(W-pad*2)/n,max=Math.max(1,...h.map(x=>x.onDuty)),y=v=>H-pad-(v/max)*(H-pad*2);
+  let b=''; h.forEach((x,i)=>{const bx=pad+i*bw+2,w=bw-4;
+    b+=`<rect x="${bx}" y="${y(x.onDuty)}" width="${w}" height="${H-pad-y(x.onDuty)}" fill="#cfe0f5"><title>${x.h}:00 · อยู่เวร ${x.onDuty} · ติดงาน ${x.onFlight}</title></rect>`;
+    b+=`<rect x="${bx}" y="${y(x.onFlight)}" width="${w}" height="${H-pad-y(x.onFlight)}" fill="#1D428A"><title>${x.h}:00 · ติดงาน ${x.onFlight}/${x.onDuty}</title></rect>`;});
+  const ax=h.filter((_,i)=>i%3===0).map(x=>`<text x="${pad+x.h*bw+bw/2}" y="${H-6}" font-size="10" fill="#5b7189" text-anchor="middle">${x.h}</text>`).join('');
+  return `<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:640px"><text x="${pad}" y="13" font-size="11" fill="#5b7189">แท่งอ่อน=อยู่เวร · แท่งเข้ม=ติดงาน (คน/ชม.)</text>${b}${ax}</svg></div>`; }
+
+const TABS=[['dash','📊 ภาพรวม'],['tt','🧑‍✈️ Timetable'],['pu','📈 Productivity'],['gt','🗓️ Gantt'],['mp','📋 Manpower']];
+let CUR='dash';
+
+async function renderDash(d){ const s=await api('/api/day?date='+d); const k=s.kpi;
+  const kp=`<div class="kpis">${[kpi(k.people,'คนทำงาน'),kpi(k.teams,'ทีม'),kpi(k.flights,'ไฟลท์'),kpi((k.avg_util??'—')+'%','Util เฉลี่ย'),kpi(k.peak_on_duty,'พีคอยู่เวร'),kpi(k.idle_hours,'ชม.ว่างรวม')].join('')}</div>`;
+  const tr=s.teams.map(t=>`<tr><td><b>${esc(t.team)}</b></td><td class="n">${t.ppl}</td><td class="n">${t.working}</td><td>${ubar(t.util)}</td><td class="n">${t.flights}</td></tr>`).join('');
+  return kp+card('📌 รายทีม',tbl(`<th>ทีม</th><th class="n">ทั้งหมด</th><th class="n">ทำงาน</th><th>Util</th><th class="n">ไฟลท์</th>`,tr,'—'));
+}
+async function renderTt(d){ const s=await api('/api/timetable?date='+d);
+  const rows=s.timetable.map(p=>`<tr><td><b>${esc(p.name)}</b></td><td>${esc(p.team)}</td><td>${esc(p.shift)}</td><td>${esc(p.bucket)}</td><td>${(p.assignments||[]).map(a=>`<span class="tag ${a.isFlight?'f':''}">${esc(a.flight||a.task)}</span>`).join('')||'<span class="muted">—</span>'}</td></tr>`).join('');
+  return card(`🧑‍✈️ Timetable · ${s.timetable.length} คน`,tbl(`<th>พนักงาน</th><th>ทีม</th><th>กะ</th><th>สถานะ</th><th>งาน/ไฟลท์</th>`,rows,'—'));
+}
+async function renderPu(d){ const s=await api('/api/productivity?date='+d); const k=s.kpi;
+  const kp=`<div class="kpis">${[kpi((k.avg_util??'—')+'%','Util เฉลี่ย'),kpi(k.idle_hours,'ชม.ว่าง'),kpi(k.flights,'ไฟลท์'),kpi(k.peak_on_duty,'พีคอยู่เวร'),kpi(k.peak_on_flight,'พีคติดงาน')].join('')}</div>`;
+  const ppl=s.people.map(p=>`<tr><td>${esc(p.name)}</td><td>${esc(p.team)}</td><td>${ubar(p.util)}</td><td class="n">${p.busyMin}</td><td class="n">${p.idleMin}</td><td class="n">${p.nFlt}</td></tr>`).join('');
+  return kp+card('📈 กำลังคนรายชั่วโมง',svgHourly(s.hourly))+card(`รายคน · ${s.people.length}`,tbl(`<th>พนักงาน</th><th>ทีม</th><th>Util</th><th class="n">ติดงาน(น.)</th><th class="n">ว่าง(น.)</th><th class="n">ไฟลท์</th>`,ppl,'—'));
+}
+async function renderGt(d){ const s=await api('/api/gantt?date='+d); if(!s.gantt.length) return card('🗓️ Gantt','<div class="muted" style="padding:16px">—</div>');
+  let lo=Infinity,hi=-Infinity; s.gantt.forEach(r=>{if(r.shift_start!=null){lo=Math.min(lo,r.shift_start);hi=Math.max(hi,r.shift_end);}r.bars.forEach(b=>{lo=Math.min(lo,b.lo);hi=Math.max(hi,b.hi);});});
+  if(!isFinite(lo)){lo=0;hi=1440;} lo=Math.floor(lo/60)*60; hi=Math.ceil(hi/60)*60; const span=Math.max(60,hi-lo),labW=140,W=900,plotW=W-labW-10,rowH=20,H=s.gantt.length*rowH+30,x=m=>labW+((m-lo)/span)*plotW;
+  let g='',rows=''; for(let m=lo;m<=hi;m+=120){const gx=x(m);g+=`<line x1="${gx}" y1="22" x2="${gx}" y2="${H-6}" stroke="#eef2f7"/><text x="${gx}" y="14" font-size="10" fill="#5b7189" text-anchor="middle">${String(Math.floor((m/60)%24)).padStart(2,'0')}</text>`;}
+  s.gantt.forEach((r,i)=>{const y=26+i*rowH; rows+=`<text x="6" y="${y+13}" font-size="11">${esc((r.name||'').slice(0,15))}</text>`;
+    if(r.shift_start!=null)rows+=`<rect x="${x(r.shift_start)}" y="${y+3}" width="${Math.max(1,x(r.shift_end)-x(r.shift_start))}" height="13" rx="3" fill="#eef2f7"/>`;
+    r.bars.forEach(b=>{rows+=`<rect x="${x(b.lo)}" y="${y+4}" width="${Math.max(2,x(b.hi)-x(b.lo))}" height="11" rx="3" fill="${b.is_flight?'#1D428A':'#7ecfa0'}"><title>${esc(b.label)} ${mn(b.lo)}–${mn(b.hi)}</title></rect>`;});});
+  return card(`🗓️ Gantt · ${s.gantt.length} คน`,`<div class="scroll"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:760px"><line x1="${labW}" y1="22" x2="${W}" y2="22" stroke="#e2e8f0"/>${g}${rows}</svg></div>`);
+}
+async function renderMp(d){ const s=await api('/api/day?date='+d);
+  const rows=(s.manpower||[]).map(m=>`<tr><td><b>${esc(m.team)}</b></td><td class="n">${m.total??''}</td><td class="n">${m.working??''}</td><td class="n">${m.sick??''}</td><td class="n">${m.annual??''}</td><td class="n">${m.training??''}</td><td class="n">${m.otHours??''}</td><td>${esc(m.updatedBy||'')}</td></tr>`).join('');
+  return card('📋 MANPOWER รายวัน',tbl(`<th>ทีม</th><th class="n">ทั้งหมด</th><th class="n">ทำงานจริง</th><th class="n">ป่วย</th><th class="n">พักร้อน</th><th class="n">อบรม</th><th class="n">OT</th><th>อัปเดตโดย</th>`,rows,'—'));
+}
+const R={dash:renderDash,tt:renderTt,pu:renderPu,gt:renderGt,mp:renderMp};
+function setTab(t){ CUR=t; [...document.querySelectorAll('.tabs button')].forEach(b=>b.classList.toggle('on',b.dataset.t===t)); load(); }
+async function load(){ const d=$('#date').value; $('#err').innerHTML=''; $('#dt').textContent=d; $('#view').innerHTML='<div class="muted" style="padding:24px 4px">กำลังโหลดจาก SharePoint…</div>';
+  try{ $('#view').innerHTML=await R[CUR](d); try{const h=await api('/api/day?date='+d);$('#src').textContent='📄 '+(h.sourceFile||'');}catch(e){} }
+  catch(e){ $('#view').innerHTML=''; $('#err').innerHTML=`<div class="err">โหลดไม่ได้: ${esc(e.message)}</div>`; } }
+$('#tabs').innerHTML=TABS.map(([t,l])=>`<button data-t="${t}" class="${t==CUR?'on':''}" onclick="setTab('${t}')">${l}</button>`).join('');
+$('#date').value=new Date().toISOString().slice(0,10);
+load();
+</script>
+</body>
+</html>

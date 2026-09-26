@@ -1,0 +1,15 @@
+{ "date":"2026-09-19", "sourceFile":"19SEP (demo)",
+  "teams":{
+    "EY":[
+      {"id":"2607384","name":"SOMCHAI","shift":"D1","shiftStart":360,"shiftHrs":9,"bucket":"working","ot":0,"support":false,"training":false,"remark":"","assignments":[{"flight":"EY410","task":"CI","STA":"08:05","STD":"","OP":"06:30","CL":"07:45","isFlight":true}]},
+      {"id":"2101320","name":"PIYARAT","shift":"F9","shiftStart":420,"shiftHrs":9,"bucket":"working","ot":0,"support":false,"training":false,"remark":"","assignments":[{"flight":"EY411","task":"GATE","STA":"","STD":"09:30","OP":"","CL":"","isFlight":true}]},
+      {"id":"2000817","name":"KUSUMA","shift":"L10","shiftStart":720,"shiftHrs":10,"bucket":"off","ot":0,"support":false,"training":false,"remark":"OFF","assignments":[]}
+    ],
+    "QR":[
+      {"id":"2202265","name":"THANISORN","shift":"J12","shiftStart":600,"shiftHrs":12,"bucket":"working","ot":0,"support":false,"training":false,"remark":"","assignments":[{"flight":"QR834","task":"ARR","STA":"14:30","STD":"","OP":"","CL":"","isFlight":true}]}
+    ]
+  },
+  "manpower":[
+    {"team":"EY","total":47,"scheduled":27,"sick":0,"personal":0,"annual":2,"maternity":0,"other":0,"training":0,"working":24,"otHours":67,"otHoliday":0,"updatedAt":"12SEP26 11:22","updatedBy":"TEMSIRI"},
+    {"team":"QR","total":54,"scheduled":33,"sick":1,"personal":0,"annual":0,"maternity":0,"other":0,"training":4,"working":28,"otHours":85,"otHoliday":0,"updatedAt":"11SEP/2320","updatedBy":"PRACHYAPORN"}
+  ] }
