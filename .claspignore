@@ -21,3 +21,5 @@ powerplatform/**
 .git/**
 .github/**
 .clasp.json
+
+ai-app/**

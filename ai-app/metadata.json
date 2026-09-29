@@ -1,0 +1,5 @@
+{
+  "name": "AOTGA Manpower Dashboard",
+  "description": "Daily passenger-services manpower dashboard for AOTGA. Shows working/OFF/OT KPIs, per-team and per-position manpower, a per-employee timetable, flight SLA coverage, and a Gemini AI assistant that reasons over the roster. Mirrors the Apps Script RosterBot web dashboard.",
+  "requestFramePermissions": []
+}
