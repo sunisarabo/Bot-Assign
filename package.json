@@ -1,0 +1,8 @@
+{
+  "name": "pas-app",
+  "version": "1.0.0",
+  "description": "PAS dashboard — reads Excel on SharePoint via Microsoft Graph",
+  "scripts": { "start": "node graph/server.js" },
+  "engines": { "node": ">=18" },
+  "license": "ISC"
+}

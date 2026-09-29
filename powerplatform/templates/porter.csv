@@ -1,0 +1,2 @@
+work_date,airline_iata,flight_no,porter_names,service,is_arrival,is_departure,pickup_at,delivered_at
+2026-09-19,EY,EY410,"SOMCHAI, WICHAI",WCHR,TRUE,FALSE,08:10,08:40
