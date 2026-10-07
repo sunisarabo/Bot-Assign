@@ -1,44 +1,92 @@
 /*
- * import-roster.ts — Office Script: ไฟล์เวรรายวัน (.xlsx) → แถวสำหรับ SharePoint Lists
- *   PAS_Manpower · PAS_Duty · PAS_Assignment   (ไซต์ /sites/0AAYJ05_KoLORUk9PVA)
+ * import-roster.ts — Office Script: ไฟล์เวรรายวัน (.xlsx) → SharePoint Lists (PAS_Manpower · PAS_Duty · PAS_Assignment)
+ *   ไซต์ /sites/0AAYJ05_KoLORUk9PVA · เรียกจาก Power Automate (Excel Online (Business) → Run script) · ไม่แก้ไฟล์ต้นทาง
  *
- * เรียกจาก Power Automate (Excel Online (Business) → "Run script") ไม่แก้ไขไฟล์ต้นทาง
- *   พารามิเตอร์: workDate = "YYYY-MM-DD" (เว้นว่างได้ → เดาจากชื่อไฟล์/หัวชีต MANPOWER)
- *                fileName = ชื่อไฟล์ (เช่น 19SEP26.xlsx) ใช้เดาวันที่ + เก็บใน source_file
- *   คืนค่า: { work_date, manpower[], duty[], assignment[], counts }  — คีย์ตรงกับชื่อคอลัมน์ใน List
+ * พารามิเตอร์
+ *   filePath  = path เต็มของไฟล์ เช่น "Shared Documents/2025/09.SEP26/19SEP.xlsx"  (ใช้หาวันที่ — รองรับเดือนใหม่/ปีใหม่เอง)
+ *   workDate  = "YYYY-MM-DD" (ไม่บังคับ — ใส่เมื่ออยากบังคับวันที่)
+ *   siteUrl   = URL ไซต์ (ไม่บังคับ — ค่าเริ่มต้น SITE)
  *
- * layout แท็บทีม (0-based) เหมือน office-script-dashboard.ts:
- *   0=ID 2=NAME 3=SHIFT 4=IN 6=ชม. 12,15=OT 16=STATUS 17=REMARK · ไฟลท์เริ่มคอลัมน์ 19 ทีละ 4
+ * ลำดับหาวันที่: workDate → ชื่อไฟล์ (+เดือน/ปีจากโฟลเดอร์แม่) → หัวชีต MANPOWER → (ไม่พบ = skipped)
+ *   รองรับ: 19SEP · 19SEP26 · 19 SEP 2026 · 2026-09-19 · 20260919 · 19.09.26 · 19/09/2569 · 19 ก.ย. 69 · "19" (เดือน/ปีจากโฟลเดอร์)
+ *   โฟลเดอร์เดือน: 09.SEP26 · SEP 2026 · SEP · 09 · ก.ย.69 · กันยายน 2569  · โฟลเดอร์ปี: 2026 / 2569
+ *   ปีจากโฟลเดอร์เดือน (SEP26) ชนะโฟลเดอร์ปี (เช่น /2025/09.SEP26 → 2026) · ไม่มีปีเลย → เลือกปีที่ใกล้วันนี้ที่สุด (ข้ามธ.ค.→ม.ค. ถูก)
+ *
+ * คืนค่า: { status:"ok"|"skipped", reason, work_date, date_source, warnings[], counts, batches[{list,boundary,body,n}] }
+ *   batches = เนื้อ SharePoint $batch (≤100 แถว/ก้อน) → flow ส่งด้วย "Send an HTTP request to SharePoint" ทีละก้อน
+ *
+ * layout แท็บทีม (0-based): 0=ID 2=NAME 3=SHIFT 4=IN 6=ชม. 12,15=OT 16=STATUS 17=REMARK · ไฟลท์เริ่มคอลัมน์ 19 ทีละ 4
  *   หัวไฟลท์ = แถวที่คอลัมน์ 18 ขึ้นต้น "FLIGHT" / "STA" / "OP"
  */
+const SITE = "https://aotgath.sharepoint.com/sites/0AAYJ05_KoLORUk9PVA";
+const BATCH_SIZE = 100;
 const DEP_LEAD = 60, ARR_TAIL = 45, DEF_JOB = 45;
 const MON = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const TH_FULL = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิย", "กค", "สค", "กย", "ตค", "พย", "ธค"];
 
 type Cell = string | number | boolean;
 interface MpRow { Title: string; day_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; util_pct: number }
 interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_hours: number; ot_hours: number; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
-interface Result { work_date: string; manpower: MpRow[]; duty: DutyRow[]; assignment: AsgRow[]; counts: { teams: number; duty: number; assignment: number } }
+interface Batch { list: string; boundary: string; body: string; n: number }
+interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number }; batches: Batch[] }
+interface DatePick { iso: string; source: string }
 
-function main(workbook: ExcelScript.Workbook, workDate?: string, fileName?: string): Result {
+function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string): Result {
+  const path = filePath || "";
+  const warnings: string[] = [];
+  const empty = (reason: string, iso: string, src: string): Result =>
+    ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0 }, batches: [] });
+
   const mp = workbook.getWorksheet("MANPOWER");
   const mv: Cell[][] = mp ? mp.getUsedRange().getValues() : [];
-  const day = normDate(workDate || "") || dateFromText(fileName || "") || dateFromText(mv.slice(0, 6).map(r => r.join(" ")).join(" "));
-  if (!day) throw new Error("หา work_date ไม่ได้ — ส่ง workDate=YYYY-MM-DD หรือตั้งชื่อไฟล์เช่น 19SEP26.xlsx");
-  const src = fileName || "";
+  const headerText = mv.slice(0, 6).map(r => r.join(" ")).join(" ");
 
-  // ---- ทีมจาก MANPOWER ("Team (XX)") ; ไม่มี MANPOWER → ใช้ทุกแท็บที่มีหัว FLIGHT ----
-  const teams: { code: string; total: number; working: number; sick: number; annual: number; training: number }[] = [];
+  // ---- วันที่ ----
+  let pick: DatePick | null = null;
+  const forced = normDate(workDate || "");
+  if (forced) pick = { iso: forced, source: "workDate" };
+  if (!pick) pick = dateFromPath(path, new Date());
+  const hdr = dateFromPath(headerText.replace(/\//g, "-"), new Date());   // หัว MANPOWER (ข้อความ ไม่ใช่ path)
+  if (!pick && hdr) pick = { iso: hdr.iso, source: "MANPOWER header" };
+  if (pick && hdr && hdr.iso !== pick.iso) warnings.push("วันที่หัว MANPOWER (" + hdr.iso + ") ไม่ตรงกับ " + pick.source + " (" + pick.iso + ")");
+
+  // ---- ทีม ----
+  const teams = readTeams(workbook, mv);
+  if (!teams.length) return empty("ไม่ใช่ไฟล์เวร PSA (ไม่พบ Team (..) ใน MANPOWER และไม่พบแท็บที่มีหัว FLIGHT)", pick ? pick.iso : "", pick ? pick.source : "");
+  if (!pick) return empty("หาวันที่ไม่ได้จาก path/ชื่อไฟล์/หัว MANPOWER — ตั้งชื่อไฟล์เช่น 19SEP.xlsx ในโฟลเดอร์ 09.SEP26 หรือส่ง workDate", "", "");
+
+  const p = parseRoster(workbook, teams, pick.iso, baseName(path));
+  const site = (siteUrl || SITE).replace(/\/$/, "");
+  const batches: Batch[] = [];
+  addBatches(batches, site, "PAS_Manpower", p.manpower);
+  addBatches(batches, site, "PAS_Duty", p.duty);
+  addBatches(batches, site, "PAS_Assignment", p.assignment);
+  return {
+    status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
+    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length }, batches
+  };
+}
+
+// ======================= อ่านไฟล์เวร =======================
+interface TeamHead { code: string; total: number; working: number; sick: number; annual: number; training: number }
+
+function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
+  const teams: TeamHead[] = [];
   for (const r of mv) {
     const m = String(r[0] || "").match(/Team\s*\((.+?)\)/);
     if (m) teams.push({ code: m[1].trim(), total: n(r[1]), working: n(r[9]), sick: n(r[3]), annual: n(r[5]), training: n(r[8]) });
   }
   if (!teams.length) for (const ws of workbook.getWorksheets()) {
-    const g = ws.getRange("A1:AQ60").getValues();
-    if (findByS(g, "FLIGHT") >= 0) teams.push({ code: ws.getName(), total: 0, working: 0, sick: 0, annual: 0, training: 0 });
+    if (findByS(ws.getRange("A1:AQ60").getValues(), "FLIGHT") >= 0)
+      teams.push({ code: ws.getName(), total: 0, working: 0, sick: 0, annual: 0, training: 0 });
   }
+  return teams;
+}
 
-  const duty: DutyRow[] = [], asg: AsgRow[] = [], manpower: MpRow[] = [];
+function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string) {
+  const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [];
   for (const t of teams) {
     const ws = workbook.getWorksheet(t.code);
     let otSum = 0, uSum = 0, uN = 0;
@@ -70,7 +118,7 @@ function main(workbook: ExcelScript.Workbook, workDate?: string, fileName?: stri
           if (!cells.length) continue;
           const w = winOf(f);
           if (w) iv.push(w);
-          asg.push({
+          assignment.push({
             Title: f.code, day_key: day, work_date: day, team: t.code, emp_code: emp, emp_name: name,
             task: cells.join(" ").slice(0, 255), sta: f.STA, std: f.STD, counter_open: f.OP, counter_close: f.CL,
             win_lo: w ? w[0] : 0, win_hi: w ? w[1] : 0, is_flight: /\d/.test(f.code)
@@ -93,10 +141,116 @@ function main(workbook: ExcelScript.Workbook, workDate?: string, fileName?: stri
       sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), util_pct: uN ? Math.round(uSum / uN) : 0
     });
   }
-  return { work_date: day, manpower, duty, assignment: asg, counts: { teams: manpower.length, duty: duty.length, assignment: asg.length } };
+  return { manpower, duty, assignment };
 }
 
-// ---------- helpers ----------
+// ======================= SharePoint $batch =======================
+function addBatches(out: Batch[], site: string, list: string, rows: object[]) {
+  const CRLF = "\r\n";
+  const url = site + "/_api/web/lists/getbytitle('" + list + "')/items";
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const id = list + "_" + (i / BATCH_SIZE) + "_" + Math.floor(Math.random() * 1e9);
+    const b = "batch_" + id, c = "changeset_" + id;
+    let body = "--" + b + CRLF + "Content-Type: multipart/mixed; boundary=" + c + CRLF + CRLF;
+    const chunk = rows.slice(i, i + BATCH_SIZE);
+    for (const r of chunk) {
+      body += "--" + c + CRLF + "Content-Type: application/http" + CRLF + "Content-Transfer-Encoding: binary" + CRLF + CRLF +
+        "POST " + url + " HTTP/1.1" + CRLF + "Content-Type: application/json;odata=nometadata" + CRLF +
+        "Accept: application/json;odata=nometadata" + CRLF + CRLF + JSON.stringify(r) + CRLF + CRLF;
+    }
+    body += "--" + c + "--" + CRLF + CRLF + "--" + b + "--" + CRLF;
+    out.push({ list, boundary: b, body, n: chunk.length });
+  }
+}
+
+// ======================= วันที่จาก path =======================
+interface Parts { d: number; m: number; y: number }
+
+function dateFromPath(path: string, today: Date): DatePick | null {
+  const segs = path.split("/").map(s => s.trim()).filter(s => s !== "");
+  if (!segs.length) return null;
+  const file = segs[segs.length - 1].replace(/\.[a-z0-9]{2,5}$/i, "");
+  const parents = segs.slice(0, -1).reverse();                    // ใกล้สุดก่อน
+
+  const f = partsFromName(file);
+  let d = f.d, m = f.m, y = f.y, src = "ชื่อไฟล์";
+  if (!d) return null;
+  for (const p of parents) {                                      // เดือน (+ปีที่ติดกับเดือน) จากโฟลเดอร์ใกล้สุด
+    if (m && y) break;
+    const fm = partsFromFolder(p);
+    if (!m && fm.m) { m = fm.m; if (!y && fm.y) y = fm.y; src += " + โฟลเดอร์ " + p; }
+    else if (m && !y && fm.m === m && fm.y) { y = fm.y; src += " + โฟลเดอร์ " + p; }
+  }
+  if (m && !y) for (const p of parents) {                         // ปีจากโฟลเดอร์ปี (2026 / 2569)
+    const yy = p.match(/(?:^|\D)((?:20|25)\d{2})(?!\d)/);
+    if (yy) { y = toCE(+yy[1]); src += " + โฟลเดอร์ปี " + p; break; }
+  }
+  if (!m) return null;
+  if (!y) {                                                        // เดาปีที่ทำให้วันที่ใกล้วันนี้สุด
+    const t = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    let best = 0, bestDiff = Infinity;
+    for (const cy of [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1]) {
+      const diff = Math.abs(Date.UTC(cy, m - 1, d) - t);
+      if (diff < bestDiff) { bestDiff = diff; best = cy; }
+    }
+    y = best; src += " + ปีที่ใกล้วันนี้";
+  }
+  if (d > new Date(Date.UTC(y, m, 0)).getUTCDate()) return null;
+  return { iso: y + "-" + pad(m) + "-" + pad(d), source: src };
+}
+
+function partsFromName(s: string): Parts {
+  const u = s.toUpperCase();
+  let r = u.match(/(?:^|\D)((?:20|25)\d{2})[-_.]?(\d{2})[-_.]?(\d{2})(?!\d)/);                  // 2026-09-19 / 20260919
+  if (r && +r[2] >= 1 && +r[2] <= 12) return { y: toCE(+r[1]), m: +r[2], d: +r[3] };
+  r = u.match(/(?:^|\D)(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})(?!\d)/);                       // 19.09.26 / 19/09/2569
+  if (r && +r[2] >= 1 && +r[2] <= 12) return { d: +r[1], m: +r[2], y: yearTok(r[3]) };
+  r = u.match(/(?:^|[^0-9])(\d{1,2})\s*[-_.]?\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?\s*[-_.]?\s*(\d{4}|\d{2}(?!\d))?/);
+  if (r) return { d: +r[1], m: MON.indexOf(r[2]) + 1, y: r[3] ? yearTok(r[3]) : 0 };
+  const th = thaiMonth(s);
+  if (th.m) {
+    const dd = s.slice(0, th.at).match(/(\d{1,2})\s*$/);
+    const yy = s.slice(th.end).match(/^\s*(\d{4}|\d{2})(?!\d)/);
+    if (dd) return { d: +dd[1], m: th.m, y: yy ? yearTok(yy[1]) : 0 };
+  }
+  r = u.match(/^\s*(\d{1,2})(?!\d)/);                                                            // "19" / "19 roster"
+  if (r && +r[1] >= 1 && +r[1] <= 31) return { d: +r[1], m: 0, y: 0 };
+  return { d: 0, m: 0, y: 0 };
+}
+
+function partsFromFolder(s: string): Parts {
+  const u = s.toUpperCase();
+  let r = u.match(/(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?\s*[-_.]?\s*(\d{4}|\d{2}(?!\d))?/);
+  if (r) return { d: 0, m: MON.indexOf(r[1]) + 1, y: r[2] ? yearTok(r[2]) : 0 };
+  const th = thaiMonth(s);
+  if (th.m) { const yy = s.slice(th.end).match(/^\s*(\d{4}|\d{2})(?!\d)/); return { d: 0, m: th.m, y: yy ? yearTok(yy[1]) : 0 }; }
+  r = u.match(/^\s*(\d{1,2})\s*(?:[._\- ]\s*((?:20|25)\d{2}|\d{2}))?\s*$/);                     // "09" / "09.26" / "09-2026"
+  if (r && +r[1] >= 1 && +r[1] <= 12) return { d: 0, m: +r[1], y: r[2] ? yearTok(r[2]) : 0 };
+  r = u.match(/^\s*((?:20|25)\d{2})\s*[._\-]\s*(\d{1,2})\s*$/);                                  // "2026-09"
+  if (r && +r[2] >= 1 && +r[2] <= 12) return { d: 0, m: +r[2], y: toCE(+r[1]) };
+  return { d: 0, m: 0, y: 0 };
+}
+
+function thaiMonth(s: string): { m: number; at: number; end: number } {
+  for (let i = 0; i < 12; i++) { const k = s.indexOf(TH_FULL[i]); if (k >= 0) return { m: i + 1, at: k, end: k + TH_FULL[i].length }; }
+  for (let i = 0; i < 12; i++) {                                   // ก.ย. / กย / ก.ย  (ไล่ยาวก่อน: มี.ค. ก่อน มค)
+    const order = [2, 3, 5, 0, 1, 4, 6, 7, 8, 9, 10, 11][i];
+    const pat = TH_ABBR[order].split("").join("\\.?\\s?") + "\\.?";
+    const r = s.match(new RegExp(pat));
+    if (r && r.index !== undefined) return { m: order + 1, at: r.index, end: r.index + r[0].length };
+  }
+  return { m: 0, at: -1, end: -1 };
+}
+function toCE(y: number): number { return y > 2400 ? y - 543 : y; }
+// 2 หลัก: ≥60 = พ.ศ. (69 → 2026) · <60 = ค.ศ. (26 → 2026)
+function yearTok(t: string): number { const v = +t; return t.length === 2 ? (v >= 60 ? 2500 + v - 543 : 2000 + v) : toCE(v); }
+function normDate(s: string): string {
+  const m = s.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  return m ? m[1] + "-" + pad(+m[2]) + "-" + pad(+m[3]) : "";
+}
+function baseName(p: string): string { const s = p.split("/"); return s[s.length - 1] || ""; }
+
+// ======================= helpers =======================
 function n(v: Cell): number { return typeof v === "number" ? v : 0; }
 function round1(x: number): number { return Math.round(x * 10) / 10; }
 function pad(x: number): string { return (x < 10 ? "0" : "") + x; }
@@ -140,21 +294,4 @@ function clampIv(iv: number[][], lo: number, hi: number): number[][] {
   const o: number[][] = [];
   for (const s of iv) for (const sh of [0, 1440]) { const a = Math.max(s[0] + sh, lo), b = Math.min(s[1] + sh, hi); if (b > a) o.push([a, b]); }
   return o;
-}
-function normDate(s: string): string {
-  const m = s.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  return m ? m[1] + "-" + pad(+m[2]) + "-" + pad(+m[3]) : "";
-}
-// "19SEP26" / "19 SEP 2026" / "2026-09-19" / "19/09/2026"
-function dateFromText(s: string): string {
-  const iso = s.match(/(\d{4})-(\d{1,2})-(\d{1,2})/); if (iso) return normDate(iso[0]);
-  const a = s.toUpperCase().match(/(\d{1,2})\s*-?\s*(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\s*-?\s*(\d{2,4})?/);
-  if (a) {
-    let y = a[3] ? +a[3] : new Date().getFullYear();
-    if (y < 100) y += 2000; if (y > 2400) y -= 543;               // ปี พ.ศ.
-    return y + "-" + pad(MON.indexOf(a[2]) + 1) + "-" + pad(+a[1]);
-  }
-  const d = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (d) { let y = +d[3]; if (y > 2400) y -= 543; return y + "-" + pad(+d[2]) + "-" + pad(+d[1]); }
-  return "";
 }

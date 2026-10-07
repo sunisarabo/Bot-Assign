@@ -3,7 +3,7 @@
 ## 1) สร้างแอป + ต่อข้อมูล
 1. <https://make.powerapps.com> → **Create → Blank canvas app → Tablet** → ชื่อ `PAS Manpower`
 2. **Data → Add data → SharePoint** → ใส่ `https://aotgath.sharepoint.com/sites/0AAYJ05_KoLORUk9PVA`
-   → ติ๊ก `PAS_Manpower`, `PAS_Duty`, `PAS_Assignment`, `PAS_Flights`, `PAS_Porter`, `PAS_PreWC`, `PAS_Teams`, `PAS_Employees`
+   → ติ๊ก `PAS_Manpower`, `PAS_Duty`, `PAS_Assignment`, `PAS_Flights`, `PAS_Porter`, `PAS_PreWC`, `PAS_Teams`, `PAS_Employees`, `PAS_ImportLog`
 3. **Settings → General → Data row limit = 2000**
 
 > ทุกการกรองใช้ `day_key = varDay` (+ `team = …`) ซึ่ง **delegate ให้ SharePoint ได้** (Text eq บนคอลัมน์ที่มี index)
@@ -120,7 +120,31 @@ galPreWC.Items  = Sort(Filter(PAS_PreWC,  day_key = varDay), Coalesce(sta_min, s
 ```
 สรุป: `CountRows(Filter(PAS_PreWC, day_key = varDay))` · ตามบริการ: `Sum(Filter(PAS_PreWC, day_key = varDay && service.Value = "WCHC"), qty)`
 
-## 9) Publish + แชร์ + Teams
+## 9) หน้าสถานะนำเข้า (`log`) — เดือนใหม่/ปีใหม่เข้าครบไหม
+เพิ่มปุ่ม Footer `Set(varTab,"log")`
+
+**แถบเตือนบน Header** (วันที่เลือกยังไม่มีข้อมูล): Label `Visible = IsEmpty(colMp)` ·
+`Text = "ยังไม่มีข้อมูลวันที่ " & varDay & " — ตรวจหน้า 'สถานะนำเข้า'"`
+
+**ตารางคิว:**
+```powerapps
+galLog.Items = Sort(Filter(PAS_ImportLog, status.Value <> "Done" || day_key = varDay), Modified, SortOrder.Descending)
+```
+Label: `ThisItem.file_name & " · " & ThisItem.status.Value & " · " & ThisItem.day_key & " · " & ThisItem.message`
+สี: `If(ThisItem.status.Value = "Error", Color.Red, ThisItem.status.Value = "Skipped", ColorValue("#E8A33D"), ThisItem.status.Value = "Done", ColorValue("#2E7D32"), Color.Gray)`
+
+**ปฏิทินวันที่ขาดของเดือนที่เลือก** (Gallery แนวนอน/ตาราง 7 คอลัมน์):
+```powerapps
+With({m1: Date(Year(dpDay.SelectedDate), Month(dpDay.SelectedDate), 1)},
+  With({done: Filter(PAS_ImportLog, status.Value = "Done" && StartsWith(day_key, Text(m1, "yyyy-mm")))},
+    ForAll(Sequence(Day(EOMonth(m1, 0)), 1) As d,
+      With({k: Text(DateAdd(m1, d.Value - 1, TimeUnit.Days), "yyyy-mm-dd")},
+        {day: d.Value, key: k, ok: !IsBlank(LookUp(done, day_key = k))}))))
+```
+แต่ละช่อง: `Text = ThisItem.day` · `Fill = If(ThisItem.ok, ColorValue("#DCEFE0"), DateValue(ThisItem.key) <= Today(), ColorValue("#FBE3E3"), Color.White)`
+· `OnSelect = Set(varDay, ThisItem.key); Select(btnLoad)` → แดง = วันที่ผ่านมาแล้วแต่ยังไม่มีไฟล์/นำเข้าไม่สำเร็จ
+
+## 10) Publish + แชร์ + Teams
 - **File → Save → Publish**
 - **Share** → ใส่กลุ่ม (เช่น PSA Admin: Natty, Ice, Max, Fluke · LL Admin · หัวหน้าทีม) — ไม่ต้องให้สิทธิ์ Premium
   (ผู้ใช้ต้องมีสิทธิ์อ่าน Lists ในไซต์ — ดู README หัวข้อ "สิทธิ์ข้อมูล")

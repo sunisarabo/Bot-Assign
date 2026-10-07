@@ -420,6 +420,64 @@
      "minutes": true
     }
    ]
+  },
+  {
+   "title": "PAS_ImportLog",
+   "desc": "คิว/ประวัติการนำเข้าไฟล์เวร (1 แถว/ไฟล์)",
+   "titleLabel": "file_path",
+   "fields": [
+    {
+     "name": "file_id",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "file_name",
+     "type": "Text"
+    },
+    {
+     "name": "status",
+     "type": "Choice",
+     "choices": [
+      "Pending",
+      "Running",
+      "Done",
+      "Skipped",
+      "Error"
+     ],
+     "indexed": true
+    },
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "date_source",
+     "type": "Text"
+    },
+    {
+     "name": "teams",
+     "type": "Number"
+    },
+    {
+     "name": "duty",
+     "type": "Number"
+    },
+    {
+     "name": "assignment",
+     "type": "Number"
+    },
+    {
+     "name": "message",
+     "type": "Note"
+    },
+    {
+     "name": "last_seen",
+     "type": "Text"
+    }
+   ]
   }
- ]
+ ],
+ "rosterRoot": "Shared Documents/"
 }

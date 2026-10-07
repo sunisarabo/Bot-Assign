@@ -4,9 +4,9 @@
 **แอป:** Power Apps (Canvas) — เปิดได้บนเว็บ · มือถือ (แอป Power Apps) · ฝังใน Microsoft Teams
 
 ```
-ไฟล์เวรรายวัน .xlsx                     Power Automate                  SharePoint Lists (ฐานข้อมูล)         แอป
-Shared Documents/PAS-Import/  ──►  Run script (import-roster.ts)  ──►  PAS_Manpower / PAS_Duty /   ──►  Power Apps (เว็บ/มือถือ/Teams)
- (วางไฟล์ = นำเข้าอัตโนมัติ)         ลบของวันเดิม → เพิ่มแถวใหม่           PAS_Assignment / Flights / …         Dashboard · Timetable · Util · Gantt
+ไฟล์เวร .xlsx (ปี/เดือน/วัน)          Power Automate (3 flows)             SharePoint Lists (ฐานข้อมูล)         แอป
+Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้งไลบรารี → คิว → Run script  ──►  PAS_Manpower / PAS_Duty /   ──►  Power Apps (เว็บ/มือถือ/Teams)
+ เดือนใหม่/ปีใหม่ = ไม่ต้องตั้งค่า        วันที่อ่านจาก path · ลบวันเดิม → $batch   PAS_Assignment / ImportLog …       Dashboard · Timetable · Util · Gantt
 ```
 
 ใช้แต่ **ตัวต่อมาตรฐาน** (SharePoint · Excel Online (Business)) → พนักงานที่มี M365 ใช้ได้เลย
@@ -16,17 +16,18 @@ Shared Documents/PAS-Import/  ──►  Run script (import-roster.ts)  ──�
 | ไฟล์ | หน้าที่ |
 |---|---|
 | `lists.def.json` | นิยามฐานข้อมูล: 8 Lists + คอลัมน์ + ชนิด + index (แหล่งเดียว แก้ที่นี่) |
-| `provision-lists.js` | สคริปต์วางใน **Console ของเบราว์เซอร์** บนไซต์ → สร้าง Lists ทั้งหมด + โฟลเดอร์ `PAS-Import` (รันซ้ำได้) |
-| `import-roster.ts` | **Office Script**: อ่านไฟล์เวร (MANPOWER + แท็บทีม) → แถวพร้อมลง List (คำนวณ Util/busy ให้แล้ว) |
-| `FLOW-import.md` | สร้าง Power Automate flow นำเข้าอัตโนมัติ (ทีละขั้น) |
+| `provision-lists.js` | สคริปต์วางใน **Console ของเบราว์เซอร์** บนไซต์ → สร้าง Lists ทั้งหมด + โฟลเดอร์ `PAS-Import` สำรอง (รันซ้ำได้) |
+| `import-roster.ts` | **Office Script**: อ่านไฟล์เวร (MANPOWER + แท็บทีม) → แถวพร้อมลง List (คำนวณ Util/busy ให้แล้ว) · **หาวันที่จาก path** (รองรับเดือนใหม่/ปีใหม่ · EN/ไทย · ค.ศ./พ.ศ.) · ส่งออกเป็น `$batch` |
+| `batch-delete.ts` | Office Script ตัวช่วย: ID → `$batch` ลบ (ใช้ก่อนนำเข้าวันเดิมซ้ำ) |
+| `FLOW-import.md` | 3 flows: **A** เฝ้าทั้งไลบรารี → **B** นำเข้าจากคิว (ทุก 15 นาที) → **C** ย้อนหลังทั้งเดือน/ปี |
 | `POWERAPPS-app.md` | สร้างแอป Power Apps + สูตร Power Fx ครบทุกหน้า |
 | `build.js` / `provision-lists.src.js` | ต้นฉบับ — แก้ `lists.def.json` แล้วรัน `node sharepoint-app/build.js` เพื่อสร้าง `provision-lists.js` ใหม่ |
 
 ## ขั้นตอน (ประมาณ 1–2 ชั่วโมง ครั้งเดียว)
 1. **สร้างฐานข้อมูล** — เปิดไซต์ → `F12` → Console → วาง `provision-lists.js` → Enter → รอ `✅ เสร็จ`
    (ต้องเป็น Owner หรือ Member ของไซต์ · ถ้า Console ขึ้นเตือนเรื่องการวาง ให้พิมพ์ `allow pasting` ก่อน)
-2. **ติดตั้ง Office Script** — เปิดไฟล์เวรไฟล์ใดก็ได้ใน Excel บนเว็บ → `Automate → New Script` → วาง `import-roster.ts` → Save ชื่อ `import-roster`
-3. **สร้าง flow** ตาม `FLOW-import.md` → ทดสอบโดยวางไฟล์เวร 1 วันลง `Shared Documents/PAS-Import`
+2. **ติดตั้ง Office Scripts** — เปิดไฟล์เวรไฟล์ใดก็ได้ใน Excel บนเว็บ → `Automate → New Script` → วาง `import-roster.ts` → Save ชื่อ `import-roster` · ทำซ้ำกับ `batch-delete.ts` → ชื่อ `batch-delete`
+3. **สร้าง 3 flows** ตาม `FLOW-import.md` → กด Flow C ใส่โฟลเดอร์เดือนปัจจุบัน เพื่อนำเข้าย้อนหลังครั้งแรก
 4. **สร้างแอป** ตาม `POWERAPPS-app.md` → Publish → Share ให้กลุ่ม Admin/หัวหน้าทีม → (เลือกได้) เพิ่มเป็นแท็บใน Teams
 5. ใส่ master: `PAS_Teams`, `PAS_Employees` (Edit in grid view → วางจาก Excel ได้เลย)
 
@@ -38,6 +39,14 @@ Shared Documents/PAS-Import/  ──►  Run script (import-roster.ts)  ──�
 | `PAS_Assignment` | รหัสไฟลท์ | ไฟลท์/งานที่ได้รับรายคน · STA/STD/OP/CL · ช่วงงาน `win_lo–win_hi` (นาที) สำหรับ Gantt |
 | `PAS_Flights` · `PAS_Porter` · `PAS_PreWC` | เลขไฟลท์ | ตารางบิน · งาน Porter/Wheelchair · จอง WC ล่วงหน้า (กรอก/วางจาก CSV ใน `powerplatform/templates/`) |
 | `PAS_Teams` · `PAS_Employees` | รหัสทีม · รหัสพนักงาน | master |
+| `PAS_ImportLog` | path ไฟล์ | คิว/ประวัตินำเข้า 1 แถว/ไฟล์ — สถานะ, วันที่ที่อ่านได้ (และอ่านจากไหน), จำนวนแถว, คำเตือน |
+
+## เดือนใหม่ / ปีใหม่
+ไม่ต้องแก้ flow หรือสคริปต์ — สร้างโฟลเดอร์ใหม่แล้ววางไฟล์ตามปกติ (เช่น `2027/01.JAN27/01JAN.xlsx`)
+- flow เฝ้า **ทั้งไลบรารี** ไม่ผูกชื่อโฟลเดอร์
+- วันที่อ่านจาก **ชื่อไฟล์ + โฟลเดอร์เดือน/ปี** (ปีจากโฟลเดอร์เดือน เช่น `SEP26` ชนะโฟลเดอร์ปี — กันกรณี `2025/09.SEP26`)
+- ไม่มีปีใน path เลย → เลือกปีที่ใกล้วันนี้ที่สุด (ไฟล์ `03JAN` ที่วางช่วงปลาย ธ.ค. = ม.ค. ปีหน้า)
+- รายละเอียดรูปแบบที่รองรับ + วิธีย้อนหลัง → `FLOW-import.md`
 
 หลักออกแบบ:
 - ทุก List รายวันมี **`day_key` (ข้อความ `YYYY-MM-DD`, indexed)** → กรองรายวันแบบ delegable ใน Power Apps และลบ/นำเข้าซ้ำได้ใน flow โดยไม่ติด timezone หรือเพดาน 5,000 แถว
@@ -46,7 +55,7 @@ Shared Documents/PAS-Import/  ──►  Run script (import-roster.ts)  ──�
 
 ## สิทธิ์ข้อมูล
 - ใครเปิดแอปได้ = ใครมีสิทธิ์อ่าน Lists ในไซต์นี้ → แชร์ไซต์ให้กลุ่มที่ต้องการแบบ **Read** (พนักงาน) / **Edit** (ทีม Admin)
-- ไฟล์เวรต้นฉบับใน `PAS-Import` ใช้สิทธิ์ไลบรารีเดียวกัน — ถ้าไม่อยากให้พนักงานเห็นไฟล์ ให้ break inheritance ที่โฟลเดอร์นั้น
+- ไฟล์เวรต้นฉบับใช้สิทธิ์ของไลบรารี — ถ้าไม่อยากให้พนักงานเห็นไฟล์ ให้ break inheritance ที่โฟลเดอร์ปี (flow ยังอ่านได้ด้วยสิทธิ์คนสร้าง flow)
 
 ## ทางเลือกเว็บแอปเต็มรูป (ภายหลัง)
 `graph/spa/` (เว็บ HTML + MSAL อ่าน Excel ในไซต์เดียวกันผ่าน Microsoft Graph) ใช้ได้เมื่อ IT อนุมัติ consent ให้ app registration
