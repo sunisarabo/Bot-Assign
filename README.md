@@ -4,6 +4,10 @@ Reads the daily roster files (all teams, every layout) and produces a manpower
 **Dashboard** and a per-employee **Timetable** (flights + times), with an
 optional Google Chat summary.
 
+> **ใหม่ — ระบบบน Microsoft (SharePoint):** ฐานข้อมูล = SharePoint Lists ในไซต์
+> `aotgath.sharepoint.com/sites/0AAYJ05_KoLORUk9PVA` + แอป Power Apps (เว็บ/มือถือ/Teams)
+> ไม่ต้อง admin consent · ไม่ต้องซื้อ license เพิ่ม → ดู [`sharepoint-app/README.md`](sharepoint-app/README.md)
+
 ## Files
 | File | Role |
 |------|------|
