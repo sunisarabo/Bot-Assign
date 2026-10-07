@@ -35,12 +35,18 @@
 ## Flow A — Watcher (`PAS · A Watch roster files`)
 **Automated cloud flow** · Trigger: **SharePoint — When a file is created or modified (properties only)**
 - Site Address: Site · Library Name: `Documents` · Folder: *(เว้นว่าง = ทั้งไลบรารี รวมโฟลเดอร์ย่อย)*
-- **Settings → Trigger conditions** (กันรันกับไฟล์ที่ไม่เกี่ยว — ไม่เสียโควตา):
+- **Settings → Trigger conditions** (กันรันกับไฟล์ที่ไม่เกี่ยว — ไม่เสียโควตา) — วางทั้งบรรทัด:
   ```
-  @and(equals(triggerOutputs()?['body/{IsFolder}'], false), endsWith(toLower(triggerOutputs()?['body/{FilenameWithExtension}']), '.xlsx'), not(startsWith(triggerOutputs()?['body/{FilenameWithExtension}'], '~$')))
+  @and(equals(triggerOutputs()?['body/{IsFolder}'], false), endsWith(toLower(triggerOutputs()?['body/{FilenameWithExtension}']), '.xlsx'), not(startsWith(triggerOutputs()?['body/{FilenameWithExtension}'], '~$')), not(startsWith(triggerOutputs()?['body/{FilenameWithExtension}'], '00.')), or(startsWith(triggerOutputs()?['body/{Path}'], 'Shared Documents/20'), startsWith(triggerOutputs()?['body/{Path}'], 'Shared Documents/PAS-Import/')))
   ```
-  ถ้าไลบรารีมีไฟล์อื่นปน (เช่นของ LL) ให้เพิ่มเงื่อนไขโฟลเดอร์ เช่น
-  `not(contains(triggerOutputs()?['body/{Path}'], '/LL/'))`
+  ตามโครงจริงของไซต์ HKT PSA Daily:
+  | ในไลบรารี | ผล |
+  |---|---|
+  | `2025/…`, `2026/…`, `2027/…` (โฟลเดอร์ปีที่ขึ้นต้น `20`) | ✅ เฝ้า — ปีใหม่ที่สร้างภายหลังก็เข้าเงื่อนไขเอง |
+  | `PAS-Import/` | ✅ เฝ้า (ที่วางไฟล์สำรอง/ทดสอบ) |
+  | `2026/00.Master.xlsx` (ไฟล์ขึ้นต้น `00.`) | ⛔ ข้าม — เป็น master พนักงาน ไม่ใช่เวรรายวัน |
+  | `PAS-Data.xlsx`, `PAS-Migration/` (ไม่อยู่ในโฟลเดอร์ปี) | ⛔ ข้าม |
+  ถ้ายังมีไฟล์อื่นปนในโฟลเดอร์ปี/เดือน (ไม่ใช่เวร PSA) สคริปต์จะคืน `skipped` และบันทึกใน `PAS_ImportLog` โดยไม่เขียนข้อมูล
 
 1. **Compose `FilePath`** = `@{triggerOutputs()?['body/{Path}']}@{triggerOutputs()?['body/{FilenameWithExtension}']}`
    (ได้ `Shared Documents/2025/09.SEP26/19SEP.xlsx`)
@@ -97,10 +103,10 @@
 ## Flow C — Backfill (`PAS · C Backfill folder`)
 **Instant cloud flow** · Trigger: **Manually trigger a flow** · input ข้อความ `Folder` (เช่น `/Shared Documents/2026/10.OCT26` หรือ `/Shared Documents/2026` ทั้งปี)
 
-1. **Get files (properties only)** — Site · Library `Documents` · **Limit Entries to Folder** = `Folder`
+1. **Get files (properties only)** — Site · Library `Documents` · **Limit Entries to Folder** = `Folder` (เช่น `/Shared Documents/2026`)
    · **Include Nested Items** = `Yes` · Top Count `5000` · Pagination On
 2. **Filter array** — `value` where `endsWith(toLower(item()?['{FilenameWithExtension}']), '.xlsx')`
-   and `not(startsWith(item()?['{FilenameWithExtension}'], '~$'))`
+   and `not(startsWith(item()?['{FilenameWithExtension}'], '~$'))` and `not(startsWith(item()?['{FilenameWithExtension}'], '00.'))`
 3. **Apply to each** → **Create item** `PAS_ImportLog`: Title = `concat(item()?['{Path}'], item()?['{FilenameWithExtension}'])`
    · file_id = `item()?['{Identifier}']` · file_name = `item()?['{FilenameWithExtension}']` · status `Pending`
 

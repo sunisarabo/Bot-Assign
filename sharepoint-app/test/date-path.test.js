@@ -18,6 +18,12 @@ const cases = [
   ["Shared Documents/2026/02.FEB26/30FEB.xlsx", null],
   ["Shared Documents/LL/ติดตามสัมภาระ.xlsx", null],
   ["Shared Documents/2026/10.OCT26/19 SEPT 2026 rev2.xlsx", "2026-09-19"],
+  // โครงจริงของไซต์ HKT PSA Daily
+  ["Shared Documents/2026/05.MAY26/01MAY.xlsx", "2026-05-01"],
+  ["Shared Documents/2026/10.OCT26/31OCT.xlsx", "2026-10-31"],
+  ["Shared Documents/2026/00.Master.xlsx", null],
+  ["Shared Documents/PAS-Data.xlsx", null],
+  ["Shared Documents/PAS-Import/07OCT.xlsx", "2026-10-07"],
 ];
 let bad = 0;
 for (const [p, exp] of cases) {
