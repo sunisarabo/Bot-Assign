@@ -21,6 +21,14 @@ const cases = [
   // โครงจริงของไซต์ HKT PSA Daily
   ["Shared Documents/2026/05.MAY26/01MAY.xlsx", "2026-05-01"],
   ["Shared Documents/2026/10.OCT26/31OCT.xlsx", "2026-10-31"],
+  // ชื่อไฟล์จริงในโฟลเดอร์ 10.OCT26
+  ["Shared Documents/2026/10.OCT26/01OCT.xlsx", "2026-10-01"],
+  ["Shared Documents/2026/10.OCT26/02OCT.xlsx", "2026-10-02"],
+  ["Shared Documents/2026/10.OCT26/03OCT.xlsx", "2026-10-03"],
+  ["Shared Documents/2026/10.OCT26/04OCT.xlsx", "2026-10-04"],
+  ["Shared Documents/2026/10.OCT26/05OCT.xlsx", "2026-10-05"],
+  ["Shared Documents/2026/10.OCT26/06OCT.xlsx", "2026-10-06"],
+  ["Shared Documents/2026/10.OCT26/07OCT.xlsx", "2026-10-07"],
   ["Shared Documents/2026/00.Master.xlsx", null],
   ["Shared Documents/PAS-Data.xlsx", null],
   ["Shared Documents/PAS-Import/07OCT.xlsx", "2026-10-07"],
