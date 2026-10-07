@@ -18,6 +18,8 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `lists.def.json` | นิยามฐานข้อมูล: 8 Lists + คอลัมน์ + ชนิด + index (แหล่งเดียว แก้ที่นี่) |
 | `provision-lists.js` | สคริปต์วางใน **Console ของเบราว์เซอร์** บนไซต์ → สร้าง Lists ทั้งหมด + โฟลเดอร์ `PAS-Import` สำรอง (รันซ้ำได้) |
 | `import-roster.ts` | **Office Script**: อ่านไฟล์เวร (MANPOWER + แท็บทีม) → แถวพร้อมลง List (คำนวณ Util/busy ให้แล้ว) · **หาวันที่จาก path** (รองรับเดือนใหม่/ปีใหม่ · EN/ไทย · ค.ศ./พ.ศ.) · ส่งออกเป็น `$batch` |
+| `import-master.ts` | **Office Script**: ไฟล์ Manpower (PS-Manpower) หรือ `00.Master.xlsx` → `PAS_Employees` (upsert ตามรหัส · Total + BKK Batch · หาคอลัมน์จากหัวตาราง) |
+| `FLOW-master.md` | **Flow D** sync รายชื่อพนักงานอัตโนมัติ (ตรวจไฟล์ทุก 30 นาที เขียนเฉพาะที่เปลี่ยน) |
 | `batch-delete.ts` | Office Script ตัวช่วย: ID → `$batch` ลบ (ใช้ก่อนนำเข้าวันเดิมซ้ำ) |
 | `FLOW-import.md` | 3 flows: **A** เฝ้าทั้งไลบรารี → **B** นำเข้าจากคิว (ทุก 15 นาที) → **C** ย้อนหลังทั้งเดือน/ปี |
 | `POWERAPPS-app.md` | สร้างแอป Power Apps + สูตร Power Fx ครบทุกหน้า |
@@ -29,7 +31,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 2. **ติดตั้ง Office Scripts** — เปิดไฟล์เวรไฟล์ใดก็ได้ใน Excel บนเว็บ → `Automate → New Script` → วาง `import-roster.ts` → Save ชื่อ `import-roster` · ทำซ้ำกับ `batch-delete.ts` → ชื่อ `batch-delete`
 3. **สร้าง 3 flows** ตาม `FLOW-import.md` → กด Flow C ใส่โฟลเดอร์เดือนปัจจุบัน เพื่อนำเข้าย้อนหลังครั้งแรก
 4. **สร้างแอป** ตาม `POWERAPPS-app.md` → Publish → Share ให้กลุ่ม Admin/หัวหน้าทีม → (เลือกได้) เพิ่มเป็นแท็บใน Teams
-5. ใส่ master: `PAS_Teams`, `PAS_Employees` (Edit in grid view → วางจาก Excel ได้เลย)
+5. **รายชื่อพนักงาน** `PAS_Employees` — sync อัตโนมัติจากไฟล์ Manpower ตาม `FLOW-master.md` · `PAS_Teams` กรอกครั้งเดียว (Edit in grid view → วางจาก Excel)
 
 ## Lists ที่ได้ (สรุป)
 | List | คีย์ (Title) | ใช้ทำอะไร |
@@ -38,7 +40,8 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `PAS_Duty` | `วันที่\|ทีม\|รหัส` | Timetable รายคน · bucket · กะ · OT · duty_min / busy_min / util_pct |
 | `PAS_Assignment` | รหัสไฟลท์ | ไฟลท์/งานที่ได้รับรายคน · STA/STD/OP/CL · ช่วงงาน `win_lo–win_hi` (นาที) สำหรับ Gantt |
 | `PAS_Flights` · `PAS_Porter` · `PAS_PreWC` | เลขไฟลท์ | ตารางบิน · งาน Porter/Wheelchair · จอง WC ล่วงหน้า (กรอก/วางจาก CSV ใน `powerplatform/templates/`) |
-| `PAS_Teams` · `PAS_Employees` | รหัสทีม · รหัสพนักงาน | master |
+| `PAS_Employees` | รหัสพนักงาน | รายชื่อ · ทีม · แผนก PSA/LL · ตำแหน่ง/กลุ่ม · HKT/BKK/GLOBEX · ACTIVE/RESIGNED — sync จากไฟล์ Manpower |
+| `PAS_Teams` | รหัสทีม | master ทีม |
 | `PAS_ImportLog` | path ไฟล์ | คิว/ประวัตินำเข้า 1 แถว/ไฟล์ — สถานะ, วันที่ที่อ่านได้ (และอ่านจากไหน), จำนวนแถว, คำเตือน |
 
 ## เดือนใหม่ / ปีใหม่

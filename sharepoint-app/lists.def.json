@@ -27,7 +27,7 @@
   },
   {
    "title": "PAS_Employees",
-   "desc": "พนักงาน (master)",
+   "desc": "พนักงาน (master) — sync อัตโนมัติจาก 00.Master.xlsx",
    "titleLabel": "emp_code",
    "fields": [
     {
@@ -44,7 +44,21 @@
      "indexed": true
     },
     {
+     "name": "dept",
+     "type": "Choice",
+     "choices": [
+      "PSA",
+      "LL",
+      "OTHER"
+     ],
+     "indexed": true
+    },
+    {
      "name": "position",
+     "type": "Text"
+    },
+    {
+     "name": "pos_group",
      "type": "Text"
     },
     {
@@ -63,7 +77,24 @@
      "choices": [
       "ACTIVE",
       "RESIGNED"
-     ]
+     ],
+     "indexed": true
+    },
+    {
+     "name": "start_date",
+     "type": "DateOnly"
+    },
+    {
+     "name": "resign_date",
+     "type": "DateOnly"
+    },
+    {
+     "name": "master_file",
+     "type": "Text"
+    },
+    {
+     "name": "row_hash",
+     "type": "Text"
     }
    ]
   },
@@ -426,6 +457,14 @@
    "desc": "คิว/ประวัติการนำเข้าไฟล์เวร (1 แถว/ไฟล์)",
    "titleLabel": "file_path",
    "fields": [
+    {
+     "name": "kind",
+     "type": "Choice",
+     "choices": [
+      "ROSTER",
+      "MASTER"
+     ]
+    },
     {
      "name": "file_id",
      "type": "Text",

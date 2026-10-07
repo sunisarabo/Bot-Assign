@@ -144,7 +144,20 @@ With({m1: Date(Year(dpDay.SelectedDate), Month(dpDay.SelectedDate), 1)},
 แต่ละช่อง: `Text = ThisItem.day` · `Fill = If(ThisItem.ok, ColorValue("#DCEFE0"), DateValue(ThisItem.key) <= Today(), ColorValue("#FBE3E3"), Color.White)`
 · `OnSelect = Set(varDay, ThisItem.key); Select(btnLoad)` → แดง = วันที่ผ่านมาแล้วแต่ยังไม่มีไฟล์/นำเข้าไม่สำเร็จ
 
-## 10) Publish + แชร์ + Teams
+## 10) ใช้รายชื่อพนักงาน (`PAS_Employees`)
+**App.OnStart** เพิ่ม (โหลดครั้งเดียว ~1–2 พันแถว · กรอง ACTIVE ให้ SharePoint ทำ):
+```powerapps
+ClearCollect(colEmp, Filter(PAS_Employees, status.Value = "ACTIVE"))
+```
+- **การ์ดอัตรากำลัง (ทั้งหมดในสังกัด)**: PSA `CountRows(Filter(colEmp, dept.Value = "PSA"))` · LL `CountRows(Filter(colEmp, dept.Value = "LL"))`
+- **% มาทำงาน**: `Text(Sum(colMp, working) / Max(1, CountRows(Filter(colEmp, dept.Value = "PSA"))), "0%")`
+- **แยก HKT/BKK/Globex ของคนทำงานวันนี้**:
+  `CountRows(Filter(colDuty, isWork && LookUp(colEmp, Title = emp_code).source.Value = "BKK"))`
+  (isWork = `bucket.Value in ["WORKING","OT_OFF"]`)
+- **คนในเวรที่ไม่มีในรายชื่อ** (ตรวจข้อมูล): `Filter(colDuty, IsBlank(LookUp(colEmp, Title = emp_code)))`
+- **ค้นหาพนักงาน**: `Search(colEmp, txtFind.Text, name_th, name_en, Title)`
+
+## 11) Publish + แชร์ + Teams
 - **File → Save → Publish**
 - **Share** → ใส่กลุ่ม (เช่น PSA Admin: Natty, Ice, Max, Fluke · LL Admin · หัวหน้าทีม) — ไม่ต้องให้สิทธิ์ Premium
   (ผู้ใช้ต้องมีสิทธิ์อ่าน Lists ในไซต์ — ดู README หัวข้อ "สิทธิ์ข้อมูล")
