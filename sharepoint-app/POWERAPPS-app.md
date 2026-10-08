@@ -113,12 +113,38 @@ With({W: 1000, span: Max(1, varHi - varLo)},
 
 แถบฟ้าอ่อน = กะ · น้ำเงิน = ไฟลท์ · ส้ม = งานอื่น (BRIEF/GOM)
 
-## 8) หน้า Porter / Pre-WC (`porter`)
+## 8) หน้า Porter / Pre-WC (`porter`) — แทน 🧳 Porter ของ PAS เดิม
+ข้อมูลจาก Flow E (`FLOW-porter.md`) · ต่อข้อมูลเพิ่ม `PAS_PorterStaff`
+
+**โหลด** (ต่อท้าย `btnLoad.OnSelect`):
 ```powerapps
-galPorter.Items = Sort(Filter(PAS_Porter, day_key = varDay), pickup_at_min)
-galPreWC.Items  = Sort(Filter(PAS_PreWC,  day_key = varDay), Coalesce(sta_min, std_min))
+ClearCollect(colPorter, Filter(PAS_Porter, day_key = varDay));
+ClearCollect(colPStaff, Filter(PAS_PorterStaff, day_key = varDay));
+ClearCollect(colPreWC,  Filter(PAS_PreWC,  day_key = varDay))
 ```
-สรุป: `CountRows(Filter(PAS_PreWC, day_key = varDay))` · ตามบริการ: `Sum(Filter(PAS_PreWC, day_key = varDay && service.Value = "WCHC"), qty)`
+
+**การ์ด Porter (เหมือนเดิม):**
+| การ์ด | ค่า |
+|---|---|
+| เคสทั้งหมด | `CountRows(colPorter)` |
+| ขาเข้า / ขาออก | `CountRows(Filter(colPorter, is_arrival)) & " / " & CountRows(Filter(colPorter, is_departure))` |
+| Completed · On process · Standby | `CountRows(Filter(colPorter, status = "COMPLETED"))` (เปลี่ยนคำเป็น `"ON PROCESS"` / `"STANDBY"`) |
+| รอนาน (มีระยะเวลารอ) | `CountRows(Filter(colPorter, !IsBlank(wait_time) && !(wait_time in ["0:00","00:00","0:00:00"])))` |
+| พอตเตอร์ที่มีเคส | `CountRows(Filter(colPStaff, cases > 0)) & " / " & CountRows(colPStaff)` |
+| แยกชนิด | `Concat(Filter(ForAll(["WCHR","WCHS","WCHC","MAAS","AVIH","ETC"] As v, {k: v.Value, n: CountRows(Filter(colPorter, service.Value = v.Value))}), n > 0), k & " " & n, " · ")` |
+
+**ตารางเคส** — `galPorter.Items = Sort(colPorter, Coalesce(eta_min, etd_min, pickup_at_min), SortOrder.Ascending)`
+แสดง: `job_no` · `airline_iata & " " & flight_no` · `porter_names` · `service_raw` · `If(is_arrival, "ขาเข้า " & eta, "ขาออก " & etd)` · `pickup_at & "–" & delivered_at` · `gate` · `status` · `remark`
+สีแถว: `If(status = "COMPLETED", ColorValue("#E8F5E9"), status = "STANDBY", ColorValue("#FFF8E1"), Color.White)`
+
+**เคสต่อพอตเตอร์** — `Sort(colPStaff, cases, SortOrder.Descending)` · `staff_name & " (" & sked & ")"` · `cases & " เคส"`
+
+**Pre-book Wheelchair (จองล่วงหน้า — ดูวันในอนาคตได้)**
+- การ์ด: จองรวม `Sum(colPreWC, qty)` · ขาเข้า `Sum(Filter(colPreWC, direction.Value = "ARR"), qty)` · ขาออก `Sum(Filter(colPreWC, direction.Value = "DEP"), qty)`
+  · ต่อชนิด `Sum(Filter(colPreWC, service.Value = "WCHC"), qty)` (WCHR/WCHS/WCHC/AVIH/MAAS)
+- ตารางต่อไฟลท์: `galPreWC.Items = Sort(AddColumns(GroupBy(colPreWC, flight_no, routing, sta, std, ct_open, ct_close, rows), arrT, Sum(Filter(rows, direction.Value = "ARR"), qty), depT, Sum(Filter(rows, direction.Value = "DEP"), qty), brk, Concat(rows, direction.Value & " " & service.Value & " " & qty, " · ")), Coalesce(sta, std))`
+  แสดง: `flight_no` · `routing` · `sta` · `std` · `ct_open & "–" & ct_close` · `arrT` · `depT` · `brk`
+- วันที่ยังไม่มีข้อมูล: `If(IsEmpty(colPreWC), "วันนี้ยังไม่มีการจองรถเข็นล่วงหน้า")`
 
 ## 9) หน้าสถานะนำเข้า (`log`) — เดือนใหม่/ปีใหม่เข้าครบไหม
 เพิ่มปุ่ม Footer `Set(varTab,"log")`

@@ -376,8 +376,8 @@
   },
   {
    "title": "PAS_Porter",
-   "desc": "งาน Porter / Wheelchair",
-   "titleLabel": "flight_no",
+   "desc": "งาน/เคส Porter รายวัน — sync จากไฟล์ <MON YYYY> PORTER SUMMARY",
+   "titleLabel": "key (date|no)",
    "fields": [
     {
      "name": "day_key",
@@ -385,17 +385,62 @@
      "indexed": true
     },
     {
-     "name": "work_date",
-     "type": "DateOnly",
+     "name": "month_key",
+     "type": "Text",
      "indexed": true
     },
     {
+     "name": "work_date",
+     "type": "DateOnly"
+    },
+    {
+     "name": "job_no",
+     "type": "Number"
+    },
+    {
      "name": "airline_iata",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "flight_no",
      "type": "Text"
     },
     {
      "name": "porter_names",
      "type": "Note"
+    },
+    {
+     "name": "status",
+     "type": "Text"
+    },
+    {
+     "name": "eta",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "etd",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "gate",
+     "type": "Text"
+    },
+    {
+     "name": "notified_at",
+     "type": "Text"
+    },
+    {
+     "name": "pickup_at",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "delivered_at",
+     "type": "Text",
+     "minutes": true
     },
     {
      "name": "service",
@@ -410,25 +455,39 @@
      ]
     },
     {
+     "name": "service_raw",
+     "type": "Text"
+    },
+    {
      "name": "is_arrival",
      "type": "Boolean"
     },
     {
-     "name": "pickup_at",
-     "type": "Text",
-     "minutes": true
+     "name": "is_departure",
+     "type": "Boolean"
     },
     {
-     "name": "delivered_at",
-     "type": "Text",
-     "minutes": true
+     "name": "wait_time",
+     "type": "Text"
+    },
+    {
+     "name": "remark",
+     "type": "Text"
+    },
+    {
+     "name": "seat",
+     "type": "Text"
+    },
+    {
+     "name": "row_hash",
+     "type": "Text"
     }
    ]
   },
   {
    "title": "PAS_PreWC",
-   "desc": "จอง Wheelchair ล่วงหน้า",
-   "titleLabel": "flight_no",
+   "desc": "ยอดจองรถเข็นล่วงหน้า (ไฟลท์ × ขา × ชนิด) — sync จาก <MON YYYY> PRE-WHEELCHAIR",
+   "titleLabel": "key (date|flight|dir|svc)",
    "fields": [
     {
      "name": "day_key",
@@ -436,12 +495,21 @@
      "indexed": true
     },
     {
-     "name": "work_date",
-     "type": "DateOnly",
+     "name": "month_key",
+     "type": "Text",
      "indexed": true
     },
     {
+     "name": "work_date",
+     "type": "DateOnly"
+    },
+    {
      "name": "airline_iata",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "flight_no",
      "type": "Text"
     },
     {
@@ -482,6 +550,55 @@
      "name": "std",
      "type": "Text",
      "minutes": true
+    },
+    {
+     "name": "ct_open",
+     "type": "Text"
+    },
+    {
+     "name": "ct_close",
+     "type": "Text"
+    },
+    {
+     "name": "row_hash",
+     "type": "Text"
+    }
+   ]
+  },
+  {
+   "title": "PAS_PorterStaff",
+   "desc": "สรุปเคสต่อพอตเตอร์/วัน (STAFF RECORD)",
+   "titleLabel": "key (date|no)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "staff_no",
+     "type": "Number"
+    },
+    {
+     "name": "staff_name",
+     "type": "Text"
+    },
+    {
+     "name": "sked",
+     "type": "Text"
+    },
+    {
+     "name": "cases",
+     "type": "Number"
+    },
+    {
+     "name": "row_hash",
+     "type": "Text"
     }
    ]
   },
@@ -495,7 +612,9 @@
      "type": "Choice",
      "choices": [
       "ROSTER",
-      "MASTER"
+      "MASTER",
+      "PORTER",
+      "PREWC"
      ]
     },
     {

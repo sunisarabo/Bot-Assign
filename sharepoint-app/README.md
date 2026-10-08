@@ -20,6 +20,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `import-roster.ts` | **Office Script**: อ่านไฟล์เวร (MANPOWER + แท็บทีม) → แถวพร้อมลง List (คำนวณ Util/busy ให้แล้ว) · **หาวันที่จาก path** (รองรับเดือนใหม่/ปีใหม่ · EN/ไทย · ค.ศ./พ.ศ.) · ส่งออกเป็น `$batch` |
 | `import-master.ts` | **Office Script**: ไฟล์ Manpower (PS-Manpower) หรือ `00.Master.xlsx` → `PAS_Employees` (upsert ตามรหัส · Total + BKK Batch · หาคอลัมน์จากหัวตาราง) |
 | `POWERAPPS-ot.md` | หน้า **OT Dashboard** (รายเดือน · รายสัปดาห์ · เตือน OT รายคน 36/144 ชม.) — แทนหน้าเดิมของ PAS |
+| `import-porter.ts` · `FLOW-porter.md` | **Flow E** Porter Summary + Pre-Wheelchair (ไฟล์รายเดือน แท็บรายวัน) → `PAS_Porter` / `PAS_PorterStaff` / `PAS_PreWC` |
 | `FLOW-master.md` | **Flow D** sync รายชื่อพนักงานอัตโนมัติ (ตรวจไฟล์ทุก 30 นาที เขียนเฉพาะที่เปลี่ยน) |
 | `batch-delete.ts` | Office Script ตัวช่วย: ID → `$batch` ลบ (ใช้ก่อนนำเข้าวันเดิมซ้ำ) |
 | `FLOW-import.md` | 3 flows: **A** เฝ้าทั้งไลบรารี → **B** นำเข้าจากคิว (ทุก 15 นาที) → **C** ย้อนหลังทั้งเดือน/ปี |
