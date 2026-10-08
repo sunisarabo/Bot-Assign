@@ -40,7 +40,7 @@ for (const [p, exp] of cases) {
   console.log(got === exp ? "OK " : "XX ", p, "→", got, r ? "(" + r.source + ")" : "");
 }
 // ไฟล์ที่ไม่ใช่เวร PSA → skipped
-const sheet = (name, rows) => ({ getName: () => name, getRange: () => ({ getValues: () => rows }), getUsedRange: () => ({ getValues: () => rows }) });
+const sheet = (name, rows) => ({ getName: () => name, getRange: () => ({ getValues: () => rows, getTexts: () => rows.map(r => r.map(x => String(x))) }), getUsedRange: () => ({ getValues: () => rows }) });
 const ll = main({ getWorksheet: () => undefined, getWorksheets: () => [sheet("SOD", [Array(44).fill("")])] }, "Shared Documents/LL/5OCT.xlsx");
 if (ll.status !== "skipped") { bad++; console.log("XX LL file not skipped"); } else console.log("OK  non-roster file skipped");
 console.log(bad ? bad + " FAILED" : "ALL PASSED"); process.exit(bad ? 1 : 0);

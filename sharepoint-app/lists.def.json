@@ -656,6 +656,51 @@
    ]
   },
   {
+   "title": "PAS_DataIssue",
+   "desc": "จุดที่ควรแก้ในไฟล์เวร (ตรวจตอนนำเข้า) — หน้า 🩺 ตรวจข้อมูล",
+   "titleLabel": "key (date|category|n)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "category",
+     "type": "Choice",
+     "choices": [
+      "droptab",
+      "dupblock",
+      "staledate",
+      "offflt",
+      "noshift",
+      "flttime",
+      "dupteam",
+      "dupname",
+      "filedate"
+     ],
+     "indexed": true
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "who",
+     "type": "Text"
+    },
+    {
+     "name": "detail",
+     "type": "Note"
+    }
+   ]
+  },
+  {
    "title": "PAS_ImportLog",
    "desc": "คิว/ประวัติการนำเข้าไฟล์เวร (1 แถว/ไฟล์)",
    "titleLabel": "file_path",

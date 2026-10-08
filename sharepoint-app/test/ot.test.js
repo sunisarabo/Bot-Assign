@@ -1,6 +1,6 @@
 // OT: ปกติ + นักขัต X1 · ไม่นับแถวซัพพอร์ต · แถวรายคน · สัปดาห์ จ.–อา.
 const { main } = require(process.argv[2]);
-const sheet = (name, rows) => ({ getName: () => name, getRange: () => ({ getValues: () => rows }), getUsedRange: () => ({ getValues: () => rows }) });
+const sheet = (name, rows) => ({ getName: () => name, getRange: () => ({ getValues: () => rows, getTexts: () => rows.map(r => r.map(x => String(x))) }), getUsedRange: () => ({ getValues: () => rows }) });
 const W = 44, blank = () => Array(W).fill("");
 const mp = [["MANPOWER"], ["Team (EY)", 4, 0, 0, 0, 0, 0, 0, 0, 3]];
 const ey = [blank(), blank()]; ey[1][18] = "FLIGHT"; ey[1][19] = "EY410";

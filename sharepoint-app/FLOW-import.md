@@ -76,7 +76,7 @@
       3. **Condition** `outputs('R')?['status']` is equal to `ok`
          - **No → Update item** (คิว): status `Skipped` · day_key = `outputs('R')?['work_date']` · message = `outputs('R')?['reason']`
          - **Yes →**
-           a. **ลบของวันเดิม** — ทำ 4 รอบ (`PAS_Manpower`, `PAS_Duty`, `PAS_Assignment`, `PAS_OT_Person`):
+           a. **ลบของวันเดิม** — ทำ 5 รอบ (`PAS_Manpower`, `PAS_Duty`, `PAS_Assignment`, `PAS_OT_Person`, `PAS_DataIssue`):
               - **Get items** List = (ชื่อ List) · Filter Query `day_key eq '@{outputs('R')?['work_date']}'`
                 · Top Count `5000` · Settings → **Pagination On, Threshold 20000**
               - **Select `IDs`** — From `value` · Map (โหมดข้อความ) = `item()?['ID']`

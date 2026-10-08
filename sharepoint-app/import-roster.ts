@@ -34,15 +34,16 @@ interface MpRow { Title: string; day_key: string; month_key: string; work_date: 
 interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; is_support: boolean; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
+interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
 interface Batch { list: string; boundary: string; body: string; n: number }
-interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number }; batches: Batch[] }
+interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
 function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string): Result {
   const path = filePath || "";
   const warnings: string[] = [];
   const empty = (reason: string, iso: string, src: string): Result =>
-    ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0, ot_people: 0 }, batches: [] });
+    ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0, ot_people: 0, issues: 0 }, batches: [] });
 
   const mp = workbook.getWorksheet("MANPOWER");
   const mv: Cell[][] = mp ? mp.getUsedRange().getValues() : [];
@@ -64,15 +65,18 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
 
   const hol = holidaySet(holidays);
   const p = parseRoster(workbook, teams, pick.iso, baseName(path), !!hol[pick.iso]);
+  if (hdr && hdr.iso !== pick.iso)
+    addIssue(p.issues, pick.iso, "filedate", "MANPOWER", baseName(path), "วันที่หัวชีต MANPOWER = " + hdr.iso + " แต่ชื่อไฟล์/โฟลเดอร์ = " + pick.iso + " — ตรวจว่าวางไฟล์ถูกวัน หรือหัวชีตลืมเปลี่ยน");
   const site = (siteUrl || SITE).replace(/\/$/, "");
   const batches: Batch[] = [];
   addBatches(batches, site, "PAS_Manpower", p.manpower);
   addBatches(batches, site, "PAS_Duty", p.duty);
   addBatches(batches, site, "PAS_Assignment", p.assignment);
   addBatches(batches, site, "PAS_OT_Person", p.otPerson);
+  addBatches(batches, site, "PAS_DataIssue", p.issues);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
-    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length }, batches
+    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length }, batches
   };
 }
 
@@ -95,12 +99,19 @@ function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
 function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string, isHol: boolean) {
   const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [], otPerson: OtRow[] = [];
   const month = day.slice(0, 7), week = mondayOf(day);
+  const issues: IssueRow[] = [];
+  const idTeams: { [emp: string]: { teams: string[]; name: string } } = {};
+  const tabDates: { [team: string]: string } = {};
   for (const t of teams) {
     const ws = workbook.getWorksheet(t.code);
+    let people = 0;
+    if (!ws) addIssue(issues, day, "droptab", t.code, "ไม่พบแท็บ", "MANPOWER มีทีม " + t.code + " แต่ไม่มีแท็บชื่อนี้ — ทั้งทีมหายจากยอด/ไฟลท์ (ชื่อแท็บต้องตรงรหัสทีม)");
     let otSum = 0, holSum = 0, otOff = 0, otPpl = 0, uSum = 0, uN = 0;
     const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0 }, counted: { [e: string]: boolean } = {};
     if (ws) {
       const g = ws.getRange("A1:AQ300").getValues();
+      tabDates[t.code] = sheetDate(ws.getRange("A1:T4").getTexts());
+      const nameSeen: { [n: string]: boolean } = {};
       const fRow = findByS(g, "FLIGHT"), sRow = findByS(g, "STA"), oRow = findByS(g, "OP");
       const flights: { base: number; code: string; STA: string; STD: string; OP: string; CL: string }[] = [];
       if (fRow >= 0) for (let b = 19; b + 3 < g[fRow].length; b += 4) {
@@ -108,11 +119,15 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         if (!code || !/\d|BRE?IF|GOM/i.test(code)) continue;
         flights.push({ base: b, code, STA: hhmm(sRow >= 0 ? g[sRow][b] : ""), STD: hhmm(sRow >= 0 ? g[sRow][b + 2] : ""), OP: hhmm(oRow >= 0 ? g[oRow][b] : ""), CL: hhmm(oRow >= 0 ? g[oRow][b + 2] : "") });
       }
+      for (const f of flights)
+        if (/\d/.test(f.code) && !f.STA && !f.STD && !f.OP && !f.CL)
+          addIssue(issues, day, "flttime", t.code, f.code, "ไฟลท์ไม่มี STA/STD — เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้");
       const seen: { [k: string]: number } = {};
       for (const row of g) {
         const id = row[0], name = String(row[2] || "").trim();
         if (typeof id !== "number" || !name || name.indexOf("Ex.") === 0) continue;
         const emp = String(id);
+        people++;
         // แถวซัพพอร์ต "ชื่อ (WY)" = มาช่วยจากทีมอื่น → ไม่นับ OT ที่ทีมนี้ (นับที่ทีมต้นสังกัด) — เหมือน RosterReader
         const sup = name.match(/\(([A-Z0-9]{2,4})\)\s*$/i);
         const isSup = !!sup && sup[1].toUpperCase() !== t.code.toUpperCase();
@@ -122,6 +137,20 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         let de = (ds != null && hrs) ? ds + Math.round(hrs * 60) : null;
         if (ds != null && de != null && de <= ds) de += 1440;
         const dutyMin = (ds != null && de != null && isWork(bucket)) ? de - ds : 0;
+
+        // ---- ตรวจข้อมูล (กติกาเดียวกับ rbDataCheckHtml) ----
+        const nk = name.toUpperCase();
+        if (nameSeen[nk]) addIssue(issues, day, "dupname", t.code, name, "ชื่อซ้ำในทีม (อาจกรอกซ้ำ 2 แถว)");
+        nameSeen[nk] = true;
+        if (!isSup && /^\d{6,8}$/.test(emp)) {
+          const it = idTeams[emp] || (idTeams[emp] = { teams: [], name });
+          if (it.teams.indexOf(t.code) < 0) it.teams.push(t.code);
+        }
+        const fltCells = flights.filter(f => /\d/.test(f.code) && [0, 1, 2, 3].some(k => String(row[f.base + k] == null ? "" : row[f.base + k]).trim() !== ""));
+        if (!isSup && isWork(bucket) && ds == null && fltCells.length)
+          addIssue(issues, day, "noshift", t.code, name, "มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้" + (String(row[3] || "").trim() ? " (รหัส " + String(row[3]).trim() + ")" : " (ไม่มีรหัสกะ)"));
+        if (!isSup && bucket === "OFF" && fltCells.length)
+          addIssue(issues, day, "offflt", t.code, name, "ชีตเขียนหยุด (OFF/X) แต่ถูกจัดลงไฟลท์ " + fltCells.map(f => f.code).join(", ") + " — ถ้ามาทำงานให้แก้เป็น Onduty · ถ้ามาช่วย OT ให้กรอกชั่วโมง OT");
 
         const iv: number[][] = [];
         if (isWork(bucket)) for (const f of flights) {
@@ -159,6 +188,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         }
         const k = day + "|" + t.code + "|" + emp;
         seen[k] = (seen[k] || 0) + 1;
+        if (seen[k] === 2) addIssue(issues, day, "dupblock", t.code, name + " (" + emp + ")", "รหัสนี้อยู่ในแท็บ 2 แถว/2 บล็อก — อาจมีตารางคนซ้อนซ้ำ · ลบบล็อกซ้ำเพื่อกันข้อมูลตกหล่น/นับซ้ำ");
         duty.push({
           Title: seen[k] > 1 ? k + "#" + seen[k] : k, day_key: day, work_date: day, team: t.code, emp_code: emp, emp_name: name,
           bucket, shift_code: String(row[3] || "").trim(), shift_start: ds != null ? m2hhmm(ds) : "",
@@ -166,6 +196,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         });
       }
     }
+    if (ws && people === 0)
+      addIssue(issues, day, "droptab", t.code, "อ่านไม่ได้ทั้งแท็บ", "แท็บนี้ไม่มีแถวพนักงานที่อ่านได้ (คอลัมน์ A ต้องเป็นรหัสตัวเลข · C = ชื่อ) — ทั้งทีมหายจากยอด/ไฟลท์");
     manpower.push({
       Title: day + "|" + t.code, day_key: day, month_key: month, work_date: day, team: t.code, total: t.total, working: t.working,
       sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), ot_hol_hours: round1(holSum),
@@ -173,7 +205,21 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       cnt_work: cnt.work, cnt_sick: cnt.sick, cnt_vac: cnt.vac, cnt_personal: cnt.personal, cnt_training: cnt.training
     });
   }
-  return { manpower, duty, assignment, otPerson };
+  for (const emp of Object.keys(idTeams)) {
+    const it = idTeams[emp];
+    if (it.teams.length > 1) addIssue(issues, day, "dupteam", it.teams.join(" + "), it.name + " (" + emp + ")", "รหัสเดียวกันโผล่หลายทีม — นับซ้ำ · ถ้าไปช่วยให้ทำเป็นแถวซัพพอร์ต \"ชื่อ (ทีม)\" แทน");
+  }
+  // แท็บที่วันที่ (เช่น 29/JUN) ต่างจากทีมส่วนใหญ่ → อาจลืมอัปเดตแท็บ
+  const dc: { [d: string]: number } = {};
+  for (const tm of Object.keys(tabDates)) if (tabDates[tm]) dc[tabDates[tm]] = (dc[tabDates[tm]] || 0) + 1;
+  const ds2 = Object.keys(dc);
+  if (ds2.length > 1) {
+    const maj = ds2.sort((a, b) => dc[b] - dc[a])[0];
+    for (const tm of Object.keys(tabDates))
+      if (tabDates[tm] && tabDates[tm] !== maj)
+        addIssue(issues, day, "staledate", tm, "วันที่บนแท็บ = " + tabDates[tm], "แท็บนี้เป็นวันที่ " + tabDates[tm] + " แต่ทีมส่วนใหญ่เป็น " + maj + " — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)");
+  }
+  return { manpower, duty, assignment, otPerson, issues };
 }
 
 // ======================= SharePoint $batch =======================
@@ -281,6 +327,19 @@ function normDate(s: string): string {
   return m ? m[1] + "-" + pad(+m[2]) + "-" + pad(+m[3]) : "";
 }
 function baseName(p: string): string { const s = p.split("/"); return s[s.length - 1] || ""; }
+
+// ======================= ตรวจข้อมูล =======================
+function addIssue(out: IssueRow[], day: string, category: string, team: string, who: string, detail: string) {
+  out.push({ Title: day + "|" + category + "|" + (out.length + 1), day_key: day, month_key: day.slice(0, 7), category, team, who: who.slice(0, 255), detail: detail.slice(0, 255) });
+}
+// วันที่ที่พิมพ์บนแท็บ (4 แถวแรก) เช่น "29/JUN" → "29/JUN" — เหมือน rrSheetDate_
+function sheetDate(t: string[][]): string {
+  for (const r of t) for (const c of r) {
+    const m = String(c || "").match(/(\d{1,2})\s*\/\s*([A-Za-z]{3,4})/);
+    if (m) return m[1].replace(/^0/, "") + "/" + m[2].toUpperCase();
+  }
+  return "";
+}
 
 // ======================= OT helpers =======================
 // วันจันทร์ของสัปดาห์ (สัปดาห์ จ.–อา. เหมือนเกณฑ์ OT เดิม) → "YYYY-MM-DD"

@@ -6,6 +6,7 @@ tsc --strict --target es2017 --lib es2017 --outDir "$O" "$D/excelscript.d.ts" "$
 echo "module.exports={main,dateFromPath};" >> "$O/import-roster.js"
 node "$D/date-path.test.js" "$O/import-roster.js"
 node "$D/ot.test.js" "$O/import-roster.js"
+node "$D/datacheck.test.js" "$O/import-roster.js"
 tsc --strict --target es2017 --lib es2017 --outDir "$O/m" "$D/excelscript.d.ts" "$D/../import-master.ts"
 echo "module.exports={main};" >> "$O/m/import-master.js"
 node "$D/master.test.js" "$O/m/import-master.js"
