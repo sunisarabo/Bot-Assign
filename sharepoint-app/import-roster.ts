@@ -30,7 +30,7 @@ const TH_FULL = ["มกราคม", "กุมภาพันธ์", "มี
 const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิย", "กค", "สค", "กย", "ตค", "พย", "ธค"];
 
 type Cell = string | number | boolean;
-interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number }
+interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number }
 interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; is_support: boolean; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
@@ -81,13 +81,13 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
 }
 
 // ======================= อ่านไฟล์เวร =======================
-interface TeamHead { code: string; total: number; working: number; sick: number; annual: number; training: number }
+interface TeamHead { code: string; total: number; working: number; sick: number; annual: number; training: number; mpOt?: number }
 
 function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
   const teams: TeamHead[] = [];
   for (const r of mv) {
     const m = String(r[0] || "").match(/Team\s*\((.+?)\)/);
-    if (m) teams.push({ code: m[1].trim(), total: n(r[1]), working: n(r[9]), sick: n(r[3]), annual: n(r[5]), training: n(r[8]) });
+    if (m) teams.push({ code: m[1].trim(), total: n(r[1]), working: n(r[9]), sick: n(r[3]), annual: n(r[5]), training: n(r[8]), mpOt: n(r[10]) });
   }
   if (!teams.length) for (const ws of workbook.getWorksheets()) {
     if (findByS(ws.getRange("A1:AQ60").getValues(), "FLIGHT") >= 0)
@@ -107,7 +107,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
     let people = 0;
     if (!ws) addIssue(issues, day, "droptab", t.code, "ไม่พบแท็บ", "MANPOWER มีทีม " + t.code + " แต่ไม่มีแท็บชื่อนี้ — ทั้งทีมหายจากยอด/ไฟลท์ (ชื่อแท็บต้องตรงรหัสทีม)");
     let otSum = 0, holSum = 0, otOff = 0, otPpl = 0, uSum = 0, uN = 0;
-    const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0 }, counted: { [e: string]: boolean } = {};
+    const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0, off: 0, otOff: 0, staff: 0 }, counted: { [e: string]: boolean } = {};
     if (ws) {
       const g = ws.getRange("A1:AQ300").getValues();
       tabDates[t.code] = sheetDate(ws.getRange("A1:T4").getTexts());
@@ -171,6 +171,9 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         const otHol = (isHol && !isSup && bucket === "WORKING" && hrs > 0) ? hrs : 0;
         if (!isSup && !counted[emp]) {                                // นับหัวรายวัน (1 คน/ทีม · ไม่นับซัพพอร์ต) — สรุปสัปดาห์
           counted[emp] = true;
+          cnt.staff++;
+          if (bucket === "OT_OFF") cnt.otOff++;
+          if (bucket === "OFF") cnt.off++;
           if (isWork(bucket)) cnt.work++;
           else if (bucket === "SICK") cnt.sick++;
           else if (bucket === "VACATION") cnt.vac++;
@@ -202,7 +205,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       Title: day + "|" + t.code, day_key: day, month_key: month, work_date: day, team: t.code, total: t.total, working: t.working,
       sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), ot_hol_hours: round1(holSum),
       ot_total: round1(otSum + holSum), ot_people: otPpl, ot_off_hours: round1(otOff), is_holiday: isHol, util_pct: uN ? Math.round(uSum / uN) : 0,
-      cnt_work: cnt.work, cnt_sick: cnt.sick, cnt_vac: cnt.vac, cnt_personal: cnt.personal, cnt_training: cnt.training
+      cnt_work: cnt.work, cnt_sick: cnt.sick, cnt_vac: cnt.vac, cnt_personal: cnt.personal, cnt_training: cnt.training,
+      cnt_off: cnt.off, cnt_ot_off: cnt.otOff, cnt_staff: cnt.staff, mp_ot_hours: round1(t.mpOt || 0)
     });
   }
   for (const emp of Object.keys(idTeams)) {

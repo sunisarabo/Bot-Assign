@@ -190,6 +190,22 @@
     {
      "name": "cnt_training",
      "type": "Number"
+    },
+    {
+     "name": "cnt_off",
+     "type": "Number"
+    },
+    {
+     "name": "cnt_ot_off",
+     "type": "Number"
+    },
+    {
+     "name": "cnt_staff",
+     "type": "Number"
+    },
+    {
+     "name": "mp_ot_hours",
+     "type": "Number"
     }
    ]
   },

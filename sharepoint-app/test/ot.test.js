@@ -39,4 +39,6 @@ const wb2 = { getWorksheet: n => ({ MANPOWER: sheet("MANPOWER", mp), EY: sheet("
 const c = rows(main(wb2, "Shared Documents/2026/10.OCT26/08OCT.xlsx"), "PAS_Manpower")[0];
 ok(c.cnt_work === 1 && c.cnt_sick === 2 && c.cnt_vac === 2 && c.cnt_personal === 2 && c.cnt_training === 1,
   "หัวรายวัน: ทำงาน 1 (ซ้ำ/ซัพพอร์ตไม่นับ) · ป่วย 2 · แวค 2 · กิจ 2 (ลากิจ/ML) · อบรม 1 → " + [c.cnt_work, c.cnt_sick, c.cnt_vac, c.cnt_personal, c.cnt_training]);
+ok(c.cnt_staff === 9 && c.cnt_off === 1 && c.cnt_ot_off === 0, "staff 9 (ไม่นับซัพพอร์ต/แถวซ้ำ) · OFF 1 → " + [c.cnt_staff, c.cnt_off, c.cnt_ot_off]);
+ok(rows(main(wb, "Shared Documents/2026/10.OCT26/08OCT.xlsx"), "PAS_Manpower")[0].cnt_ot_off === 1, "OT_OFF นับแยก");
 console.log(bad ? bad + " FAILED" : "ALL PASSED"); process.exit(bad ? 1 : 0);

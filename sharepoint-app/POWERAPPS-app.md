@@ -55,6 +55,7 @@ Header (โลโก้ + `dpDay` + `ddTeam` + ปุ่มรีเฟรช) �
 สีหลัก AOTGA: `ColorValue("#1D428A")`
 
 ## 4) หน้า Dashboard (`dash`)
+> **ฉบับเต็ม (ครบเท่า PAS เดิม): `POWERAPPS-dashboard.md`** — ด้านล่างเป็นฉบับเริ่มต้น
 | การ์ด | Text |
 |---|---|
 | ทำงานจริง | `Sum(colMp, working)` |
