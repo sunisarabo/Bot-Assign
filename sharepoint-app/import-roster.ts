@@ -35,8 +35,9 @@ const TH_FULL = ["มกราคม", "กุมภาพันธ์", "มี
 const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิย", "กค", "สค", "กย", "ตค", "พย", "ธค"];
 
 type Cell = string | number | boolean;
-interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number }
-interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; is_support: boolean; duty_min: number; busy_min: number; util_pct: number; source_file: string }
+interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number; ot_pre_people?: number; ot_pre_hours?: number; ot_post_people?: number; ot_post_hours?: number }
+interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_end?: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; ot_type?: string; ot_time?: string; is_support: boolean;
+  ac_status?: string; ac_flights?: string; ac_job?: string; ac_zones?: string; ac_support?: number; ac_uncovered?: string; ac_gaps?: string; ac_gaps_raw?: string; ac_ot_verdict?: string; ac_issue?: string; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
@@ -112,12 +113,13 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   const idTeams: { [emp: string]: { teams: string[]; name: string } } = {};
   const tabDates: { [team: string]: string } = {};
   const slaPeople: SlaPerson[] = [];
+  const acRecs: { rec: AcRec; row: DutyRow }[] = [];
   for (const t of teams) {
     const ws = workbook.getWorksheet(t.code);
     let people = 0;
     if (!ws) addIssue(issues, day, "droptab", t.code, "ไม่พบแท็บ", "MANPOWER มีทีม " + t.code + " แต่ไม่มีแท็บชื่อนี้ — ทั้งทีมหายจากยอด/ไฟลท์ (ชื่อแท็บต้องตรงรหัสทีม)");
     let otSum = 0, holSum = 0, otOff = 0, otPpl = 0, uSum = 0, uN = 0;
-    const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0, off: 0, otOff: 0, staff: 0 }, counted: { [e: string]: boolean } = {};
+    const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0, off: 0, otOff: 0, staff: 0, preP: 0, preH: 0, postP: 0, postH: 0 }, counted: { [e: string]: boolean } = {};
     if (ws) {
       const g = ws.getRange("A1:AQ300").getValues();
       tabDates[t.code] = sheetDate(ws.getRange("A1:T4").getTexts());
@@ -141,9 +143,12 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         // แถวซัพพอร์ต "ชื่อ (WY)" = มาช่วยจากทีมอื่น → ไม่นับ OT ที่ทีมนี้ (นับที่ทีมต้นสังกัด) — เหมือน RosterReader
         const sup = name.match(/\(([A-Z0-9]{2,4})\)\s*$/i);
         const isSup = !!sup && sup[1].toUpperCase() !== t.code.toUpperCase();
-        const ot = isSup ? 0 : n(row[12]) + n(row[15]);
+        const og1 = otGroup(row[10], row[11], row[12]), og2 = otGroup(row[13], row[14], row[15]);
+        const ot = isSup ? 0 : round1((og1 ? og1.h : 0) + (og2 ? og2.h : 0));
         const bucket = bucketOf(String(row[16] || ""), String(row[17] || ""), ot);
         const ds = t2m(row[4]), hrs = n(row[6]);
+        // เวลาเลิกกะ (F) + ช่วง OT 2 กลุ่ม (K/L ชม.M · N/O ชม.P) — เหมือน rrRangeCells_/rrReadOtGroup_ ของเดิม
+        const seCell = timeOnly(row[5]);
         let de = (ds != null && hrs) ? ds + Math.round(hrs * 60) : null;
         if (ds != null && de != null && de <= ds) de += 1440;
         const dutyMin = (ds != null && de != null && isWork(bucket)) ? de - ds : 0;
@@ -202,14 +207,28 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
             team: t.code, ot_hours: round1(ot), ot_hol_hours: round1(otHol), ot_total: round1(ot + otHol)
           });
         }
+        // ---- ประเภท OT (ก่อน/หลังกะ) — rrOtType_ ----
+        const ssA = ds, seA = ds != null ? (seCell != null ? seCell : (hrs ? ds + Math.round(hrs * 60) : null)) : null;
+        const spans: { a: number | null; b: number | null; type: string }[] = [];
+        if (og1 && og1.a != null) spans.push({ a: og1.a, b: og1.b, type: og2 ? "PRE" : "" });
+        if (og2 && og2.a != null) spans.push({ a: og2.a, b: og2.b, type: "POST" });
+        const prim = spans.length ? [spans[spans.length - 1].a, spans[spans.length - 1].b] : [null, null];
+        const otType = ot > 0 ? (og2 ? "POST" : otTypeOf([ssA, seA], prim, bucket === "OT_OFF")) : "";
+        if (!isSup && ot > 0 && bucket !== "OT_OFF") { if (otType === "PRE") { cnt.preP++; cnt.preH += ot; } else { cnt.postP++; cnt.postH += ot; } }
         const k = day + "|" + t.code + "|" + emp;
         seen[k] = (seen[k] || 0) + 1;
         if (seen[k] === 2) addIssue(issues, day, "dupblock", t.code, name + " (" + emp + ")", "รหัสนี้อยู่ในแท็บ 2 แถว/2 บล็อก — อาจมีตารางคนซ้อนซ้ำ · ลบบล็อกซ้ำเพื่อกันข้อมูลตกหล่น/นับซ้ำ");
         duty.push({
           Title: seen[k] > 1 ? k + "#" + seen[k] : k, day_key: day, work_date: day, team: t.code, emp_code: emp, emp_name: name,
           bucket, shift_code: String(row[3] || "").trim(), shift_start: ds != null ? m2hhmm(ds) : "",
-          shift_hours: hrs, ot_hours: round1(ot), ot_hol_hours: round1(otHol), is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src
+          shift_end: seA != null ? m2hhmm(seA) : "", shift_hours: hrs, ot_hours: round1(ot), ot_hol_hours: round1(otHol),
+          ot_type: bucket === "OT_OFF" && ot > 0 ? "OFF" : otType, ot_time: spans.length ? fmtRange(spans[0].a, spans[0].b) : "", is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src
         });
+        if (isWork(bucket)) acRecs.push({ row: duty[duty.length - 1], rec: {
+          team: t.code, name, bucket, ss: ssA, se: seA, ot, otType, otSpans: spans, otTime: spans.length ? fmtRange(spans[0].a, spans[0].b) : "",
+          shiftCode: String(row[3] || "").trim(),
+          asg: flights.map(f => ({ f, cells: [0, 1, 2, 3].map(k2 => String(row[f.base + k2] == null ? "" : row[f.base + k2]).trim()).filter(x => x !== "") }))
+            .filter(x => x.cells.length).map(x => ({ flight: x.f.code, task: x.cells.filter(c => !/^\d{1,2}[:.]\d{2}$/.test(c)).join(" "), STA: x.f.STA, STD: x.f.STD, OP: x.f.OP, CL: x.f.CL })) } });
       }
     }
     if (ws && people === 0)
@@ -219,7 +238,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), ot_hol_hours: round1(holSum),
       ot_total: round1(otSum + holSum), ot_people: otPpl, ot_off_hours: round1(otOff), is_holiday: isHol, util_pct: uN ? Math.round(uSum / uN) : 0,
       cnt_work: cnt.work, cnt_sick: cnt.sick, cnt_vac: cnt.vac, cnt_personal: cnt.personal, cnt_training: cnt.training,
-      cnt_off: cnt.off, cnt_ot_off: cnt.otOff, cnt_staff: cnt.staff, mp_ot_hours: round1(t.mpOt || 0)
+      cnt_off: cnt.off, cnt_ot_off: cnt.otOff, cnt_staff: cnt.staff, mp_ot_hours: round1(t.mpOt || 0),
+      ot_pre_people: cnt.preP, ot_pre_hours: round1(cnt.preH), ot_post_people: cnt.postP, ot_post_hours: round1(cnt.postH)
     });
   }
   for (const emp of Object.keys(idTeams)) {
@@ -235,6 +255,14 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
     for (const tm of Object.keys(tabDates))
       if (tabDates[tm] && tabDates[tm] !== maj)
         addIssue(issues, day, "staledate", tm, "วันที่บนแท็บ = " + tabDates[tm], "แท็บนี้เป็นวันที่ " + tabDates[tm] + " แต่ทีมส่วนใหญ่เป็น " + maj + " — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)");
+  }
+  // ---- ตรวจ Assign รายคน (AssignCheck.gs acAnalyze_) → เก็บในแถว PAS_Duty ----
+  const owner = acOwnerTeams(acRecs.map(x => x.rec));
+  for (const x of acRecs) {
+    const a = acAnalyzeRec(x.rec, owner);
+    x.row.ac_status = a.status; x.row.ac_flights = a.flights; x.row.ac_job = a.job.slice(0, 4000); x.row.ac_zones = a.zones;
+    x.row.ac_support = a.support; x.row.ac_uncovered = a.uncovered.slice(0, 255); x.row.ac_gaps = a.gaps.slice(0, 255);
+    x.row.ac_gaps_raw = a.gapsRaw.slice(0, 255); x.row.ac_ot_verdict = a.otVerdict; x.row.ac_issue = a.issue.slice(0, 4000);
   }
   return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: teams.map(x => x.code) };
 }
@@ -347,8 +375,8 @@ function baseName(p: string): string { const s = p.split("/"); return s[s.length
 
 
 // ======================= Flights & SLA (พอร์ตจาก SLA.gs · slaCollectFlights_ / slaReq_ / slaPhasesOf_) =======================
-// ตารางคัดจาก SLA.gs อัตโนมัติ: RQ=[SUP,CI,ARR,GATE,TTL] ต่อสาย · AC=ต่อชนิดเครื่อง · ALIAS · WIN=[ci,cc,post] (นาทีเทียบ STD) · DBREQ=สายที่ใช้ roles
-const SLA_T: { RQ: { [a: string]: number[] }; AC: { [a: string]: (string | number)[][] }; ALIAS: { [a: string]: string }; WIN: { [a: string]: number[] }; DBREQ: { [a: string]: number[] } } = {"RQ":{"3K":[1,4,1,1,8],"3U":[1,4,1,1,8],"6B":[1,5,2,1,10],"6E":[1,5,1,1,9],"8L":[1,4,1,1,8],"8M":[1,3,1,1,7],"9C":[1,5,1,1,9],"9H":[1,4,1,1,8],"AF":[1,9,1,1,13],"AI":[1,6,1,1,9],"AK":[1,4,1,1,8],"AQ":[1,3,1,1,7],"AY":[1,5,1,1,9],"B2":[1,6,1,1,10],"BY":[1,5,2,1,10],"C6":[1,4,1,1,8],"CA":[1,6,1,1,10],"CX":[1,6,2,1,11],"CZ":[1,6,1,1,10],"DE":[1,6,2,1,11],"DK":[1,4,1,1,8],"DV":[1,4,1,1,8],"EK":[1,7,4,1,14],"EO":[1,6,1,1,10],"EY":[1,7,1,1,12],"FM":[1,4,1,1,8],"FY":[1,3,1,1,6],"G2":[1,6,1,1,10],"G8":[1,4,1,1,8],"G9":[1,4,1,1,8],"H4":[1,5,1,1,9],"HB":[1,3,1,1,7],"HH":[1,4,1,1,8],"HO":[1,4,1,1,8],"HU":[1,6,1,1,10],"HX":[1,5,1,1,9],"HY":[1,5,1,1,8],"IT":[1,4,1,1,7],"IX":[1,4,1,1,7],"JQ":[1,7,1,1,10],"KC":[1,5,1,1,9],"KE":[1,8,1,1,11],"KY":[1,3,1,1,7],"LJ":[1,4,1,1,8],"LO":[1,6,1,1,10],"LY":[1,7,4,1,14],"MH":[1,4,1,1,8],"MU":[1,4,1,1,8],"N0":[1,5,1,1,9],"N4":[1,6,1,1,10],"NO":[1,6,1,1,10],"OD":[1,4,1,1,7],"OM":[1,4,1,1,8],"OQ":[1,4,1,1,8],"OV":[1,4,1,1,8],"OZ":[1,6,1,1,10],"PG":[1,0,1,2,8],"PN":[1,4,1,1,8],"QP":[1,5,1,1,9],"QR":[1,11,3,1,17],"QZ":[1,4,1,1,8],"S7":[1,4,1,1,8],"SG":[1,4,1,1,7],"SQ":[1,4,1,1,8],"SU":[1,8,1,1,12],"SV":[1,7,2,1,12],"TK":[1,8,4,1,15],"TR":[1,5,1,1,10],"U6":[1,4,1,1,8],"UO":[1,4,2,1,8],"VJ":[1,4,1,1,8],"VN":[1,7,1,1,10],"W5":[1,7,2,1,12],"WK":[1,6,2,1,11],"WY":[1,7,1,1,11],"WZ":[1,6,1,1,10],"ZF":[1,6,1,1,10],"ZH":[1,4,1,1,8]},"AC":{"QR":[["B777",11,3,1,17],["B787",9,2,1,14]],"EY":[["B787-9",6,1,1,11],["B787-10",7,1,1,12],["A321Neo",5,1,1,11]],"KE":[["A333/B772/B787",7,1,1,10],["B773",8,1,1,11]],"SU":[["B777",8,1,1,12],["A333",7,1,1,11],["B737/A320/A321Neo",4,1,1,8]],"TR":[["A320",3,1,1,8],["A321",4,1,1,9],["B787",5,1,1,10]],"JQ":[["B787",7,1,1,10],["A321Neo",5,1,1,8]],"AK":[["A320",3,1,1,7],["A321",4,1,1,8]],"QZ":[["A320",3,1,1,7],["A321",4,1,1,8]],"PG":[["A319/320",0,1,2,8],["ATR",0,1,1,6]],"CX":[["A330",6,2,1,11],["A321NEO",5,2,1,10]],"KC":[["A320",4,1,1,8],["B737",5,1,1,9]],"6E":[["A321",5,1,1,9],["A320",4,1,1,8]],"CA":[["A320/B737",4,1,1,8],["A330",6,1,1,10]],"CZ":[["A320",4,1,1,8],["A321",4,1,1,8],["A330",6,1,1,10]],"HU":[["B737",4,1,1,8],["A330",6,1,1,10]],"SV":[["B789",6,2,1,11],["B78X",7,2,1,12]],"VN":[["A320/A321",5,1,1,8],["B787/A350",7,1,1,10]]},"ALIAS":{"3K":"JQ","GX":"CA","KX":"CA","8H":"CA","BK":"CA","PVT":"PRIVATE"},"WIN":{"SQ":[-240,-40,30],"CX":[-240,-60,30],"LY":[-240,-60,30],"QR":[-240,-45,30],"MH":[-240,-60,30],"DE":[-240,-45,30],"PG":[-45,-15,20],"AK":[-180,-60,20],"QZ":[-180,-60,20],"SU":[-180,-40,30],"B2":[-180,-40,30],"W5":[-180,-40,30],"3U":[-180,-60,30],"CA":[-180,-50,30],"MU":[-180,-50,30],"CZ":[-180,-45,30],"FM":[-180,-50,30],"HO":[-180,-45,30],"HU":[-180,-50,30],"AQ":[-180,-45,30],"HX":[-240,-50,30],"EY":[-180,-60,45],"AY":[-180,-60,30],"DV":[-180,-60,30],"KE":[-240,-45,30],"KC":[-240,-45,30],"OZ":[-180,-45,30],"NO":[-180,-45,30],"AF":[-240,-45,30],"LJ":[-180,-45,20],"OV":[-180,-45,20],"WY":[-180,-60,20],"G9":[-180,-60,20],"DK":[-180,-60,20],"9C":[-180,-45,20],"EK":[-240,-60,30],"UO":[-180,-45,20],"FY":[-144,-45,20],"6B":[-180,-45,20],"BY":[-180,-45,20],"AI":[-180,-45,20],"IX":[-180,-45,20],"JQ":[-180,-60,20],"IT":[-180,-45,20],"N0":[-180,-45,20],"TK":[-180,-60,30],"VJ":[-180,-45,20],"OD":[-180,-45,20],"SG":[-180,-45,20],"HY":[-180,-45,20],"TR":[-150,-60,20],"6E":[-180,-45,20],"QP":[-180,-45,20],"SV":[-240,-45,30],"WK":[-198,-45,30],"KA":[-180,-45,20],"ZF":[-180,-45,20],"HH":[-180,-45,20],"LO":[-180,-45,20],"EO":[-180,-45,20],"S7":[-180,-45,20],"8L":[-180,-45,20],"8M":[-180,-45,20],"9H":[-180,-45,20],"C6":[-180,-45,20],"G2":[-180,-45,20],"H4":[-180,-45,20],"HB":[-180,-45,20],"KY":[-180,-45,20],"N4":[-180,-45,20],"OM":[-180,-45,20],"OQ":[-180,-45,20],"PN":[-180,-45,20],"VN":[-180,-45,20],"WZ":[-180,-45,20],"ZH":[-180,-45,20],"PRIVATE":[-60,-20,20],"CHARTER":[-120,-30,20],"DEFAULT":[-180,-45,20]},"DBREQ":{"SQ":[1,6,0,6,13],"CX":[1,7,0,7,15],"LY":[1,8,0,4,13],"QR":[1,12,3,4,20],"MH":[1,4,1,3,9],"DE":[1,5,1,4,11],"PG":[1,0,2,7,9],"AK":[1,3,1,3,8],"QZ":[1,3,1,3,8],"SU":[1,16,1,5,23],"B2":[1,7,0,0,8],"W5":[1,7,0,0,8],"3U":[1,4,1,5,11],"CA":[1,6,1,4,12],"MU":[1,5,1,4,11],"CZ":[1,4,1,4,10],"FM":[1,5,1,4,11],"HO":[1,4,2,3,10],"HU":[1,4,1,4,10],"AQ":[1,4,1,3,9],"HX":[1,5,1,4,11],"EY":[1,4,1,5,11],"AY":[1,4,1,3,9],"DV":[1,4,1,3,9],"KE":[1,5,1,1,8],"KC":[1,6,1,1,9],"OZ":[1,4,1,1,7],"NO":[1,4,1,1,7],"AF":[1,5,2,1,9],"LJ":[1,4,1,1,7],"OV":[1,4,1,1,7],"WY":[1,6,1,6,15],"G9":[1,4,1,0,6],"DK":[1,4,1,0,6],"9C":[1,4,1,1,7],"EK":[1,6,4,5,16],"UO":[1,4,2,3,10],"FY":[1,3,1,3,8],"6B":[1,4,1,3,9],"BY":[1,4,1,3,9],"AI":[1,3,2,5,12],"IX":[1,4,0,0,5],"JQ":[1,5,3,6,15],"IT":[1,4,1,2,8],"N0":[1,4,1,2,8],"TK":[1,3,2,4,11],"VJ":[1,2,1,1,5],"OD":[1,1,1,1,5],"SG":[1,4,1,2,8],"HY":[1,4,1,2,8],"TR":[1,5,1,3,10],"6E":[1,5,1,0,7],"QP":[1,5,1,0,7],"SV":[1,7,2,3,14],"WK":[1,7,2,3,14],"KA":[1,5,1,3,10],"ZF":[1,5,1,3,10],"HH":[1,4,1,2,8],"LO":[1,4,1,2,8],"EO":[1,4,1,2,8],"S7":[1,5,1,3,10],"8L":[1,5,1,1,8],"8M":[1,4,1,1,7],"9H":[1,5,1,1,8],"C6":[1,5,1,1,8],"G2":[1,7,1,1,10],"H4":[1,6,1,1,9],"HB":[1,4,1,1,7],"KY":[1,4,1,1,7],"N4":[1,7,1,1,10],"OM":[1,5,1,1,8],"OQ":[1,5,1,1,8],"PN":[1,5,1,1,8],"VN":[1,7,1,1,10],"WZ":[1,7,1,1,10],"ZH":[1,5,1,1,8],"PRIVATE":[1,1,0,1,3],"CHARTER":[1,2,1,1,5],"DEFAULT":[1,4,1,2,8]}};
+// ตารางคัดจาก SLA.gs อัตโนมัติ: RQ=[SUP,CI,ARR,GATE,TTL] ต่อสาย · AC=ต่อชนิดเครื่อง · ALIAS · WIN=[ci,cc,post,brief,ccMissing] (นาทีเทียบ STD) · DBREQ=สายที่ใช้ roles
+const SLA_T: { RQ: { [a: string]: number[] }; AC: { [a: string]: (string | number)[][] }; ALIAS: { [a: string]: string }; WIN: { [a: string]: number[] }; DBREQ: { [a: string]: number[] } } = {"RQ":{"3K":[1,4,1,1,8],"3U":[1,4,1,1,8],"6B":[1,5,2,1,10],"6E":[1,5,1,1,9],"8L":[1,4,1,1,8],"8M":[1,3,1,1,7],"9C":[1,5,1,1,9],"9H":[1,4,1,1,8],"AF":[1,9,1,1,13],"AI":[1,6,1,1,9],"AK":[1,4,1,1,8],"AQ":[1,3,1,1,7],"AY":[1,5,1,1,9],"B2":[1,6,1,1,10],"BY":[1,5,2,1,10],"C6":[1,4,1,1,8],"CA":[1,6,1,1,10],"CX":[1,6,2,1,11],"CZ":[1,6,1,1,10],"DE":[1,6,2,1,11],"DK":[1,4,1,1,8],"DV":[1,4,1,1,8],"EK":[1,7,4,1,14],"EO":[1,6,1,1,10],"EY":[1,7,1,1,12],"FM":[1,4,1,1,8],"FY":[1,3,1,1,6],"G2":[1,6,1,1,10],"G8":[1,4,1,1,8],"G9":[1,4,1,1,8],"H4":[1,5,1,1,9],"HB":[1,3,1,1,7],"HH":[1,4,1,1,8],"HO":[1,4,1,1,8],"HU":[1,6,1,1,10],"HX":[1,5,1,1,9],"HY":[1,5,1,1,8],"IT":[1,4,1,1,7],"IX":[1,4,1,1,7],"JQ":[1,7,1,1,10],"KC":[1,5,1,1,9],"KE":[1,8,1,1,11],"KY":[1,3,1,1,7],"LJ":[1,4,1,1,8],"LO":[1,6,1,1,10],"LY":[1,7,4,1,14],"MH":[1,4,1,1,8],"MU":[1,4,1,1,8],"N0":[1,5,1,1,9],"N4":[1,6,1,1,10],"NO":[1,6,1,1,10],"OD":[1,4,1,1,7],"OM":[1,4,1,1,8],"OQ":[1,4,1,1,8],"OV":[1,4,1,1,8],"OZ":[1,6,1,1,10],"PG":[1,0,1,2,8],"PN":[1,4,1,1,8],"QP":[1,5,1,1,9],"QR":[1,11,3,1,17],"QZ":[1,4,1,1,8],"S7":[1,4,1,1,8],"SG":[1,4,1,1,7],"SQ":[1,4,1,1,8],"SU":[1,8,1,1,12],"SV":[1,7,2,1,12],"TK":[1,8,4,1,15],"TR":[1,5,1,1,10],"U6":[1,4,1,1,8],"UO":[1,4,2,1,8],"VJ":[1,4,1,1,8],"VN":[1,7,1,1,10],"W5":[1,7,2,1,12],"WK":[1,6,2,1,11],"WY":[1,7,1,1,11],"WZ":[1,6,1,1,10],"ZF":[1,6,1,1,10],"ZH":[1,4,1,1,8]},"AC":{"QR":[["B777",11,3,1,17],["B787",9,2,1,14]],"EY":[["B787-9",6,1,1,11],["B787-10",7,1,1,12],["A321Neo",5,1,1,11]],"KE":[["A333/B772/B787",7,1,1,10],["B773",8,1,1,11]],"SU":[["B777",8,1,1,12],["A333",7,1,1,11],["B737/A320/A321Neo",4,1,1,8]],"TR":[["A320",3,1,1,8],["A321",4,1,1,9],["B787",5,1,1,10]],"JQ":[["B787",7,1,1,10],["A321Neo",5,1,1,8]],"AK":[["A320",3,1,1,7],["A321",4,1,1,8]],"QZ":[["A320",3,1,1,7],["A321",4,1,1,8]],"PG":[["A319/320",0,1,2,8],["ATR",0,1,1,6]],"CX":[["A330",6,2,1,11],["A321NEO",5,2,1,10]],"KC":[["A320",4,1,1,8],["B737",5,1,1,9]],"6E":[["A321",5,1,1,9],["A320",4,1,1,8]],"CA":[["A320/B737",4,1,1,8],["A330",6,1,1,10]],"CZ":[["A320",4,1,1,8],["A321",4,1,1,8],["A330",6,1,1,10]],"HU":[["B737",4,1,1,8],["A330",6,1,1,10]],"SV":[["B789",6,2,1,11],["B78X",7,2,1,12]],"VN":[["A320/A321",5,1,1,8],["B787/A350",7,1,1,10]]},"ALIAS":{"3K":"JQ","GX":"CA","KX":"CA","8H":"CA","BK":"CA","PVT":"PRIVATE"},"WIN":{"SQ":[-240,-40,30,60,0],"CX":[-240,-60,30,60,0],"LY":[-240,-60,30,60,0],"QR":[-240,-45,30,60,0],"MH":[-240,-60,30,60,0],"DE":[-240,-45,30,60,0],"PG":[-45,-15,20,60,0],"AK":[-180,-60,20,60,0],"QZ":[-180,-60,20,60,0],"SU":[-180,-40,30,60,0],"B2":[-180,-40,30,60,0],"W5":[-180,-40,30,60,0],"3U":[-180,-60,30,60,0],"CA":[-180,-50,30,60,0],"MU":[-180,-50,30,60,0],"CZ":[-180,-45,30,60,0],"FM":[-180,-50,30,60,0],"HO":[-180,-45,30,60,0],"HU":[-180,-50,30,60,0],"AQ":[-180,-45,30,60,0],"HX":[-240,-50,30,60,0],"EY":[-180,-60,45,60,0],"AY":[-180,-60,30,60,0],"DV":[-180,-60,30,60,0],"KE":[-240,-45,30,60,0],"KC":[-240,-45,30,60,0],"OZ":[-180,-45,30,60,0],"NO":[-180,-45,30,60,0],"AF":[-240,-45,30,60,0],"LJ":[-180,-45,20,60,0],"OV":[-180,-45,20,60,0],"WY":[-180,-60,20,60,0],"G9":[-180,-60,20,60,0],"DK":[-180,-60,20,60,0],"9C":[-180,-45,20,60,0],"EK":[-240,-60,30,60,0],"UO":[-180,-45,20,60,0],"FY":[-144,-45,20,60,0],"6B":[-180,-45,20,60,0],"BY":[-180,-45,20,60,0],"AI":[-180,-45,20,60,0],"IX":[-180,-45,20,60,0],"JQ":[-180,-60,20,60,0],"IT":[-180,-45,20,60,0],"N0":[-180,-45,20,60,0],"TK":[-180,-60,30,60,0],"VJ":[-180,-45,20,60,0],"OD":[-180,-45,20,60,0],"SG":[-180,-45,20,60,0],"HY":[-180,-45,20,60,0],"TR":[-150,-60,20,60,0],"6E":[-180,-45,20,60,0],"QP":[-180,-45,20,60,0],"SV":[-240,-45,30,60,0],"WK":[-198,-45,30,60,0],"KA":[-180,-45,20,60,0],"ZF":[-180,-45,20,60,0],"HH":[-180,-45,20,60,0],"LO":[-180,-45,20,60,0],"EO":[-180,-45,20,60,0],"S7":[-180,-45,20,60,0],"8L":[-180,-45,20,60,0],"8M":[-180,-45,20,60,0],"9H":[-180,-45,20,60,0],"C6":[-180,-45,20,60,0],"G2":[-180,-45,20,60,0],"H4":[-180,-45,20,60,0],"HB":[-180,-45,20,60,0],"KY":[-180,-45,20,60,0],"N4":[-180,-45,20,60,0],"OM":[-180,-45,20,60,0],"OQ":[-180,-45,20,60,0],"PN":[-180,-45,20,60,0],"VN":[-180,-45,20,60,0],"WZ":[-180,-45,20,60,0],"ZH":[-180,-45,20,60,0],"PRIVATE":[-60,-20,20,20,0],"CHARTER":[-120,-30,20,30,0],"DEFAULT":[-180,-45,20,60,0]},"DBREQ":{"SQ":[1,6,0,6,13],"CX":[1,7,0,7,15],"LY":[1,8,0,4,13],"QR":[1,12,3,4,20],"MH":[1,4,1,3,9],"DE":[1,5,1,4,11],"PG":[1,0,2,7,9],"AK":[1,3,1,3,8],"QZ":[1,3,1,3,8],"SU":[1,16,1,5,23],"B2":[1,7,0,0,8],"W5":[1,7,0,0,8],"3U":[1,4,1,5,11],"CA":[1,6,1,4,12],"MU":[1,5,1,4,11],"CZ":[1,4,1,4,10],"FM":[1,5,1,4,11],"HO":[1,4,2,3,10],"HU":[1,4,1,4,10],"AQ":[1,4,1,3,9],"HX":[1,5,1,4,11],"EY":[1,4,1,5,11],"AY":[1,4,1,3,9],"DV":[1,4,1,3,9],"KE":[1,5,1,1,8],"KC":[1,6,1,1,9],"OZ":[1,4,1,1,7],"NO":[1,4,1,1,7],"AF":[1,5,2,1,9],"LJ":[1,4,1,1,7],"OV":[1,4,1,1,7],"WY":[1,6,1,6,15],"G9":[1,4,1,0,6],"DK":[1,4,1,0,6],"9C":[1,4,1,1,7],"EK":[1,6,4,5,16],"UO":[1,4,2,3,10],"FY":[1,3,1,3,8],"6B":[1,4,1,3,9],"BY":[1,4,1,3,9],"AI":[1,3,2,5,12],"IX":[1,4,0,0,5],"JQ":[1,5,3,6,15],"IT":[1,4,1,2,8],"N0":[1,4,1,2,8],"TK":[1,3,2,4,11],"VJ":[1,2,1,1,5],"OD":[1,1,1,1,5],"SG":[1,4,1,2,8],"HY":[1,4,1,2,8],"TR":[1,5,1,3,10],"6E":[1,5,1,0,7],"QP":[1,5,1,0,7],"SV":[1,7,2,3,14],"WK":[1,7,2,3,14],"KA":[1,5,1,3,10],"ZF":[1,5,1,3,10],"HH":[1,4,1,2,8],"LO":[1,4,1,2,8],"EO":[1,4,1,2,8],"S7":[1,5,1,3,10],"8L":[1,5,1,1,8],"8M":[1,4,1,1,7],"9H":[1,5,1,1,8],"C6":[1,5,1,1,8],"G2":[1,7,1,1,10],"H4":[1,6,1,1,9],"HB":[1,4,1,1,7],"KY":[1,4,1,1,7],"N4":[1,7,1,1,10],"OM":[1,5,1,1,8],"OQ":[1,5,1,1,8],"PN":[1,5,1,1,8],"VN":[1,7,1,1,10],"WZ":[1,7,1,1,10],"ZH":[1,5,1,1,8],"PRIVATE":[1,1,0,1,3],"CHARTER":[1,2,1,1,5],"DEFAULT":[1,4,1,2,8]}};
 interface SlaAsg { code: string; task: string; STA: string; STD: string; OP: string; CL: string }
 interface SlaPerson { team: string; emp: string; name: string; ds: number | null; de: number | null; asg: SlaAsg[] }
 interface SchedRow { ac: string; sta: string; std: string; cancelled: boolean }
@@ -548,6 +576,292 @@ function parseRules(json?: string): { [a: string]: number[] } {
   const arr: { Title?: string; sup?: number; ci?: number; arr?: number; gate?: number; total?: number }[] = JSON.parse(json);
   for (const r of arr) if (r.Title && r.ci != null) out[String(r.Title).toUpperCase()] = [r.sup || 1, +(r.ci || 0), +(r.arr || 0), +(r.gate || 0), +(r.total || 0)];
   return out;
+}
+
+
+// ======================= ตรวจ Assign (พอร์ตจาก AssignCheck.gs · acAnalyze_ / acAnalyzeRecord_ / acFlightWin_ / acDuty_) =======================
+const AC_COVER_TOL = 60, AC_GAP_MIN = 180, AC_EDGE_MIN = 240, AC_WIN_MAX = 14 * 60;
+interface AcAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string }
+interface AcRec { team: string; name: string; bucket: string; ss: number | null; se: number | null; ot: number; otType: string;
+  otSpans: { a: number | null; b: number | null; type: string }[]; otTime: string; shiftCode: string; asg: AcAsg[] }
+interface AcRes { status: string; flights: string; job: string; zones: string; support: number; uncovered: string; gaps: string; gapsRaw: string; otVerdict: string; issue: string }
+
+function acOwnerTeams(recs: AcRec[]): { [al: string]: string } {
+  const cnt: { [al: string]: { [t: string]: number } } = {};
+  for (const r of recs) {
+    if (skipTeam(r.team)) continue;
+    for (const a of r.asg) { if (!isFlightName(a.flight)) continue; const al = airlineOf(a.flight); const c = cnt[al] = cnt[al] || {}; c[r.team] = (c[r.team] || 0) + 1; }
+  }
+  const owner: { [al: string]: string } = {};
+  for (const al of Object.keys(cnt)) { let best = "", bn = -1; for (const t of Object.keys(cnt[al])) if (cnt[al][t] > bn) { bn = cnt[al][t]; best = t; } owner[al] = best; }
+  return owner;
+}
+function acMinS(s: string): number | null { const m = String(s == null ? "" : s).match(/(\d{1,2}):(\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null; }
+function acNZ(s: string): number | null { const v = acMinS(s); return v ? v : null; }                  // 00:00 = placeholder → null
+function fmtMin(m: number | null): string { if (m == null) return ""; const x = ((Math.round(m) % 1440) + 1440) % 1440; return p2t(Math.floor(x / 60)) + ":" + p2t(x % 60); }
+function p2t(x: number): string { return (x < 10 ? "0" : "") + x; }
+function fmtRange(a: number | null, b: number | null): string { return a != null && b != null ? fmtMin(a) + "-" + fmtMin(b) : ""; }
+function acIsActivity(s: string): boolean {
+  const u = String(s || "").toUpperCase(); if (!u) return false;
+  return /TRAIN|\bOJT\b|\bBRIEF|RECURRENT|WORKSHOP|ORIENTATION|SEMINAR|MEETING|E-?LEARNING|\bLMS\b|\bEXAM\b|\bCOURSE\b|TOWN\s?HALL|\bGOM\b|ACCESSOR|MANDATORY|IN.?HOUSE|อบรม|เทรน|บรีฟ|ประชุม|สัมมนา|กิจกรรม|สอนงาน|ทดสอบ|\bสอบ\b/.test(u);
+}
+function acIsCoverWork(s: string): boolean { return /^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)\b/i.test(s) || /^Counter\s+[A-Z]{0,2}\d/i.test(s) || /CHECK[- ]?IN\s*COMMON/i.test(s); }
+function acIsJunk(s: string): boolean { const x = String(s || "").trim(); if (!x) return true; return /^[ADOC]\s*:\s*\d/i.test(x) || /^\d{1,2}[:.]\d{2}$/.test(x) || /^\d{1,2}\s+[A-Z]{3}\s*\d{0,4}$/i.test(x); }
+function acActCell(v: string): number | null {
+  const s = String(v == null ? "" : v).replace(/^\s*[ADOC]\s*[:：]?\s*/i, "").trim();
+  const m = s.match(/(\d{1,2})[:.\-](\d{2})/); if (m && +m[1] < 24 && +m[2] < 60) return (+m[1]) * 60 + (+m[2]);
+  const h = s.match(/^(\d{3,4})$/); if (h) { const mn = +h[1].slice(-2), hh = +h[1].slice(0, -2); if (hh < 24 && mn < 60) return hh * 60 + mn; }
+  return null;
+}
+function acActTok(t: string): number | null {
+  const mm = t.match(/^(\d{1,2})[:.](\d{2})$/); if (mm) return (+mm[1] < 24 && +mm[2] < 60) ? (+mm[1]) * 60 + (+mm[2]) : null;
+  const hm = t.match(/^(\d{3,4})$/); if (hm) { const mn = +hm[1].slice(-2), hh = +hm[1].slice(0, -2); return (hh < 24 && mn < 60) ? hh * 60 + mn : null; }
+  const ho = t.match(/^(\d{1,2})$/); if (ho) return +ho[1] < 24 ? (+ho[1]) * 60 : null;
+  return null;
+}
+function acDb(flight: string): { ci: number; cc: number; post: number; brief: number } {
+  const c = airlineOf(flight), al = SLA_T.ALIAS[c];
+  const w = SLA_T.WIN[c] || (al ? SLA_T.WIN[al] : undefined) || SLA_T.WIN.DEFAULT;
+  return { ci: w[0] || -180, cc: w[4] ? -60 : w[1], post: w[2], brief: w[3] || 60 };
+}
+function acDocDeadline(task: string, sta: number | null, std: number | null): number[] | null {
+  const t = String(task || "").toUpperCase();
+  if (/\bDE-?BRIEF\b/.test(t)) return std == null ? null : [std, std + 60];
+  if (/\bMANIFEST\b|\bMNF\b|STAFF\s*LIST|\bSTAFFLIST\b/.test(t)) { const base = sta != null ? sta : std; if (base == null) return null; const dl = base - 60; return [dl - 60, dl]; }
+  return null;
+}
+function acFlightWin(a: AcAsg): number[] | null {
+  if (acIsJunk(a.flight)) return null;
+  const atxt = (a.task || "") + " " + (a.flight || "");
+  if (acIsActivity(atxt)) {
+    const ts0 = acActCell(a.STA) || acActCell(a.OP), te0 = acActCell(a.STD) || acActCell(a.CL);
+    if (ts0 != null && te0 != null) return [ts0, te0 <= ts0 ? te0 + 1440 : te0];
+    const rg = atxt.match(/(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})/);
+    if (rg) { const alo = acActTok(rg[1]); let ahi = acActTok(rg[2]); if (alo != null && ahi != null) { if (ahi <= alo) ahi += 1440; return [alo, ahi]; } }
+  }
+  const sta = acNZ(a.STA), op = acNZ(a.OP), cl = acNZ(a.CL), std = acNZ(a.STD);
+  const docWin = acDocDeadline(a.task, sta, std); if (docWin) return docWin;
+  if (sta != null && std != null && !isFlightName(a.flight)) { let lw2 = std; if (lw2 <= sta) lw2 += 1440; return [sta, lw2]; }
+  const db = acDb(a.flight), brief = db.brief, ci = db.ci, post = db.post;
+  if (std != null && airlineOf(a.flight) === "EY" && !acIsActivity(atxt)) {
+    const eop = op != null ? op : std + ci; const elo = eop - brief; let ehi = std + post; if (ehi <= elo) ehi += 1440; return [elo, ehi];
+  }
+  const tsk = String(a.task || "");
+  const hasRelEnd = /\bGK\b|\bFR\b|FLIGHT\s*RELEASE/i.test(tsk), isCrewSign = /\bCS\b|CREW\s*SIGN|\bCRW\b/i.test(tsk);
+  const hasSeat = /\bCF\b|\bCT\d|\bCT\b|\bC\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|\bPRIO\b|COUNTER|WEL\s*G/i.test(tsk);
+  const hasBoard = /\bGATE\b|\bG[ABCM]\b|\bG\b|BOARD|\bGM\b/i.test(tsk);
+  if (isCrewSign && !hasRelEnd && !hasSeat && !hasBoard && (op != null || std != null || sta != null)) {
+    const opR = op != null ? op : (std != null ? std + ci : (sta as number)); const rlo = opR + 120;
+    let rhi = std != null ? std + post : (sta != null ? sta + post : rlo + 60); if (rhi <= rlo) rhi += 1440; if (rhi - rlo < 30) rhi = rlo + 30; return [rlo, rhi];
+  }
+  if (hasRelEnd && (op != null || std != null || sta != null)) {
+    const fo = op != null ? op : (std != null ? std + ci : (sta as number));
+    let fhi = std != null ? std + post : (sta != null ? sta + post : fo + 60); if (fhi <= fo) fhi += 1440; if (fhi - fo < 30) fhi = fo + 30; return [fo, fhi];
+  }
+  const phs = phasesOf(a.task);
+  const onlyAG = phs.length > 0 && phs.every(x => x === "GATE" || x === "ARR");
+  if (onlyAG && (sta != null || std != null)) {
+    const hasArr = phs.indexOf("ARR") >= 0, hasGate = phs.indexOf("GATE") >= 0;
+    let glo: number, ghi: number;
+    if (hasArr && !hasGate) { glo = sta != null ? sta - 30 : (std as number) - 90; ghi = sta != null ? sta + post : (std as number) + post; }
+    else if (hasGate && !hasArr) { glo = std != null ? std - 90 : (sta as number) - 30; ghi = std != null ? std + post : (sta as number) + post; }
+    else {
+      const tgap = sta != null && std != null ? ((std - sta + 1440) % 1440) : 0;
+      if (sta != null && std != null && tgap <= 180) { glo = sta - 30; ghi = std + post; }
+      else { glo = std != null ? std - 90 : (sta as number) - 30; ghi = std != null ? std + post : (sta as number) + post; }
+    }
+    if (ghi <= glo) ghi += 1440; return [glo, ghi];
+  }
+  const ciOnly = phs.length > 0 && phs.every(x => x === "CI");
+  const noCounter = op == null && cl == null;
+  let lo: number | null = null, hi: number | null;
+  if (ciOnly && std != null && !hasRelEnd && !noCounter) hi = cl != null ? cl : std + db.cc;
+  else hi = std != null ? std + post : null;
+  const ciOpen = op != null ? op : (std != null ? std + ci : null);
+  if (op != null) lo = op - brief;
+  else if (noCounter && sta != null) lo = sta;
+  else if (ciOpen != null) lo = ciOpen - brief;
+  if (!ciOnly && cl != null && hi != null && cl + post < hi && (ciOpen == null || cl > ciOpen) && phs.indexOf("GATE") < 0 && !hasRelEnd) hi = cl + post;
+  if (hi == null && sta != null) { lo = sta - brief; hi = sta + post; }
+  if (lo == null || hi == null) {
+    const ts = [sta, op, cl, std].filter(x => x) as number[]; if (!ts.length) return null;
+    lo = Math.min(...ts) - brief; hi = Math.max(...ts);
+  }
+  if (hi <= lo) hi += 1440;
+  return [lo, hi];
+}
+function acFlightWins(a: AcAsg): { lo: number; hi: number; sub: boolean }[] {
+  const base = acFlightWin(a); if (!base) return [];
+  if (base[1] - base[0] > AC_WIN_MAX) return [];
+  const phs = phasesOf(a.task);
+  if (phs.length < 2 || phs.indexOf("ARR") < 0 || (phs.indexOf("CI") < 0 && phs.indexOf("GATE") < 0)) return [{ lo: base[0], hi: base[1], sub: false }];
+  const sta = acMinS(a.STA), std = acMinS(a.STD);
+  if (!sta || !std) return [{ lo: base[0], hi: base[1], sub: false }];
+  let gap = std - sta; if (gap < 0) gap += 1440;
+  if (gap <= 180) return [{ lo: base[0], hi: base[1], sub: false }];
+  const post = acDb(a.flight).post;
+  return [{ lo: base[0], hi: base[1], sub: false }, { lo: sta - 30, hi: sta + post, sub: true }];
+}
+function alignTo(a: number, b: number, rs: number, re: number): number[] {
+  if (b <= a) b += 1440;
+  let bestK = 0, bestGap = Infinity;
+  for (let k = -2; k <= 2; k++) { const aa = a + 1440 * k, bb = b + 1440 * k; const gap = aa > re ? aa - re : (bb < rs ? rs - bb : 0); if (gap < bestGap) { bestGap = gap; bestK = k; } }
+  return [a + 1440 * bestK, b + 1440 * bestK];
+}
+// rrOtType_: OT ก่อน/หลังกะ จากเวลาจริง (ไม่มีเวลา → หลังกะ)
+function otTypeOf(srng: (number | null)[], orng: (number | null)[], isOff: boolean): string {
+  if (isOff) return "POST";
+  const si = srng[0]; let so = srng[1], oi = orng[0], oo = orng[1];
+  if (oi == null) return "POST";
+  if (oo == null) return si != null && oi < si ? "PRE" : "POST";
+  if (so != null && si != null && so <= si) so += 1440;
+  if (oo != null && oo <= oi) oo += 1440;
+  if (si == null || so == null) return si != null && oi < si ? "PRE" : "POST";
+  const al = alignTo(oi, oo as number, si, so); oi = al[0]; oo = al[1];
+  return (oo as number) <= si + 30 ? "PRE" : "POST";
+}
+function acDuty(r: AcRec): { ss: number | null; se: number | null; ds: number | null; de: number | null; otSegs: number[][] } {
+  let ss = r.ss, se = r.se;
+  if (ss != null && se != null && se <= ss) se += 1440;
+  const spans = r.otSpans.filter(sp => sp.a != null);
+  let ds = ss, de = se; const otSegs: number[][] = [];
+  if (r.bucket === "OT_OFF") {
+    if (spans.length) { const a0 = spans[0].a as number; let b0 = spans[0].b; if (b0 != null && b0 <= a0) b0 += 1440; ds = a0; de = b0; if (ds != null && de != null) otSegs.push([ds, de]); }
+    else { ds = null; de = null; }
+  } else if (spans.length) {
+    for (const sp of spans) {
+      const oi = sp.a as number; const oo = sp.b == null ? oi : sp.b;
+      let a = oi, b = oo; if (b <= a) b += 1440;
+      const t = otTypeOf([ss, se], [oi, oo], false);
+      if (t === "PRE") { while (ss != null && b - ss > 720) { a -= 1440; b -= 1440; } while (ss != null && ss - b > 720) { a += 1440; b += 1440; } }
+      else { while (se != null && a - se > 720) { a -= 1440; b -= 1440; } while (se != null && ss != null && se - a > 720 && b <= ss) { a += 1440; b += 1440; } }
+      otSegs.push([a, b]);
+      ds = ds == null ? a : Math.min(ds, a); de = de == null ? b : Math.max(de, b);
+    }
+  } else if (r.ot > 0 && ss != null && se != null) {
+    if (r.otType === "PRE") { ds = ss - Math.round(r.ot * 60); otSegs.push([ds, ss]); }
+    else { de = se + Math.round(r.ot * 60); otSegs.push([se, de]); }
+  }
+  return { ss, se, ds, de, otSegs };
+}
+function acAnalyzeRec(r: AcRec, owner: { [al: string]: string }): AcRes {
+  const isDoc = r.team.toUpperCase().indexOf("ADMIN") >= 0 && r.team.toUpperCase().indexOf("DOC") >= 0;
+  const d = acDuty(r);
+  const reliable = d.ss != null || (r.bucket === "OT_OFF" && d.ds != null);
+  let hasWindow = reliable && d.ds != null && d.de != null;
+  const shiftStr = r.bucket === "OT_OFF" ? "OFF" : (d.ss != null && d.se != null ? fmtMin(d.ss) + "–" + fmtMin(d.se) : (r.shiftCode || "-"));
+  const wins: { flight: string; lo: number; hi: number; coverable: boolean; zone: boolean; sov: boolean }[] = [];
+  let actN = 0;
+  for (const a of r.asg) {
+    if (!a.flight) continue;
+    const isAct = acIsActivity(a.task) || acIsActivity(a.flight);
+    const ws = acFlightWins(a);
+    if (!ws.length) { if (isAct) actN++; continue; }
+    for (const wn of ws) {
+      let lo = wn.lo, hi = wn.hi;
+      if (d.ds != null && d.de != null) { const fa = alignTo(lo, hi, d.ds, d.de); lo = fa[0]; hi = fa[1]; }
+      else if (d.ds != null && lo < d.ds - 720) { lo += 1440; hi += 1440; }
+      const isZone = acIsCoverWork(a.flight);
+      wins.push({ flight: a.flight, lo, hi, coverable: (isFlightName(a.flight) || isZone) && !isAct && !wn.sub && !isDoc, zone: isZone, sov: /\bSOD\b|SPVR|SUPERVIS|\bSOV\b/i.test(a.task) });
+    }
+  }
+  if (r.bucket === "OT_OFF" && wins.length) {
+    for (const w of wins) { if (d.ds == null || w.lo < d.ds) d.ds = w.lo; if (d.de == null || w.hi > d.de) d.de = w.hi; }
+    hasWindow = d.ds != null && d.de != null;
+  }
+  const res: AcRes = { status: "ok", flights: "", job: "", zones: "0/0/0", support: 0, uncovered: "", gaps: "", gapsRaw: "", otVerdict: "", issue: "" };
+  if (!hasWindow) { res.status = "nowin"; res.flights = "ไม่มีเวลากะ"; res.issue = "ไม่มีเวลากะระบุ — ตรวจครอบคลุมไม่ได้"; return res; }
+  let sovN = 0; for (const w of wins) if (w.coverable && w.sov) sovN++;
+  const sovMulti = sovN >= 2;
+  let flightN = 0, coveredN = 0; const uncovered: string[] = [];
+  const ds = d.ds as number, de = d.de as number;
+  for (const w of wins) {
+    if (!w.coverable) continue;
+    flightN++;
+    const overlaps = w.hi > ds && w.lo < de;
+    if (w.lo >= ds - AC_COVER_TOL && w.hi <= de + AC_COVER_TOL) coveredN++;
+    else if (w.zone && overlaps) coveredN++;
+    else if (w.sov && sovMulti) coveredN++;
+    else if (overlaps) coveredN++;
+    else uncovered.push(w.flight + " (" + fmtMin(w.lo) + "–" + fmtMin(w.hi) + ")");
+  }
+  const gaps: { a: number; b: number; kind: string }[] = [];
+  if (wins.length) {
+    const iv = wins.map(w => [Math.max(w.lo, ds), Math.min(w.hi, de)]).filter(w => w[1] > w[0]).sort((a, b) => a[0] - b[0]);
+    const merged: number[][] = [];
+    for (const w of iv) { const last = merged[merged.length - 1]; if (last && w[0] <= last[1]) last[1] = Math.max(last[1], w[1]); else merged.push([w[0], w[1]]); }
+    if (merged.length) {
+      if (merged[0][0] - ds >= AC_EDGE_MIN) gaps.push({ a: ds, b: merged[0][0], kind: "edge" });
+      for (let i = 0; i < merged.length - 1; i++) if (merged[i + 1][0] - merged[i][1] >= AC_GAP_MIN) gaps.push({ a: merged[i][1], b: merged[i + 1][0], kind: "mid" });
+      if (de - merged[merged.length - 1][1] >= AC_EDGE_MIN) gaps.push({ a: merged[merged.length - 1][1], b: de, kind: "edge" });
+    }
+  }
+  const issues: string[] = [];
+  if (uncovered.length) {
+    res.status = "bad"; issues.push("ไฟลท์นอกเวลางาน: " + uncovered.join(", "));
+    res.otVerdict = r.ot > 0 ? "🔴 OT ไม่พอครอบคลุมไฟลท์" : "🔴 ควรให้ OT/Re-Sked";
+  } else if (r.ot > 0 && r.bucket !== "OT_OFF") {
+    let justified = flightN === 0;
+    for (const w of wins) {
+      if (r.otType === "PRE" && d.ss != null && w.lo < d.ss) justified = true;
+      if (r.otType !== "PRE" && d.se != null && w.hi > d.se) justified = true;
+    }
+    if (!justified && flightN > 0) { res.status = "warn"; res.otVerdict = "🟡 OT อาจเกินจำเป็น (ไฟลท์อยู่ในเวลากะ)"; issues.push(res.otVerdict); }
+    else res.otVerdict = "🟢 OT เหมาะสม";
+  } else if (r.bucket === "OT_OFF") res.otVerdict = "🟢 OT OFF (เข้าช่วยวันหยุด)";
+  if (gaps.length) {
+    if (res.status === "ok") res.status = "warn";
+    issues.push("ช่วงว่าง " + gaps.map(g => fmtMin(g.a) + "–" + fmtMin(g.b) + " (" + Math.round((g.b - g.a) / 6) / 10 + "h" + (g.kind === "mid" ? " ระหว่างไฟลท์" : "") + ")").join(", "));
+  }
+  // รายการงาน + โซน (ในกะ / OT / นอกกะ) + ซัพพอร์ตข้ามทีม
+  const zc = { shift: 0, ot: 0, out: 0 }; let nSup = 0;
+  const skipT = skipTeam(r.team);
+  const jobs = r.asg.filter(x => x.flight && !acIsJunk(x.flight)).map(x => {
+    let w = acFlightWin(x); if (w && w[1] - w[0] > AC_WIN_MAX) w = null;
+    const tm = w ? " " + fmtMin(w[0]) + "–" + fmtMin(w[1]) : " (ไม่มีเวลา)";
+    const jb = x.task ? " [" + x.task.replace(/\s+/g, " ").trim() + "]" : "";
+    const ow = isFlightName(x.flight) ? owner[airlineOf(x.flight)] : "";
+    const sup = !skipT && ow && ow !== r.team ? " ซัพพอร์ต" : ""; if (sup) nSup++;
+    const z = !acIsActivity(x.task) && !acIsActivity(x.flight) ? acJobZone(w, d) : "";
+    if (z === "shift") zc.shift++; else if (z && z.indexOf("ot") === 0) zc.ot++; else if (z === "out") zc.out++;
+    const zm = z === "out" ? "🟥นอกกะ" : z === "ot-pre" ? "🟧OTก่อนกะ" : z === "ot-post" ? "🟧OTหลังกะ" : z === "shift" ? "🟩" : "";
+    return x.flight + jb + tm + sup + (zm ? " " + zm : "");
+  });
+  res.job = jobs.join(", "); res.zones = zc.shift + "/" + zc.ot + "/" + zc.out; res.support = nSup;
+  res.flights = flightN ? coveredN + "/" + flightN + " ครอบคลุม" : (wins.length ? wins.length + " เคาน์เตอร์/งาน" : "ไม่มี");
+  res.uncovered = uncovered.join("; ");
+  res.gaps = gaps.map(g => fmtMin(g.a) + "–" + fmtMin(g.b)).join(", ");
+  res.gapsRaw = gaps.map(g => g.a + "~" + g.b).join(",");
+  res.issue = issues.join(" · ");
+  void actN;
+  return res;
+}
+function acJobZone(w: number[] | null, d: { ss: number | null; se: number | null; ds: number | null; de: number | null; otSegs: number[][] }): string {
+  if (!w || d.ds == null || d.de == null) return "";
+  let lo = w[0], hi = w[1];
+  let overlaps = hi > d.ds && lo < d.de;
+  if (!overlaps && hi + 1440 > d.ds && lo + 1440 < d.de) { lo += 1440; hi += 1440; overlaps = true; }
+  if (!overlaps) return "out";
+  const ov = (a0: number, b0: number, a1: number, b1: number) => Math.max(0, Math.min(b0, b1) - Math.max(a0, a1));
+  const inShift = d.ss != null && d.se != null ? ov(lo, hi, d.ss, d.se) : 0;
+  let inOt = 0, otType = "";
+  for (const sg of d.otSegs) { const o = ov(lo, hi, sg[0], sg[1]); if (o > inOt) { inOt = o; otType = d.se != null && sg[0] >= d.se - 1 ? "post" : "pre"; } }
+  return inOt > inShift && inOt > 0 ? "ot-" + otType : "shift";
+}
+// เวลาจากเซลล์: "06:00"/"0600"/เศษวันของ Excel (0–1) → นาที · ค่าอื่น (เช่น ชม. 9) → null
+function timeOnly(v: Cell): number | null {
+  if (typeof v === "number") return v > 0 && v < 1 ? Math.round(v * 1440) % 1440 : null;
+  const s = String(v || "").trim(); let m = s.match(/^(\d{1,2})[:.](\d{2})/); if (m) return (+m[1]) * 60 + (+m[2]);
+  m = s.match(/^(\d{2})(\d{2})$/); return m ? (+m[1]) * 60 + (+m[2]) : null;
+}
+// กลุ่ม OT: IN, OUT, ชม.รวม → {a,b,h} · IN=OUT = ไม่มี OT (placeholder) · ไม่มีชม. แต่มีช่วง → คิดจากช่วง
+function otGroup(vin: Cell, vout: Cell, vtot: Cell): { a: number | null; b: number | null; h: number } | null {
+  let a = timeOnly(vin), b = timeOnly(vout);
+  if (a != null && b != null && a === b) { a = null; b = null; }
+  let h = typeof vtot === "number" ? (vtot > 0 && vtot < 1 ? Math.round(vtot * 24 * 10) / 10 : vtot) : (() => { const s = String(vtot || ""); const mm = s.match(/^(\d+):(\d{2})/); return mm ? (+mm[1]) + (+mm[2]) / 60 : (parseFloat(s) || 0); })();
+  if (!(h > 0) && a != null && b != null) { let bb = b; if (bb <= a) bb += 1440; h = Math.round((bb - a) / 60 * 10) / 10; }
+  if (!(h > 0) && a == null) return null;
+  return { a, b, h: h > 0 ? h : 0 };
 }
 
 // ======================= ตรวจข้อมูล =======================

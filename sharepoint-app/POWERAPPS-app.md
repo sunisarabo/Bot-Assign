@@ -202,7 +202,10 @@ ClearCollect(colEmp, Filter(PAS_Employees, status.Value = "ACTIVE"))
 ## 16) หน้า ไฟลท์สัปดาห์
 ดู `POWERAPPS-weekflights.md`
 
-## 17) Publish + แชร์ + Teams
+## 17) หน้า ตรวจ Assign
+ดู `POWERAPPS-assigncheck.md`
+
+## 18) Publish + แชร์ + Teams
 - **File → Save → Publish**
 - **Share** → ใส่กลุ่ม (เช่น PSA Admin: Natty, Ice, Max, Fluke · LL Admin · หัวหน้าทีม) — ไม่ต้องให้สิทธิ์ Premium
   (ผู้ใช้ต้องมีสิทธิ์อ่าน Lists ในไซต์ — ดู README หัวข้อ "สิทธิ์ข้อมูล")

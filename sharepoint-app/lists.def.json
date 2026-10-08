@@ -206,6 +206,22 @@
     {
      "name": "mp_ot_hours",
      "type": "Number"
+    },
+    {
+     "name": "ot_pre_people",
+     "type": "Number"
+    },
+    {
+     "name": "ot_pre_hours",
+     "type": "Number"
+    },
+    {
+     "name": "ot_post_people",
+     "type": "Number"
+    },
+    {
+     "name": "ot_post_hours",
+     "type": "Number"
     }
    ]
   },
@@ -291,6 +307,70 @@
     {
      "name": "source_file",
      "type": "Text"
+    },
+    {
+     "name": "shift_end",
+     "type": "Text"
+    },
+    {
+     "name": "ot_type",
+     "type": "Choice",
+     "choices": [
+      "PRE",
+      "POST",
+      "OFF"
+     ]
+    },
+    {
+     "name": "ot_time",
+     "type": "Text"
+    },
+    {
+     "name": "ac_status",
+     "type": "Choice",
+     "choices": [
+      "ok",
+      "warn",
+      "bad",
+      "nowin"
+     ],
+     "indexed": true
+    },
+    {
+     "name": "ac_flights",
+     "type": "Text"
+    },
+    {
+     "name": "ac_job",
+     "type": "Note"
+    },
+    {
+     "name": "ac_zones",
+     "type": "Text"
+    },
+    {
+     "name": "ac_support",
+     "type": "Number"
+    },
+    {
+     "name": "ac_uncovered",
+     "type": "Text"
+    },
+    {
+     "name": "ac_gaps",
+     "type": "Text"
+    },
+    {
+     "name": "ac_gaps_raw",
+     "type": "Text"
+    },
+    {
+     "name": "ac_ot_verdict",
+     "type": "Text"
+    },
+    {
+     "name": "ac_issue",
+     "type": "Note"
     }
    ]
   },
