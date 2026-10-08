@@ -22,6 +22,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `POWERAPPS-ot.md` | หน้า **OT Dashboard** (รายเดือน · รายสัปดาห์ · เตือน OT รายคน 36/144 ชม.) — แทนหน้าเดิมของ PAS |
 | `POWERAPPS-weekhours.md` | หน้า **⏱️ ชม./สัปดาห์** (48 ชม. / 7 วัน / OT 36 ต่อสัปดาห์ ตามระเบียบ) — แทนหน้าเดิม |
 | `import-porter.ts` · `FLOW-porter.md` | **Flow E** Porter Summary + Pre-Wheelchair (ไฟล์รายเดือน แท็บรายวัน) → `PAS_Porter` / `PAS_PorterStaff` / `PAS_PreWC` |
+| `import-flights.ts` · `FLOW-flights.md` | **Flow F** ตารางบินรายวัน (Daily Flight Schedule Record) → `PAS_Flights` (ชนิดเครื่อง · STA/STD · ขา · ยกเลิก) |
 | `FLOW-master.md` | **Flow D** sync รายชื่อพนักงานอัตโนมัติ (ตรวจไฟล์ทุก 30 นาที เขียนเฉพาะที่เปลี่ยน) |
 | `batch-delete.ts` | Office Script ตัวช่วย: ID → `$batch` ลบ (ใช้ก่อนนำเข้าวันเดิมซ้ำ) |
 | `FLOW-import.md` | 3 flows: **A** เฝ้าทั้งไลบรารี → **B** นำเข้าจากคิว (ทุก 15 นาที) → **C** ย้อนหลังทั้งเดือน/ปี |

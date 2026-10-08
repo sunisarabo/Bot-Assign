@@ -327,8 +327,8 @@
   },
   {
    "title": "PAS_Flights",
-   "desc": "ตารางบิน",
-   "titleLabel": "flight_no",
+   "desc": "ตารางบินรายวัน — sync จาก Daily Flight Schedule Record (1 แท็บ/วัน)",
+   "titleLabel": "key (date|flight)",
    "fields": [
     {
      "name": "day_key",
@@ -336,12 +336,25 @@
      "indexed": true
     },
     {
-     "name": "flight_date",
-     "type": "DateOnly",
+     "name": "month_key",
+     "type": "Text",
      "indexed": true
     },
     {
+     "name": "flight_date",
+     "type": "DateOnly"
+    },
+    {
      "name": "airline_iata",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "flight_no",
+     "type": "Text"
+    },
+    {
+     "name": "flight_key",
      "type": "Text",
      "indexed": true
     },
@@ -369,7 +382,27 @@
      "type": "Text"
     },
     {
+     "name": "ac_raw",
+     "type": "Text"
+    },
+    {
+     "name": "routing",
+     "type": "Text"
+    },
+    {
+     "name": "remark",
+     "type": "Text"
+    },
+    {
+     "name": "cancelled",
+     "type": "Boolean"
+    },
+    {
      "name": "gate",
+     "type": "Text"
+    },
+    {
+     "name": "row_hash",
      "type": "Text"
     }
    ]
@@ -614,7 +647,8 @@
       "ROSTER",
       "MASTER",
       "PORTER",
-      "PREWC"
+      "PREWC",
+      "FLIGHTS"
      ]
     },
     {
