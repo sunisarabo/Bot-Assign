@@ -986,6 +986,165 @@
    ]
   },
   {
+   "title": "PAS_AutoPlan",
+   "desc": "Auto Assign (คำนวณตอนนำเข้าเวร · พอร์ตจาก AutoPlan.gs): FILL = เติมจาก Assign เดิม · AUTO = จัดเวรใหม่ทั้งหมดตาม SLA · SUM = จำนวนคนในแผน · BENCH = คนพัก/สำรอง",
+   "titleLabel": "key (date|kind|seq)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "kind",
+     "type": "Choice",
+     "choices": [
+      "FILL",
+      "AUTO",
+      "SUM",
+      "BENCH"
+     ]
+    },
+    {
+     "name": "seq",
+     "type": "Number"
+    },
+    {
+     "name": "flight",
+     "type": "Text"
+    },
+    {
+     "name": "airline",
+     "type": "Text"
+    },
+    {
+     "name": "system",
+     "type": "Text"
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "sta",
+     "type": "Text"
+    },
+    {
+     "name": "std",
+     "type": "Text"
+    },
+    {
+     "name": "phase",
+     "type": "Text"
+    },
+    {
+     "name": "need_n",
+     "type": "Number"
+    },
+    {
+     "name": "base_n",
+     "type": "Number"
+    },
+    {
+     "name": "remain",
+     "type": "Number"
+    },
+    {
+     "name": "win",
+     "type": "Text"
+    },
+    {
+     "name": "need_sys",
+     "type": "Text"
+    },
+    {
+     "name": "block",
+     "type": "Text"
+    },
+    {
+     "name": "people_json",
+     "type": "Note"
+    },
+    {
+     "name": "req_sup",
+     "type": "Number"
+    },
+    {
+     "name": "req_ci",
+     "type": "Number"
+    },
+    {
+     "name": "req_gate",
+     "type": "Number"
+    },
+    {
+     "name": "req_arr",
+     "type": "Number"
+    },
+    {
+     "name": "short_sup",
+     "type": "Number"
+    },
+    {
+     "name": "short_ci",
+     "type": "Number"
+    },
+    {
+     "name": "short_gate",
+     "type": "Number"
+    },
+    {
+     "name": "short_arr",
+     "type": "Number"
+    },
+    {
+     "name": "sup_json",
+     "type": "Note"
+    },
+    {
+     "name": "ci_json",
+     "type": "Note"
+    },
+    {
+     "name": "gate_json",
+     "type": "Note"
+    },
+    {
+     "name": "arr_json",
+     "type": "Note"
+    },
+    {
+     "name": "tot_req",
+     "type": "Number"
+    },
+    {
+     "name": "tot_asg",
+     "type": "Number"
+    },
+    {
+     "name": "ok",
+     "type": "Boolean"
+    },
+    {
+     "name": "person",
+     "type": "Text"
+    },
+    {
+     "name": "pos",
+     "type": "Text"
+    },
+    {
+     "name": "shift",
+     "type": "Text"
+    }
+   ]
+  },
+  {
    "title": "PAS_SLARules",
    "desc": "กำลังคนมาตรฐานต่อเที่ยวบิน ต่อสายการบิน (แทนชีต STANDARD MANNING · แก้ได้ · ค่าตั้งต้นจาก SLA.gs)",
    "titleLabel": "airline",

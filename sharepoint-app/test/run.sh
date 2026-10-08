@@ -22,3 +22,5 @@ echo "module.exports.acAnalyzeRec=acAnalyzeRec;module.exports.acOwnerTeams=acOwn
 node "$D/assign-parity.test.js" "$O/import-roster.js"
 echo "module.exports.supportRows=supportRows;" >> "$O/import-roster.js"
 node "$D/support-parity.test.js" "$O/import-roster.js"
+echo "module.exports.autoPlanRows=autoPlanRows;" >> "$O/import-roster.js"
+node "$D/autoplan-parity.test.js" "$O/import-roster.js"

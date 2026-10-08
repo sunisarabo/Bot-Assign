@@ -43,7 +43,7 @@ interface AsgRow { Title: string; day_key: string; work_date: string; team: stri
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
 interface Batch { list: string; boundary: string; body: string; n: number }
-interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number }; batches: Batch[] }
+interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number; auto?: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
 function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string): Result {
@@ -87,12 +87,14 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   const slaR = computeSla(pick.iso, p.slaPeople, p.teamNames, parseSched(schedule), pssSet, parseRules(rules));
   const sla = slaR.rows;
   const support = supportRows(pick.iso, slaR.flights, p.acRecs, pg);
+  const auto = autoPlanRows(pick.iso, slaR.flights, p.acRecs, pg);
   addBatches(batches, site, "PAS_DataIssue", p.issues);
   addBatches(batches, site, "PAS_FlightSLA", sla);
   addBatches(batches, site, "PAS_Support", support);
+  addBatches(batches, site, "PAS_AutoPlan", auto);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
-    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length, support: support.length }, batches
+    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length, support: support.length, auto: auto.length }, batches
   };
 }
 
@@ -395,7 +397,7 @@ interface SlaRow {
 }
 type Req = { SUP: number; CI: number; GATE: number; ARR: number; total: number };
 
-interface SlaFlight { key: string; flight: string; airline: string; STA: string; STD: string; teams: { [t: string]: boolean }; short: { [ph: string]: number }; ok: boolean; noTime: boolean; teamList: string }
+interface SlaFlight { key: string; flight: string; airline: string; STA: string; STD: string; teams: { [t: string]: boolean }; short: { [ph: string]: number }; ok: boolean; noTime: boolean; teamList: string; req: Req }
 function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched: { [k: string]: SchedRow }, pss: { [e: string]: boolean }, rules: { [a: string]: number[] }): { rows: SlaRow[]; flights: SlaFlight[] } {
   const flights: { [k: string]: { flight: string; airline: string; teams: { [t: string]: boolean }; STA: string; STD: string; OP: string; CL: string; AC: string;
     as: Req; staff: string[] } } = {};
@@ -478,7 +480,7 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
     if (Object.keys(short).length === 0) shortTotal = 0;
     const ok = Object.keys(short).length === 0 && shortTotal === 0;
     if (home) f.teams[home] = true;
-    fl.push({ key, flight: f.flight, airline: f.airline, STA: f.STA, STD: f.STD, teams: f.teams, short, ok, noTime, teamList: home || Object.keys(f.teams).join(",") });
+    fl.push({ key, flight: f.flight, airline: f.airline, STA: f.STA, STD: f.STD, teams: f.teams, short, ok, noTime, teamList: home || Object.keys(f.teams).join(","), req });
     const TH: { [k: string]: string } = { SUP: "SUP", CI: "Check-in", GATE: "Gate", ARR: "Arrival" };
     const parts = ["SUP", "CI", "GATE", "ARR"].filter(ph => short[ph]).map(ph => TH[ph] + " ขาด " + short[ph]);
     rows.push({
@@ -882,7 +884,7 @@ function otGroup(vin: Cell, vout: Cell, vtot: Cell): { a: number | null; b: numb
 // ======================= Support / เติมคน (พอร์ตจาก SLA.gs · slaSupportRows_ / slaSupportPool_ / slaCandidates_ / slaOtherCands_) =======================
 const SLA_TRANSIT_MIN = 55, SLA_REST_MIN = 60, SLA_MAX_CAND = 24, WH_SHIFT_MIN = 7, WH_SHIFT_MAX = 12, WH_DAY_HIGH = 14;
 interface PoolP { name: string; emp: string; team: string; posGroup: string; off: boolean; otoff: boolean; rest: boolean; float: boolean; ds: number; de: number;
-  busy: number[][]; hold: number[][]; sys: { [s: string]: boolean }; nflt: number; shiftDisp: string; otDisp: string; hrs: number; hlevel: string; htxt: string; flts: string[] }
+  busy: number[][]; hold: number[][]; sys: { [s: string]: boolean }; nflt: number; shiftDisp: string; otDisp: string; hrs: number; hlevel: string; htxt: string; flts: string[]; plan: number }
 interface SupportRow { Title: string; day_key: string; month_key: string; flight: string; airline: string; system: string; team: string; std: string;
   phase: string; short_n: number; win: string; win_fb: boolean; no_flight_time: boolean; need_sys: string; block: string; n_cand: number;
   picks: string; cands_json: string; others_json: string }
@@ -976,7 +978,7 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
       ds: d.ds, de: d.de, busy, hold: [], sys: sys[r.team] || {}, nflt: flts.length,
       shiftDisp: otoff ? "OFF (มา OT)" : (st && st !== r.shiftCode ? (r.shiftCode ? r.shiftCode + " " + st : st) : (r.shiftCode || st || "-")),
       otDisp: r.ot > 0 ? r.ot + "h " + (otoff ? "OFF" : (r.otType === "PRE" ? "ก่อนกะ" : "หลังกะ")) + (r.otTime ? " " + r.otTime : "") : "-",
-      hrs: Math.round(((r.hrs || 0) + r.ot) * 10) / 10, hlevel: hs.level, htxt: hs.txt, flts });
+      hrs: Math.round(((r.hrs || 0) + r.ot) * 10) / 10, hlevel: hs.level, htxt: hs.txt, flts, plan: 0 });
   }
   return pool;
 }
@@ -1026,6 +1028,106 @@ function supportRows(day: string, flights: SlaFlight[], recs: AcRec[], pg: { [e:
   }
   return out;
 }
+// ======================= Auto Assign (พอร์ตจาก AutoPlan.gs · apFillGaps_ / apReplan_) =======================
+// FILL = เติมจาก Assign เดิม (คนว่างข้ามทีมมาเสริมไฟลท์ที่ขาด) · AUTO = จัดเวรใหม่ทั้งหมดตาม SLA · SUM = จำนวนคนในแผน AUTO · BENCH = คนพัก/สำรองในแผน AUTO
+// (common check-in ของเดิมปิดอยู่ — AP_COMMON_CI = [] — จึงไม่พอร์ต)
+const AP_TOL = 30, AP_PHASES = ["SUP", "CI", "ARR", "GATE"];
+const AP_LB: { [k: string]: string } = { SUP: "SUP", CI: "Check-in", GATE: "Gate", ARR: "Arrival" };
+interface ApRow { Title: string; day_key: string; month_key: string; kind: string; flight: string; airline: string; system: string; team: string; sta: string; std: string; seq: number;
+  phase?: string; need_n?: number; base_n?: number; remain?: number; win?: string; need_sys?: string; block?: string; people_json?: string;
+  req_sup?: number; req_ci?: number; req_gate?: number; req_arr?: number; short_sup?: number; short_ci?: number; short_gate?: number; short_arr?: number;
+  sup_json?: string; ci_json?: string; gate_json?: string; arr_json?: string; tot_req?: number; tot_asg?: number; ok?: boolean;
+  person?: string; pos?: string; shift?: string }
+function apFree(p: PoolP, win: number[] | null): boolean {
+  if (!win) return true;
+  if (!(p.ds <= win[0] + AP_TOL && p.de >= win[1] - AP_TOL)) return false;
+  const buf = transitBuf(p.busy, win[0]);
+  for (const b of p.busy) if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false;
+  return true;
+}
+function apEligible(p: PoolP, f: SlaFlight, ph: string, win: number[] | null, sameTeamOk: boolean): boolean {
+  const own = !!f.teams[p.team];
+  if (!sameTeamOk && own) return false;                                   // โหมดเติม = ข้ามทีมเท่านั้น
+  if (!sameTeamOk && !win) return false;                                  // ไม่มีเวลาไฟลท์ → ไม่เสนอคนข้ามทีม
+  if (!own && !canSupport(f.airline, ph).ok) return false;                // สาย/เฟสนี้ไม่รับคนข้ามทีม
+  const ns = needSys(f.airline, ph);
+  if (ns && !p.sys[sysNorm(ns)]) return false;                            // CI/SUP ต้องรู้ระบบ (ยกเว้น iPort)
+  if (ph === "SUP" && p.posGroup !== "PSS") return false;
+  return apFree(p, win);
+}
+function apScore(p: PoolP, ph: string, home: string): number {
+  let s = 0;
+  if (ph === "SUP") s += p.posGroup === "PSS" ? 0 : 6;
+  else if (ph === "CI") s += p.posGroup === "PSA" ? 0 : (p.posGroup === "SNR" ? 1 : 3);
+  else s += p.posGroup === "PSA" ? 0 : (p.posGroup === "SNR" ? 1 : 2);
+  if (home && p.team === home) s -= 3;
+  return s + p.plan * 2;
+}
+function apPick(pool: PoolP[], f: SlaFlight, ph: string, win: number[] | null, sameTeamOk: boolean, home: string): PoolP | null {
+  let best: PoolP | null = null, bs = 1e9;
+  for (const p of pool) { if (!apEligible(p, f, ph, win, sameTeamOk)) continue; const sc = apScore(p, ph, home); if (sc < bs) { bs = sc; best = p; } }
+  if (best) { if (win && ph !== "SUP") best.busy.push([win[0], win[1]]); best.plan++; }   // SUP คุมหลายไฟลท์ได้ → ไม่ล็อกเวลา
+  return best;
+}
+function posShort(g: string): string { return g === "PSS" ? "Sup" : g === "SNR" ? "Snr" : g === "PSA" ? "Agent" : (g || "-"); }
+// [ชื่อ, ตำแหน่ง, ทีม, กะ, OT, ชม.รวม, จำนวนงานเดิม, ไฟลท์เดิม]
+function apView(p: PoolP): (string | number)[] { return [p.name, posShort(p.posGroup), p.team, p.shiftDisp, p.otDisp, p.hrs, p.nflt, p.flts.join(" · ")]; }
+function apFillGaps(flights: SlaFlight[], pool: PoolP[]): ApRow[] {
+  const out: ApRow[] = [];
+  for (const f of flights) {
+    if (f.ok) continue;
+    for (const ph of AP_PHASES) {
+      const need = f.short[ph] || 0; if (!need) continue;
+      const sup = canSupport(f.airline, ph), win = phaseWinFull(f.airline, f.STA, f.STD, ph);
+      const picked: PoolP[] = [];
+      if (sup.ok) for (let k = 0; k < need; k++) { const p = apPick(pool, f, ph, win, false, ""); if (!p) break; picked.push(p); }
+      out.push({ Title: "", day_key: "", month_key: "", kind: "FILL", flight: f.flight, airline: f.airline, system: sysOf(f.airline), team: f.teamList,
+        sta: f.STA, std: f.STD || f.STA || "", seq: 0, phase: AP_LB[ph], need_n: need, base_n: need, remain: need - picked.length,
+        win: win ? fmtMin(win[0]) + "-" + fmtMin(win[1]) : "", need_sys: needSys(f.airline, ph), block: sup.ok ? "" : sup.reason,
+        people_json: JSON.stringify(picked.map(apView)) });
+    }
+  }
+  return out;
+}
+function apReplan(flights: SlaFlight[], pool: PoolP[], owner: { [al: string]: string }): ApRow[] {
+  for (const p of pool) { p.busy = []; p.plan = 0; }                     // จัดใหม่ → ล้างงานเดิมทั้งหมด
+  const out: ApRow[] = [];
+  for (const f of flights) {
+    const home = owner[f.airline] || (f.teamList || "").split(",")[0] || "";
+    const pr: { [k: string]: number } = { SUP: f.req.SUP, CI: f.req.CI, ARR: f.req.ARR, GATE: f.req.GATE };
+    const extra = Math.max(0, (f.req.total || 0) - (f.req.SUP + f.req.CI + f.req.ARR + f.req.GATE));
+    if (f.req.CI === 0) pr.GATE += extra;                                 // สายไม่มีเช็คอิน (PG) → ส่วนเกิน = Gate agent
+    if (!AP_PHASES.some(ph => pr[ph] > 0)) continue;
+    const asg: { [k: string]: PoolP[] } = { SUP: [], CI: [], ARR: [], GATE: [] }, sx: { [k: string]: number } = {};
+    for (const ph of AP_PHASES) {
+      if (!pr[ph]) continue;
+      const win = phaseWinFull(f.airline, f.STA, f.STD, ph);
+      for (let k = 0; k < pr[ph]; k++) {
+        if (ph === "GATE" && f.req.CI > 0 && asg.CI[k]) { asg.GATE.push(asg.CI[k]); continue; }   // คนเช็คอินเดินต่อไปเกท
+        const p = apPick(pool, f, ph, win, true, home);
+        if (p) asg[ph].push(p); else { sx[ph] = pr[ph] - k; break; }
+      }
+    }
+    const js = (a: PoolP[]) => JSON.stringify(a.map(apView));
+    out.push({ Title: "", day_key: "", month_key: "", kind: "AUTO", flight: f.flight, airline: f.airline, system: sysOf(f.airline), team: home,
+      sta: f.STA, std: f.STD, seq: 0, req_sup: pr.SUP, req_ci: pr.CI, req_gate: pr.GATE, req_arr: pr.ARR,
+      short_sup: sx.SUP || 0, short_ci: sx.CI || 0, short_gate: sx.GATE || 0, short_arr: sx.ARR || 0,
+      sup_json: js(asg.SUP), ci_json: js(asg.CI), gate_json: js(asg.GATE), arr_json: js(asg.ARR),
+      tot_req: pr.SUP + pr.CI + pr.ARR + pr.GATE, tot_asg: asg.SUP.length + asg.CI.length + asg.ARR.length + asg.GATE.length, ok: Object.keys(sx).length === 0 });
+  }
+  const nAsg = pool.filter(p => p.plan > 0).length;
+  out.push({ Title: "", day_key: "", month_key: "", kind: "SUM", flight: "", airline: "", system: "", team: "", sta: "", std: "", seq: 0, tot_req: pool.length, tot_asg: nAsg });   // คนทั้งพูล / คนที่ถูกจัด
+  for (const p of pool) if (p.plan === 0)
+    out.push({ Title: "", day_key: "", month_key: "", kind: "BENCH", flight: "", airline: "", system: "", team: p.team, sta: "", std: "", seq: 0,
+      person: p.name, pos: posShort(p.posGroup), shift: p.shiftDisp });
+  return out;
+}
+function autoPlanRows(day: string, flights: SlaFlight[], recs: AcRec[], pg: { [e: string]: string }): ApRow[] {
+  const rows = apFillGaps(flights, supportPool(recs, pg)).concat(apReplan(flights, supportPool(recs, pg), acOwnerTeams(recs)));
+  rows.forEach((r, i) => { r.seq = i + 1; r.Title = day + "|" + r.kind + "|" + (i + 1); r.day_key = day; r.month_key = day.slice(0, 7); });
+  return rows;
+}
+
 function posGroups(json?: string): { [e: string]: string } {
   const out: { [e: string]: string } = {};
   if (!json) return out;
