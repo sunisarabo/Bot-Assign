@@ -109,6 +109,11 @@
      "indexed": true
     },
     {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
      "name": "work_date",
      "type": "DateOnly",
      "indexed": true
@@ -141,6 +146,26 @@
     {
      "name": "ot_hours",
      "type": "Number"
+    },
+    {
+     "name": "ot_hol_hours",
+     "type": "Number"
+    },
+    {
+     "name": "ot_total",
+     "type": "Number"
+    },
+    {
+     "name": "ot_people",
+     "type": "Number"
+    },
+    {
+     "name": "ot_off_hours",
+     "type": "Number"
+    },
+    {
+     "name": "is_holiday",
+     "type": "Boolean"
     },
     {
      "name": "util_pct",
@@ -206,6 +231,14 @@
     {
      "name": "ot_hours",
      "type": "Number"
+    },
+    {
+     "name": "ot_hol_hours",
+     "type": "Number"
+    },
+    {
+     "name": "is_support",
+     "type": "Boolean"
     },
     {
      "name": "duty_min",
@@ -514,6 +547,142 @@
     {
      "name": "last_seen",
      "type": "Text"
+    }
+   ]
+  },
+  {
+   "title": "PAS_OT_Person",
+   "desc": "OT รายคน/วัน (เฉพาะคนที่มี OT) — ใช้เตือน OT สัปดาห์/เดือน",
+   "titleLabel": "key (date|emp|team)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "week_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_code",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_name",
+     "type": "Text"
+    },
+    {
+     "name": "team",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "ot_hours",
+     "type": "Number"
+    },
+    {
+     "name": "ot_hol_hours",
+     "type": "Number"
+    },
+    {
+     "name": "ot_total",
+     "type": "Number"
+    }
+   ]
+  },
+  {
+   "title": "PAS_Holidays",
+   "desc": "วันหยุดประเพณี (มาทำงาน = OT นักขัต X1) — เพิ่มปีถัดไปที่นี่",
+   "titleLabel": "holiday_name",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "holiday_date",
+     "type": "DateOnly"
+    }
+   ],
+   "seed": [
+    {
+     "Title": "วันขึ้นปีใหม่",
+     "day_key": "2026-01-01",
+     "holiday_date": "2026-01-01"
+    },
+    {
+     "Title": "วันมาฆบูชา",
+     "day_key": "2026-03-03",
+     "holiday_date": "2026-03-03"
+    },
+    {
+     "Title": "วันจักรี",
+     "day_key": "2026-04-06",
+     "holiday_date": "2026-04-06"
+    },
+    {
+     "Title": "วันสงกรานต์",
+     "day_key": "2026-04-13",
+     "holiday_date": "2026-04-13"
+    },
+    {
+     "Title": "วันสงกรานต์",
+     "day_key": "2026-04-14",
+     "holiday_date": "2026-04-14"
+    },
+    {
+     "Title": "วันแรงงานแห่งชาติ",
+     "day_key": "2026-05-01",
+     "holiday_date": "2026-05-01"
+    },
+    {
+     "Title": "วันเฉลิมพระชนมพรรษาสมเด็จพระนางเจ้าฯ พระบรมราชินี",
+     "day_key": "2026-06-01",
+     "holiday_date": "2026-06-01"
+    },
+    {
+     "Title": "วันเฉลิมพระชนมพรรษาพระบาทสมเด็จพระเจ้าอยู่หัว",
+     "day_key": "2026-07-28",
+     "holiday_date": "2026-07-28"
+    },
+    {
+     "Title": "วันอาสาฬหบูชา",
+     "day_key": "2026-07-29",
+     "holiday_date": "2026-07-29"
+    },
+    {
+     "Title": "วันแม่แห่งชาติ",
+     "day_key": "2026-08-12",
+     "holiday_date": "2026-08-12"
+    },
+    {
+     "Title": "วันนวมินทรมหาราช",
+     "day_key": "2026-10-13",
+     "holiday_date": "2026-10-13"
+    },
+    {
+     "Title": "วันปิยมหาราช",
+     "day_key": "2026-10-23",
+     "holiday_date": "2026-10-23"
+    },
+    {
+     "Title": "วันพ่อแห่งชาติ",
+     "day_key": "2026-12-05",
+     "holiday_date": "2026-12-05"
+    },
+    {
+     "Title": "วันสิ้นปี",
+     "day_key": "2026-12-31",
+     "holiday_date": "2026-12-31"
     }
    ]
   }

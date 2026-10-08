@@ -92,7 +92,19 @@
       });
       added++;
     }
-    console.log(`${created ? "🆕" : "✔"} ${L.title}: +${added} คอลัมน์`);
+    let seeded = 0;
+    if (L.seed && L.seed.length) {                                  // แถวตั้งต้น (เช่น วันหยุด) — เพิ่มเฉพาะ day_key ที่ยังไม่มี
+      const info = await sp("GET", lp + "?$select=ListItemEntityTypeFullName");
+      const type = info.d.ListItemEntityTypeFullName;
+      const rows = (await sp("GET", lp + "/items?$select=day_key&$top=5000")).d.results || [];
+      const haveKey = new Set(rows.map(r => r.day_key));
+      for (const it of L.seed) {
+        if (haveKey.has(it.day_key)) continue;
+        await sp("POST", lp + "/items", Object.assign({ __metadata: { type } }, it));
+        seeded++;
+      }
+    }
+    console.log(`${created ? "🆕" : "✔"} ${L.title}: +${added} คอลัมน์` + (L.seed ? ` · +${seeded} แถวตั้งต้น` : ""));
   }
 
   async function ensureFolder(rel) {

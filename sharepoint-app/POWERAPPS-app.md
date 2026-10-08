@@ -157,7 +157,10 @@ ClearCollect(colEmp, Filter(PAS_Employees, status.Value = "ACTIVE"))
 - **คนในเวรที่ไม่มีในรายชื่อ** (ตรวจข้อมูล): `Filter(colDuty, IsBlank(LookUp(colEmp, Title = emp_code)))`
 - **ค้นหาพนักงาน**: `Search(colEmp, txtFind.Text, name_th, name_en, Title)`
 
-## 11) Publish + แชร์ + Teams
+## 11) หน้า OT Dashboard
+ดู `POWERAPPS-ot.md` (รายเดือน · รายสัปดาห์ · เตือน OT รายคน)
+
+## 12) Publish + แชร์ + Teams
 - **File → Save → Publish**
 - **Share** → ใส่กลุ่ม (เช่น PSA Admin: Natty, Ice, Max, Fluke · LL Admin · หัวหน้าทีม) — ไม่ต้องให้สิทธิ์ Premium
   (ผู้ใช้ต้องมีสิทธิ์อ่าน Lists ในไซต์ — ดู README หัวข้อ "สิทธิ์ข้อมูล")

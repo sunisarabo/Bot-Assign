@@ -19,6 +19,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `provision-lists.js` | สคริปต์วางใน **Console ของเบราว์เซอร์** บนไซต์ → สร้าง Lists ทั้งหมด + โฟลเดอร์ `PAS-Import` สำรอง (รันซ้ำได้) |
 | `import-roster.ts` | **Office Script**: อ่านไฟล์เวร (MANPOWER + แท็บทีม) → แถวพร้อมลง List (คำนวณ Util/busy ให้แล้ว) · **หาวันที่จาก path** (รองรับเดือนใหม่/ปีใหม่ · EN/ไทย · ค.ศ./พ.ศ.) · ส่งออกเป็น `$batch` |
 | `import-master.ts` | **Office Script**: ไฟล์ Manpower (PS-Manpower) หรือ `00.Master.xlsx` → `PAS_Employees` (upsert ตามรหัส · Total + BKK Batch · หาคอลัมน์จากหัวตาราง) |
+| `POWERAPPS-ot.md` | หน้า **OT Dashboard** (รายเดือน · รายสัปดาห์ · เตือน OT รายคน 36/144 ชม.) — แทนหน้าเดิมของ PAS |
 | `FLOW-master.md` | **Flow D** sync รายชื่อพนักงานอัตโนมัติ (ตรวจไฟล์ทุก 30 นาที เขียนเฉพาะที่เปลี่ยน) |
 | `batch-delete.ts` | Office Script ตัวช่วย: ID → `$batch` ลบ (ใช้ก่อนนำเข้าวันเดิมซ้ำ) |
 | `FLOW-import.md` | 3 flows: **A** เฝ้าทั้งไลบรารี → **B** นำเข้าจากคิว (ทุก 15 นาที) → **C** ย้อนหลังทั้งเดือน/ปี |
@@ -42,6 +43,8 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `PAS_Flights` · `PAS_Porter` · `PAS_PreWC` | เลขไฟลท์ | ตารางบิน · งาน Porter/Wheelchair · จอง WC ล่วงหน้า (กรอก/วางจาก CSV ใน `powerplatform/templates/`) |
 | `PAS_Employees` | รหัสพนักงาน | รายชื่อ · ทีม · แผนก PSA/LL · ตำแหน่ง/กลุ่ม · HKT/BKK/GLOBEX · ACTIVE/RESIGNED — sync จากไฟล์ Manpower |
 | `PAS_Teams` | รหัสทีม | master ทีม |
+| `PAS_OT_Person` | `วันที่\|รหัส\|ทีม` | OT รายคน/วัน (เฉพาะคนที่มี OT) — เตือน OT สัปดาห์/เดือน |
+| `PAS_Holidays` | ชื่อวันหยุด | วันหยุดประเพณี → OT นักขัต X1 · **ขึ้นปีใหม่เพิ่มที่นี่** (ตั้งต้นปี 2569 ให้แล้ว) |
 | `PAS_ImportLog` | path ไฟล์ | คิว/ประวัตินำเข้า 1 แถว/ไฟล์ — สถานะ, วันที่ที่อ่านได้ (และอ่านจากไหน), จำนวนแถว, คำเตือน |
 
 ## เดือนใหม่ / ปีใหม่

@@ -6,13 +6,17 @@
  *   filePath  = path เต็มของไฟล์ เช่น "Shared Documents/2025/09.SEP26/19SEP.xlsx"  (ใช้หาวันที่ — รองรับเดือนใหม่/ปีใหม่เอง)
  *   workDate  = "YYYY-MM-DD" (ไม่บังคับ — ใส่เมื่ออยากบังคับวันที่)
  *   siteUrl   = URL ไซต์ (ไม่บังคับ — ค่าเริ่มต้น SITE)
+ *   holidays  = JSON วันหยุดประเพณีจาก List PAS_Holidays (ไม่บังคับ) → มาทำงานวันนั้น = OT นักขัต X1 เท่าชั่วโมงกะ
+ *
+ * OT (ตรงกับระบบเดิม): ot_total = OT ปกติ + OT นักขัต · แถวซัพพอร์ต "ชื่อ (ทีม)" ไม่นับ OT
+ *   PAS_Manpower = OT รายทีม/วัน (OT Dashboard) · PAS_OT_Person = OT รายคน/วัน เฉพาะคนที่มี OT (เตือนสัปดาห์/เดือน)
  *
  * ลำดับหาวันที่: workDate → ชื่อไฟล์ (+เดือน/ปีจากโฟลเดอร์แม่) → หัวชีต MANPOWER → (ไม่พบ = skipped)
  *   รองรับ: 19SEP · 19SEP26 · 19 SEP 2026 · 2026-09-19 · 20260919 · 19.09.26 · 19/09/2569 · 19 ก.ย. 69 · "19" (เดือน/ปีจากโฟลเดอร์)
  *   โฟลเดอร์เดือน: 09.SEP26 · SEP 2026 · SEP · 09 · ก.ย.69 · กันยายน 2569  · โฟลเดอร์ปี: 2026 / 2569
  *   ปีจากโฟลเดอร์เดือน (SEP26) ชนะโฟลเดอร์ปี (เช่น /2025/09.SEP26 → 2026) · ไม่มีปีเลย → เลือกปีที่ใกล้วันนี้ที่สุด (ข้ามธ.ค.→ม.ค. ถูก)
  *
- * คืนค่า: { status:"ok"|"skipped", reason, work_date, date_source, warnings[], counts, batches[{list,boundary,body,n}] }
+ * คืนค่า: { status:"ok"|"skipped", reason, work_date, date_source, warnings[], counts{teams,duty,assignment,ot_people}, batches[{list,boundary,body,n}] }
  *   batches = เนื้อ SharePoint $batch (≤100 แถว/ก้อน) → flow ส่งด้วย "Send an HTTP request to SharePoint" ทีละก้อน
  *
  * layout แท็บทีม (0-based): 0=ID 2=NAME 3=SHIFT 4=IN 6=ชม. 12,15=OT 16=STATUS 17=REMARK · ไฟลท์เริ่มคอลัมน์ 19 ทีละ 4
@@ -26,18 +30,19 @@ const TH_FULL = ["มกราคม", "กุมภาพันธ์", "มี
 const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิย", "กค", "สค", "กย", "ตค", "พย", "ธค"];
 
 type Cell = string | number | boolean;
-interface MpRow { Title: string; day_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; util_pct: number }
-interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_hours: number; ot_hours: number; duty_min: number; busy_min: number; util_pct: number; source_file: string }
+interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number }
+interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; is_support: boolean; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
+interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface Batch { list: string; boundary: string; body: string; n: number }
-interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number }; batches: Batch[] }
+interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
-function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string): Result {
+function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string): Result {
   const path = filePath || "";
   const warnings: string[] = [];
   const empty = (reason: string, iso: string, src: string): Result =>
-    ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0 }, batches: [] });
+    ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0, ot_people: 0 }, batches: [] });
 
   const mp = workbook.getWorksheet("MANPOWER");
   const mv: Cell[][] = mp ? mp.getUsedRange().getValues() : [];
@@ -57,15 +62,17 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   if (!teams.length) return empty("ไม่ใช่ไฟล์เวร PSA (ไม่พบ Team (..) ใน MANPOWER และไม่พบแท็บที่มีหัว FLIGHT)", pick ? pick.iso : "", pick ? pick.source : "");
   if (!pick) return empty("หาวันที่ไม่ได้จาก path/ชื่อไฟล์/หัว MANPOWER — ตั้งชื่อไฟล์เช่น 19SEP.xlsx ในโฟลเดอร์ 09.SEP26 หรือส่ง workDate", "", "");
 
-  const p = parseRoster(workbook, teams, pick.iso, baseName(path));
+  const hol = holidaySet(holidays);
+  const p = parseRoster(workbook, teams, pick.iso, baseName(path), !!hol[pick.iso]);
   const site = (siteUrl || SITE).replace(/\/$/, "");
   const batches: Batch[] = [];
   addBatches(batches, site, "PAS_Manpower", p.manpower);
   addBatches(batches, site, "PAS_Duty", p.duty);
   addBatches(batches, site, "PAS_Assignment", p.assignment);
+  addBatches(batches, site, "PAS_OT_Person", p.otPerson);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
-    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length }, batches
+    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length }, batches
   };
 }
 
@@ -85,11 +92,12 @@ function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
   return teams;
 }
 
-function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string) {
-  const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [];
+function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string, isHol: boolean) {
+  const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [], otPerson: OtRow[] = [];
+  const month = day.slice(0, 7), week = mondayOf(day);
   for (const t of teams) {
     const ws = workbook.getWorksheet(t.code);
-    let otSum = 0, uSum = 0, uN = 0;
+    let otSum = 0, holSum = 0, otOff = 0, otPpl = 0, uSum = 0, uN = 0;
     if (ws) {
       const g = ws.getRange("A1:AQ300").getValues();
       const fRow = findByS(g, "FLIGHT"), sRow = findByS(g, "STA"), oRow = findByS(g, "OP");
@@ -104,8 +112,10 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         const id = row[0], name = String(row[2] || "").trim();
         if (typeof id !== "number" || !name || name.indexOf("Ex.") === 0) continue;
         const emp = String(id);
-        const ot = n(row[12]) + n(row[15]);
-        otSum += ot;
+        // แถวซัพพอร์ต "ชื่อ (WY)" = มาช่วยจากทีมอื่น → ไม่นับ OT ที่ทีมนี้ (นับที่ทีมต้นสังกัด) — เหมือน RosterReader
+        const sup = name.match(/\(([A-Z0-9]{2,4})\)\s*$/i);
+        const isSup = !!sup && sup[1].toUpperCase() !== t.code.toUpperCase();
+        const ot = isSup ? 0 : n(row[12]) + n(row[15]);
         const bucket = bucketOf(String(row[16] || ""), String(row[17] || ""), ot);
         const ds = t2m(row[4]), hrs = n(row[6]);
         let de = (ds != null && hrs) ? ds + Math.round(hrs * 60) : null;
@@ -127,21 +137,33 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         const busy = mergeMin(dutyMin > 0 ? clampIv(iv, ds as number, de as number) : iv);
         const util = dutyMin > 0 ? Math.min(100, Math.round(busy / dutyMin * 100)) : 0;
         if (dutyMin > 0) { uSum += util; uN++; }
+        // วันหยุดประเพณี: มาทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ (ไม่นับอบรม/ซัพพอร์ต)
+        const otHol = (isHol && !isSup && bucket === "WORKING" && hrs > 0) ? hrs : 0;
+        if (!isSup) {
+          otSum += ot; holSum += otHol;
+          if (bucket === "OT_OFF") otOff += ot;
+          if (ot > 0) otPpl++;
+          if (ot + otHol > 0) otPerson.push({
+            Title: day + "|" + emp + "|" + t.code, day_key: day, month_key: month, week_key: week, emp_code: emp, emp_name: name,
+            team: t.code, ot_hours: round1(ot), ot_hol_hours: round1(otHol), ot_total: round1(ot + otHol)
+          });
+        }
         const k = day + "|" + t.code + "|" + emp;
         seen[k] = (seen[k] || 0) + 1;
         duty.push({
           Title: seen[k] > 1 ? k + "#" + seen[k] : k, day_key: day, work_date: day, team: t.code, emp_code: emp, emp_name: name,
           bucket, shift_code: String(row[3] || "").trim(), shift_start: ds != null ? m2hhmm(ds) : "",
-          shift_hours: hrs, ot_hours: round1(ot), duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src
+          shift_hours: hrs, ot_hours: round1(ot), ot_hol_hours: round1(otHol), is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src
         });
       }
     }
     manpower.push({
-      Title: day + "|" + t.code, day_key: day, work_date: day, team: t.code, total: t.total, working: t.working,
-      sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), util_pct: uN ? Math.round(uSum / uN) : 0
+      Title: day + "|" + t.code, day_key: day, month_key: month, work_date: day, team: t.code, total: t.total, working: t.working,
+      sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), ot_hol_hours: round1(holSum),
+      ot_total: round1(otSum + holSum), ot_people: otPpl, ot_off_hours: round1(otOff), is_holiday: isHol, util_pct: uN ? Math.round(uSum / uN) : 0
     });
   }
-  return { manpower, duty, assignment };
+  return { manpower, duty, assignment, otPerson };
 }
 
 // ======================= SharePoint $batch =======================
@@ -249,6 +271,22 @@ function normDate(s: string): string {
   return m ? m[1] + "-" + pad(+m[2]) + "-" + pad(+m[3]) : "";
 }
 function baseName(p: string): string { const s = p.split("/"); return s[s.length - 1] || ""; }
+
+// ======================= OT helpers =======================
+// วันจันทร์ของสัปดาห์ (สัปดาห์ จ.–อา. เหมือนเกณฑ์ OT เดิม) → "YYYY-MM-DD"
+function mondayOf(iso: string): string {
+  const d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)));
+  d.setUTCDate(d.getUTCDate() - (d.getUTCDay() + 6) % 7);
+  return d.getUTCFullYear() + "-" + pad(d.getUTCMonth() + 1) + "-" + pad(d.getUTCDate());
+}
+// วันหยุดจาก List PAS_Holidays (flow ส่ง JSON: ["2026-10-13", …] หรือ [{"day_key":"2026-10-13"}, …])
+function holidaySet(json?: string): { [k: string]: boolean } {
+  const out: { [k: string]: boolean } = {};
+  if (!json) return out;
+  const arr: (string | { day_key?: string })[] = JSON.parse(json);
+  for (const x of arr) { const k = typeof x === "string" ? x : (x.day_key || ""); if (k) out[k.slice(0, 10)] = true; }
+  return out;
+}
 
 // ======================= helpers =======================
 function n(v: Cell): number { return typeof v === "number" ? v : 0; }
