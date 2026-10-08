@@ -30,4 +30,13 @@ ok(rows(main(wb, "Shared Documents/2026/10.OCT26/13OCT.xlsx"), "PAS_Manpower")[0
 // สัปดาห์ข้ามเดือน: อา. 1 พ.ย. 2026 → จันทร์ 26 ต.ค.
 r = main(wb, "Shared Documents/2026/11.NOV26/01NOV.xlsx");
 ok(rows(r, "PAS_OT_Person")[0].week_key === "2026-10-26" && rows(r, "PAS_OT_Person")[0].month_key === "2026-11", "สัปดาห์ข้ามเดือน → week 2026-10-26 · month 2026-11");
+// นับหัวรายวันสำหรับสรุปสัปดาห์: มาทำงาน/ป่วย/แวค/กิจ (ไม่นับซัพพอร์ต · 1 คน/ทีม)
+const ey2 = [blank(), blank()]; ey2[1][18] = "FLIGHT"; ey2[1][19] = "EY410";
+ey2.push(person(2001, "W1", 0, 0), person(2002, "W2", 0, 0, "OFF"), person(2003, "S", 0, 0, "SICK"),
+  person(2004, "V", 0, 0, "AL"), person(2005, "P", 0, 0, "ลากิจ"), person(2006, "M", 0, 0, "ML"), person(2007, "T", 0, 0, "TRAINING"),
+  person(2008, "SUP (WY)", 0, 0), person(2009, "TH", 0, 0, "ลาป่วย"), person(2010, "TV", 0, 0, "ลาพักร้อน"), person(2001, "W1", 0, 0));
+const wb2 = { getWorksheet: n => ({ MANPOWER: sheet("MANPOWER", mp), EY: sheet("EY", ey2) })[n], getWorksheets: () => [] };
+const c = rows(main(wb2, "Shared Documents/2026/10.OCT26/08OCT.xlsx"), "PAS_Manpower")[0];
+ok(c.cnt_work === 1 && c.cnt_sick === 2 && c.cnt_vac === 2 && c.cnt_personal === 2 && c.cnt_training === 1,
+  "หัวรายวัน: ทำงาน 1 (ซ้ำ/ซัพพอร์ตไม่นับ) · ป่วย 2 · แวค 2 · กิจ 2 (ลากิจ/ML) · อบรม 1 → " + [c.cnt_work, c.cnt_sick, c.cnt_vac, c.cnt_personal, c.cnt_training]);
 console.log(bad ? bad + " FAILED" : "ALL PASSED"); process.exit(bad ? 1 : 0);

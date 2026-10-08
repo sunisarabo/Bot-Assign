@@ -170,6 +170,26 @@
     {
      "name": "util_pct",
      "type": "Number"
+    },
+    {
+     "name": "cnt_work",
+     "type": "Number"
+    },
+    {
+     "name": "cnt_sick",
+     "type": "Number"
+    },
+    {
+     "name": "cnt_vac",
+     "type": "Number"
+    },
+    {
+     "name": "cnt_personal",
+     "type": "Number"
+    },
+    {
+     "name": "cnt_training",
+     "type": "Number"
     }
    ]
   },

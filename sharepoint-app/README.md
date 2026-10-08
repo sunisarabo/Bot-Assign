@@ -21,6 +21,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `import-master.ts` | **Office Script**: ไฟล์ Manpower (PS-Manpower) หรือ `00.Master.xlsx` → `PAS_Employees` (upsert ตามรหัส · Total + BKK Batch · หาคอลัมน์จากหัวตาราง) |
 | `POWERAPPS-ot.md` | หน้า **OT Dashboard** (รายเดือน · รายสัปดาห์ · เตือน OT รายคน 36/144 ชม.) — แทนหน้าเดิมของ PAS |
 | `POWERAPPS-weekhours.md` | หน้า **⏱️ ชม./สัปดาห์** (48 ชม. / 7 วัน / OT 36 ต่อสัปดาห์ ตามระเบียบ) — แทนหน้าเดิม |
+| `POWERAPPS-weeksummary.md` | หน้า **📊 สรุปสัปดาห์** (มาทำงาน · ป่วย · แวค · กิจ · OT รายวัน จ.–อา. + รวม) — แทนหน้าเดิม |
 | `import-porter.ts` · `FLOW-porter.md` | **Flow E** Porter Summary + Pre-Wheelchair (ไฟล์รายเดือน แท็บรายวัน) → `PAS_Porter` / `PAS_PorterStaff` / `PAS_PreWC` |
 | `import-flights.ts` · `FLOW-flights.md` | **Flow F** ตารางบินรายวัน (Daily Flight Schedule Record) → `PAS_Flights` (ชนิดเครื่อง · STA/STD · ขา · ยกเลิก) |
 | `FLOW-master.md` | **Flow D** sync รายชื่อพนักงานอัตโนมัติ (ตรวจไฟล์ทุก 30 นาที เขียนเฉพาะที่เปลี่ยน) |

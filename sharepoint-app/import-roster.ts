@@ -30,7 +30,7 @@ const TH_FULL = ["มกราคม", "กุมภาพันธ์", "มี
 const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิย", "กค", "สค", "กย", "ตค", "พย", "ธค"];
 
 type Cell = string | number | boolean;
-interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number }
+interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number }
 interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; is_support: boolean; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
@@ -98,6 +98,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   for (const t of teams) {
     const ws = workbook.getWorksheet(t.code);
     let otSum = 0, holSum = 0, otOff = 0, otPpl = 0, uSum = 0, uN = 0;
+    const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0 }, counted: { [e: string]: boolean } = {};
     if (ws) {
       const g = ws.getRange("A1:AQ300").getValues();
       const fRow = findByS(g, "FLIGHT"), sRow = findByS(g, "STA"), oRow = findByS(g, "OP");
@@ -139,6 +140,14 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         if (dutyMin > 0) { uSum += util; uN++; }
         // วันหยุดประเพณี: มาทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ (ไม่นับอบรม/ซัพพอร์ต)
         const otHol = (isHol && !isSup && bucket === "WORKING" && hrs > 0) ? hrs : 0;
+        if (!isSup && !counted[emp]) {                                // นับหัวรายวัน (1 คน/ทีม · ไม่นับซัพพอร์ต) — สรุปสัปดาห์
+          counted[emp] = true;
+          if (isWork(bucket)) cnt.work++;
+          else if (bucket === "SICK") cnt.sick++;
+          else if (bucket === "VACATION") cnt.vac++;
+          else if (bucket === "LEAVE") cnt.personal++;
+          else if (bucket === "TRAINING") cnt.training++;
+        }
         if (!isSup) {
           otSum += ot; holSum += otHol;
           if (bucket === "OT_OFF") otOff += ot;
@@ -160,7 +169,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
     manpower.push({
       Title: day + "|" + t.code, day_key: day, month_key: month, work_date: day, team: t.code, total: t.total, working: t.working,
       sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), ot_hol_hours: round1(holSum),
-      ot_total: round1(otSum + holSum), ot_people: otPpl, ot_off_hours: round1(otOff), is_holiday: isHol, util_pct: uN ? Math.round(uSum / uN) : 0
+      ot_total: round1(otSum + holSum), ot_people: otPpl, ot_off_hours: round1(otOff), is_holiday: isHol, util_pct: uN ? Math.round(uSum / uN) : 0,
+      cnt_work: cnt.work, cnt_sick: cnt.sick, cnt_vac: cnt.vac, cnt_personal: cnt.personal, cnt_training: cnt.training
     });
   }
   return { manpower, duty, assignment, otPerson };
@@ -301,9 +311,10 @@ function hhmm(v: Cell): string { const m = t2m(v); return m == null || (typeof v
 function isWork(b: string): boolean { return b === "WORKING" || b === "OT_OFF"; }
 function bucketOf(status: string, remark: string, ot: number): string {
   const txt = (remark || status).toUpperCase().trim();
-  if (txt.indexOf("SICK") >= 0 || txt === "SL" || txt === "MC") return "SICK";
-  if (txt.indexOf("VAC") >= 0 || ["AL", "VL"].indexOf(txt) >= 0) return "VACATION";
-  if (["BL", "ML", "PL", "LEAVE"].indexOf(txt) >= 0 || txt.indexOf("LEAVE") >= 0) return "LEAVE";
+  if (txt.indexOf("SICK") >= 0 || txt === "SL" || txt === "MC" || txt.indexOf("ป่วย") >= 0) return "SICK";
+  // ลากิจ/ลาคลอด (BL/ML/PL) แยกจากพักร้อน — เหมือน rbWkAcc_ (สรุปสัปดาห์: แวค vs กิจ)
+  if (/(^|[^A-Z])(BL|ML|PL)([^A-Z]|$)|LEAVE|PERSONAL|BUSINESS|MATERN|กิจ|คลอด/.test(txt)) return "LEAVE";
+  if (txt.indexOf("VAC") >= 0 || ["AL", "VL"].indexOf(txt) >= 0 || txt.indexOf("พักร้อน") >= 0) return "VACATION";
   if (txt.indexOf("TRAIN") >= 0) return "TRAINING";
   if (txt.indexOf("OFF") === 0 || txt === "X") return ot > 0 ? "OT_OFF" : "OFF";
   return "WORKING";
