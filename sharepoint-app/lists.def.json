@@ -1145,6 +1145,232 @@
    ]
   },
   {
+   "title": "PAS_AdvPlan",
+   "desc": "จัดล่วงหน้า (พอร์ตจาก AdvancePlan.gs): FLIGHT = แผนต่อไฟลท์ 7 บทบาท (SUP/FC/Check-in/Arrival/Standby/Gate Monitor/Gate Agent) + คนที่ให้ OT คลุมได้ · SUM = สรุปวัน",
+   "titleLabel": "key (date|kind|seq)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "kind",
+     "type": "Choice",
+     "choices": [
+      "FLIGHT",
+      "SUM"
+     ]
+    },
+    {
+     "name": "seq",
+     "type": "Number"
+    },
+    {
+     "name": "flight",
+     "type": "Text"
+    },
+    {
+     "name": "airline",
+     "type": "Text"
+    },
+    {
+     "name": "system",
+     "type": "Text"
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "sta",
+     "type": "Text"
+    },
+    {
+     "name": "std",
+     "type": "Text"
+    },
+    {
+     "name": "counter",
+     "type": "Text"
+    },
+    {
+     "name": "req_sup",
+     "type": "Number"
+    },
+    {
+     "name": "short_sup",
+     "type": "Number"
+    },
+    {
+     "name": "a_sup",
+     "type": "Note"
+    },
+    {
+     "name": "req_fc",
+     "type": "Number"
+    },
+    {
+     "name": "short_fc",
+     "type": "Number"
+    },
+    {
+     "name": "a_fc",
+     "type": "Note"
+    },
+    {
+     "name": "req_ci",
+     "type": "Number"
+    },
+    {
+     "name": "short_ci",
+     "type": "Number"
+    },
+    {
+     "name": "a_ci",
+     "type": "Note"
+    },
+    {
+     "name": "req_arr",
+     "type": "Number"
+    },
+    {
+     "name": "short_arr",
+     "type": "Number"
+    },
+    {
+     "name": "a_arr",
+     "type": "Note"
+    },
+    {
+     "name": "req_stb",
+     "type": "Number"
+    },
+    {
+     "name": "short_stb",
+     "type": "Number"
+    },
+    {
+     "name": "a_stb",
+     "type": "Note"
+    },
+    {
+     "name": "req_gm",
+     "type": "Number"
+    },
+    {
+     "name": "short_gm",
+     "type": "Number"
+    },
+    {
+     "name": "a_gm",
+     "type": "Note"
+    },
+    {
+     "name": "req_ga",
+     "type": "Number"
+    },
+    {
+     "name": "short_ga",
+     "type": "Number"
+    },
+    {
+     "name": "a_ga",
+     "type": "Note"
+    },
+    {
+     "name": "tot_req",
+     "type": "Number"
+    },
+    {
+     "name": "tot_asg",
+     "type": "Number"
+    },
+    {
+     "name": "ok",
+     "type": "Boolean"
+    },
+    {
+     "name": "ot_json",
+     "type": "Note"
+    },
+    {
+     "name": "n_people",
+     "type": "Number"
+    },
+    {
+     "name": "n_assigned",
+     "type": "Number"
+    },
+    {
+     "name": "n_flights",
+     "type": "Number"
+    },
+    {
+     "name": "n_short",
+     "type": "Number"
+    }
+   ]
+  },
+  {
+   "title": "PAS_AdvRoster",
+   "desc": "พูลคนขึ้นเวรล่วงหน้า (จากไฟล์ ROSTER) + งานที่ได้ในแผนจัดล่วงหน้า · n_jobs = 0 คือคนพัก/สำรอง",
+   "titleLabel": "key (date|emp)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_code",
+     "type": "Text"
+    },
+    {
+     "name": "emp_name",
+     "type": "Text"
+    },
+    {
+     "name": "pos",
+     "type": "Text"
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "shift",
+     "type": "Text"
+    },
+    {
+     "name": "ds_min",
+     "type": "Number"
+    },
+    {
+     "name": "de_min",
+     "type": "Number"
+    },
+    {
+     "name": "n_jobs",
+     "type": "Number"
+    },
+    {
+     "name": "jobs",
+     "type": "Text"
+    }
+   ]
+  },
+  {
    "title": "PAS_SLARules",
    "desc": "กำลังคนมาตรฐานต่อเที่ยวบิน ต่อสายการบิน (แทนชีต STANDARD MANNING · แก้ได้ · ค่าตั้งต้นจาก SLA.gs)",
    "titleLabel": "airline",
@@ -1938,7 +2164,8 @@
       "MASTER",
       "PORTER",
       "PREWC",
-      "FLIGHTS"
+      "FLIGHTS",
+      "ADVPLAN"
      ]
     },
     {

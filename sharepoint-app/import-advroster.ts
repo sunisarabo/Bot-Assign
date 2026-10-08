@@ -1,3 +1,5 @@
+// ⚠️ ไฟล์นี้สร้างอัตโนมัติจาก import-roster.ts ด้วย `node build.js` — อย่าแก้ตรงนี้ (แก้ที่ import-roster.ts แล้ว build ใหม่)
+// Office Script: จัดล่วงหน้า — อ่านไฟล์ ROSTER ล่วงหน้า + ไฟลท์ (PAS_Flights) + พนักงาน (PAS_Employees) → PAS_AdvPlan / PAS_AdvRoster (ดู FLOW-advance.md)
 /*
  * import-roster.ts — Office Script: ไฟล์เวรรายวัน (.xlsx) → SharePoint Lists (PAS_Manpower · PAS_Duty · PAS_Assignment)
  *   ไซต์ /sites/0AAYJ05_KoLORUk9PVA · เรียกจาก Power Automate (Excel Online (Business) → Run script) · ไม่แก้ไฟล์ต้นทาง
@@ -46,7 +48,7 @@ interface Batch { list: string; boundary: string; body: string; n: number }
 interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number; auto?: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
-function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string): Result {
+function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string): Result {
   const path = filePath || "";
   const warnings: string[] = [];
   const empty = (reason: string, iso: string, src: string): Result =>
@@ -1340,7 +1342,7 @@ function advEmpMap(json?: string): { [id: string]: AdvEmp } {
 }
 interface AdvResult { status: string; reason: string; from: string; to: string; days: string[]; counts: { [k: string]: number }; batches: Batch[] }
 /** main ของ import-advroster.ts: workbook = ไฟล์ ROSTER ล่วงหน้า · fromDay/toDay = ช่วงวัน (YYYY-MM-DD) · flights = PAS_Flights · emps = PAS_Employees */
-function advMain(workbook: ExcelScript.Workbook, fromDay?: string, toDay?: string, flights?: string, emps?: string, rules?: string, siteUrl?: string): AdvResult {
+function main(workbook: ExcelScript.Workbook, fromDay?: string, toDay?: string, flights?: string, emps?: string, rules?: string, siteUrl?: string): AdvResult {
   const from = normDate(fromDay || ""), to = normDate(toDay || "") || from;
   if (!from) return { status: "skipped", reason: "ต้องส่ง fromDay (YYYY-MM-DD)", from, to, days: [], counts: {}, batches: [] };
   const sheets = workbook.getWorksheets().map(ws => { const r = ws.getUsedRange(); return r ? r.getTexts() : []; });
