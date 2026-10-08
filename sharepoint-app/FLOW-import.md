@@ -67,7 +67,8 @@
 1b. **Get items `Holidays`** — `PAS_Holidays` · Top Count `500` → **Select `HolKeys`** From `value` · Map (โหมดข้อความ) = `item()?['day_key']`
    (วันหยุดประเพณี → OT นักขัต X1 · ขึ้นปีใหม่ เพิ่มวันหยุดใน List นี้อย่างเดียว ไม่ต้องแก้ flow/สคริปต์)
 1c. **Get items `Rules`** — `PAS_SLARules` · Top 500 → **Select `RuleRows`**: `Title`, `sup`, `ci`, `arr`, `gate`, `total` (โหมดตาราง แมปคอลัมน์ชื่อเดียวกัน)
-1d. **Get items `Sups`** — `PAS_Employees` · Filter `pos_group eq 'PSS' and status eq 'ACTIVE'` · Top 5000 · Pagination On → **Select `SupCodes`** (โหมดข้อความ) = `item()?['Title']`
+1d. **Get items `Pos`** — `PAS_Employees` · Filter `status eq 'ACTIVE'` · Top 5000 · Pagination On → **Select `PosRows`** (โหมดตาราง): `Title`, `pos_group`
+   (ตำแหน่งพนักงาน → เครดิต SUP จากหัวหน้า + คัดคนช่วย SUP = Sup/Snr + เรียงคนช่วย Agent ก่อน)
 2. **Apply to each** (`value`) — Concurrency **1**  ← ในลูปนี้ `items('Apply_to_each')` = แถวคิว
    1. **Update item** (คิว): status Value = `Running`
    2. **Scope `Import`**:
@@ -78,12 +79,12 @@
       1. **Run script** — Location: Site · Document Library: `Documents` · File: `items('Apply_to_each')?['file_id']`
          · Script: `import-roster` · **filePath** = `items('Apply_to_each')?['Title']` · workDate: เว้นว่าง
          · **holidays** = `string(body('HolKeys'))`
-         · **schedule** = `string(body('SchedRows'))` · **pss** = `string(body('SupCodes'))` · **rules** = `string(body('RuleRows'))`
+         · **schedule** = `string(body('SchedRows'))` · **rules** = `string(body('RuleRows'))` · **posg** = `string(body('PosRows'))` (ช่อง pss เว้นว่าง)
       2. **Compose `R`** = `outputs('Run_script')?['body/result']`
       3. **Condition** `outputs('R')?['status']` is equal to `ok`
          - **No → Update item** (คิว): status `Skipped` · day_key = `outputs('R')?['work_date']` · message = `outputs('R')?['reason']`
          - **Yes →**
-           a. **ลบของวันเดิม** — ทำ 6 รอบ (`PAS_Manpower`, `PAS_Duty`, `PAS_Assignment`, `PAS_OT_Person`, `PAS_DataIssue`, `PAS_FlightSLA`):
+           a. **ลบของวันเดิม** — ทำ 7 รอบ (`PAS_Manpower`, `PAS_Duty`, `PAS_Assignment`, `PAS_OT_Person`, `PAS_DataIssue`, `PAS_FlightSLA`, `PAS_Support`):
               - **Get items** List = (ชื่อ List) · Filter Query `day_key eq '@{outputs('R')?['work_date']}'`
                 · Top Count `5000` · Settings → **Pagination On, Threshold 20000**
               - **Select `IDs`** — From `value` · Map (โหมดข้อความ) = `item()?['ID']`

@@ -898,6 +898,94 @@
    ]
   },
   {
+   "title": "PAS_Support",
+   "desc": "ไฟลท์ขาด SLA (ต่อเฟส) + คนที่ว่างและรู้ระบบมาช่วยได้ (คำนวณตอนนำเข้าเวร · พอร์ตจาก SLA.gs Support)",
+   "titleLabel": "key (date|flight|phase)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "flight",
+     "type": "Text"
+    },
+    {
+     "name": "airline",
+     "type": "Text"
+    },
+    {
+     "name": "system",
+     "type": "Text"
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "std",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "phase",
+     "type": "Choice",
+     "choices": [
+      "SUP",
+      "Check-in",
+      "Gate",
+      "Arrival"
+     ]
+    },
+    {
+     "name": "short_n",
+     "type": "Number"
+    },
+    {
+     "name": "win",
+     "type": "Text"
+    },
+    {
+     "name": "win_fb",
+     "type": "Boolean"
+    },
+    {
+     "name": "no_flight_time",
+     "type": "Boolean"
+    },
+    {
+     "name": "need_sys",
+     "type": "Text"
+    },
+    {
+     "name": "block",
+     "type": "Text"
+    },
+    {
+     "name": "n_cand",
+     "type": "Number"
+    },
+    {
+     "name": "picks",
+     "type": "Note"
+    },
+    {
+     "name": "cands_json",
+     "type": "Note"
+    },
+    {
+     "name": "others_json",
+     "type": "Note"
+    }
+   ]
+  },
+  {
    "title": "PAS_SLARules",
    "desc": "กำลังคนมาตรฐานต่อเที่ยวบิน ต่อสายการบิน (แทนชีต STANDARD MANNING · แก้ได้ · ค่าตั้งต้นจาก SLA.gs)",
    "titleLabel": "airline",

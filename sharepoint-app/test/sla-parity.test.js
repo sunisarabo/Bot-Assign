@@ -43,7 +43,7 @@ for (const t of Object.keys(res.teams)) for (const r of res.teams[t].records) {
   people.push({ team: t, emp, name: r.name, ds: r.shiftStart, de: r.shiftStart + r.shiftHrs * 60,
     asg: r.assignments.map(a => ({ code: a.flight, task: a.task, STA: a.STA, STD: a.STD, OP: "", CL: "" })) });
 }
-const neu = computeSla("2026-10-08", people, Object.keys(res.teams), {}, pss, {});
+const neu = computeSla("2026-10-08", people, Object.keys(res.teams), {}, pss, {}).rows;
 let bad = 0;
 const byKey = {}; neu.forEach(r => byKey[r.flight_key] = r);
 console.log("flights old=" + old.length + " new=" + neu.length);

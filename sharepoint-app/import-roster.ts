@@ -10,6 +10,7 @@
  *   schedule  = JSON ตารางบินวันนั้นจาก PAS_Flights [{flight_key, aircraft_type, sta, std, cancelled}] (ไม่บังคับ — เติม A/C TYPE/เวลาให้ SLA)
  *   pss       = JSON รหัสพนักงานตำแหน่ง PSS (หัวหน้า) จาก PAS_Employees (ไม่บังคับ — เครดิต SUP ผู้กำกับดูแล)
  *   dateOnly  = "1" → คืนแค่ work_date (อ่าน MANPOWER อย่างเดียว — เร็ว) ให้ flow ดึงตารางบินของวันนั้นก่อนรันจริง
+ *   posg      = JSON ตำแหน่งพนักงาน [{Title, pos_group}] จาก PAS_Employees (ไม่บังคับ — ใช้คัดคนช่วย SUP = Sup/Snr และเรียง Agent ก่อน)
  *   rules     = JSON กฎกำลังคนต่อสายการบินจาก PAS_SLARules [{Title, sup, ci, arr, gate, total}] (ไม่บังคับ — แทน STANDARD MANNING เดิม)
  *   → PAS_FlightSLA: ไฟลท์ทุกไฟลท์ของวัน + ต้องการ/มีจริงต่อเฟส + ขาด (พอร์ตจาก SLA.gs slaCollectFlights_)
  *
@@ -42,10 +43,10 @@ interface AsgRow { Title: string; day_key: string; work_date: string; team: stri
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
 interface Batch { list: string; boundary: string; body: string; n: number }
-interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number }; batches: Batch[] }
+interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
-function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string): Result {
+function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string): Result {
   const path = filePath || "";
   const warnings: string[] = [];
   const empty = (reason: string, iso: string, src: string): Result =>
@@ -81,12 +82,17 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   addBatches(batches, site, "PAS_Duty", p.duty);
   addBatches(batches, site, "PAS_Assignment", p.assignment);
   addBatches(batches, site, "PAS_OT_Person", p.otPerson);
-  const sla = computeSla(pick.iso, p.slaPeople, p.teamNames, parseSched(schedule), codeSet(pss), parseRules(rules));
+  const pg = posGroups(posg);
+  const pssSet = codeSet(pss); for (const e of Object.keys(pg)) if (pg[e] === "PSS") pssSet[e] = true;
+  const slaR = computeSla(pick.iso, p.slaPeople, p.teamNames, parseSched(schedule), pssSet, parseRules(rules));
+  const sla = slaR.rows;
+  const support = supportRows(pick.iso, slaR.flights, p.acRecs, pg);
   addBatches(batches, site, "PAS_DataIssue", p.issues);
   addBatches(batches, site, "PAS_FlightSLA", sla);
+  addBatches(batches, site, "PAS_Support", support);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
-    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length }, batches
+    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length, support: support.length }, batches
   };
 }
 
@@ -225,7 +231,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
           ot_type: bucket === "OT_OFF" && ot > 0 ? "OFF" : otType, ot_time: spans.length ? fmtRange(spans[0].a, spans[0].b) : "", is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src
         });
         if (isWork(bucket)) acRecs.push({ row: duty[duty.length - 1], rec: {
-          team: t.code, name, bucket, ss: ssA, se: seA, ot, otType, otSpans: spans, otTime: spans.length ? fmtRange(spans[0].a, spans[0].b) : "",
+          team: t.code, name, emp, hrs, bucket, ss: ssA, se: seA, ot, otType, otSpans: spans, otTime: spans.length ? fmtRange(spans[0].a, spans[0].b) : "",
           shiftCode: String(row[3] || "").trim(),
           asg: flights.map(f => ({ f, cells: [0, 1, 2, 3].map(k2 => String(row[f.base + k2] == null ? "" : row[f.base + k2]).trim()).filter(x => x !== "") }))
             .filter(x => x.cells.length).map(x => ({ flight: x.f.code, task: x.cells.filter(c => !/^\d{1,2}[:.]\d{2}$/.test(c)).join(" "), STA: x.f.STA, STD: x.f.STD, OP: x.f.OP, CL: x.f.CL })) } });
@@ -264,7 +270,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
     x.row.ac_support = a.support; x.row.ac_uncovered = a.uncovered.slice(0, 255); x.row.ac_gaps = a.gaps.slice(0, 255);
     x.row.ac_gaps_raw = a.gapsRaw.slice(0, 255); x.row.ac_ot_verdict = a.otVerdict; x.row.ac_issue = a.issue.slice(0, 4000);
   }
-  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: teams.map(x => x.code) };
+  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: teams.map(x => x.code), acRecs: acRecs.map(x => x.rec) };
 }
 
 // ======================= SharePoint $batch =======================
@@ -376,7 +382,7 @@ function baseName(p: string): string { const s = p.split("/"); return s[s.length
 
 // ======================= Flights & SLA (พอร์ตจาก SLA.gs · slaCollectFlights_ / slaReq_ / slaPhasesOf_) =======================
 // ตารางคัดจาก SLA.gs อัตโนมัติ: RQ=[SUP,CI,ARR,GATE,TTL] ต่อสาย · AC=ต่อชนิดเครื่อง · ALIAS · WIN=[ci,cc,post,brief,ccMissing] (นาทีเทียบ STD) · DBREQ=สายที่ใช้ roles
-const SLA_T: { RQ: { [a: string]: number[] }; AC: { [a: string]: (string | number)[][] }; ALIAS: { [a: string]: string }; WIN: { [a: string]: number[] }; DBREQ: { [a: string]: number[] } } = {"RQ":{"3K":[1,4,1,1,8],"3U":[1,4,1,1,8],"6B":[1,5,2,1,10],"6E":[1,5,1,1,9],"8L":[1,4,1,1,8],"8M":[1,3,1,1,7],"9C":[1,5,1,1,9],"9H":[1,4,1,1,8],"AF":[1,9,1,1,13],"AI":[1,6,1,1,9],"AK":[1,4,1,1,8],"AQ":[1,3,1,1,7],"AY":[1,5,1,1,9],"B2":[1,6,1,1,10],"BY":[1,5,2,1,10],"C6":[1,4,1,1,8],"CA":[1,6,1,1,10],"CX":[1,6,2,1,11],"CZ":[1,6,1,1,10],"DE":[1,6,2,1,11],"DK":[1,4,1,1,8],"DV":[1,4,1,1,8],"EK":[1,7,4,1,14],"EO":[1,6,1,1,10],"EY":[1,7,1,1,12],"FM":[1,4,1,1,8],"FY":[1,3,1,1,6],"G2":[1,6,1,1,10],"G8":[1,4,1,1,8],"G9":[1,4,1,1,8],"H4":[1,5,1,1,9],"HB":[1,3,1,1,7],"HH":[1,4,1,1,8],"HO":[1,4,1,1,8],"HU":[1,6,1,1,10],"HX":[1,5,1,1,9],"HY":[1,5,1,1,8],"IT":[1,4,1,1,7],"IX":[1,4,1,1,7],"JQ":[1,7,1,1,10],"KC":[1,5,1,1,9],"KE":[1,8,1,1,11],"KY":[1,3,1,1,7],"LJ":[1,4,1,1,8],"LO":[1,6,1,1,10],"LY":[1,7,4,1,14],"MH":[1,4,1,1,8],"MU":[1,4,1,1,8],"N0":[1,5,1,1,9],"N4":[1,6,1,1,10],"NO":[1,6,1,1,10],"OD":[1,4,1,1,7],"OM":[1,4,1,1,8],"OQ":[1,4,1,1,8],"OV":[1,4,1,1,8],"OZ":[1,6,1,1,10],"PG":[1,0,1,2,8],"PN":[1,4,1,1,8],"QP":[1,5,1,1,9],"QR":[1,11,3,1,17],"QZ":[1,4,1,1,8],"S7":[1,4,1,1,8],"SG":[1,4,1,1,7],"SQ":[1,4,1,1,8],"SU":[1,8,1,1,12],"SV":[1,7,2,1,12],"TK":[1,8,4,1,15],"TR":[1,5,1,1,10],"U6":[1,4,1,1,8],"UO":[1,4,2,1,8],"VJ":[1,4,1,1,8],"VN":[1,7,1,1,10],"W5":[1,7,2,1,12],"WK":[1,6,2,1,11],"WY":[1,7,1,1,11],"WZ":[1,6,1,1,10],"ZF":[1,6,1,1,10],"ZH":[1,4,1,1,8]},"AC":{"QR":[["B777",11,3,1,17],["B787",9,2,1,14]],"EY":[["B787-9",6,1,1,11],["B787-10",7,1,1,12],["A321Neo",5,1,1,11]],"KE":[["A333/B772/B787",7,1,1,10],["B773",8,1,1,11]],"SU":[["B777",8,1,1,12],["A333",7,1,1,11],["B737/A320/A321Neo",4,1,1,8]],"TR":[["A320",3,1,1,8],["A321",4,1,1,9],["B787",5,1,1,10]],"JQ":[["B787",7,1,1,10],["A321Neo",5,1,1,8]],"AK":[["A320",3,1,1,7],["A321",4,1,1,8]],"QZ":[["A320",3,1,1,7],["A321",4,1,1,8]],"PG":[["A319/320",0,1,2,8],["ATR",0,1,1,6]],"CX":[["A330",6,2,1,11],["A321NEO",5,2,1,10]],"KC":[["A320",4,1,1,8],["B737",5,1,1,9]],"6E":[["A321",5,1,1,9],["A320",4,1,1,8]],"CA":[["A320/B737",4,1,1,8],["A330",6,1,1,10]],"CZ":[["A320",4,1,1,8],["A321",4,1,1,8],["A330",6,1,1,10]],"HU":[["B737",4,1,1,8],["A330",6,1,1,10]],"SV":[["B789",6,2,1,11],["B78X",7,2,1,12]],"VN":[["A320/A321",5,1,1,8],["B787/A350",7,1,1,10]]},"ALIAS":{"3K":"JQ","GX":"CA","KX":"CA","8H":"CA","BK":"CA","PVT":"PRIVATE"},"WIN":{"SQ":[-240,-40,30,60,0],"CX":[-240,-60,30,60,0],"LY":[-240,-60,30,60,0],"QR":[-240,-45,30,60,0],"MH":[-240,-60,30,60,0],"DE":[-240,-45,30,60,0],"PG":[-45,-15,20,60,0],"AK":[-180,-60,20,60,0],"QZ":[-180,-60,20,60,0],"SU":[-180,-40,30,60,0],"B2":[-180,-40,30,60,0],"W5":[-180,-40,30,60,0],"3U":[-180,-60,30,60,0],"CA":[-180,-50,30,60,0],"MU":[-180,-50,30,60,0],"CZ":[-180,-45,30,60,0],"FM":[-180,-50,30,60,0],"HO":[-180,-45,30,60,0],"HU":[-180,-50,30,60,0],"AQ":[-180,-45,30,60,0],"HX":[-240,-50,30,60,0],"EY":[-180,-60,45,60,0],"AY":[-180,-60,30,60,0],"DV":[-180,-60,30,60,0],"KE":[-240,-45,30,60,0],"KC":[-240,-45,30,60,0],"OZ":[-180,-45,30,60,0],"NO":[-180,-45,30,60,0],"AF":[-240,-45,30,60,0],"LJ":[-180,-45,20,60,0],"OV":[-180,-45,20,60,0],"WY":[-180,-60,20,60,0],"G9":[-180,-60,20,60,0],"DK":[-180,-60,20,60,0],"9C":[-180,-45,20,60,0],"EK":[-240,-60,30,60,0],"UO":[-180,-45,20,60,0],"FY":[-144,-45,20,60,0],"6B":[-180,-45,20,60,0],"BY":[-180,-45,20,60,0],"AI":[-180,-45,20,60,0],"IX":[-180,-45,20,60,0],"JQ":[-180,-60,20,60,0],"IT":[-180,-45,20,60,0],"N0":[-180,-45,20,60,0],"TK":[-180,-60,30,60,0],"VJ":[-180,-45,20,60,0],"OD":[-180,-45,20,60,0],"SG":[-180,-45,20,60,0],"HY":[-180,-45,20,60,0],"TR":[-150,-60,20,60,0],"6E":[-180,-45,20,60,0],"QP":[-180,-45,20,60,0],"SV":[-240,-45,30,60,0],"WK":[-198,-45,30,60,0],"KA":[-180,-45,20,60,0],"ZF":[-180,-45,20,60,0],"HH":[-180,-45,20,60,0],"LO":[-180,-45,20,60,0],"EO":[-180,-45,20,60,0],"S7":[-180,-45,20,60,0],"8L":[-180,-45,20,60,0],"8M":[-180,-45,20,60,0],"9H":[-180,-45,20,60,0],"C6":[-180,-45,20,60,0],"G2":[-180,-45,20,60,0],"H4":[-180,-45,20,60,0],"HB":[-180,-45,20,60,0],"KY":[-180,-45,20,60,0],"N4":[-180,-45,20,60,0],"OM":[-180,-45,20,60,0],"OQ":[-180,-45,20,60,0],"PN":[-180,-45,20,60,0],"VN":[-180,-45,20,60,0],"WZ":[-180,-45,20,60,0],"ZH":[-180,-45,20,60,0],"PRIVATE":[-60,-20,20,20,0],"CHARTER":[-120,-30,20,30,0],"DEFAULT":[-180,-45,20,60,0]},"DBREQ":{"SQ":[1,6,0,6,13],"CX":[1,7,0,7,15],"LY":[1,8,0,4,13],"QR":[1,12,3,4,20],"MH":[1,4,1,3,9],"DE":[1,5,1,4,11],"PG":[1,0,2,7,9],"AK":[1,3,1,3,8],"QZ":[1,3,1,3,8],"SU":[1,16,1,5,23],"B2":[1,7,0,0,8],"W5":[1,7,0,0,8],"3U":[1,4,1,5,11],"CA":[1,6,1,4,12],"MU":[1,5,1,4,11],"CZ":[1,4,1,4,10],"FM":[1,5,1,4,11],"HO":[1,4,2,3,10],"HU":[1,4,1,4,10],"AQ":[1,4,1,3,9],"HX":[1,5,1,4,11],"EY":[1,4,1,5,11],"AY":[1,4,1,3,9],"DV":[1,4,1,3,9],"KE":[1,5,1,1,8],"KC":[1,6,1,1,9],"OZ":[1,4,1,1,7],"NO":[1,4,1,1,7],"AF":[1,5,2,1,9],"LJ":[1,4,1,1,7],"OV":[1,4,1,1,7],"WY":[1,6,1,6,15],"G9":[1,4,1,0,6],"DK":[1,4,1,0,6],"9C":[1,4,1,1,7],"EK":[1,6,4,5,16],"UO":[1,4,2,3,10],"FY":[1,3,1,3,8],"6B":[1,4,1,3,9],"BY":[1,4,1,3,9],"AI":[1,3,2,5,12],"IX":[1,4,0,0,5],"JQ":[1,5,3,6,15],"IT":[1,4,1,2,8],"N0":[1,4,1,2,8],"TK":[1,3,2,4,11],"VJ":[1,2,1,1,5],"OD":[1,1,1,1,5],"SG":[1,4,1,2,8],"HY":[1,4,1,2,8],"TR":[1,5,1,3,10],"6E":[1,5,1,0,7],"QP":[1,5,1,0,7],"SV":[1,7,2,3,14],"WK":[1,7,2,3,14],"KA":[1,5,1,3,10],"ZF":[1,5,1,3,10],"HH":[1,4,1,2,8],"LO":[1,4,1,2,8],"EO":[1,4,1,2,8],"S7":[1,5,1,3,10],"8L":[1,5,1,1,8],"8M":[1,4,1,1,7],"9H":[1,5,1,1,8],"C6":[1,5,1,1,8],"G2":[1,7,1,1,10],"H4":[1,6,1,1,9],"HB":[1,4,1,1,7],"KY":[1,4,1,1,7],"N4":[1,7,1,1,10],"OM":[1,5,1,1,8],"OQ":[1,5,1,1,8],"PN":[1,5,1,1,8],"VN":[1,7,1,1,10],"WZ":[1,7,1,1,10],"ZH":[1,5,1,1,8],"PRIVATE":[1,1,0,1,3],"CHARTER":[1,2,1,1,5],"DEFAULT":[1,4,1,2,8]}};
+const SLA_T: { RQ: { [a: string]: number[] }; AC: { [a: string]: (string | number)[][] }; ALIAS: { [a: string]: string }; WIN: { [a: string]: number[] }; DBREQ: { [a: string]: number[] }; SYS: { [a: string]: string }; SUPOK: { [a: string]: string[] }; CIINTEAM: string[] } = {"RQ":{"3K":[1,4,1,1,8],"3U":[1,4,1,1,8],"6B":[1,5,2,1,10],"6E":[1,5,1,1,9],"8L":[1,4,1,1,8],"8M":[1,3,1,1,7],"9C":[1,5,1,1,9],"9H":[1,4,1,1,8],"AF":[1,9,1,1,13],"AI":[1,6,1,1,9],"AK":[1,4,1,1,8],"AQ":[1,3,1,1,7],"AY":[1,5,1,1,9],"B2":[1,6,1,1,10],"BY":[1,5,2,1,10],"C6":[1,4,1,1,8],"CA":[1,6,1,1,10],"CX":[1,6,2,1,11],"CZ":[1,6,1,1,10],"DE":[1,6,2,1,11],"DK":[1,4,1,1,8],"DV":[1,4,1,1,8],"EK":[1,7,4,1,14],"EO":[1,6,1,1,10],"EY":[1,7,1,1,12],"FM":[1,4,1,1,8],"FY":[1,3,1,1,6],"G2":[1,6,1,1,10],"G8":[1,4,1,1,8],"G9":[1,4,1,1,8],"H4":[1,5,1,1,9],"HB":[1,3,1,1,7],"HH":[1,4,1,1,8],"HO":[1,4,1,1,8],"HU":[1,6,1,1,10],"HX":[1,5,1,1,9],"HY":[1,5,1,1,8],"IT":[1,4,1,1,7],"IX":[1,4,1,1,7],"JQ":[1,7,1,1,10],"KC":[1,5,1,1,9],"KE":[1,8,1,1,11],"KY":[1,3,1,1,7],"LJ":[1,4,1,1,8],"LO":[1,6,1,1,10],"LY":[1,7,4,1,14],"MH":[1,4,1,1,8],"MU":[1,4,1,1,8],"N0":[1,5,1,1,9],"N4":[1,6,1,1,10],"NO":[1,6,1,1,10],"OD":[1,4,1,1,7],"OM":[1,4,1,1,8],"OQ":[1,4,1,1,8],"OV":[1,4,1,1,8],"OZ":[1,6,1,1,10],"PG":[1,0,1,2,8],"PN":[1,4,1,1,8],"QP":[1,5,1,1,9],"QR":[1,11,3,1,17],"QZ":[1,4,1,1,8],"S7":[1,4,1,1,8],"SG":[1,4,1,1,7],"SQ":[1,4,1,1,8],"SU":[1,8,1,1,12],"SV":[1,7,2,1,12],"TK":[1,8,4,1,15],"TR":[1,5,1,1,10],"U6":[1,4,1,1,8],"UO":[1,4,2,1,8],"VJ":[1,4,1,1,8],"VN":[1,7,1,1,10],"W5":[1,7,2,1,12],"WK":[1,6,2,1,11],"WY":[1,7,1,1,11],"WZ":[1,6,1,1,10],"ZF":[1,6,1,1,10],"ZH":[1,4,1,1,8]},"AC":{"QR":[["B777",11,3,1,17],["B787",9,2,1,14]],"EY":[["B787-9",6,1,1,11],["B787-10",7,1,1,12],["A321Neo",5,1,1,11]],"KE":[["A333/B772/B787",7,1,1,10],["B773",8,1,1,11]],"SU":[["B777",8,1,1,12],["A333",7,1,1,11],["B737/A320/A321Neo",4,1,1,8]],"TR":[["A320",3,1,1,8],["A321",4,1,1,9],["B787",5,1,1,10]],"JQ":[["B787",7,1,1,10],["A321Neo",5,1,1,8]],"AK":[["A320",3,1,1,7],["A321",4,1,1,8]],"QZ":[["A320",3,1,1,7],["A321",4,1,1,8]],"PG":[["A319/320",0,1,2,8],["ATR",0,1,1,6]],"CX":[["A330",6,2,1,11],["A321NEO",5,2,1,10]],"KC":[["A320",4,1,1,8],["B737",5,1,1,9]],"6E":[["A321",5,1,1,9],["A320",4,1,1,8]],"CA":[["A320/B737",4,1,1,8],["A330",6,1,1,10]],"CZ":[["A320",4,1,1,8],["A321",4,1,1,8],["A330",6,1,1,10]],"HU":[["B737",4,1,1,8],["A330",6,1,1,10]],"SV":[["B789",6,2,1,11],["B78X",7,2,1,12]],"VN":[["A320/A321",5,1,1,8],["B787/A350",7,1,1,10]]},"ALIAS":{"3K":"JQ","GX":"CA","KX":"CA","8H":"CA","BK":"CA","PVT":"PRIVATE"},"WIN":{"SQ":[-240,-40,30,60,0],"CX":[-240,-60,30,60,0],"LY":[-240,-60,30,60,0],"QR":[-240,-45,30,60,0],"MH":[-240,-60,30,60,0],"DE":[-240,-45,30,60,0],"PG":[-45,-15,20,60,0],"AK":[-180,-60,20,60,0],"QZ":[-180,-60,20,60,0],"SU":[-180,-40,30,60,0],"B2":[-180,-40,30,60,0],"W5":[-180,-40,30,60,0],"3U":[-180,-60,30,60,0],"CA":[-180,-50,30,60,0],"MU":[-180,-50,30,60,0],"CZ":[-180,-45,30,60,0],"FM":[-180,-50,30,60,0],"HO":[-180,-45,30,60,0],"HU":[-180,-50,30,60,0],"AQ":[-180,-45,30,60,0],"HX":[-240,-50,30,60,0],"EY":[-180,-60,45,60,0],"AY":[-180,-60,30,60,0],"DV":[-180,-60,30,60,0],"KE":[-240,-45,30,60,0],"KC":[-240,-45,30,60,0],"OZ":[-180,-45,30,60,0],"NO":[-180,-45,30,60,0],"AF":[-240,-45,30,60,0],"LJ":[-180,-45,20,60,0],"OV":[-180,-45,20,60,0],"WY":[-180,-60,20,60,0],"G9":[-180,-60,20,60,0],"DK":[-180,-60,20,60,0],"9C":[-180,-45,20,60,0],"EK":[-240,-60,30,60,0],"UO":[-180,-45,20,60,0],"FY":[-144,-45,20,60,0],"6B":[-180,-45,20,60,0],"BY":[-180,-45,20,60,0],"AI":[-180,-45,20,60,0],"IX":[-180,-45,20,60,0],"JQ":[-180,-60,20,60,0],"IT":[-180,-45,20,60,0],"N0":[-180,-45,20,60,0],"TK":[-180,-60,30,60,0],"VJ":[-180,-45,20,60,0],"OD":[-180,-45,20,60,0],"SG":[-180,-45,20,60,0],"HY":[-180,-45,20,60,0],"TR":[-150,-60,20,60,0],"6E":[-180,-45,20,60,0],"QP":[-180,-45,20,60,0],"SV":[-240,-45,30,60,0],"WK":[-198,-45,30,60,0],"KA":[-180,-45,20,60,0],"ZF":[-180,-45,20,60,0],"HH":[-180,-45,20,60,0],"LO":[-180,-45,20,60,0],"EO":[-180,-45,20,60,0],"S7":[-180,-45,20,60,0],"8L":[-180,-45,20,60,0],"8M":[-180,-45,20,60,0],"9H":[-180,-45,20,60,0],"C6":[-180,-45,20,60,0],"G2":[-180,-45,20,60,0],"H4":[-180,-45,20,60,0],"HB":[-180,-45,20,60,0],"KY":[-180,-45,20,60,0],"N4":[-180,-45,20,60,0],"OM":[-180,-45,20,60,0],"OQ":[-180,-45,20,60,0],"PN":[-180,-45,20,60,0],"VN":[-180,-45,20,60,0],"WZ":[-180,-45,20,60,0],"ZH":[-180,-45,20,60,0],"PRIVATE":[-60,-20,20,20,0],"CHARTER":[-120,-30,20,30,0],"DEFAULT":[-180,-45,20,60,0]},"DBREQ":{"SQ":[1,6,0,6,13],"CX":[1,7,0,7,15],"LY":[1,8,0,4,13],"QR":[1,12,3,4,20],"MH":[1,4,1,3,9],"DE":[1,5,1,4,11],"PG":[1,0,2,7,9],"AK":[1,3,1,3,8],"QZ":[1,3,1,3,8],"SU":[1,16,1,5,23],"B2":[1,7,0,0,8],"W5":[1,7,0,0,8],"3U":[1,4,1,5,11],"CA":[1,6,1,4,12],"MU":[1,5,1,4,11],"CZ":[1,4,1,4,10],"FM":[1,5,1,4,11],"HO":[1,4,2,3,10],"HU":[1,4,1,4,10],"AQ":[1,4,1,3,9],"HX":[1,5,1,4,11],"EY":[1,4,1,5,11],"AY":[1,4,1,3,9],"DV":[1,4,1,3,9],"KE":[1,5,1,1,8],"KC":[1,6,1,1,9],"OZ":[1,4,1,1,7],"NO":[1,4,1,1,7],"AF":[1,5,2,1,9],"LJ":[1,4,1,1,7],"OV":[1,4,1,1,7],"WY":[1,6,1,6,15],"G9":[1,4,1,0,6],"DK":[1,4,1,0,6],"9C":[1,4,1,1,7],"EK":[1,6,4,5,16],"UO":[1,4,2,3,10],"FY":[1,3,1,3,8],"6B":[1,4,1,3,9],"BY":[1,4,1,3,9],"AI":[1,3,2,5,12],"IX":[1,4,0,0,5],"JQ":[1,5,3,6,15],"IT":[1,4,1,2,8],"N0":[1,4,1,2,8],"TK":[1,3,2,4,11],"VJ":[1,2,1,1,5],"OD":[1,1,1,1,5],"SG":[1,4,1,2,8],"HY":[1,4,1,2,8],"TR":[1,5,1,3,10],"6E":[1,5,1,0,7],"QP":[1,5,1,0,7],"SV":[1,7,2,3,14],"WK":[1,7,2,3,14],"KA":[1,5,1,3,10],"ZF":[1,5,1,3,10],"HH":[1,4,1,2,8],"LO":[1,4,1,2,8],"EO":[1,4,1,2,8],"S7":[1,5,1,3,10],"8L":[1,5,1,1,8],"8M":[1,4,1,1,7],"9H":[1,5,1,1,8],"C6":[1,5,1,1,8],"G2":[1,7,1,1,10],"H4":[1,6,1,1,9],"HB":[1,4,1,1,7],"KY":[1,4,1,1,7],"N4":[1,7,1,1,10],"OM":[1,5,1,1,8],"OQ":[1,5,1,1,8],"PN":[1,5,1,1,8],"VN":[1,7,1,1,10],"WZ":[1,7,1,1,10],"ZH":[1,5,1,1,8],"PRIVATE":[1,1,0,1,3],"CHARTER":[1,2,1,1,5],"DEFAULT":[1,4,1,2,8]},"SYS":{"3K":"Gonow","3U":"Angel Lite","6B":"iPort","6E":"Gonow","8H":"TravelSky","8L":"TravelSky","8M":"iPort","9C":"TravelSky","9H":"TravelSky","AF":"Altea","AI":"Altea","AK":"Gonow","AQ":"TravelSky","AY":"Altea","B2":"ASTRA","BK":"TravelSky","BY":"iPort","C6":"iPort","CA":"TravelSky","CX":"Altea","CZ":"TravelSky","DE":"Altea","DK":"Altea","DV":"TWD","EK":"AS Connect","EO":"Lydia DCS","EY":"Altea","FM":"TravelSky","FY":"Gonow","G2":"iPort","G8":"Gonow","G9":"Altea","GX":"TravelSky","H4":"iPort","HB":"TravelSky","HH":"iPort","HO":"TravelSky","HU":"TravelSky","HX":"iPort","HY":"Altea","IT":"iPort","IX":"Gonow","JQ":"Gonow","KA":"iPort","KC":"Altea","KE":"Altea","KX":"TravelSky","KY":"TravelSky","LJ":"iFlyRes","LO":"iPort","LY":"Altea","MH":"Altea","MU":"TravelSky","N0":"Gonow","N4":"Lydia DCS","NO":"iPort","OD":"Sabre","OM":"iPort","OQ":"TravelSky","OV":"iPort","OZ":"Altea","PG":"Altea","PN":"TravelSky","QP":"Gonow","QR":"Altea","QZ":"Gonow","S7":"TWD","SG":"Gonow","SQ":"Altea","SU":"ASTRA","SV":"Altea","TK":"TOYA","TR":"Gonow","U6":"Gonow","UO":"Gonow","VJ":"iPort","VN":"Altea","W5":"AVIA","WK":"Altea","WY":"Sabre","WZ":"ASTRA","ZF":"ASTRA","ZH":"TravelSky"},"SUPOK":{"AK":["ARR","GATE"],"QZ":["ARR","GATE"],"8M":["ARR","GATE"],"ZF":["CI","ARR","GATE"],"LO":["CI","ARR","GATE"],"N4":["ARR","GATE"],"HH":["CI","ARR","GATE"],"EO":["ARR","GATE"],"S7":["ARR","GATE"],"CZ":["ARR","GATE"],"MU":["GATE"],"FM":["GATE"],"3U":["GATE"],"CA":["ARR","GATE"],"HO":["ARR","GATE"],"HX":["ARR","GATE"],"HU":["GATE"],"6B":["ARR","GATE"],"BY":["ARR","GATE"],"UO":[],"EK":[],"FY":[],"EY":["ARR","GATE"],"AY":["ARR","GATE"],"DV":["CI","ARR","GATE"],"AI":["ARR","GATE"],"IX":["ARR","GATE"],"JQ":["ARR","GATE"],"IT":["CI","ARR","GATE"],"KC":["ARR","GATE"],"OZ":[],"KE":[],"LJ":["ARR"],"NO":["ARR","GATE"],"OV":["ARR","GATE"],"PG":["ARR","GATE"],"PRIVATE":["ARR"],"QR":[],"DE":["ARR","GATE"],"MH":["ARR","GATE"],"OM":["ARR","GATE"],"SQ":["ARR","GATE"],"CX":["ARR","GATE"],"LY":["CI","ARR","GATE"],"SU":["ARR","GATE"],"W5":["ARR","GATE"],"B2":[],"TK":[],"HY":["ARR","GATE"],"OD":["ARR","GATE"],"VJ":["ARR","GATE"],"SG":["ARR","GATE"],"TR":["ARR","GATE"],"6E":["ARR","GATE"],"QP":["ARR","GATE"],"WK":["ARR","GATE"],"SV":["ARR","GATE"],"G9":["ARR","GATE"],"WY":["ARR","GATE"],"9C":["ARR","GATE"],"DK":["CI","ARR","GATE"],"3K":[],"8L":["SUP","CI","GATE","ARR"],"9H":["SUP","CI","GATE","ARR"],"AF":["GATE"],"AQ":["SUP","CI","GATE","ARR"],"C6":[],"G2":["SUP","CI","GATE","ARR"],"G8":[],"HB":[],"KY":["SUP","CI","GATE","ARR"],"N0":[],"OQ":["SUP","CI","GATE","ARR"],"PN":["SUP","CI","GATE","ARR"],"U6":[],"VN":["ARR","GATE"],"WZ":["SUP","CI","GATE","ARR"],"ZH":["SUP","CI","GATE","ARR"]},"CIINTEAM":["EY","QR","EK"]};
 interface SlaAsg { code: string; task: string; STA: string; STD: string; OP: string; CL: string }
 interface SlaPerson { team: string; emp: string; name: string; ds: number | null; de: number | null; asg: SlaAsg[] }
 interface SchedRow { ac: string; sta: string; std: string; cancelled: boolean }
@@ -389,7 +395,8 @@ interface SlaRow {
 }
 type Req = { SUP: number; CI: number; GATE: number; ARR: number; total: number };
 
-function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched: { [k: string]: SchedRow }, pss: { [e: string]: boolean }, rules: { [a: string]: number[] }): SlaRow[] {
+interface SlaFlight { key: string; flight: string; airline: string; STA: string; STD: string; teams: { [t: string]: boolean }; short: { [ph: string]: number }; ok: boolean; noTime: boolean; teamList: string }
+function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched: { [k: string]: SchedRow }, pss: { [e: string]: boolean }, rules: { [a: string]: number[] }): { rows: SlaRow[]; flights: SlaFlight[] } {
   const flights: { [k: string]: { flight: string; airline: string; teams: { [t: string]: boolean }; STA: string; STD: string; OP: string; CL: string; AC: string;
     as: Req; staff: string[] } } = {};
   const teamSups: { [t: string]: number[][] } = {}, teamCounter: { [t: string]: number[][] } = {}, airCnt: { [a: string]: { [t: string]: number } } = {};
@@ -430,6 +437,7 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
     return best;
   };
   const rows: SlaRow[] = [];
+  const fl: SlaFlight[] = [];
   for (const key of Object.keys(flights)) {
     const f = flights[key];
     const w = sched[key];
@@ -470,6 +478,7 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
     if (Object.keys(short).length === 0) shortTotal = 0;
     const ok = Object.keys(short).length === 0 && shortTotal === 0;
     if (home) f.teams[home] = true;
+    fl.push({ key, flight: f.flight, airline: f.airline, STA: f.STA, STD: f.STD, teams: f.teams, short, ok, noTime, teamList: home || Object.keys(f.teams).join(",") });
     const TH: { [k: string]: string } = { SUP: "SUP", CI: "Check-in", GATE: "Gate", ARR: "Arrival" };
     const parts = ["SUP", "CI", "GATE", "ARR"].filter(ph => short[ph]).map(ph => TH[ph] + " ขาด " + short[ph]);
     rows.push({
@@ -487,7 +496,12 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
   const timed: { [n: number]: boolean } = {};
   for (const r of rows) if (!r.no_time) for (const n of (r.flight.match(/\d+/g) || [])) timed[+n] = true;
   for (const r of rows) if (r.no_time) { const nums = (r.flight.match(/\d+/g) || []).map(Number); r.fragment = nums.length > 0 && nums.every(n => timed[n]); }
-  return rows.sort((a, b) => (a.std || a.sta || "zz") < (b.std || b.sta || "zz") ? -1 : 1);
+  const byKey: { [k: string]: SlaRow } = {};
+  for (const r of rows) byKey[r.flight_key] = r;
+  const cmp = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0;
+  rows.sort((a, b) => cmp(a.std || a.sta || "zz", b.std || b.sta || "zz"));
+  const flOut = fl.filter(x => !(byKey[x.key].no_time && byKey[x.key].fragment)).sort((a, b) => cmp(a.STD || a.STA || "zz", b.STD || b.STA || "zz"));
+  return { rows, flights: flOut };
 }
 function skipTeam(team: string): boolean { const t = team.toUpperCase(); return t.indexOf("PORTER") >= 0 || t.indexOf("CREWSIGN") >= 0 || t.indexOf("CREW SIGN") >= 0 || (t.indexOf("ADMIN") >= 0 && t.indexOf("DOC") >= 0); }
 function isFlightName(name: string): boolean {
@@ -582,7 +596,7 @@ function parseRules(json?: string): { [a: string]: number[] } {
 // ======================= ตรวจ Assign (พอร์ตจาก AssignCheck.gs · acAnalyze_ / acAnalyzeRecord_ / acFlightWin_ / acDuty_) =======================
 const AC_COVER_TOL = 60, AC_GAP_MIN = 180, AC_EDGE_MIN = 240, AC_WIN_MAX = 14 * 60;
 interface AcAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string }
-interface AcRec { team: string; name: string; bucket: string; ss: number | null; se: number | null; ot: number; otType: string;
+interface AcRec { team: string; name: string; emp?: string; hrs?: number; bucket: string; ss: number | null; se: number | null; ot: number; otType: string;
   otSpans: { a: number | null; b: number | null; type: string }[]; otTime: string; shiftCode: string; asg: AcAsg[] }
 interface AcRes { status: string; flights: string; job: string; zones: string; support: number; uncovered: string; gaps: string; gapsRaw: string; otVerdict: string; issue: string }
 
@@ -862,6 +876,162 @@ function otGroup(vin: Cell, vout: Cell, vtot: Cell): { a: number | null; b: numb
   if (!(h > 0) && a != null && b != null) { let bb = b; if (bb <= a) bb += 1440; h = Math.round((bb - a) / 60 * 10) / 10; }
   if (!(h > 0) && a == null) return null;
   return { a, b, h: h > 0 ? h : 0 };
+}
+
+
+// ======================= Support / เติมคน (พอร์ตจาก SLA.gs · slaSupportRows_ / slaSupportPool_ / slaCandidates_ / slaOtherCands_) =======================
+const SLA_TRANSIT_MIN = 55, SLA_REST_MIN = 60, SLA_MAX_CAND = 24, WH_SHIFT_MIN = 7, WH_SHIFT_MAX = 12, WH_DAY_HIGH = 14;
+interface PoolP { name: string; emp: string; team: string; posGroup: string; off: boolean; otoff: boolean; rest: boolean; float: boolean; ds: number; de: number;
+  busy: number[][]; hold: number[][]; sys: { [s: string]: boolean }; nflt: number; shiftDisp: string; otDisp: string; hrs: number; hlevel: string; htxt: string; flts: string[] }
+interface SupportRow { Title: string; day_key: string; month_key: string; flight: string; airline: string; system: string; team: string; std: string;
+  phase: string; short_n: number; win: string; win_fb: boolean; no_flight_time: boolean; need_sys: string; block: string; n_cand: number;
+  picks: string; cands_json: string; others_json: string }
+function sysNorm(s: string): string { return String(s || "").toLowerCase().replace(/[\s.]+/g, ""); }
+function sysOf(airline: string): string { return SLA_T.SYS[airline.toUpperCase()] || ""; }
+function needSys(airline: string, ph: string): string { if (ph !== "CI" && ph !== "SUP") return ""; const s = sysOf(airline); return s && sysNorm(s) !== "iport" ? s : ""; }
+function isFloatTeam(team: string): boolean { return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY|CHARTER|\bZF\b/.test(team.toUpperCase()); }
+function canSupport(airline: string, ph: string): { ok: boolean; reason: string } {
+  const a = airline.toUpperCase(), al = SLA_T.ALIAS[a];
+  const c = SLA_T.SUPOK[a] || (al ? SLA_T.SUPOK[al] : undefined);
+  if (!c) return { ok: true, reason: "" };
+  if (!c.length) return { ok: false, reason: "ไม่รับซัพพอร์ต (ใช้คนทีมตัวเอง)" };
+  if (c.indexOf(ph) < 0) return { ok: false, reason: "รับซัพพอร์ตเฉพาะ " + c.filter(x => x !== "SUP").join("/") };
+  return { ok: true, reason: "" };
+}
+function hoursStat(r: AcRec): { level: string; txt: string } {
+  let sh = Math.round((r.hrs || 0) * 10) / 10; const o = Math.round(r.ot * 10) / 10; let total: number;
+  if (r.bucket === "OT_OFF") { sh = 0; total = o; } else total = Math.round((sh + o) * 10) / 10;
+  let level = "ok", txt = "";
+  if (sh > 0 && sh < WH_SHIFT_MIN) { level = "short"; txt = "กะ " + sh + "ช <" + WH_SHIFT_MIN; }
+  else if (sh > WH_SHIFT_MAX) { level = "over"; txt = "กะ " + sh + "ช >" + WH_SHIFT_MAX; }
+  let contig = total;
+  if (r.ss != null) {
+    const iv: number[][] = [];
+    if ((r.hrs || 0) > 0) iv.push([r.ss, r.ss + (r.hrs || 0) * 60]);
+    for (const sp of r.otSpans) if (sp.a != null && sp.b != null) { let b = sp.b; if (b <= sp.a) b += 1440; iv.push([sp.a, b]); }
+    if (!iv.length) contig = 0;
+    else {
+      iv.sort((x, y) => x[0] - y[0]);
+      let maxLen = 0, a = iv[0][0], b = iv[0][1];
+      for (let i = 1; i < iv.length; i++) { if (iv[i][0] <= b + 30) b = Math.max(b, iv[i][1]); else { if (b - a > maxLen) maxLen = b - a; a = iv[i][0]; b = iv[i][1]; } }
+      if (b - a > maxLen) maxLen = b - a;
+      contig = Math.round(maxLen / 60 * 10) / 10;
+    }
+  }
+  if (contig > WH_DAY_HIGH) { level = "high"; txt = "ต่อเนื่อง " + contig + "ช (พักไม่พอ)"; }
+  return { level, txt };
+}
+function phaseWinFull(airline: string, STA: string, STD: string, ph: string): number[] | null {
+  const c = airline.toUpperCase(), al = SLA_T.ALIAS[c];
+  const w = SLA_T.WIN[c] || (al ? SLA_T.WIN[al] : undefined) || SLA_T.WIN.DEFAULT;
+  const std = realMin(STD), sta = realMin(STA), post = w[2];
+  if (ph === "CI") return std != null ? [std + w[0], std + w[1]] : null;
+  if (ph === "GATE") { const gs = sta != null ? sta - 30 : (std != null ? std - 90 : null); const ge = std != null ? std + post : (sta != null ? sta + post : null); return gs != null && ge != null ? [gs, ge] : null; }
+  if (ph === "ARR") { const as = sta != null ? sta - 30 : null; const ae = std != null ? std + post : (sta != null ? sta + post : null); return as != null && ae != null ? [as, ae] : null; }
+  if (ph === "SUP") return std != null ? [std + w[0], std + post] : (sta != null ? [sta - 20, sta + post] : null);
+  return null;
+}
+function phaseWinFb(airline: string, STA: string, STD: string, ph: string): { win: number[] | null; fb: boolean; noTime: boolean } {
+  const w = phaseWinFull(airline, STA, STD, ph); if (w) return { win: w, fb: false, noTime: false };
+  const std = realMin(STD), sta = realMin(STA); let lo: number | null = null, hi: number | null = null;
+  if (std != null && sta != null) { lo = Math.min(sta, std) - 30; hi = Math.max(sta, std) + 30; }
+  else if (std != null) { lo = std - 180; hi = std + 30; }
+  else if (sta != null) { lo = sta - 30; hi = sta + 120; }
+  if (lo != null && hi != null) return { win: [lo, hi], fb: true, noTime: false };
+  return { win: null, fb: false, noTime: true };
+}
+function transitBuf(busy: number[][], winStart: number): number {
+  const prior = busy.filter(b => b[1] <= winStart + 10).sort((a, b) => b[1] - a[1]);
+  let n = 0, ref = winStart;
+  for (const b of prior) { if (ref - b[1] <= SLA_REST_MIN) { n++; ref = b[0]; } else break; }
+  return n >= 2 ? SLA_REST_MIN : SLA_TRANSIT_MIN;
+}
+function freeIn(p: PoolP, win: number[]): boolean {
+  if (!(p.ds <= win[0] + 30 && p.de >= win[1] - 30)) return false;
+  const buf = transitBuf(p.busy, win[0]);
+  for (const b of p.busy) if (win[0] < b[1] + buf && win[1] > b[0] - buf) return false;
+  for (const h of p.hold) if (win[0] < h[1] + buf && win[1] > h[0] - buf) return false;
+  return true;
+}
+function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
+  const sys: { [t: string]: { [s: string]: boolean } } = {};
+  for (const r of recs) for (const a of r.asg) {
+    if (!isFlightName(a.flight) || phasesOf(a.task).indexOf("CI") < 0) continue;
+    const s = sysOf(airlineOf(a.flight)); if (s) (sys[r.team] = sys[r.team] || {})[sysNorm(s)] = true;
+  }
+  for (const r of recs) if (/CHARTER|\bZF\b/i.test(r.team)) (sys[r.team] = sys[r.team] || {}).astra = true;
+  const pool: PoolP[] = [];
+  for (const r of recs) {
+    if (skipTeam(r.team)) continue;
+    const d = acDuty(r);
+    if (d.ds == null || d.de == null) continue;
+    const busy: number[][] = []; for (const a of r.asg) { const w = acFlightWin(a); if (w) busy.push(w); }
+    const flts = r.asg.filter(a => isFlightName(a.flight)).map(a => {
+      const w = acFlightWin(a);
+      return a.flight + (w ? " " + fmtMin(w[0]) + "-" + fmtMin(w[1]) : ((a.STA || a.STD) ? " " + (a.STA || "–") + "-" + (a.STD || "–") : ((a.OP || a.CL) ? " " + (a.OP || "–") + "-" + (a.CL || "–") : "")));
+    });
+    const otoff = r.bucket === "OT_OFF", hs = hoursStat(r);
+    const st = r.ss != null && r.se != null ? fmtMin(r.ss) + "-" + fmtMin(r.se) : "";
+    pool.push({ name: r.name, emp: r.emp || "", team: r.team, posGroup: pg[r.emp || ""] || "", off: false, otoff, rest: otoff, float: isFloatTeam(r.team),
+      ds: d.ds, de: d.de, busy, hold: [], sys: sys[r.team] || {}, nflt: flts.length,
+      shiftDisp: otoff ? "OFF (มา OT)" : (st && st !== r.shiftCode ? (r.shiftCode ? r.shiftCode + " " + st : st) : (r.shiftCode || st || "-")),
+      otDisp: r.ot > 0 ? r.ot + "h " + (otoff ? "OFF" : (r.otType === "PRE" ? "ก่อนกะ" : "หลังกะ")) + (r.otTime ? " " + r.otTime : "") : "-",
+      hrs: Math.round(((r.hrs || 0) + r.ot) * 10) / 10, hlevel: hs.level, htxt: hs.txt, flts });
+  }
+  return pool;
+}
+function candidates(f: SlaFlight, ph: string, pool: PoolP[], max: number, win: number[]): PoolP[] {
+  if (ph === "CI" && SLA_T.CIINTEAM.indexOf(f.airline.toUpperCase()) >= 0) return [];
+  const nn = needSys(f.airline, ph) ? sysNorm(needSys(f.airline, ph)) : "";
+  const c = pool.filter(p => !f.teams[p.team] && !(nn && !p.sys[nn]) && !(ph === "SUP" && p.posGroup !== "PSS" && p.posGroup !== "SNR") && freeIn(p, win));
+  const ovh = (x: PoolP) => x.hlevel === "over" || x.hlevel === "high" ? 1 : 0, rst = (x: PoolP) => x.rest ? 1 : 0;
+  const fit = (x: PoolP) => Math.max(0, win[0] - x.ds) + Math.max(0, x.de - win[1]);
+  const astra = ph === "CI" && nn === "astra", chF = (x: PoolP) => astra && /CHARTER|\bZF\b/i.test(x.team) ? 0 : 1;
+  const PRI: { [k: string]: number } = { PSA: 0, SNR: 1, PSS: 2 }, pri = (x: PoolP) => PRI[x.posGroup] == null ? 3 : PRI[x.posGroup];
+  const tc = (a: string, b: string) => a.localeCompare(b);
+  c.sort((a, b) => rst(a) - rst(b) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || ovh(a) - ovh(b) || chF(a) - chF(b) || fit(a) - fit(b) || a.nflt - b.nflt ||
+    (ph === "SUP" ? (a.posGroup === "PSS" ? 0 : 1) - (b.posGroup === "PSS" ? 0 : 1) : pri(a) - pri(b)) || (a.float ? 0 : 1) - (b.float ? 0 : 1) || tc(a.team, b.team));
+  return max ? c.slice(0, max) : c;
+}
+function otherCands(f: SlaFlight, ph: string, pool: PoolP[], max: number, exclude: string[], win: number[]): PoolP[] {
+  if (ph === "CI" && SLA_T.CIINTEAM.indexOf(f.airline.toUpperCase()) >= 0) return [];
+  const ex: { [n: string]: boolean } = {}; for (const n of exclude) ex[n] = true;
+  const c = pool.filter(p => !ex[p.name] && !f.teams[p.team] && freeIn(p, win));
+  const PRI: { [k: string]: number } = { PSA: 0, SNR: 1, PSS: 2 }, pri = (x: PoolP) => PRI[x.posGroup] == null ? 3 : PRI[x.posGroup];
+  const fit = (x: PoolP) => Math.max(0, win[0] - x.ds) + Math.max(0, x.de - win[1]);
+  c.sort((a, b) => (a.rest ? 1 : 0) - (b.rest ? 1 : 0) || (a.off ? 1 : 0) - (b.off ? 1 : 0) || fit(a) - fit(b) || a.nflt - b.nflt || pri(a) - pri(b) || (a.float ? 0 : 1) - (b.float ? 0 : 1));
+  return max ? c.slice(0, max) : c;
+}
+function candView(c: PoolP): (string | number | boolean)[] {
+  const pos = c.posGroup === "PSS" ? "Sup" : c.posGroup === "SNR" ? "Snr" : c.posGroup === "PSA" ? "Agent" : (c.posGroup || "-");
+  return [c.name, pos, c.team, c.off, c.rest, c.shiftDisp, c.otDisp, c.hrs, c.hlevel, c.htxt, c.nflt, c.flts.join(" · ")];
+}
+function supportRows(day: string, flights: SlaFlight[], recs: AcRec[], pg: { [e: string]: string }): SupportRow[] {
+  const pool = supportPool(recs, pg), out: SupportRow[] = [];
+  const LB: { [k: string]: string } = { SUP: "SUP", CI: "Check-in", GATE: "Gate", ARR: "Arrival" };
+  for (const f of flights) {
+    if (f.ok || f.noTime) continue;
+    for (const ph of ["SUP", "CI", "GATE", "ARR"]) {
+      const n = f.short[ph]; if (!n) continue;
+      const elig = canSupport(f.airline, ph), fbw = phaseWinFb(f.airline, f.STA, f.STD, ph), rwin = fbw.win;
+      const cands = elig.ok && rwin ? candidates(f, ph, pool, SLA_MAX_CAND, rwin) : [];
+      if (rwin) for (const c of cands.slice(0, n)) c.hold.push(rwin);
+      const others = elig.ok && rwin ? otherCands(f, ph, pool, SLA_MAX_CAND, cands.map(c => c.name), rwin) : [];
+      const picks = cands.slice(0, n).map(c => c.name + " / " + c.team);
+      out.push({ Title: day + "|" + f.key + "|" + ph, day_key: day, month_key: day.slice(0, 7), flight: f.flight, airline: f.airline, system: sysOf(f.airline),
+        team: f.teamList, std: f.STD || f.STA || "", phase: LB[ph], short_n: n, win: rwin ? fmtMin(rwin[0]) + "-" + fmtMin(rwin[1]) : "",
+        win_fb: fbw.fb, no_flight_time: fbw.noTime, need_sys: needSys(f.airline, ph), block: elig.ok ? "" : elig.reason, n_cand: cands.length,
+        picks: picks.join("\n"), cands_json: JSON.stringify(cands.map(candView)), others_json: JSON.stringify(others.map(candView)) });
+    }
+  }
+  return out;
+}
+function posGroups(json?: string): { [e: string]: string } {
+  const out: { [e: string]: string } = {};
+  if (!json) return out;
+  const arr: { Title?: string; pos_group?: string }[] = JSON.parse(json);
+  for (const r of arr) if (r.Title) out[String(r.Title)] = String(r.pos_group || "");
+  return out;
 }
 
 // ======================= ตรวจข้อมูล =======================
