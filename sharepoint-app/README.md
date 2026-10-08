@@ -21,6 +21,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `import-master.ts` | **Office Script**: ไฟล์ Manpower (PS-Manpower) หรือ `00.Master.xlsx` → `PAS_Employees` (upsert ตามรหัส · Total + BKK Batch · หาคอลัมน์จากหัวตาราง) |
 | `POWERAPPS-dashboard.md` | หน้า **▦ Dashboard** ครบเท่าเดิม (Hero · HKT/BKK/Globex · Porter · กราฟ · เตือน OT · เทียบ MANPOWER · by Team · by Position) |
 | `POWERAPPS-flights.md` | หน้า **✈ Flights & SLA** (ต้องการ/มีจริง/ขาด ต่อเฟส ต่อไฟลท์ — ตรงกับ SLA.gs ทุกไฟลท์ในชุดทดสอบ) + การ์ดไฟลท์ขาดด่วนบน Dashboard |
+| `POWERAPPS-weekflights.md` | หน้า **🗓️ ไฟลท์สัปดาห์** (จากไฟล์ Assignment · ไฟลท์/วัน · คนตาม SLA ต่อเฟส · คน~ · พีคออก · จัดแล้ว/ขาด) |
 | `POWERAPPS-ot.md` | หน้า **OT Dashboard** (รายเดือน · รายสัปดาห์ · เตือน OT รายคน 36/144 ชม.) — แทนหน้าเดิมของ PAS |
 | `POWERAPPS-weekhours.md` | หน้า **⏱️ ชม./สัปดาห์** (48 ชม. / 7 วัน / OT 36 ต่อสัปดาห์ ตามระเบียบ) — แทนหน้าเดิม |
 | `POWERAPPS-weeksummary.md` | หน้า **📊 สรุปสัปดาห์** (มาทำงาน · ป่วย · แวค · กิจ · OT รายวัน จ.–อา. + รวม) — แทนหน้าเดิม |
