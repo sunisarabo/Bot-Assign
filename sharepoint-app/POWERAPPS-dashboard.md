@@ -5,9 +5,9 @@
 | # | ส่วน (เดิม) | ใหม่ | แหล่งข้อมูล |
 |---|---|---|---|
 | 0 | 🎌 แถบวันหยุดประเพณี | ✅ | `PAS_Manpower.is_holiday` + `PAS_Holidays` |
-| 1 | Hero: % มาปฏิบัติงาน · ทำงาน/ทั้งหมด · OFF/OT OFF/Sick/Vac · OT คน/ชม. · ไฟลท์ขาดคน | ✅ (ไฟลท์ขาดคน = หลังทำ Flights & SLA) | `PAS_Manpower` (ตัวนับรายทีม) |
+| 1 | Hero: % มาปฏิบัติงาน · ทำงาน/ทั้งหมด · OFF/OT OFF/Sick/Vac · OT คน/ชม. · ไฟลท์ขาดคน | ✅ (ไฟลท์ขาดคน: `POWERAPPS-flights.md` ข้อ 4) | `PAS_Manpower` (ตัวนับรายทีม) |
 | 2 | 👷 กำลังพลแยกกลุ่ม HKT / BKK / Globex × ตำแหน่ง | ✅ | `PAS_Duty` × `PAS_Employees` |
-| 3 | 🚨 ไฟลท์ต้องเสริมด่วน | ⏳ ใส่กรอบไว้ — เติมเมื่อทำ Flights & SLA | — |
+| 3 | 🚨 ไฟลท์ต้องเสริมด่วน | ✅ ดู `POWERAPPS-flights.md` ข้อ 4 | `PAS_FlightSLA` |
 | 4 | 🧳 เคส Porter วันนี้ | ✅ | `PAS_Porter` |
 | 5 | 📊 Working/Total ต่อทีม · 🧭 ภาพรวมสถานะ | ✅ | `PAS_Manpower` |
 | 6 | ⏱️ OT แยกประเภท (คน / ชม.) | ✅ ปรับ: **ในวันทำงาน · วันหยุด (OT OFF) · นักขัต X1** | `PAS_Manpower` |

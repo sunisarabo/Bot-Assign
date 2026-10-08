@@ -96,10 +96,11 @@
     if (L.seed && L.seed.length) {                                  // แถวตั้งต้น (เช่น วันหยุด) — เพิ่มเฉพาะ day_key ที่ยังไม่มี
       const info = await sp("GET", lp + "?$select=ListItemEntityTypeFullName");
       const type = info.d.ListItemEntityTypeFullName;
-      const rows = (await sp("GET", lp + "/items?$select=day_key&$top=5000")).d.results || [];
-      const haveKey = new Set(rows.map(r => r.day_key));
+      const sk = L.seedKey || "day_key";                            // คอลัมน์ที่ใช้เช็คว่ามีแถวนี้แล้ว (แก้ค่าเองได้ ไม่ถูกทับ)
+      const rows = (await sp("GET", lp + "/items?$select=" + sk + "&$top=5000")).d.results || [];
+      const haveKey = new Set(rows.map(r => String(r[sk])));
       for (const it of L.seed) {
-        if (haveKey.has(it.day_key)) continue;
+        if (haveKey.has(String(it[sk]))) continue;
         await sp("POST", lp + "/items", Object.assign({ __metadata: { type } }, it));
         seeded++;
       }

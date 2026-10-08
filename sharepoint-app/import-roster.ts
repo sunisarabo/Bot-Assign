@@ -7,6 +7,11 @@
  *   workDate  = "YYYY-MM-DD" (ไม่บังคับ — ใส่เมื่ออยากบังคับวันที่)
  *   siteUrl   = URL ไซต์ (ไม่บังคับ — ค่าเริ่มต้น SITE)
  *   holidays  = JSON วันหยุดประเพณีจาก List PAS_Holidays (ไม่บังคับ) → มาทำงานวันนั้น = OT นักขัต X1 เท่าชั่วโมงกะ
+ *   schedule  = JSON ตารางบินวันนั้นจาก PAS_Flights [{flight_key, aircraft_type, sta, std, cancelled}] (ไม่บังคับ — เติม A/C TYPE/เวลาให้ SLA)
+ *   pss       = JSON รหัสพนักงานตำแหน่ง PSS (หัวหน้า) จาก PAS_Employees (ไม่บังคับ — เครดิต SUP ผู้กำกับดูแล)
+ *   dateOnly  = "1" → คืนแค่ work_date (อ่าน MANPOWER อย่างเดียว — เร็ว) ให้ flow ดึงตารางบินของวันนั้นก่อนรันจริง
+ *   rules     = JSON กฎกำลังคนต่อสายการบินจาก PAS_SLARules [{Title, sup, ci, arr, gate, total}] (ไม่บังคับ — แทน STANDARD MANNING เดิม)
+ *   → PAS_FlightSLA: ไฟลท์ทุกไฟลท์ของวัน + ต้องการ/มีจริงต่อเฟส + ขาด (พอร์ตจาก SLA.gs slaCollectFlights_)
  *
  * OT (ตรงกับระบบเดิม): ot_total = OT ปกติ + OT นักขัต · แถวซัพพอร์ต "ชื่อ (ทีม)" ไม่นับ OT
  *   PAS_Manpower = OT รายทีม/วัน (OT Dashboard) · PAS_OT_Person = OT รายคน/วัน เฉพาะคนที่มี OT (เตือนสัปดาห์/เดือน)
@@ -36,10 +41,10 @@ interface AsgRow { Title: string; day_key: string; work_date: string; team: stri
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
 interface Batch { list: string; boundary: string; body: string; n: number }
-interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number }; batches: Batch[] }
+interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
-function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string): Result {
+function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string): Result {
   const path = filePath || "";
   const warnings: string[] = [];
   const empty = (reason: string, iso: string, src: string): Result =>
@@ -58,6 +63,8 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   if (!pick && hdr) pick = { iso: hdr.iso, source: "MANPOWER header" };
   if (pick && hdr && hdr.iso !== pick.iso) warnings.push("วันที่หัว MANPOWER (" + hdr.iso + ") ไม่ตรงกับ " + pick.source + " (" + pick.iso + ")");
 
+  if (dateOnly && pick) return { status: "date", reason: "", work_date: pick.iso, date_source: pick.source, warnings, counts: { teams: 0, duty: 0, assignment: 0, ot_people: 0, issues: 0 }, batches: [] };   // flow ขอแค่วันที่ (ไว้ดึงตารางบินของวันนั้นก่อน)
+
   // ---- ทีม ----
   const teams = readTeams(workbook, mv);
   if (!teams.length) return empty("ไม่ใช่ไฟล์เวร PSA (ไม่พบ Team (..) ใน MANPOWER และไม่พบแท็บที่มีหัว FLIGHT)", pick ? pick.iso : "", pick ? pick.source : "");
@@ -73,10 +80,12 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   addBatches(batches, site, "PAS_Duty", p.duty);
   addBatches(batches, site, "PAS_Assignment", p.assignment);
   addBatches(batches, site, "PAS_OT_Person", p.otPerson);
+  const sla = computeSla(pick.iso, p.slaPeople, p.teamNames, parseSched(schedule), codeSet(pss), parseRules(rules));
   addBatches(batches, site, "PAS_DataIssue", p.issues);
+  addBatches(batches, site, "PAS_FlightSLA", sla);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
-    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length }, batches
+    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length }, batches
   };
 }
 
@@ -102,6 +111,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   const issues: IssueRow[] = [];
   const idTeams: { [emp: string]: { teams: string[]; name: string } } = {};
   const tabDates: { [team: string]: string } = {};
+  const slaPeople: SlaPerson[] = [];
   for (const t of teams) {
     const ws = workbook.getWorksheet(t.code);
     let people = 0;
@@ -153,11 +163,14 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
           addIssue(issues, day, "offflt", t.code, name, "ชีตเขียนหยุด (OFF/X) แต่ถูกจัดลงไฟลท์ " + fltCells.map(f => f.code).join(", ") + " — ถ้ามาทำงานให้แก้เป็น Onduty · ถ้ามาช่วย OT ให้กรอกชั่วโมง OT");
 
         const iv: number[][] = [];
+        const sp: SlaPerson = { team: t.code, emp, name, ds, de: de == null ? null : de, asg: [] };
+        if (isWork(bucket)) slaPeople.push(sp);
         if (isWork(bucket)) for (const f of flights) {
           const cells = [0, 1, 2, 3].map(k => String(row[f.base + k] == null ? "" : row[f.base + k]).trim()).filter(x => x !== "");
           if (!cells.length) continue;
           const w = winOf(f);
           if (w) iv.push(w);
+          sp.asg.push({ code: f.code, task: cells.filter(x => !/^\d{1,2}[:.]\d{2}$/.test(x)).join(" "), STA: f.STA, STD: f.STD, OP: f.OP, CL: f.CL });
           assignment.push({
             Title: f.code, day_key: day, work_date: day, team: t.code, emp_code: emp, emp_name: name,
             task: cells.join(" ").slice(0, 255), sta: f.STA, std: f.STD, counter_open: f.OP, counter_close: f.CL,
@@ -223,7 +236,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       if (tabDates[tm] && tabDates[tm] !== maj)
         addIssue(issues, day, "staledate", tm, "วันที่บนแท็บ = " + tabDates[tm], "แท็บนี้เป็นวันที่ " + tabDates[tm] + " แต่ทีมส่วนใหญ่เป็น " + maj + " — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)");
   }
-  return { manpower, duty, assignment, otPerson, issues };
+  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: teams.map(x => x.code) };
 }
 
 // ======================= SharePoint $batch =======================
@@ -331,6 +344,211 @@ function normDate(s: string): string {
   return m ? m[1] + "-" + pad(+m[2]) + "-" + pad(+m[3]) : "";
 }
 function baseName(p: string): string { const s = p.split("/"); return s[s.length - 1] || ""; }
+
+
+// ======================= Flights & SLA (พอร์ตจาก SLA.gs · slaCollectFlights_ / slaReq_ / slaPhasesOf_) =======================
+// ตารางคัดจาก SLA.gs อัตโนมัติ: RQ=[SUP,CI,ARR,GATE,TTL] ต่อสาย · AC=ต่อชนิดเครื่อง · ALIAS · WIN=[ci,cc,post] (นาทีเทียบ STD) · DBREQ=สายที่ใช้ roles
+const SLA_T: { RQ: { [a: string]: number[] }; AC: { [a: string]: (string | number)[][] }; ALIAS: { [a: string]: string }; WIN: { [a: string]: number[] }; DBREQ: { [a: string]: number[] } } = {"RQ":{"3K":[1,4,1,1,8],"3U":[1,4,1,1,8],"6B":[1,5,2,1,10],"6E":[1,5,1,1,9],"8L":[1,4,1,1,8],"8M":[1,3,1,1,7],"9C":[1,5,1,1,9],"9H":[1,4,1,1,8],"AF":[1,9,1,1,13],"AI":[1,6,1,1,9],"AK":[1,4,1,1,8],"AQ":[1,3,1,1,7],"AY":[1,5,1,1,9],"B2":[1,6,1,1,10],"BY":[1,5,2,1,10],"C6":[1,4,1,1,8],"CA":[1,6,1,1,10],"CX":[1,6,2,1,11],"CZ":[1,6,1,1,10],"DE":[1,6,2,1,11],"DK":[1,4,1,1,8],"DV":[1,4,1,1,8],"EK":[1,7,4,1,14],"EO":[1,6,1,1,10],"EY":[1,7,1,1,12],"FM":[1,4,1,1,8],"FY":[1,3,1,1,6],"G2":[1,6,1,1,10],"G8":[1,4,1,1,8],"G9":[1,4,1,1,8],"H4":[1,5,1,1,9],"HB":[1,3,1,1,7],"HH":[1,4,1,1,8],"HO":[1,4,1,1,8],"HU":[1,6,1,1,10],"HX":[1,5,1,1,9],"HY":[1,5,1,1,8],"IT":[1,4,1,1,7],"IX":[1,4,1,1,7],"JQ":[1,7,1,1,10],"KC":[1,5,1,1,9],"KE":[1,8,1,1,11],"KY":[1,3,1,1,7],"LJ":[1,4,1,1,8],"LO":[1,6,1,1,10],"LY":[1,7,4,1,14],"MH":[1,4,1,1,8],"MU":[1,4,1,1,8],"N0":[1,5,1,1,9],"N4":[1,6,1,1,10],"NO":[1,6,1,1,10],"OD":[1,4,1,1,7],"OM":[1,4,1,1,8],"OQ":[1,4,1,1,8],"OV":[1,4,1,1,8],"OZ":[1,6,1,1,10],"PG":[1,0,1,2,8],"PN":[1,4,1,1,8],"QP":[1,5,1,1,9],"QR":[1,11,3,1,17],"QZ":[1,4,1,1,8],"S7":[1,4,1,1,8],"SG":[1,4,1,1,7],"SQ":[1,4,1,1,8],"SU":[1,8,1,1,12],"SV":[1,7,2,1,12],"TK":[1,8,4,1,15],"TR":[1,5,1,1,10],"U6":[1,4,1,1,8],"UO":[1,4,2,1,8],"VJ":[1,4,1,1,8],"VN":[1,7,1,1,10],"W5":[1,7,2,1,12],"WK":[1,6,2,1,11],"WY":[1,7,1,1,11],"WZ":[1,6,1,1,10],"ZF":[1,6,1,1,10],"ZH":[1,4,1,1,8]},"AC":{"QR":[["B777",11,3,1,17],["B787",9,2,1,14]],"EY":[["B787-9",6,1,1,11],["B787-10",7,1,1,12],["A321Neo",5,1,1,11]],"KE":[["A333/B772/B787",7,1,1,10],["B773",8,1,1,11]],"SU":[["B777",8,1,1,12],["A333",7,1,1,11],["B737/A320/A321Neo",4,1,1,8]],"TR":[["A320",3,1,1,8],["A321",4,1,1,9],["B787",5,1,1,10]],"JQ":[["B787",7,1,1,10],["A321Neo",5,1,1,8]],"AK":[["A320",3,1,1,7],["A321",4,1,1,8]],"QZ":[["A320",3,1,1,7],["A321",4,1,1,8]],"PG":[["A319/320",0,1,2,8],["ATR",0,1,1,6]],"CX":[["A330",6,2,1,11],["A321NEO",5,2,1,10]],"KC":[["A320",4,1,1,8],["B737",5,1,1,9]],"6E":[["A321",5,1,1,9],["A320",4,1,1,8]],"CA":[["A320/B737",4,1,1,8],["A330",6,1,1,10]],"CZ":[["A320",4,1,1,8],["A321",4,1,1,8],["A330",6,1,1,10]],"HU":[["B737",4,1,1,8],["A330",6,1,1,10]],"SV":[["B789",6,2,1,11],["B78X",7,2,1,12]],"VN":[["A320/A321",5,1,1,8],["B787/A350",7,1,1,10]]},"ALIAS":{"3K":"JQ","GX":"CA","KX":"CA","8H":"CA","BK":"CA","PVT":"PRIVATE"},"WIN":{"SQ":[-240,-40,30],"CX":[-240,-60,30],"LY":[-240,-60,30],"QR":[-240,-45,30],"MH":[-240,-60,30],"DE":[-240,-45,30],"PG":[-45,-15,20],"AK":[-180,-60,20],"QZ":[-180,-60,20],"SU":[-180,-40,30],"B2":[-180,-40,30],"W5":[-180,-40,30],"3U":[-180,-60,30],"CA":[-180,-50,30],"MU":[-180,-50,30],"CZ":[-180,-45,30],"FM":[-180,-50,30],"HO":[-180,-45,30],"HU":[-180,-50,30],"AQ":[-180,-45,30],"HX":[-240,-50,30],"EY":[-180,-60,45],"AY":[-180,-60,30],"DV":[-180,-60,30],"KE":[-240,-45,30],"KC":[-240,-45,30],"OZ":[-180,-45,30],"NO":[-180,-45,30],"AF":[-240,-45,30],"LJ":[-180,-45,20],"OV":[-180,-45,20],"WY":[-180,-60,20],"G9":[-180,-60,20],"DK":[-180,-60,20],"9C":[-180,-45,20],"EK":[-240,-60,30],"UO":[-180,-45,20],"FY":[-144,-45,20],"6B":[-180,-45,20],"BY":[-180,-45,20],"AI":[-180,-45,20],"IX":[-180,-45,20],"JQ":[-180,-60,20],"IT":[-180,-45,20],"N0":[-180,-45,20],"TK":[-180,-60,30],"VJ":[-180,-45,20],"OD":[-180,-45,20],"SG":[-180,-45,20],"HY":[-180,-45,20],"TR":[-150,-60,20],"6E":[-180,-45,20],"QP":[-180,-45,20],"SV":[-240,-45,30],"WK":[-198,-45,30],"KA":[-180,-45,20],"ZF":[-180,-45,20],"HH":[-180,-45,20],"LO":[-180,-45,20],"EO":[-180,-45,20],"S7":[-180,-45,20],"8L":[-180,-45,20],"8M":[-180,-45,20],"9H":[-180,-45,20],"C6":[-180,-45,20],"G2":[-180,-45,20],"H4":[-180,-45,20],"HB":[-180,-45,20],"KY":[-180,-45,20],"N4":[-180,-45,20],"OM":[-180,-45,20],"OQ":[-180,-45,20],"PN":[-180,-45,20],"VN":[-180,-45,20],"WZ":[-180,-45,20],"ZH":[-180,-45,20],"PRIVATE":[-60,-20,20],"CHARTER":[-120,-30,20],"DEFAULT":[-180,-45,20]},"DBREQ":{"SQ":[1,6,0,6,13],"CX":[1,7,0,7,15],"LY":[1,8,0,4,13],"QR":[1,12,3,4,20],"MH":[1,4,1,3,9],"DE":[1,5,1,4,11],"PG":[1,0,2,7,9],"AK":[1,3,1,3,8],"QZ":[1,3,1,3,8],"SU":[1,16,1,5,23],"B2":[1,7,0,0,8],"W5":[1,7,0,0,8],"3U":[1,4,1,5,11],"CA":[1,6,1,4,12],"MU":[1,5,1,4,11],"CZ":[1,4,1,4,10],"FM":[1,5,1,4,11],"HO":[1,4,2,3,10],"HU":[1,4,1,4,10],"AQ":[1,4,1,3,9],"HX":[1,5,1,4,11],"EY":[1,4,1,5,11],"AY":[1,4,1,3,9],"DV":[1,4,1,3,9],"KE":[1,5,1,1,8],"KC":[1,6,1,1,9],"OZ":[1,4,1,1,7],"NO":[1,4,1,1,7],"AF":[1,5,2,1,9],"LJ":[1,4,1,1,7],"OV":[1,4,1,1,7],"WY":[1,6,1,6,15],"G9":[1,4,1,0,6],"DK":[1,4,1,0,6],"9C":[1,4,1,1,7],"EK":[1,6,4,5,16],"UO":[1,4,2,3,10],"FY":[1,3,1,3,8],"6B":[1,4,1,3,9],"BY":[1,4,1,3,9],"AI":[1,3,2,5,12],"IX":[1,4,0,0,5],"JQ":[1,5,3,6,15],"IT":[1,4,1,2,8],"N0":[1,4,1,2,8],"TK":[1,3,2,4,11],"VJ":[1,2,1,1,5],"OD":[1,1,1,1,5],"SG":[1,4,1,2,8],"HY":[1,4,1,2,8],"TR":[1,5,1,3,10],"6E":[1,5,1,0,7],"QP":[1,5,1,0,7],"SV":[1,7,2,3,14],"WK":[1,7,2,3,14],"KA":[1,5,1,3,10],"ZF":[1,5,1,3,10],"HH":[1,4,1,2,8],"LO":[1,4,1,2,8],"EO":[1,4,1,2,8],"S7":[1,5,1,3,10],"8L":[1,5,1,1,8],"8M":[1,4,1,1,7],"9H":[1,5,1,1,8],"C6":[1,5,1,1,8],"G2":[1,7,1,1,10],"H4":[1,6,1,1,9],"HB":[1,4,1,1,7],"KY":[1,4,1,1,7],"N4":[1,7,1,1,10],"OM":[1,5,1,1,8],"OQ":[1,5,1,1,8],"PN":[1,5,1,1,8],"VN":[1,7,1,1,10],"WZ":[1,7,1,1,10],"ZH":[1,5,1,1,8],"PRIVATE":[1,1,0,1,3],"CHARTER":[1,2,1,1,5],"DEFAULT":[1,4,1,2,8]}};
+interface SlaAsg { code: string; task: string; STA: string; STD: string; OP: string; CL: string }
+interface SlaPerson { team: string; emp: string; name: string; ds: number | null; de: number | null; asg: SlaAsg[] }
+interface SchedRow { ac: string; sta: string; std: string; cancelled: boolean }
+interface SlaRow {
+  Title: string; day_key: string; month_key: string; flight: string; flight_key: string; airline: string; ac: string; sta: string; std: string;
+  team_list: string; req_sup: number; req_ci: number; req_gate: number; req_arr: number; req_total: number;
+  as_sup: number; as_ci: number; as_gate: number; as_arr: number; as_total: number;
+  short_sup: number; short_ci: number; short_gate: number; short_arr: number; short_total: number; short_text: string;
+  ok: boolean; no_time: boolean; fragment: boolean; ferry: boolean; sched_cancelled: boolean; unassigned: boolean; redist: string; staff_text: string
+}
+type Req = { SUP: number; CI: number; GATE: number; ARR: number; total: number };
+
+function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched: { [k: string]: SchedRow }, pss: { [e: string]: boolean }, rules: { [a: string]: number[] }): SlaRow[] {
+  const flights: { [k: string]: { flight: string; airline: string; teams: { [t: string]: boolean }; STA: string; STD: string; OP: string; CL: string; AC: string;
+    as: Req; staff: string[] } } = {};
+  const teamSups: { [t: string]: number[][] } = {}, teamCounter: { [t: string]: number[][] } = {}, airCnt: { [a: string]: { [t: string]: number } } = {};
+  for (const p of people) {
+    if (skipTeam(p.team)) continue;
+    if (pss[p.emp] && p.ds != null && p.de != null) (teamSups[p.team] = teamSups[p.team] || []).push([p.ds, p.de]);
+    if (p.asg.some(a => /^\s*(COUNTER\b|CT\s?\d)/i.test(a.code)) && p.ds != null && p.de != null) (teamCounter[p.team] = teamCounter[p.team] || []).push([p.ds, p.de]);
+    for (const a of p.asg) {
+      const raw = a.code.trim();
+      if (!isFlightName(raw)) continue;
+      const al = airlineOf(raw);
+      if (al && al !== "DEFAULT") { const c = airCnt[al] = airCnt[al] || {}; c[p.team] = (c[p.team] || 0) + 1; }
+      const key = flightKeyOf(raw);
+      if (!key || /SUU?PP?ORT/i.test(key)) continue;
+      const f = flights[key] = flights[key] || { flight: raw, airline: airlineOf(key), teams: {}, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, AC: "", as: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
+      f.teams[p.team] = true;
+      if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD; if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL;
+      const phs = phasesOf(a.task);
+      if (!phs.length) { f.staff.push(p.name + " (" + p.team + ") " + a.task + " [เทรน]"); continue; }
+      for (const ph of phs) (f.as as { [k: string]: number })[ph]++;
+      f.as.total++;
+      f.staff.push(p.name + " (" + p.team + ") " + (a.task || "CI") + " → " + phs.join("/"));
+    }
+  }
+  // ไฟลท์ในตารางบินที่ "ยังไม่มีใครถูกจัด" แต่สายนั้นทีมเราทำวันนี้ → เพิ่มเป็นไฟลท์ขาดทั้งไฟลท์ (หน้าเดิมไม่แสดง — เพิ่มใหม่)
+  for (const k of Object.keys(sched)) {
+    const w = sched[k], al = airlineOf(k);
+    if (flights[k] || w.cancelled || !airCnt[al]) continue;
+    flights[k] = { flight: k, airline: al, teams: {}, STA: w.sta, STD: w.std, OP: "", CL: "", AC: "", as: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
+    (flights[k] as { unassigned?: boolean }).unassigned = true;
+  }
+  const homeTeamOf = (airline: string): string => {
+    const a = airline.toUpperCase(); if (!a) return "";
+    for (const t of teamNames) if (t.toUpperCase() === a) return t;
+    for (const t of teamNames) if (t.toUpperCase().split(/[^A-Z0-9]+/).indexOf(a) >= 0) return t;
+    let best = "", bn = -1;
+    for (const t of Object.keys(airCnt[a] || {})) if (airCnt[a][t] > bn) { bn = airCnt[a][t]; best = t; }
+    return best;
+  };
+  const rows: SlaRow[] = [];
+  for (const key of Object.keys(flights)) {
+    const f = flights[key];
+    const w = sched[key];
+    let cancelled = false;
+    if (w) { if (!f.AC && w.ac) f.AC = w.ac; if (!f.STA && w.sta) f.STA = w.sta; if (!f.STD && w.std) f.STD = w.std; cancelled = !!w.cancelled; }
+    const req = slaReq(f.airline, f.AC, rules);
+    const akNum = f.airline === "AK" ? +((f.flight.match(/\d{3,4}/) || ["0"])[0]) : 0;
+    const ferry = akNum >= 1000;
+    if (ferry) { req.CI = 0; req.ARR = 0; req.GATE = 0; req.total = req.SUP; }
+    const home = homeTeamOf(f.airline);
+    const dep = realMin(f.STD), arr0 = realMin(f.STA);
+    let hasDep = dep != null, hasArr = arr0 != null;
+    if (hasArr && hasDep && arr0 === dep) hasArr = false;              // STA=STD = RON (ขาออกอย่างเดียว)
+    const noTime = !hasDep && !hasArr;
+    if (!noTime) {
+      let extra = Math.max(0, req.total - (req.SUP + req.CI + req.GATE + req.ARR));
+      if (!hasDep) { req.CI = 0; req.GATE = 0; extra = 0; }
+      if (!hasArr) req.ARR = 0;
+      req.total = req.SUP + req.CI + req.GATE + req.ARR + extra;
+    }
+    const as = f.as;
+    if (req.SUP > 0 && as.SUP === 0) {                                // เครดิตหัวหน้าทีมที่ทำงานคาบช่วงไฟลท์
+      let sw = phaseWin(f.airline, f.STA, f.STD, "SUP"); const sm = dep != null ? dep : arr0;
+      if (!sw && sm != null) sw = [sm - 30, sm + 30];
+      if (sw && Object.keys(f.teams).some(t => (teamSups[t] || []).some(x => x[0] <= (sw as number[])[1] && x[1] >= (sw as number[])[0]))) as.SUP = req.SUP;
+    }
+    if (req.CI > 0 && as.CI < req.CI && home && teamCounter[home]) {   // เครดิต common check-in ของทีมเจ้าของ
+      const ciw = phaseWin(f.airline, f.STA, f.STD, "CI");
+      if (ciw) { const nC = teamCounter[home].filter(x => x[0] <= ciw[1] && x[1] >= ciw[0]).length; if (nC > 0) as.CI = Math.min(req.CI, as.CI + nC); }
+    }
+    const short: { [ph: string]: number } = {};
+    for (const ph of ["SUP", "CI", "GATE", "ARR"]) { const d = (req as { [k: string]: number })[ph] - (as as { [k: string]: number })[ph]; if (d > 0) short[ph] = d; }
+    const redist: string[] = [];
+    let ramp = Math.max(0, as.GATE - req.GATE) + Math.max(0, as.ARR - req.ARR);
+    for (const ph of ["ARR", "GATE"]) if (short[ph] && ramp > 0) { const use = Math.min(short[ph], ramp); short[ph] -= use; ramp -= use; redist.push(ph); if (short[ph] <= 0) delete short[ph]; }
+    let shortTotal = Math.max(0, req.total - as.total);
+    if (shortTotal === 0) for (const ph of ["CI", "GATE", "ARR"]) if (short[ph]) { redist.push(ph); delete short[ph]; }
+    if (Object.keys(short).length === 0) shortTotal = 0;
+    const ok = Object.keys(short).length === 0 && shortTotal === 0;
+    if (home) f.teams[home] = true;
+    const TH: { [k: string]: string } = { SUP: "SUP", CI: "Check-in", GATE: "Gate", ARR: "Arrival" };
+    const parts = ["SUP", "CI", "GATE", "ARR"].filter(ph => short[ph]).map(ph => TH[ph] + " ขาด " + short[ph]);
+    rows.push({
+      Title: day + "|" + key, day_key: day, month_key: day.slice(0, 7), flight: f.flight, flight_key: key, airline: f.airline,
+      ac: f.AC, sta: f.STA, std: f.STD, team_list: home || Object.keys(f.teams).join(","),
+      req_sup: req.SUP, req_ci: req.CI, req_gate: req.GATE, req_arr: req.ARR, req_total: req.total,
+      as_sup: as.SUP, as_ci: as.CI, as_gate: as.GATE, as_arr: as.ARR, as_total: as.total,
+      short_sup: short.SUP || 0, short_ci: short.CI || 0, short_gate: short.GATE || 0, short_arr: short.ARR || 0, short_total: shortTotal,
+      short_text: parts.length ? parts.join(" · ") : (shortTotal ? "ขาดรวม " + shortTotal : ""),
+      ok, no_time: noTime, fragment: false, ferry, sched_cancelled: cancelled,
+      unassigned: !!(f as { unassigned?: boolean }).unassigned, redist: redist.join(","), staff_text: f.staff.join("\n").slice(0, 4000)
+    });
+  }
+  // เศษขา: ไฟลท์ไม่มีเวลาที่เลขไฟลท์ทุกตัวไปซ้ำกับไฟลท์ที่มีเวลา → ซ่อนได้
+  const timed: { [n: number]: boolean } = {};
+  for (const r of rows) if (!r.no_time) for (const n of (r.flight.match(/\d+/g) || [])) timed[+n] = true;
+  for (const r of rows) if (r.no_time) { const nums = (r.flight.match(/\d+/g) || []).map(Number); r.fragment = nums.length > 0 && nums.every(n => timed[n]); }
+  return rows.sort((a, b) => (a.std || a.sta || "zz") < (b.std || b.sta || "zz") ? -1 : 1);
+}
+function skipTeam(team: string): boolean { const t = team.toUpperCase(); return t.indexOf("PORTER") >= 0 || t.indexOf("CREWSIGN") >= 0 || t.indexOf("CREW SIGN") >= 0 || (t.indexOf("ADMIN") >= 0 && t.indexOf("DOC") >= 0); }
+function isFlightName(name: string): boolean {
+  const s = name.trim().toUpperCase(); if (!s) return false;
+  if (/^(COUNTER|GATE|CHECK|ZONE|BELT|PIER|STBY|STAND|POOL|OFFICE|BRIEF|NIL|OFF\b|LP\s+(MORNING|AFTERNOON|NIGHT|DAY))/.test(s)) return false;
+  return /^(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s*\d{2,4}/.test(s);
+}
+function airlineOf(flight: string): string { const s = flight.trim().toUpperCase(); const m = s.match(/^([0-9A-Z]{2})\s*\d/); if (m) return m[1]; const m2 = s.match(/([A-Z]{1,3})\s*\d/); return m2 ? m2[1] : "DEFAULT"; }
+function flightKeyOf(raw: string): string {
+  const s = raw.trim().toUpperCase(), air = airlineOf(s);
+  const rest = air && air !== "DEFAULT" ? s.replace(new RegExp("^" + air + "\\s*"), "") : s;
+  const m = rest.match(/\d+/);
+  return m ? air + String(parseInt(m[0], 10)) : s.replace(/[\s.\/]+/g, "");
+}
+function phasesOf(task: string): string[] {
+  const u = task.toUpperCase();
+  if (!u) return ["CI"];
+  if (/TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR/.test(u)) return [];
+  const p: { [k: string]: boolean } = {};
+  if (/\bSUP\b|SPVR|\bSOD\b|\bSM\b|\bFC\b|\bCF\b|FLT\s*CTRL|FLIGHT\s*CONTROL/.test(u)) p.SUP = true;
+  if (/\bARR\b|ARRIVAL|MEET|\bAC\b|\bRF\b|ESCORT|BIR|CIQ|IMMIG/.test(u)) p.ARR = true;
+  if (/\bG[ABCKM]?\b|GATE|BOARD|BGO|BOCO|MAAS|PFD|GBD|DEPART|(^|[\s\/])D\b|(^|[\s\/])I\b/.test(u)) p.GATE = true;
+  if (/\bCT\d|\bCT\b|\bC\d|^C\b|\bY\d?\b|\bJ\d?\b|\bW\d|\bB\d|\bF\d|WEB|KIOSK|\bKSK\b|BAG\s?DROP|PRIO|PSM|\bPSC\b|\bSD\b|CHECK|CKIN|CREW|\bCS\b|\bFR\b|COUNTER|\bIPAD\b|WEL\s*G(?:ST|UEST)|WELCOME\s*G/.test(u)) p.CI = true;
+  if (/\bNO\s*-?\s*GATE\b|NON\s*-?\s*GATE|\bNO\s*GT\b|งดเกท|ไม่\s*(?:ต้อง)?\s*(?:ไป|ขึ้น)?\s*เกท/.test(u)) delete p.GATE;
+  const k = Object.keys(p);
+  return k.length ? k : ["CI"];
+}
+function slaReq(airline: string, ac: string, rules: { [a: string]: number[] }): Req {
+  const c = airline.toUpperCase(), al = SLA_T.ALIAS[c];
+  if (ac && SLA_T.AC[c]) { const pk = acPick(SLA_T.AC[c], ac); if (pk) return { SUP: 1, CI: +pk[1], ARR: +pk[2], GATE: +pk[3], total: +pk[4] }; }
+  const ro = rules[c] || (al ? rules[al] : undefined);
+  if (ro) return { SUP: ro[0] || 1, CI: ro[1], ARR: ro[2], GATE: ro[3], total: ro[4] };
+  const rq = SLA_T.RQ[c] || (al ? SLA_T.RQ[al] : undefined);
+  if (rq) return { SUP: 1, CI: rq[1], ARR: rq[2], GATE: rq[3], total: rq[4] };
+  const db = SLA_T.DBREQ[c] || (al ? SLA_T.DBREQ[al] : undefined) || SLA_T.DBREQ.DEFAULT;
+  return { SUP: 1, CI: db[1], ARR: db[2], GATE: db[3], total: db[4] };
+}
+function acModel(s: string): string { return s.toUpperCase().replace(/\([^)]*\)/g, "").split(/\s+-\s+/)[0].replace(/\s+/g, ""); }
+function acToks(s: string, fam: boolean): string[] {
+  const out: string[] = []; let last = "";
+  for (let x of acModel(s).split("/")) {
+    x = x.replace(/NEO$/, "");
+    const m = x.match(/^([AB])?(\d.*)$/);
+    if (m) { const L = m[1] || last; if (m[1]) last = m[1]; const tok = L + m[2]; out.push(tok); if (fam && /^B78[0-9X]$/.test(tok)) out.push("B787"); }
+    else if (x) out.push(x);
+  }
+  return out;
+}
+function acPick(rows: (string | number)[][], ac: string): (string | number)[] | null {
+  for (const fam of [false, true]) {
+    const q = acToks(ac, fam); if (!q.length) continue;
+    for (const r of rows) { const f = acToks(String(r[0]), fam);
+      for (const Q of q) for (const F of f) if (Q && F && (Q === F || Q.indexOf(F) === 0 || F.indexOf(Q) === 0)) return r; }
+  }
+  return null;
+}
+function realMin(x: string): number | null { const m = String(x || "").match(/(\d{1,2}):(\d{2})/); const v = m ? (+m[1]) * 60 + (+m[2]) : 0; return v ? v : null; }
+function phaseWin(airline: string, STA: string, STD: string, ph: string): number[] | null {
+  const c = airline.toUpperCase();
+  const w = SLA_T.WIN[c] || (SLA_T.ALIAS[c] ? SLA_T.WIN[SLA_T.ALIAS[c]] : undefined) || SLA_T.WIN.DEFAULT;
+  const std = realMin(STD), sta = realMin(STA), post = w[2];
+  if (ph === "CI") return std != null ? [std + w[0], std + w[1]] : null;
+  if (ph === "SUP") return std != null ? [std + w[0], std + post] : (sta != null ? [sta - 20, sta + post] : null);
+  return null;
+}
+function parseSched(json?: string): { [k: string]: SchedRow } {
+  const out: { [k: string]: SchedRow } = {};
+  if (!json) return out;
+  const arr: { flight_key?: string; flight_no?: string; aircraft_type?: string; sta?: string; std?: string; cancelled?: boolean }[] = JSON.parse(json);
+  for (const r of arr) {
+    const k = r.flight_key || (r.flight_no ? flightKeyOf(r.flight_no) : "");
+    if (k && !out[k]) out[k] = { ac: r.aircraft_type || "", sta: r.sta || "", std: r.std || "", cancelled: !!r.cancelled };
+  }
+  return out;
+}
+function codeSet(json?: string): { [k: string]: boolean } {
+  const out: { [k: string]: boolean } = {};
+  if (!json) return out;
+  const arr: (string | { Title?: string; emp_code?: string })[] = JSON.parse(json);
+  for (const x of arr) { const k = typeof x === "string" ? x : (x.Title || x.emp_code || ""); if (k) out[String(k)] = true; }
+  return out;
+}
+function parseRules(json?: string): { [a: string]: number[] } {
+  const out: { [a: string]: number[] } = {};
+  if (!json) return out;
+  const arr: { Title?: string; sup?: number; ci?: number; arr?: number; gate?: number; total?: number }[] = JSON.parse(json);
+  for (const r of arr) if (r.Title && r.ci != null) out[String(r.Title).toUpperCase()] = [r.sup || 1, +(r.ci || 0), +(r.arr || 0), +(r.gate || 0), +(r.total || 0)];
+  return out;
+}
 
 // ======================= ตรวจข้อมูล =======================
 function addIssue(out: IssueRow[], day: string, category: string, team: string, who: string, detail: string) {

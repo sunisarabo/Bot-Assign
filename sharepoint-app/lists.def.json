@@ -672,6 +672,888 @@
    ]
   },
   {
+   "title": "PAS_FlightSLA",
+   "desc": "ไฟลท์ของวัน + กำลังคนต้องการ/มีจริงต่อเฟส + ขาด (คำนวณตอนนำเข้าเวร · พอร์ตจาก SLA.gs)",
+   "titleLabel": "key (date|flight)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "flight",
+     "type": "Text"
+    },
+    {
+     "name": "flight_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "airline",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "ac",
+     "type": "Text"
+    },
+    {
+     "name": "sta",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "std",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "team_list",
+     "type": "Text"
+    },
+    {
+     "name": "req_sup",
+     "type": "Number"
+    },
+    {
+     "name": "req_ci",
+     "type": "Number"
+    },
+    {
+     "name": "req_gate",
+     "type": "Number"
+    },
+    {
+     "name": "req_arr",
+     "type": "Number"
+    },
+    {
+     "name": "req_total",
+     "type": "Number"
+    },
+    {
+     "name": "as_sup",
+     "type": "Number"
+    },
+    {
+     "name": "as_ci",
+     "type": "Number"
+    },
+    {
+     "name": "as_gate",
+     "type": "Number"
+    },
+    {
+     "name": "as_arr",
+     "type": "Number"
+    },
+    {
+     "name": "as_total",
+     "type": "Number"
+    },
+    {
+     "name": "short_sup",
+     "type": "Number"
+    },
+    {
+     "name": "short_ci",
+     "type": "Number"
+    },
+    {
+     "name": "short_gate",
+     "type": "Number"
+    },
+    {
+     "name": "short_arr",
+     "type": "Number"
+    },
+    {
+     "name": "short_total",
+     "type": "Number"
+    },
+    {
+     "name": "short_text",
+     "type": "Text"
+    },
+    {
+     "name": "ok",
+     "type": "Boolean",
+     "indexed": true
+    },
+    {
+     "name": "no_time",
+     "type": "Boolean"
+    },
+    {
+     "name": "fragment",
+     "type": "Boolean"
+    },
+    {
+     "name": "ferry",
+     "type": "Boolean"
+    },
+    {
+     "name": "sched_cancelled",
+     "type": "Boolean"
+    },
+    {
+     "name": "unassigned",
+     "type": "Boolean"
+    },
+    {
+     "name": "redist",
+     "type": "Text"
+    },
+    {
+     "name": "staff_text",
+     "type": "Note"
+    }
+   ]
+  },
+  {
+   "title": "PAS_SLARules",
+   "desc": "กำลังคนมาตรฐานต่อเที่ยวบิน ต่อสายการบิน (แทนชีต STANDARD MANNING · แก้ได้ · ค่าตั้งต้นจาก SLA.gs)",
+   "titleLabel": "airline",
+   "seedKey": "Title",
+   "fields": [
+    {
+     "name": "sup",
+     "type": "Number"
+    },
+    {
+     "name": "ci",
+     "type": "Number"
+    },
+    {
+     "name": "arr",
+     "type": "Number"
+    },
+    {
+     "name": "gate",
+     "type": "Number"
+    },
+    {
+     "name": "total",
+     "type": "Number"
+    },
+    {
+     "name": "note",
+     "type": "Text"
+    }
+   ],
+   "seed": [
+    {
+     "Title": "3K",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "3U",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "6B",
+     "sup": 1,
+     "ci": 5,
+     "arr": 2,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "6E",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "8L",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "8M",
+     "sup": 1,
+     "ci": 3,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "9C",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "9H",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "AF",
+     "sup": 1,
+     "ci": 9,
+     "arr": 1,
+     "gate": 1,
+     "total": 13,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "AI",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "AK",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "AQ",
+     "sup": 1,
+     "ci": 3,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "AY",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "B2",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "BY",
+     "sup": 1,
+     "ci": 5,
+     "arr": 2,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "C6",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "CA",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "CX",
+     "sup": 1,
+     "ci": 6,
+     "arr": 2,
+     "gate": 1,
+     "total": 11,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "CZ",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "DE",
+     "sup": 1,
+     "ci": 6,
+     "arr": 2,
+     "gate": 1,
+     "total": 11,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "DK",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "DV",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "EK",
+     "sup": 1,
+     "ci": 7,
+     "arr": 4,
+     "gate": 1,
+     "total": 14,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "EO",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "EY",
+     "sup": 1,
+     "ci": 7,
+     "arr": 1,
+     "gate": 1,
+     "total": 12,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "FM",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "FY",
+     "sup": 1,
+     "ci": 3,
+     "arr": 1,
+     "gate": 1,
+     "total": 6,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "G2",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "G8",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "G9",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "H4",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "HB",
+     "sup": 1,
+     "ci": 3,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "HH",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "HO",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "HU",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "HX",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "HY",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "IT",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "IX",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "JQ",
+     "sup": 1,
+     "ci": 7,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "KC",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "KE",
+     "sup": 1,
+     "ci": 8,
+     "arr": 1,
+     "gate": 1,
+     "total": 11,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "KY",
+     "sup": 1,
+     "ci": 3,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "LJ",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "LO",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "LY",
+     "sup": 1,
+     "ci": 7,
+     "arr": 4,
+     "gate": 1,
+     "total": 14,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "MH",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "MU",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "N0",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "N4",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "NO",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "OD",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "OM",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "OQ",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "OV",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "OZ",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "PG",
+     "sup": 1,
+     "ci": 0,
+     "arr": 1,
+     "gate": 2,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "PN",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "QP",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 9,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "QR",
+     "sup": 1,
+     "ci": 11,
+     "arr": 3,
+     "gate": 1,
+     "total": 17,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "QZ",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "S7",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "SG",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 7,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "SQ",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "SU",
+     "sup": 1,
+     "ci": 8,
+     "arr": 1,
+     "gate": 1,
+     "total": 12,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "SV",
+     "sup": 1,
+     "ci": 7,
+     "arr": 2,
+     "gate": 1,
+     "total": 12,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "TK",
+     "sup": 1,
+     "ci": 8,
+     "arr": 4,
+     "gate": 1,
+     "total": 15,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "TR",
+     "sup": 1,
+     "ci": 5,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "U6",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "UO",
+     "sup": 1,
+     "ci": 4,
+     "arr": 2,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "VJ",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "VN",
+     "sup": 1,
+     "ci": 7,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "W5",
+     "sup": 1,
+     "ci": 7,
+     "arr": 2,
+     "gate": 1,
+     "total": 12,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "WK",
+     "sup": 1,
+     "ci": 6,
+     "arr": 2,
+     "gate": 1,
+     "total": 11,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "WY",
+     "sup": 1,
+     "ci": 7,
+     "arr": 1,
+     "gate": 1,
+     "total": 11,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "WZ",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "ZF",
+     "sup": 1,
+     "ci": 6,
+     "arr": 1,
+     "gate": 1,
+     "total": 10,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    },
+    {
+     "Title": "ZH",
+     "sup": 1,
+     "ci": 4,
+     "arr": 1,
+     "gate": 1,
+     "total": 8,
+     "note": "SLA_Systems_Airlines (ค่าตั้งต้น)"
+    }
+   ]
+  },
+  {
    "title": "PAS_DataIssue",
    "desc": "จุดที่ควรแก้ในไฟล์เวร (ตรวจตอนนำเข้า) — หน้า 🩺 ตรวจข้อมูล",
    "titleLabel": "key (date|category|n)",
