@@ -7,6 +7,7 @@
 | การ์ด | OT รวม · จำนวนทีม · จำนวนเดือน · ทีมสูงสุด | เหมือนเดิม |
 | แท็บ **รายเดือน** | กราฟแท่ง OT รายทีม + ตาราง ทีม × เดือน | เหมือนเดิม |
 | แท็บ **รายสัปดาห์** | เลือกเดือน → ตาราง ทีม × (1-7, 8-14, 15-21, 22-สิ้นเดือน) | เหมือนเดิม |
+| **เพิ่ม:** กราฟ OT เทียบไฟลท์ | — | แท่ง OT ชม. + เส้นจำนวนไฟลท์ (รายวัน/รายเดือน) · OT ต่อไฟลท์ · วันที่ OT สูงเกินงาน (ข้อ 6.5) |
 | แท็บ **เตือน OT** | (อยู่ในรายงานประจำวัน) | สัปดาห์ จ.–อา. > 36 ชม. · เดือน > 144 ชม. · ใกล้ถึง ≥ 30 / ≥ 130 |
 
 **ตัวเลข OT** = OT ปกติ + OT นักขัต X1 (มาทำงานวันหยุดประเพณี = ชั่วโมงกะ) · **ไม่นับแถวซัพพอร์ต** "ชื่อ (ทีม)" — กติกาเดียวกับเดิม
@@ -113,6 +114,84 @@ Sort(
   คอลัมน์: `team` · `1-7` = `w1` · `8-14` = `w2` · `15-21` = `w3` · `22-สิ้นเดือน` = `w4` · `รวม` = `mt`
   (ช่องที่เป็น 0 แสดง `"·"`: `If(ThisItem.w1 > 0, Text(ThisItem.w1, "#,##0.0"), "·")`)
 - กราฟแท่งของเดือนที่เลือก: ใช้ gallery แบบข้อ 5 กับ `Items` ด้านบน ค่า = `mt`
+
+## 6.5) กราฟ OT เทียบจำนวนไฟลท์ (แท่ง = OT ชม. · เส้น = ไฟลท์)
+ดูว่า OT ขึ้นตามงาน (ไฟลท์) หรือไม่ — วันที่ไฟลท์ไม่เพิ่มแต่ OT สูง = ควรตรวจการจัดเวร/OT
+ข้อมูล: `PAS_DayStats` (1 แถว/วัน · Flow B เขียนตอนนำเข้าเวร) — **ไฟลท์นับจากไฟล์ assignment** (ไม่นับยกเลิก/ยังไม่จัดคน/เศษขา) · OT = OT ปกติ + นักขัต (ตัวเลขเดียวกับการ์ด OT)
+> ข้อมูลก่อนอัปเดตนี้: กด **Flow C** โฟลเดอร์ปีซ้ำ 1 ครั้ง ให้เติม `PAS_DayStats` ย้อนหลัง
+
+**ต่อท้าย `btnLoadOT.OnSelect`:**
+```powerapps
+Clear(colDS);
+ForAll(Sequence(12, 1) As m, Collect(colDS, Filter(PAS_DayStats, month_key = Text(varOTYear) & "-" & Text(m.Value, "00"))));
+If(IsBlank(varOTChart), Set(varOTChart, "day"));
+Select(btnOTSeries)
+```
+**ปุ่มซ่อน `btnOTSeries.OnSelect`** (สร้างชุดข้อมูลกราฟตามโหมด):
+```powerapps
+If(varOTChart = "day",
+    // รายวันของเดือนที่เลือก (ddOTMonth ในแท็บรายสัปดาห์ หรือเดือนล่าสุดที่มีข้อมูล)
+    With({mm: Coalesce(ddOTMonth.Selected.Value, varOTMonth)},
+        With({nd: Day(DateAdd(Date(varOTYear, mm + 1, 1), -1, TimeUnit.Days))},
+            ClearCollect(colSeries, ForAll(Sequence(nd, 1) As d,
+                With({r: LookUp(colDS, day_key = Text(varOTYear) & "-" & Text(mm, "00") & "-" & Text(d.Value, "00"))},
+                    { i: d.Value, lb: Text(d.Value), has: !IsBlank(r), hol: Coalesce(r.is_holiday, false),
+                      ot: Coalesce(r.ot_total, 0), fl: Coalesce(r.flights, 0), wk: Coalesce(r.working, 0) }))))),
+    // รายเดือนทั้งปี
+    ClearCollect(colSeries, ForAll(Sequence(12, 1) As m,
+        With({rs: Filter(colDS, month_key = Text(varOTYear) & "-" & Text(m.Value, "00"))},
+            { i: m.Value, lb: Index(varTHM, m.Value).Value, has: !IsEmpty(rs), hol: false,
+              ot: Round(Sum(rs, ot_total), 1), fl: Sum(rs, flights), wk: Sum(rs, working) }))));
+Set(varSerOT, Max(50, RoundUp(Max(colSeries, ot) / 50, 0) * 50));        // สเกลแกนซ้าย (ชม.) ปัดขึ้นทีละ 50
+Set(varSerFL, Max(50, RoundUp(Max(colSeries, fl) / 50, 0) * 50))         // สเกลแกนขวา (ไฟลท์)
+```
+ปุ่มสลับ 2 ปุ่มบนหัวการ์ด: `Set(varOTChart, "day"); Select(btnOTSeries)` "รายวัน" · `Set(varOTChart, "month"); Select(btnOTSeries)` "รายเดือน"
+และต่อท้าย `ddOTMonth.OnChange`: `Select(btnOTSeries)`
+
+**Image `imgOTvsFlt`** · Width = Parent.Width · Height 280 · ImagePosition Fit
+```powerapps
+With({n: Max(1, CountRows(colSeries)), L: 46, R: 46, T: 14, B: 30, W: 720, H: 280},
+With({bw: (W - L - R) / n, ih: H - T - B},
+"data:image/svg+xml;utf8," & EncodeUrl(
+"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 720 280' font-family='Segoe UI, Leelawadee UI, sans-serif' font-size='11'>" &
+// เส้นกริด + ตัวเลขแกนซ้าย (OT ชม.) และขวา (ไฟลท์) ที่ 0/25/50/75/100%
+Concat([0, 0.25, 0.5, 0.75, 1] As g,
+    "<line x1='" & L & "' x2='" & (W - R) & "' y1='" & (T + ih - g.Value * ih) & "' y2='" & (T + ih - g.Value * ih) & "' stroke='#DDE3EE'/>" &
+    "<text x='" & (L - 6) & "' y='" & (T + ih - g.Value * ih + 4) & "' fill='#A86300' text-anchor='end'>" & Round(g.Value * varSerOT, 0) & "</text>" &
+    "<text x='" & (W - R + 6) & "' y='" & (T + ih - g.Value * ih + 4) & "' fill='#1D428A'>" & Round(g.Value * varSerFL, 0) & "</text>") &
+// แท่ง OT (ชม.) — วันหยุดนักขัตสีเข้มกว่า
+Concat(Filter(colSeries, has) As s,
+    "<rect x='" & (L + (s.i - 1) * bw + bw * 0.18) & "' y='" & (T + ih - s.ot / varSerOT * ih) & "' width='" & (bw * 0.64) &
+    "' height='" & (s.ot / varSerOT * ih) & "' rx='2' fill='" & If(s.hol, "#C77700", "#F2C46B") & "'/>") &
+// เส้นไฟลท์ + จุด
+"<polyline fill='none' stroke='#1D428A' stroke-width='2.2' stroke-linejoin='round' points='" &
+Concat(Filter(colSeries, has) As s, (L + (s.i - 0.5) * bw) & "," & (T + ih - s.fl / varSerFL * ih), " ") & "'/>" &
+Concat(Filter(colSeries, has) As s,
+    "<circle cx='" & (L + (s.i - 0.5) * bw) & "' cy='" & (T + ih - s.fl / varSerFL * ih) & "' r='2.6' fill='#1D428A'/>") &
+// ป้ายแกนนอน (รายวัน: ทุก 5 วัน · รายเดือน: ทุกเดือน)
+Concat(Filter(colSeries, varOTChart = "month" || Mod(i, 5) = 0 || i = 1) As s,
+    "<text x='" & (L + (s.i - 0.5) * bw) & "' y='" & (H - 10) & "' fill='#5A6782' text-anchor='middle'>" & s.lb & "</text>") &
+"<text x='" & L & "' y='10' fill='#A86300'>OT (ชม.)</text><text x='" & (W - R) & "' y='10' fill='#1D428A' text-anchor='end'>ไฟลท์</text>" &
+"</svg>")))
+```
+คำอธิบายสี (Label + สี่เหลี่ยมเล็ก): แท่งเหลือง `#F2C46B` = OT ชม. · แท่งส้มเข้ม `#C77700` = วันหยุดนักขัต · เส้นน้ำเงิน `#1D428A` = จำนวนไฟลท์
+
+**ตัวเลขใต้กราฟ (3 ป้าย):**
+| ป้าย | Text |
+|---|---|
+| OT ต่อไฟลท์ | `With({f: Sum(Filter(colSeries, has), fl)}, If(f > 0, Text(Sum(Filter(colSeries, has), ot) / f, "0.00") & " ชม./ไฟลท์", "—"))` |
+| OT ต่อคนทำงาน | `With({w: Sum(Filter(colSeries, has), wk)}, If(w > 0, Text(Sum(Filter(colSeries, has), ot) / w, "0.00") & " ชม./คน", "—"))` |
+| ไฟลท์เฉลี่ย / วัน | `Round(Average(Filter(colSeries, has), fl), 0) & " ไฟลท์"` (รายเดือน: ใช้ `fl` ต่อเดือน) |
+
+**🔎 วันที่ OT สูงเกินงาน** (รายวันเท่านั้น) — Gallery `Items`:
+```powerapps
+With({avg: Sum(Filter(colSeries, has), ot) / Max(1, Sum(Filter(colSeries, has), fl))},
+    FirstN(SortByColumns(
+        AddColumns(Filter(colSeries, has && fl > 0 && ot / fl > avg * 1.3), ratio, Round(ot / fl, 2), over, Round(ot - fl * avg, 1)),
+        "over", SortOrder.Descending), 5))
+```
+แถว: `"วันที่ " & ThisItem.lb & " · OT " & ThisItem.ot & " ชม. · ไฟลท์ " & ThisItem.fl & " → " & ThisItem.ratio & " ชม./ไฟลท์ (เกินค่าเฉลี่ย ~" & ThisItem.over & " ชม.)"` · pill ส้ม (`T.warnSoft`/`T.warn`)
+กดแถว → ไปดูวันนั้น: `Set(varDay, Text(varOTYear) & "-" & Text(Coalesce(ddOTMonth.Selected.Value, varOTMonth), "00") & "-" & Text(ThisItem.i, "00")); Select(btnLoad); Set(varTab, "dash")`
 
 ## 7) แท็บเตือน OT รายคน (`varOTTab = "alert"`)
 **การ์ด:**

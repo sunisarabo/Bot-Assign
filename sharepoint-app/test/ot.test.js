@@ -41,4 +41,8 @@ ok(c.cnt_work === 1 && c.cnt_sick === 2 && c.cnt_vac === 2 && c.cnt_personal ===
   "หัวรายวัน: ทำงาน 1 (ซ้ำ/ซัพพอร์ตไม่นับ) · ป่วย 2 · แวค 2 · กิจ 2 (ลากิจ/ML) · อบรม 1 → " + [c.cnt_work, c.cnt_sick, c.cnt_vac, c.cnt_personal, c.cnt_training]);
 ok(c.cnt_staff === 9 && c.cnt_off === 1 && c.cnt_ot_off === 0, "staff 9 (ไม่นับซัพพอร์ต/แถวซ้ำ) · OFF 1 → " + [c.cnt_staff, c.cnt_off, c.cnt_ot_off]);
 ok(rows(main(wb, "Shared Documents/2026/10.OCT26/08OCT.xlsx"), "PAS_Manpower")[0].cnt_ot_off === 1, "OT_OFF นับแยก");
+// สรุปรายวัน (กราฟ OT เทียบไฟลท์)
+const ds = rows(main(wb, "Shared Documents/2026/10.OCT26/08OCT.xlsx"), "PAS_DayStats");
+ok(ds.length === 1 && ds[0].Title === "2026-10-08" && ds[0].ot_total === 9.5 && ds[0].ot_people === 2 && ds[0].working === 3 && ds[0].flights === 0,
+  "PAS_DayStats 1 แถว/วัน: OT 9.5 · คน OT 2 · ทำงาน 3 (รวม OT OFF · ไม่นับซัพพอร์ต) · ไฟลท์ 0 → " + JSON.stringify(ds[0]));
 console.log(bad ? bad + " FAILED" : "ALL PASSED"); process.exit(bad ? 1 : 0);

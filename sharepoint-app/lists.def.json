@@ -226,6 +226,55 @@
    ]
   },
   {
+   "title": "PAS_DayStats",
+   "desc": "สรุป 1 แถว/วัน (คำนวณตอนนำเข้าเวร): จำนวนไฟลท์จากไฟล์ assignment · ไฟลท์ขาด SLA · คนตาม SLA · คนทำงาน · OT — ใช้กราฟ OT เทียบไฟลท์ (ทั้งปีโหลดครั้งเดียว)",
+   "titleLabel": "day_key",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "flights",
+     "type": "Number"
+    },
+    {
+     "name": "flights_short",
+     "type": "Number"
+    },
+    {
+     "name": "people_req",
+     "type": "Number"
+    },
+    {
+     "name": "working",
+     "type": "Number"
+    },
+    {
+     "name": "ot_people",
+     "type": "Number"
+    },
+    {
+     "name": "ot_hours",
+     "type": "Number"
+    },
+    {
+     "name": "ot_total",
+     "type": "Number"
+    },
+    {
+     "name": "is_holiday",
+     "type": "Boolean"
+    }
+   ]
+  },
+  {
    "title": "PAS_Duty",
    "desc": "เวรรายคน/วัน",
    "titleLabel": "key (date|team|emp)",

@@ -92,6 +92,12 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   addBatches(batches, site, "PAS_FlightSLA", sla);
   addBatches(batches, site, "PAS_Support", support);
   addBatches(batches, site, "PAS_AutoPlan", auto);
+  // สรุปรายวัน 1 แถว — กราฟ OT เทียบจำนวนไฟลท์ (ไฟลท์ = จากไฟล์ assignment แบบเดียวกับหน้าไฟลท์สัปดาห์)
+  const live = sla.filter(x => !x.sched_cancelled && !x.unassigned && !(x.no_time && x.fragment));
+  const sumMp = (f: (m: MpRow) => number) => round1(p.manpower.reduce((s, m) => s + f(m), 0));
+  addBatches(batches, site, "PAS_DayStats", [{ Title: pick.iso, day_key: pick.iso, month_key: pick.iso.slice(0, 7),
+    flights: live.length, flights_short: live.filter(x => !x.ok && !x.no_time).length, people_req: live.reduce((s, x) => s + x.req_sup + Math.max(x.req_ci, x.req_gate) + x.req_arr, 0),
+    working: sumMp(m => m.cnt_work), ot_people: sumMp(m => m.ot_people), ot_hours: sumMp(m => m.ot_hours), ot_total: sumMp(m => m.ot_total), is_holiday: !!hol[pick.iso] }]);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
     counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length, support: support.length, auto: auto.length }, batches

@@ -39,7 +39,7 @@ If(Left(varOaWE, 7) <> varOaMK, Collect(colOaLed, Filter(PAS_OT_Person, month_ke
 ```powerapps
 // ในแต่ละแถว: ตัวแปรช่วย (Label ซ่อน หรือใช้ With ในทุกช่อง)
 With({m: Filter(colOaMp, day_key = ThisItem.k)},
-    With({work: Sum(m, cnt_work) + Sum(m, cnt_ot_off), ppl: Sum(m, ot_people)},
+    With({work: Sum(m, cnt_work), ppl: Sum(m, ot_people)},
         { ok: !IsEmpty(m), work: work, otoff: Sum(m, cnt_ot_off), otoffH: Round(Sum(m, ot_off_hours), 1),
           pre: Sum(m, ot_pre_people), preH: Round(Sum(m, ot_pre_hours), 1), post: Sum(m, ot_post_people), postH: Round(Sum(m, ot_post_hours), 1),
           ppl: ppl, hrs: Round(Sum(m, ot_hours), 1), ratio: If(work > 0, ppl / work, 0) }))
@@ -57,7 +57,7 @@ With({m: Filter(colOaMp, day_key = ThisItem.k)},
 ช่องวันที่ i (ทำ 4 ช่อง i = 0..3 — หรือ Gallery แนวนอนซ้อน `Items = varOaDays`):
 ```powerapps
 With({r: LookUp(colOaMp, team = ThisItem.Value && day_key = Index(varOaDays, 1).k)},     // เปลี่ยน 1 → 2/3/4
-    With({ppl: r.cnt_ot_off + r.ot_pre_people + r.ot_post_people, work: r.cnt_work + r.cnt_ot_off},
+    With({ppl: r.cnt_ot_off + r.ot_pre_people + r.ot_post_people, work: r.cnt_work},
         If(IsBlank(r), "-", Text(ppl))))
 ```
 สีพื้น: ratio = `ppl / work` → `≥ 0.40` แดง `#fdecec` · `≥ 0.25` ส้ม `#fff3e0`
