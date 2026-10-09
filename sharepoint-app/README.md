@@ -19,6 +19,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `provision-lists.js` | สคริปต์วางใน **Console ของเบราว์เซอร์** บนไซต์ → สร้าง Lists ทั้งหมด + โฟลเดอร์ `PAS-Import` สำรอง (รันซ้ำได้) |
 | `import-roster.ts` | **Office Script**: อ่านไฟล์เวร (MANPOWER + แท็บทีม) → แถวพร้อมลง List (คำนวณ Util/busy ให้แล้ว) · **หาวันที่จาก path** (รองรับเดือนใหม่/ปีใหม่ · EN/ไทย · ค.ศ./พ.ศ.) · ส่งออกเป็น `$batch` |
 | `import-master.ts` | **Office Script**: ไฟล์ Manpower (PS-Manpower) หรือ `00.Master.xlsx` → `PAS_Employees` (upsert ตามรหัส · Total + BKK Batch · หาคอลัมน์จากหัวตาราง) |
+| `POWERAPPS-theme.md` | **หน้าตาใหม่ "PAS Control Tower"** — ธีมกลาง (`App.Formulas`) · เมนูข้าง 5 กลุ่ม · แถบหัว · การ์ด/KPI/pill · กราฟ SVG · มือถือ · ตัวอย่างหน้าตา <https://claude.ai/artifact/6oNVJXUgfdhVsfAy4dj6MX> |
 | `POWERAPPS-dashboard.md` | หน้า **▦ Dashboard** ครบเท่าเดิม (Hero · HKT/BKK/Globex · Porter · กราฟ · เตือน OT · เทียบ MANPOWER · by Team · by Position) |
 | `POWERAPPS-flights.md` | หน้า **✈ Flights & SLA** (ต้องการ/มีจริง/ขาด ต่อเฟส ต่อไฟลท์ — ตรงกับ SLA.gs ทุกไฟลท์ในชุดทดสอบ) + การ์ดไฟลท์ขาดด่วนบน Dashboard |
 | `POWERAPPS-weekflights.md` | หน้า **🗓️ ไฟลท์สัปดาห์** (จากไฟล์ Assignment · ไฟลท์/วัน · คนตาม SLA ต่อเฟส · คน~ · พีคออก · จัดแล้ว/ขาด) |
