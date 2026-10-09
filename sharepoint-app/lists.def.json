@@ -2165,7 +2165,8 @@
       "PORTER",
       "PREWC",
       "FLIGHTS",
-      "ADVPLAN"
+      "ADVPLAN",
+      "HSOT"
      ]
     },
     {
@@ -2265,6 +2266,62 @@
     {
      "name": "ot_total",
      "type": "Number"
+    }
+   ]
+  },
+  {
+   "title": "PAS_OT_Request",
+   "desc": "OT ที่ขอจริงจาก HumanSoft (นำเข้าด้วย import-hsot · Flow H) — เทียบกับแผน OT ในไฟล์เวร (PAS_OT_Person) ที่หน้า 🔍 ตรวจ OT",
+   "titleLabel": "key (date|emp|seq)",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_code",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_name",
+     "type": "Text"
+    },
+    {
+     "name": "position",
+     "type": "Text"
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "time_start",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "time_end",
+     "type": "Text",
+     "minutes": true
+    },
+    {
+     "name": "hours",
+     "type": "Number"
+    },
+    {
+     "name": "reason",
+     "type": "Text"
+    },
+    {
+     "name": "source_file",
+     "type": "Text"
     }
    ]
   },

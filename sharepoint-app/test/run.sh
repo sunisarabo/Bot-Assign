@@ -28,3 +28,6 @@ echo "module.exports.advPlanDay=advPlanDay;module.exports.advScanFrontline=advSc
 node "$D/advance-parity.test.js" "$O/import-roster.js"
 tsc --strict --target es2017 --lib es2017 --noEmit "$D/excelscript.d.ts" "$D/../import-advroster.ts"
 echo "import-advroster.ts compiles"
+tsc --strict --target es2017 --lib es2017 --outDir "$O/h" "$D/excelscript.d.ts" "$D/../import-hsot.ts"
+echo "module.exports={main};" >> "$O/h/import-hsot.js"
+node "$D/hsot-parity.test.js" "$O/h/import-hsot.js"

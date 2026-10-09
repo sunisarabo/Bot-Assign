@@ -15,7 +15,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 ## ไฟล์ในโฟลเดอร์นี้
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `lists.def.json` | นิยามฐานข้อมูล: 19 Lists + คอลัมน์ + ชนิด + index (แหล่งเดียว แก้ที่นี่) |
+| `lists.def.json` | นิยามฐานข้อมูล: 20 Lists + คอลัมน์ + ชนิด + index (แหล่งเดียว แก้ที่นี่) |
 | `provision-lists.js` | สคริปต์วางใน **Console ของเบราว์เซอร์** บนไซต์ → สร้าง Lists ทั้งหมด + โฟลเดอร์ `PAS-Import` สำรอง (รันซ้ำได้) |
 | `import-roster.ts` | **Office Script**: อ่านไฟล์เวร (MANPOWER + แท็บทีม) → แถวพร้อมลง List (คำนวณ Util/busy ให้แล้ว) · **หาวันที่จาก path** (รองรับเดือนใหม่/ปีใหม่ · EN/ไทย · ค.ศ./พ.ศ.) · ส่งออกเป็น `$batch` |
 | `import-master.ts` | **Office Script**: ไฟล์ Manpower (PS-Manpower) หรือ `00.Master.xlsx` → `PAS_Employees` (upsert ตามรหัส · Total + BKK Batch · หาคอลัมน์จากหัวตาราง) |
@@ -25,6 +25,8 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `POWERAPPS-assigncheck.md` | หน้า **🧭 ตรวจ Assign** รายคน (ไฟลท์ในกะ/OT/นอกกะ · ช่วงว่าง · OT เหมาะสม? — ตรงกับ AssignCheck.gs ทุกคอลัมน์ในชุดทดสอบ) |
 | `POWERAPPS-support.md` | หน้า **🆘 Support / เติมคน** (ไฟลท์ขาด → ใครว่าง+รู้ระบบมาช่วย · ข้อความ SOS — ตรงกับ SLA.gs ทุกแถวในชุดทดสอบ) |
 | `import-advroster.ts` | **Office Script** (สร้างจาก `import-roster.ts` ด้วย `node build.js`): ROSTER ล่วงหน้า + `PAS_Flights` + `PAS_Employees` → แผนจัดล่วงหน้า · Flow G ใน `FLOW-advance.md` |
+| `import-hsot.ts` | **Office Script**: ไฟล์ OT ขอจริงจาก HumanSoft → `PAS_OT_Request` (อ่านเหมือน OTCompare.gs) · Flow H ใน `FLOW-hsot.md` |
+| `POWERAPPS-otahead.md` | หน้า **🔮 OT ล่วงหน้า** (ต่อวัน · รายทีม · รายคน 36/144) + **🔍 ตรวจ OT** (ขอจริง HumanSoft vs แผนในไฟล์เวร — เลือกวันใดก็ได้) |
 | `POWERAPPS-advance.md` | หน้า **📅 จัดล่วงหน้า** (7 บทบาทต่อไฟลท์ · คนให้ OT คลุมได้ · คนพัก · หลายวัน — ตรงกับ AdvancePlan.gs ทุกไฟลท์ในชุดทดสอบ) |
 | `POWERAPPS-autoassign.md` | หน้า **🤖 Auto Assign** (เติมจาก Assign เดิม + จัดเวรใหม่ทั้งหมดตาม SLA + คนพัก/สำรอง + ข้อความแจ้งรายทีม — ตรงกับ AutoPlan.gs ทุกแถวในชุดทดสอบ) |
 | `POWERAPPS-ot.md` | หน้า **OT Dashboard** (รายเดือน · รายสัปดาห์ · เตือน OT รายคน 36/144 ชม.) — แทนหน้าเดิมของ PAS |
@@ -61,6 +63,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `PAS_DataIssue` | `วันที่\|หมวด\|ลำดับ` | จุดที่ควรแก้ในไฟล์เวร (ตรวจตอนนำเข้า) |
 | `PAS_FlightSLA` | `วันที่\|ไฟลท์` | SLA ต่อไฟลท์ต่อวัน (คำนวณตอนนำเข้าเวร) |
 | `PAS_Support` | `วันที่\|ไฟลท์\|เฟส` | ไฟลท์ขาด SLA ต่อเฟส + คนที่ว่างช่วยได้ (คำนวณตอนนำเข้าเวร) |
+| `PAS_OT_Request` | `วันที่\|รหัส\|ลำดับ` | OT ที่ขอจริงจาก HumanSoft (Flow H) — เทียบกับ `PAS_OT_Person` |
 | `PAS_AdvPlan` · `PAS_AdvRoster` | `วันที่\|ชนิด\|ลำดับ` · `วันที่\|รหัส` | แผนจัดล่วงหน้าต่อไฟลท์ + พูลคนขึ้นเวรล่วงหน้า (Flow G) |
 | `PAS_AutoPlan` | `วันที่\|ชนิด\|ลำดับ` | Auto Assign: `FILL` เติมจาก Assign เดิม · `AUTO` จัดใหม่ทั้งหมด · `BENCH` คนพัก (คำนวณตอนนำเข้าเวร) |
 | `PAS_SLARules` | รหัสสาย | กำลังคนมาตรฐานต่อเที่ยวบิน (แทนชีต STANDARD MANNING · แก้ได้) |
