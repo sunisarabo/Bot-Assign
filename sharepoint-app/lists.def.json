@@ -2133,7 +2133,8 @@
       "flttime",
       "dupteam",
       "dupname",
-      "filedate"
+      "filedate",
+      "notfilled"
      ],
      "indexed": true
     },

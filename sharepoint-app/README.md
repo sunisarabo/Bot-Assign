@@ -25,6 +25,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `POWERAPPS-assigncheck.md` | หน้า **🧭 ตรวจ Assign** รายคน (ไฟลท์ในกะ/OT/นอกกะ · ช่วงว่าง · OT เหมาะสม? — ตรงกับ AssignCheck.gs ทุกคอลัมน์ในชุดทดสอบ) |
 | `POWERAPPS-support.md` | หน้า **🆘 Support / เติมคน** (ไฟลท์ขาด → ใครว่าง+รู้ระบบมาช่วย · ข้อความ SOS — ตรงกับ SLA.gs ทุกแถวในชุดทดสอบ) |
 | `import-advroster.ts` | **Office Script** (สร้างจาก `import-roster.ts` ด้วย `node build.js`): ROSTER ล่วงหน้า + `PAS_Flights` + `PAS_Employees` → แผนจัดล่วงหน้า · Flow G ใน `FLOW-advance.md` |
+| `FLOW-notify.md` | **Flow I** อีเมลเตือนทุกเช้า: ทีมที่ยังลง assignment ไม่ครบ ล่วงหน้า 7 วัน + วันที่ยังไม่มีไฟล์เวร (แทน apNotifyMissingAssignments) |
 | `import-hsot.ts` | **Office Script**: ไฟล์ OT ขอจริงจาก HumanSoft → `PAS_OT_Request` (อ่านเหมือน OTCompare.gs) · Flow H ใน `FLOW-hsot.md` |
 | `POWERAPPS-otahead.md` | หน้า **🔮 OT ล่วงหน้า** (ต่อวัน · รายทีม · รายคน 36/144) + **🔍 ตรวจ OT** (ขอจริง HumanSoft vs แผนในไฟล์เวร — เลือกวันใดก็ได้) |
 | `POWERAPPS-advance.md` | หน้า **📅 จัดล่วงหน้า** (7 บทบาทต่อไฟลท์ · คนให้ OT คลุมได้ · คนพัก · หลายวัน — ตรงกับ AdvancePlan.gs ทุกไฟลท์ในชุดทดสอบ) |

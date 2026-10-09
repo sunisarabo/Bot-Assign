@@ -145,6 +145,18 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         if (/\d/.test(f.code) && !f.STA && !f.STD && !f.OP && !f.CL)
           addIssue(issues, day, "flttime", t.code, f.code, "ไฟลท์ไม่มี STA/STD — เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้");
       const seen: { [k: string]: number } = {};
+      // ตรวจ "ทีมยังลง assignment ไม่ครบ" (เหมือน apTeamsNotFilled_ ของเดิม): ลงแล้ว = มีสถานะ หรือมีงานในคอลัมน์ไฟลท์ · ทีมสแตนด์บายมีกะก็พอ
+      const fillCheck = !/PORTER|CREWSIGN|ADMIN\s*DOC/i.test(t.code), standby = /CHARTER|\bZF\b|PVT|PVTLP|\bLP\b|STBY|STAND ?BY|FLOAT/i.test(t.code);
+      let fillPeople = 0, filled = 0;
+      for (const row of g) {
+        const fid = String(row[0] == null ? "" : row[0]).replace(/\D/g, "");
+        if (!fillCheck || fid.length < 6 || fid.length > 8 || !String(row[2] || "").trim()) continue;
+        fillPeople++;
+        const hasJob = row.slice(19).some(c => String(c == null ? "" : c).trim() !== "");
+        if (String(row[16] || "").trim() || hasJob || (standby && String(row[3] || "").trim())) filled++;
+      }
+      if (fillPeople > 0 && filled < fillPeople)
+        addIssue(issues, day, "notfilled", t.code, "ลง " + filled + "/" + fillPeople, "ยังลง assignment ไม่ครบ — ค้าง " + (fillPeople - filled) + " คน (ไม่มีสถานะและไม่มีงาน)");
       for (const row of g) {
         const id = row[0], name = String(row[2] || "").trim();
         if (typeof id !== "number" || !name || name.indexOf("Ex.") === 0) continue;
