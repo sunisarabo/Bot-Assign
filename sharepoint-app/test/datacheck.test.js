@@ -31,7 +31,10 @@ ok(has("offflt", /EY B .*EY410/), "OFF แต่มีไฟลท์");
 ok(has("noshift", /EY C/), "มาทำงานแต่อ่านเวลากะไม่ได้");
 ok(has("dupname", /EY A/), "ชื่อซ้ำในทีม");
 ok(has("dupblock", /EY 3 แถว/), "รหัสซ้ำในแท็บ ≥ 3 แถว (เกณฑ์เดียวกับของเดิม)");
-ok(has("dupteam", /EY \+ SQ X \(2600001\)/), "รหัสเดียวกันหลายทีม");
+// รหัสเดียวกันหลายทีม → ระบบเดิม (rbDedupeTeams_) เก็บที่ต้นสังกัด อีกทีมกลายเป็นแถวซัพ "ซัพจาก …" (ไม่นับซ้ำ) จึงไม่เหลือเตือน dupteam
+{ const dutyX = r.batches.filter(b => b.list === "PAS_Duty").flatMap(b => [...b.body.matchAll(/^\{.*\}$/gm)].map(m => JSON.parse(m[0]))).filter(d => d.emp_code === "2600001");
+  ok(!has("dupteam", /2600001/) && dutyX.length === 2 && dutyX.some(d => d.team === "EY" && !d.is_support) &&
+     dutyX.some(d => d.team === "SQ" && d.is_support && d.support_from === "EY" && d.support_src === "dup"), "รหัสเดียวกันหลายทีม → เก็บที่ต้นสังกัด อีกทีมเป็นซัพ (rbDedupeTeams_)"); }
 ok(has("flttime", /EY EY412/) && !has("flttime", /EY410/), "ไฟลท์ไม่มี STA/STD (เฉพาะ EY412)");
 ok(has("staledate", /QR วันที่บนแท็บ = 7\/OCT/), "แท็บวันที่ไม่ตรง (QR 7/OCT vs 8/OCT)");
 ok(has("droptab", /TK อ่านไม่ได้ทั้งแท็บ/), "แท็บอ่านไม่ได้");

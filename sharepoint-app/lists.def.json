@@ -346,6 +346,14 @@
      "type": "Boolean"
     },
     {
+     "name": "support_from",
+     "type": "Text"
+    },
+    {
+     "name": "support_src",
+     "type": "Text"
+    },
+    {
      "name": "duty_min",
      "type": "Number"
     },
@@ -424,6 +432,18 @@
     {
      "name": "ac_issue",
      "type": "Note"
+    },
+    {
+     "name": "gantt_json",
+     "type": "Note"
+    },
+    {
+     "name": "gantt_hide",
+     "type": "Boolean"
+    },
+    {
+     "name": "gantt_ord",
+     "type": "Number"
     }
    ]
   },
@@ -947,6 +967,14 @@
     {
      "name": "staff_text",
      "type": "Note"
+    },
+    {
+     "name": "mode",
+     "type": "Text"
+    },
+    {
+     "name": "ctr",
+     "type": "Number"
     }
    ]
   },
@@ -2239,6 +2267,7 @@
       "staledate",
       "offflt",
       "noshift",
+      "supnoteam",
       "flttime",
       "dupteam",
       "dupname",
