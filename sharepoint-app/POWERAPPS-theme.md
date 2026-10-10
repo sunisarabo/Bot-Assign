@@ -194,7 +194,7 @@ Concat(Filter(colAsg, emp_code = ThisItem.emp_code && win_hi > win_lo) As a,
 "</svg>"))
 ```
 ชื่อคนเป็น Label ซ้าย (Width 110) · เส้นเวลา/ชั่วโมงทำเป็นอีก Image เดียวด้านบนของ Gallery
-> **ฉบับมีชื่อไฟลท์/งานในแถบ + กดแถวดูรายละเอียด:** ใช้สูตรใน `POWERAPPS-app.md` ข้อ 7 แทน (วาด 1:1 ด้วย `Self.Width` ตัวหนังสือไม่ยืด)
+> **ฉบับใช้งานจริง:** ใช้ `POWERAPPS-app.md` ข้อ 7 แทน — แถบมาจาก `PAS_Duty.gantt_json` ที่ตัวนำเข้าคำนวณเหมือน PAS เดิม (ป้ายไฟลท์/งาน · ซัพข้ามทีมสีส้ม · เลนซ้อน · แผงรายละเอียด)
 
 ## 9) มือถือ / จอแคบ
 - `conRail.Visible = App.Width >= 760`

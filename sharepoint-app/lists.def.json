@@ -424,6 +424,18 @@
     {
      "name": "ac_issue",
      "type": "Note"
+    },
+    {
+     "name": "gantt_json",
+     "type": "Note"
+    },
+    {
+     "name": "gantt_hide",
+     "type": "Boolean"
+    },
+    {
+     "name": "gantt_ord",
+     "type": "Number"
     }
    ]
   },

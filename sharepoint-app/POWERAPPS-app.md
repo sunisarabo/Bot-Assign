@@ -93,51 +93,106 @@ Gallery `Items = Sort(Filter(colDuty, duty_min > 0 && (ddTeam.Selected.Value = "
 
 > util_pct = เวลาติดงาน (รวมช่วงซ้อนแล้ว · ตัดตามกะ) ÷ เวลาเวร — คำนวณใน `import-roster.ts` ตอนนำเข้า แอปจึงเร็ว
 
-## 7) หน้า Gantt (`gantt`) — แถบมีชื่อไฟลท์/งาน
-Gallery `galG` (**TemplateSize 40**) · `Items` เหมือนหน้า Util แต่เรียง `shift_start_min`
-- Label ซ้าย (กว้าง 230): `ThisItem.emp_name & " · " & ThisItem.team`
-- **Image** `imgG` (X = 235, Width = `Parent.TemplateWidth - 240`, Height 36) · `Image =`
+## 7) หน้า Gantt (`gantt`) — เหมือน Gantt ของ PAS เดิม (`rbTtGantt_`)
+**ข้อมูลมาจากตัวนำเข้า** — `import-roster` คำนวณแถบของทุกคนแบบเดียวกับระบบเดิมแล้วเก็บใน `PAS_Duty.gantt_json`
+(ช่วงงานตามเคาน์เตอร์/เกท/STD จริง · OT ก่อน/หลังกะตามเวลาที่ลง · อบรม · STBY ทีมพูล · เอกสาร crew sign รวมแถบ · ซัพข้ามทีม · งานทับกันแยกเลน · คนหยุด/ลา/ป่วย)
+> ตรวจกับไฟล์จริง 10 ต.ค.: **798 แถว ตรงกับ PAS เดิมทุกแถว** (แถบกะ/OT 713 · งาน 803 · ซัพข้ามทีม 46 · หยุด/ลา 258) — ทดสอบอัตโนมัติ `test/reader-parity.test.js`
+> ต้องรัน `provision-lists.js` (เพิ่ม `gantt_json` · `gantt_hide` · `gantt_ord` ใน PAS_Duty) แล้วนำเข้าไฟล์เวรใหม่ (Flow C) ก่อน — แถวเก่าไม่มีข้อมูลนี้
+
+รูปแบบ `gantt_json`: `b` = แถบกะ/OT `[เริ่ม, จบ, "s" กะ | "o" OT | "g" กะไม่ระบุ, ป้าย]` · `f` = งาน `[เริ่ม, จบ, เฟส, ซัพข้ามทีม 0/1, เลน, ป้าย, รายละเอียด]` · `n` = จำนวนเลน · `st` = OFF / SL (ป่วย) / ลา
+(นาที 0–1440 ของวันนั้น · ข้ามเที่ยงคืนตัดให้แล้ว → แกน 00–24 แบบเดิม)
+
+### 7.1 Gallery `galG` — ใช้ **Blank flexible height gallery** (แถวสูงตามจำนวนเลน)
+`Items`:
 ```powerapps
-// วาด 1:1 กับขนาดจริงของ Image (W = Self.Width) → ตัวหนังสือไม่ยืด/บี้
-With({W: Self.Width, H: Self.Height, lo: varLo, span: Max(60, varHi - varLo)},
-With({px: W / span, s0: ThisItem.shift_start_min},
+Filter(Sort(colDuty, gantt_ord), !gantt_hide && !IsBlank(gantt_json) &&
+    (IsBlank(ddGTeam.Selected.Value) || ddGTeam.Selected.Value = "ทุกทีม" || team = ddGTeam.Selected.Value) &&
+    (IsBlank(txtGFind.Text) || txtGFind.Text in emp_name || txtGFind.Text in team || txtGFind.Text in emp_code))
+```
+(`colDuty` ต้องโหลดทุกคอลัมน์ของ PAS_Duty — ถ้าเคยใช้ `ShowColumns` ให้เพิ่ม `gantt_json`, `gantt_hide`, `gantt_ord`)
+`ddGTeam.Items = Ungroup(Table({v: Table({Value: "ทุกทีม"})}, {v: Distinct(colDuty, team)}), "v")` · `txtGFind.HintText = "ค้นชื่อ / ทีม / รหัส"`
+`galG.OnSelect = Set(varGSel, ThisItem)`
+
+**ซ้าย (กว้าง 186):** Label ชื่อ `ThisItem.emp_name` (ตัวหนา 13) · Label เล็ก `ThisItem.team & If(IsBlank(ThisItem.pos_group), "", " · " & ThisItem.pos_group)` (สี `#5B7189`)
+ป้าย Util (Button ทำ pill · Size 9) `Text = ThisItem.util_pct & "%"` · `Visible = ThisItem.duty_min > 0`
+· `Fill = If(ThisItem.util_pct >= 75, ColorValue("#DCF2E4"), ThisItem.util_pct >= 50, ColorValue("#DCEBFA"), ThisItem.util_pct >= 30, ColorValue("#FFF3D6"), ColorValue("#FBE9EC"))`
+
+**ขวา: Image `imgG`** · X = 190 · `Width = Parent.TemplateWidth - 194` · `ImagePosition = ImagePosition.Fill`
+`Height = With({g: ParseJSON(ThisItem.gantt_json)}, If(IsBlank(g.n), 44, 36 + Value(g.n) * 18))`
+`Image =`
+```powerapps
+With({g: ParseJSON(ThisItem.gantt_json), W: Self.Width, H: Self.Height},
+With({px: W / 1440},
 "data:image/svg+xml;utf8," & EncodeUrl(
 "<svg xmlns='http://www.w3.org/2000/svg' width='" & W & "' height='" & H & "' viewBox='0 0 " & W & " " & H &
-"' font-family='Segoe UI, Leelawadee UI, Tahoma, sans-serif' font-size='11' font-weight='600'>" &
-// แถบกะ (ฟ้าอ่อน)
-"<rect x='" & (s0 - lo) * px & "' y='3' width='" & ThisItem.duty_min * px & "' height='" & (H - 6) & "' rx='5' fill='#DCE4F2'/>" &
-// (ถ้ามีแถบ OT สีครีมอยู่แล้ว ให้คงบรรทัดนั้นไว้ตรงนี้)
-// งานแต่ละชิ้น: น้ำเงิน = ไฟลท์ · เขียว = ไปซัพทีมอื่น · ส้ม = งานอื่น (BRIEF/GOM/…) + ป้ายชื่อในแถบ
-Concat(SortByColumns(Filter(colAsg, emp_code = ThisItem.emp_code && team = ThisItem.team && win_hi > win_lo), "win_lo") As j,
-  With({x: (j.win_lo + If(j.win_lo < s0 - 120, 1440, 0) - lo) * px, w: (j.win_hi - j.win_lo) * px,
-        sup: StartsWith(j.task, "ซัพ"),
-        lb: j.Title & If(IsBlank(j.task) || j.task = j.Title, "", " · " & j.task)},
-    "<rect x='" & x & "' y='7' width='" & Max(2, w - 1) & "' height='" & (H - 14) & "' rx='3' fill='" &
-        If(sup, "#2E7D32", j.is_flight, "#1D428A", "#E8A33D") & "'/>" &
-    If(w >= 30,
-        "<text x='" & (x + 4) & "' y='" & (H / 2 + 4) & "' fill='" & If(sup || j.is_flight, "#FFFFFF", "#3B2A00") & "'>" &
-        Substitute(Substitute(Substitute(Left(lb, RoundDown((w - 6) / 6.5, 0)), "&", "&amp;"), "<", "&lt;"), "'", "&apos;") &
-        "</text>", ""))) &
+"' font-family='Segoe UI, Leelawadee UI, Tahoma, sans-serif' font-weight='700'>" &
+// เส้นกริดทุก 2 ชม.
+Concat(Sequence(13, 0, 2) As t, "<line x1='" & t.Value * 60 * px & "' x2='" & t.Value * 60 * px & "' y1='0' y2='" & H & "' stroke='#EEF3F9'/>") &
+If(!IsBlank(g.st),
+  // หยุด / ป่วย / ลา
+  With({st: Text(g.st)},
+    "<rect x='8' y='11' width='" & (Len(st) * 7 + 20) & "' height='20' rx='6' fill='" & Switch(st, "OFF", "#EEF1F5", "SL (ป่วย)", "#FBE9EC", "#E8F1FA") & "'/>" &
+    "<text x='18' y='25' font-size='11.5' fill='" & Switch(st, "OFF", "#5B7189", "SL (ป่วย)", "#C93A4E", "#1F4E79") & "'>" & st & "</text>"),
+  // แถบกะ (น้ำเงิน) · OT (ส้มเหลือง) · กะไม่ระบุ (เทาเส้นประ)
+  Concat(Table(g.b) As s,
+    With({lo: Value(Index(s.Value, 1)), hi: Value(Index(s.Value, 2)), c: Text(Index(s.Value, 3)), lb: Text(Index(s.Value, 4))},
+      "<rect x='" & lo * px & "' y='5' width='" & Max(3, (hi - lo) * px) & "' height='20' rx='6' fill='" & Switch(c, "s", "#2F74AD", "o", "#F7B733", "#EEF2F7") & "'" &
+        If(c = "g", " stroke='#C3CCD8' stroke-dasharray='4 3'", "") & "/>" &
+      If((hi - lo) * px >= 26,
+        "<text x='" & (lo * px + 7) & "' y='19' font-size='10' fill='" & Switch(c, "s", "#FFFFFF", "o", "#3A2800", "#6B7B8E") & "'>" &
+        Substitute(Substitute(Left(lb, RoundDown(((hi - lo) * px - 12) / 5.6, 0)), "&", "&amp;"), "<", "&lt;") & "</text>", ""))) &
+  // งาน: สีตามเฟส · ซัพข้ามทีม = สีส้มแยก + 🔁 · ทับกันแยกเลน
+  Concat(Table(g.f) As s,
+    With({lo: Value(Index(s.Value, 1)), hi: Value(Index(s.Value, 2)), ph: Text(Index(s.Value, 3)), sup: Value(Index(s.Value, 4)) = 1,
+          y: 30 + Value(Index(s.Value, 5)) * 18, lb: Text(Index(s.Value, 6))},
+      "<rect x='" & lo * px & "' y='" & y & "' width='" & Max(3, (hi - lo) * px) & "' height='16' rx='5' fill='" &
+        If(sup, "#FFD8B8", Switch(ph, "ci", "#DCEBFA", "gate", "#DCF2E4", "arr", "#ECE8FB", "sod", "#D6EFEE", "lp", "#FBE3EE", "stby", "#F2F4F7", "train", "#EDE7F6", "doc", "#FFF3D6", "#EEF1F5")) &
+        "' stroke='" & If(sup, "#E8590C", Switch(ph, "ci", "#A8C6E6", "gate", "#96D1AB", "arr", "#C1B9E8", "sod", "#5CB8B6", "lp", "#E2A3C6", "stby", "#AAB6C4", "train", "#B9A3DD", "doc", "#E6B84D", "#D3DDEA")) &
+        "' stroke-width='" & If(sup, 1.6, 1) & "'" & If(ph = "stby", " stroke-dasharray='4 3'", "") & "/>" &
+      If((hi - lo) * px >= 22,
+        "<text x='" & (lo * px + 5) & "' y='" & (y + 12) & "' font-size='10' fill='" &
+        If(sup, "#B4430A", Switch(ph, "ci", "#1F4E79", "gate", "#1C7A4F", "arr", "#584FB0", "sod", "#0F6F6D", "lp", "#A33272", "train", "#5E3AA8", "doc", "#9A6A00", "#5B7189")) & "'>" &
+        Substitute(Substitute(Left(lb, RoundDown(((hi - lo) * px - 8) / 5.6, 0)), "&", "&amp;"), "<", "&lt;") & "</text>", "")))) &
+// เส้นเวลาปัจจุบัน (เฉพาะวันนี้)
+If(varDay = Text(Today(), "yyyy-mm-dd"),
+  "<line x1='" & (Hour(Now()) * 60 + Minute(Now())) * px & "' x2='" & (Hour(Now()) * 60 + Minute(Now())) * px & "' y1='0' y2='" & H & "' stroke='#E5484D' stroke-width='2'/>", "") &
 "</svg>")))
 ```
-ป้ายในแถบ = **รหัสไฟลท์ · งาน** (เช่น `SQ726/725 · CHECK IN`, `ซัพ ARR →SQ`) — แถบสั้นตัดท้ายให้พอดี · แถบแคบกว่า ~30px ไม่ใส่ป้าย (ดูรายละเอียดเต็มจากการกดแถว)
-
-**กดชื่อ/แถว → ดูงานทั้งหมดของคนนั้น** — `galG.OnSelect = Set(varGSel, ThisItem)`
-แผงรายละเอียด (Container ขวา กว้าง 300 · `Visible = !IsBlank(varGSel)`) · Label หัว `varGSel.emp_name & " · " & varGSel.team & " · กะ " & varGSel.shift_code` · Label รายการ (Auto height):
+**ไม้บรรทัดเวลา** (Image เหนือ gallery · X/Width เดียวกับ `imgG` · Height 22):
 ```powerapps
-Concat(SortByColumns(Filter(colAsg, emp_code = varGSel.emp_code && team = varGSel.team), "win_lo") As j,
-    If(j.win_hi > j.win_lo,
-        Text(Mod(RoundDown(j.win_lo / 60, 0), 24), "00") & ":" & Text(Mod(j.win_lo, 60), "00") & "–" &
-        Text(Mod(RoundDown(j.win_hi / 60, 0), 24), "00") & ":" & Text(Mod(j.win_hi, 60), "00"), "ไม่มีเวลา") &
-    "   " & j.Title & If(IsBlank(j.task), "", "  " & j.task) &
-    If(IsBlank(j.sta) && IsBlank(j.std), "", "  (STA " & Coalesce(j.sta, "–") & " / STD " & Coalesce(j.std, "–") & ")"),
-  Char(10))
+With({W: Self.Width}, "data:image/svg+xml;utf8," & EncodeUrl(
+"<svg xmlns='http://www.w3.org/2000/svg' width='" & W & "' height='22' viewBox='0 0 " & W & " 22' font-family='Segoe UI, sans-serif' font-size='11' fill='#5B7189'>" &
+Concat(Sequence(13, 0, 2) As t, "<text x='" & t.Value * 60 * W / 1440 & "' y='15' text-anchor='" & If(t.Value = 0, "start", t.Value = 24, "end", "middle") & "'>" & Text(t.Value, "00") & "</text>") &
+"</svg>"))
 ```
-ปุ่ม ✕ ปิด: `Set(varGSel, Blank())`
+**คำอธิบายสี** (Label ใต้ gallery):
+`"■ กะ (น้ำเงิน) · ■ OT (ส้มเหลือง) · ■ เช็คอิน · ■ เกท · ■ ขาเข้า · ■ หัวหน้า/SOD · ■ โซน LP · ■ อบรม · ■ เอกสาร · ▨ STBY · 🔁 ซัพข้ามทีม (ส้มเข้ม) · | เวลาปัจจุบัน"`
+(ทำเป็น Gallery แนวนอนเล็ก ๆ ที่มีสี่เหลี่ยมสีจริงได้ — สีตามสูตรด้านบน)
 
-- แกนเวลา (ด้านบน gallery): Label `Text = Concat(Sequence((varHi - varLo) / 60 + 1, varLo / 60), Text(Mod(Value, 24), "00") & ":00", "      ")`
-  (หรือวาง gallery แนวนอน `Items = Sequence((varHi - varLo)/60 + 1, varLo/60)`)
-- คำอธิบายสี: `"ฟ้า = กะ · ครีม = OT · น้ำเงิน = ไฟลท์ · เขียว = ไปซัพทีมอื่น · ส้ม = งานอื่น"`
+### 7.2 แผงรายละเอียดเมื่อกดชื่อคน (เหมือน tooltip ของเดิม — ครบทุกงาน)
+Container ขวา `conGDetail` · กว้าง 340 · `Visible = !IsBlank(varGSel)` · Fill White · เงา
+- หัว: `varGSel.emp_name` (ตัวหนา 15) · Label เล็ก `varGSel.team & If(IsBlank(varGSel.pos_group), "", " · " & varGSel.pos_group) & " · " & varGSel.emp_code`
+- ปุ่ม ✕: `Set(varGSel, Blank())`
+- สรุป (Label): 
+```powerapps
+With({g: ParseJSON(varGSel.gantt_json)},
+  If(!IsBlank(g.st), "สถานะ: " & Text(g.st),
+    Concat(Table(g.b) As s, Switch(Text(Index(s.Value, 3)), "s", "🟦 กะ ", "o", "🟧 ", "⬜ กะไม่ระบุเวลา ") & Text(Index(s.Value, 4)), Char(10)) &
+    Char(10) & "Util " & varGSel.util_pct & "% · ทำงาน " & Text(varGSel.busy_min / 60, "0.0") & " / " & Text(varGSel.duty_min / 60, "0.0") & " ชม." &
+    If(IsBlank(varGSel.ac_status), "", Char(10) & "ตรวจ Assign: " & varGSel.ac_status & If(IsBlank(varGSel.ac_issue), "", " — " & varGSel.ac_issue))))
+```
+- รายการงาน — Gallery `galGJob` (Flexible height) · `Items`:
+```powerapps
+With({g: ParseJSON(varGSel.gantt_json)},
+  SortByColumns(ForAll(Table(g.f) As s,
+      { lo: Value(Index(s.Value, 1)), ph: Text(Index(s.Value, 3)), sup: Value(Index(s.Value, 4)) = 1,
+        lb: Text(Index(s.Value, 6)), tip: Text(Index(s.Value, 7)) }), "lo", SortOrder.Ascending))
+```
+  แถว: แถบสีซ้าย (Rectangle กว้าง 5 · `Fill` = สีเส้นขอบตามเฟส/ซัพ เหมือนสูตร Gantt) ·
+  Label หัว `ThisItem.lb` (ตัวหนา) ·
+  Label รายละเอียด (Auto height) `Concat(Split(ThisItem.tip, "¦") As t, t.Value, Char(10))`
+  → ได้ เช่น `SQ726/SQ725 🔁 / ขาเข้า · ARR / ช่วงงาน 08:00-08:45 / STD 09:25 · เคาน์เตอร์ 05:35-08:25 / 🔁 ซัพข้ามทีม`
+  ไม่มีงาน: Label `"ไม่มีงานที่ระบุเวลา"` · `Visible = IsEmpty(galGJob.AllItems)`
 
 ## 8) หน้า Porter / Pre-WC (`porter`) — แทน 🧳 Porter ของ PAS เดิม
 ข้อมูลจาก Flow E (`FLOW-porter.md`) · ต่อข้อมูลเพิ่ม `PAS_PorterStaff`

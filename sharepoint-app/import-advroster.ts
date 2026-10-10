@@ -40,7 +40,7 @@ const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิ
 type Cell = string | number | boolean;
 interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number; ot_pre_people?: number; ot_pre_hours?: number; ot_post_people?: number; ot_post_hours?: number }
 interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; pos_group?: string; bucket: string; shift_code: string; shift_start: string; shift_end?: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; ot_type?: string; ot_time?: string; is_support: boolean;
-  ac_status?: string; ac_flights?: string; ac_job?: string; ac_zones?: string; ac_support?: number; ac_uncovered?: string; ac_gaps?: string; ac_gaps_raw?: string; ac_ot_verdict?: string; ac_issue?: string; duty_min: number; busy_min: number; util_pct: number; source_file: string }
+  ac_status?: string; ac_flights?: string; ac_job?: string; ac_zones?: string; ac_support?: number; ac_uncovered?: string; ac_gaps?: string; ac_gaps_raw?: string; ac_ot_verdict?: string; ac_issue?: string; gantt_json?: string; gantt_hide?: boolean; gantt_ord?: number; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
@@ -88,6 +88,7 @@ function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?
   const reqs = readSupportReq(workbook);
   const nOut = attachSupportOut(reqs, p.acRecs, p.slaPeople, p.assignment, pick.iso, p.everyone);   // คนที่ดิวตี้ส่งไปซัพแล้ว → ติดงานช่วงนั้น
   analyzeAssign(p.acRecs);
+  ganttRows(p.gRows, acOwnerTeams(p.acRecs.map(x => x.rec)));            // แถบ Gantt รายคน (เหมือน rbTtGantt_)
   addBatches(batches, site, "PAS_Duty", p.duty);
   addBatches(batches, site, "PAS_Assignment", p.assignment);
   const recs = p.acRecs.map(x => x.rec);
@@ -738,6 +739,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   const tabDates: { [team: string]: string } = {};
   const slaPeople: SlaPerson[] = [];
   const acRecs: { rec: AcRec; row: DutyRow }[] = [];
+  const gRows: GRow[] = [];
   const everyone: { team: string; name: string; emp: string }[] = [];          // ทุกคนในไฟล์ (รวมคนหยุด) — ใช้จับชื่อในคำขอซัพ
   const rd = readRoster(sheetTexts(workbook));
   const mpByCode: { [c: string]: TeamHead } = {}; for (const t of teams) mpByCode[t.code.toUpperCase()] = t;
@@ -814,7 +816,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
         ot_time: r.otTime, is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src });
       if (onDuty) acRecs.push({ row: duty[duty.length - 1], rec: {
         team, name, emp, hrs, bucket: r.bucket === "ot_off" ? "OT_OFF" : "WORKING", training: r.training, ss: ds, se: de, ot, otType: r.otType || "", otSpans: spans, otTime: r.otTime, shiftCode: r.shift, posGroup: r.posGroup,
-        asg: r.assignments.map(a => ({ flight: a.flight, task: a.task, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, supportOut: !!a.supportOut })) } });
+        asg: r.assignments.map(a => ({ flight: a.flight, task: a.task, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, supportOut: !!a.supportOut, activity: !!a.activity })) } });
+      gRows.push({ row: duty[duty.length - 1], raw: r.bucket, rec: onDuty ? acRecs[acRecs.length - 1].rec : null, id: r.id || "", ot: r.ot, shiftTime: r.shiftTime, pos: r.pos, remark: r.remark });
     }
     manpower.push({
       Title: day + "|" + team, day_key: day, month_key: month, work_date: day, team, total: mpt ? mpt.total : 0, working: mpt ? mpt.working : 0,
@@ -838,7 +841,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       if (tabDates[tm] && tabDates[tm] !== maj)
         addIssue(issues, day, "staledate", tm, "วันที่บนแท็บ = " + tabDates[tm], "แท็บนี้เป็นวันที่ " + tabDates[tm] + " แต่ทีมส่วนใหญ่เป็น " + maj + " — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)");
   }
-  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: rd.tabs.map(x => x.name), acRecs, everyone, rd };
+  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: rd.tabs.map(x => x.name), acRecs, everyone, rd, gRows };
 }
 // ตรวจ Assign รายคน (AssignCheck.gs acAnalyze_) → เขียนลงแถว PAS_Duty (เรียกหลังผูกงานซัพพอร์ตแล้ว)
 function analyzeAssign(acRecs: { rec: AcRec; row: DutyRow }[]) {
@@ -1174,7 +1177,7 @@ function parseRules(json?: string): { [a: string]: number[] } {
 
 // ======================= ตรวจ Assign (พอร์ตจาก AssignCheck.gs · acAnalyze_ / acAnalyzeRecord_ / acFlightWin_ / acDuty_) =======================
 const AC_COVER_TOL = 60, AC_GAP_MIN = 180, AC_EDGE_MIN = 240, AC_WIN_MAX = 14 * 60;
-interface AcAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string; supportOut?: boolean }
+interface AcAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string; supportOut?: boolean; activity?: boolean }
 interface AcRec { team: string; name: string; emp?: string; posGroup?: string; training?: boolean; hrs?: number; bucket: string; ss: number | null; se: number | null; ot: number; otType: string;
   otSpans: { a: number | null; b: number | null; type: string }[]; otTime: string; shiftCode: string; asg: AcAsg[] }
 interface AcRes { status: string; flights: string; job: string; zones: string; support: number; uncovered: string; gaps: string; gapsRaw: string; otVerdict: string; issue: string }
@@ -2159,4 +2162,138 @@ function clampIv(iv: number[][], lo: number, hi: number): number[][] {
   const o: number[][] = [];
   for (const s of iv) for (const sh of [0, 1440]) { const a = Math.max(s[0] + sh, lo), b = Math.min(s[1] + sh, hi); if (b > a) o.push([a, b]); }
   return o;
+}
+
+// ================= Gantt รายคน (พอร์ตจาก rbTtGantt_ — WebDashboard.gs) =================
+// คำนวณแถบของแต่ละคนตอนนำเข้า → PAS_Duty.gantt_json (แอปวาดตามนี้อย่างเดียว ไม่ต้องคิดเวลางานเอง)
+//   b = แถบกะ/OT [lo, hi, "s"|"o"|"g", ป้าย]  (s = กะ · o = OT · g = กะไม่ระบุเวลา คลุมช่วงงาน)
+//   f = งาน [lo, hi, เฟส, ซัพข้ามทีม 0/1, เลน, ป้าย, รายละเอียด "a¦b¦c"]  เฟส: ci gate arr sod lp doc train stby na
+//   n = จำนวนเลน · st = สถานะ (OFF / SL (ป่วย) / ลา) แทนแถบ   — นาทีอยู่ในช่วง 0–1440 (ตัดข้ามเที่ยงคืนแล้ว)
+interface GRow { row: DutyRow; raw: string; rec: AcRec | null; id: string; ot: number; shiftTime: string; pos: string; remark: string }
+type GSeg = (number | string)[];
+function gFltPhase(task: string): string {
+  const phs = phasesOf(task || "");
+  if (phs.length) {
+    if (phs.indexOf("GATE") >= 0) return "gate";
+    if (phs.indexOf("ARR") >= 0 && phs.indexOf("CI") < 0) return "arr";
+    if (phs.indexOf("CI") >= 0) return "ci";
+    if (phs.indexOf("ARR") >= 0) return "arr";
+    if (phs.indexOf("SUP") >= 0) return "sod";
+  }
+  return "na";
+}
+function gIsDocTeam(team: string): boolean { const t = String(team || "").toUpperCase(); return t.indexOf("ADMIN") >= 0 && t.indexOf("DOC") >= 0; }
+function gRowHasShift(g: GRow): boolean {
+  if (g.raw === "off" || g.raw === "sick" || g.raw === "vac") return true;
+  if (!g.rec) return false;
+  const d = acDuty(g.rec); return g.raw === "ot_off" ? d.ds != null : d.ss != null;
+}
+function ganttRows(gr: GRow[], owner: { [al: string]: string }) {
+  const ord: { [b: string]: number } = { working: 0, ot_off: 1, off: 2, vac: 3, sick: 4 };
+  const sorted = gr.map((g, i) => ({ g, i })).sort((a, b) => (a.g.row.team < b.g.row.team ? -1 : a.g.row.team > b.g.row.team ? 1 : 0) ||
+    ((ord[a.g.raw] || 0) - (ord[b.g.raw] || 0)) ||
+    ((a.g.rec && a.g.rec.ss != null ? a.g.rec.ss : 99999) - (b.g.rec && b.g.rec.ss != null ? b.g.rec.ss : 99999)) || a.i - b.i).map(x => x.g);
+  const home: { [id: string]: string } = {};
+  for (const g of sorted) { const id = g.id.replace(/\D/g, ""); if (/^\d{6,8}$/.test(id) && gRowHasShift(g) && !home[id]) home[id] = g.row.team; }
+  sorted.forEach((g, k) => {
+    const id = g.id.replace(/\D/g, "");
+    g.row.gantt_hide = /^\d{6,8}$/.test(id) && !gRowHasShift(g) && !!home[id] && home[id] !== g.row.team;   // ไปช่วยทีมอื่น (ไม่มีกะที่นี่) → ซ่อน
+    g.row.gantt_ord = k + 1;
+    g.row.gantt_json = JSON.stringify(ganttOne(g, owner));
+  });
+}
+function ganttOne(g: GRow, owner: { [al: string]: string }): { b?: GSeg[]; f?: GSeg[]; n?: number; st?: string } {
+  const STLB: { [b: string]: string } = { off: "OFF", sick: "SL (ป่วย)", vac: "ลา" };
+  if (STLB[g.raw]) return { st: STLB[g.raw] };
+  const r = g.rec; if (!r) return {};
+  const team = g.row.team, name = g.row.emp_name;
+  const bars: GSeg[] = [];
+  const seg = (lo0: number, hi0: number, cls: string, label: string) => {
+    let lo = lo0, hi = hi0;
+    const one = (a: number, b: number) => { if (b - a < 8) return; bars.push([a, b, cls, label]); };
+    while (lo >= 1440) { lo -= 1440; hi -= 1440; }
+    if (hi > 1440) { one(lo, 1440); one(0, hi - 1440); } else one(lo, hi);
+  };
+  const du = acDuty(r), isOtOff = g.raw === "ot_off";
+  const barLo = isOtOff ? du.ds : du.ss, barHi = isOtOff ? du.de : du.se;
+  const otH = g.ot ? " " + g.ot + "h" : "";
+  if (barLo != null && barHi != null) {
+    const shTxt = isOtOff ? ("OT" + otH + " " + fmtMin(barLo) + "-" + fmtMin(barHi % 1440))
+      : ((r.shiftCode || "") + " " + (g.shiftTime || (fmtMin(du.ss) + "-" + fmtMin((du.se as number) % 1440))));
+    seg(barLo, barHi, isOtOff ? "o" : "s", shTxt.trim());
+  }
+  if (!isOtOff) for (const sg of du.otSegs) {
+    const otRange = fmtMin(((sg[0] % 1440) + 1440) % 1440) + "-" + fmtMin(((sg[1] % 1440) + 1440) % 1440);
+    seg(sg[0], sg[1], "o", "OT" + otH + " " + otRange);
+  }
+  interface GF { lo: number; hi: number; ph: string; sup: boolean; lab: string; tip: string; lane?: number }
+  let flts: GF[] = [];
+  const PHL: { [p: string]: string } = { ci: "เช็คอิน", gate: "เกท", arr: "ขาเข้า", sod: "หัวหน้า/คุมงาน", lp: "โซน LP", stby: "STBY (รอจัดไฟลท์)", doc: "เอกสาร (กำหนดส่ง)", na: "งาน" };
+  const clk = (m: number) => fmtMin(((m % 1440) + 1440) % 1440);
+  for (const a of r.asg) {
+    if (a.activity || acIsActivity(a.flight)) {
+      const aw = acFlightWin(a);
+      if (aw) flts.push({ lo: aw[0], hi: aw[1], ph: "train", sup: false, lab: "📚 อบรม/กิจกรรม", tip: name + "¦อบรม/กิจกรรม (ไม่ว่างช่วงนี้)¦" + a.flight });
+      continue;
+    }
+    const isSupCol = /^(SUPPORT|ซัพ)\b/i.test(String(a.flight || "")) || a.supportOut === true;
+    if (!isFlightName(a.flight) && !acIsCoverWork(a.flight) && !isSupCol) continue;
+    const win = acFlightWin(a);
+    if (!win || (win[1] - win[0]) > AC_WIN_MAX) continue;
+    const lo = win[0]; let hi = win[1];
+    if (hi - lo < 45) hi = lo + 45;
+    const isDoc = /\bDE-?BRIEF\b|\bMANIFEST\b|STAFF\s*LIST/i.test(String(a.task || ""));
+    const ph = isDoc ? "doc" : (/^LP\s+(MORNING|AFTERNOON|EVENING|NIGHT)/i.test(a.flight) ? "lp" : gFltPhase(a.task));
+    const supFlt = isSupCol ? rrCleanFltName(String(a.flight).replace(/^(SUPPORT|ซัพ)\s*/i, "")) : "";
+    const al = airlineOf(a.flight);
+    const sup = isSupCol || (!!owner[al] && owner[al] !== team && !skipTeam(team));
+    const leg1 = isSupCol ? (supFlt || "ซัพ") : String(a.flight).split("/")[0].trim();
+    const barTx = clk(lo) + "-" + clk(hi);
+    const raw = (a.STD ? ("STD " + a.STD) : "") + ((a.OP || a.CL) ? ((a.STD ? " · " : "") + "เคาน์เตอร์ " + (a.OP || "–") + "-" + (a.CL || "–")) : "");
+    const dl = isDoc ? ("¦⏰ กำหนดส่ง " + (/\bDE-?BRIEF\b/i.test(a.task) ? ("STD+1 = " + clk(hi)) : ("STA−1 = " + clk(hi)))) : "";
+    const tip = a.flight + (sup ? " 🔁" : "") + "¦" + PHL[ph] + (a.task ? " · " + a.task : "") + "¦ช่วงงาน " + barTx + dl + (raw ? "¦" + raw : "") + (sup ? "¦🔁 ซัพข้ามทีม" : "");
+    flts.push({ lo, hi, ph, sup, lab: (isDoc ? ("📄 " + a.task) : leg1) + (sup ? " 🔁" : ""), tip });
+  }
+  if (!flts.length && r.training && du.ss != null && du.se != null)
+    flts.push({ lo: du.ss, hi: du.se, ph: "train", sup: false, lab: "📚 อบรม/เทรน",
+      tip: name + "¦📚 อบรม/เทรน (ไม่ว่างทั้งกะ)" + (g.remark && !/^TRN$/i.test(g.remark.trim()) ? " · " + g.remark : "") + "¦กะ " + (g.shiftTime || (clk(du.ss) + "-" + clk(du.se))) });
+  if (!flts.length && g.raw === "working" && du.ss != null && du.se != null && isFloatTeam(team))
+    flts.push({ lo: du.ss, hi: du.se, ph: "stby", sup: false, lab: "STBY · รอ assign", tip: name + "¦STBY (พูลสแตนด์บาย) — รอจัดไฟลท์¦" + team + (g.shiftTime ? " · กะ " + g.shiftTime : "") });
+  if (barLo == null && !isOtOff && flts.length) {
+    let glo: number | null = null, ghi: number | null = null;
+    for (const f of flts) { const a = f.lo < 0 ? 0 : f.lo; if (glo == null || a < glo) glo = a; if (ghi == null || f.hi > ghi) ghi = f.hi; }
+    if (glo != null && ghi != null && ghi > glo) seg(glo, ghi, "g", g.shiftTime || r.shiftCode || "กะไม่ระบุ");
+  }
+  const isDocTeam = gIsDocTeam(team) || /CREW\s?SIGN/i.test(String(team || ""));
+  if (isDocTeam && flts.length > 1) {
+    const keep: GF[] = [], docBars: GF[] = [];
+    for (const f of flts) (f.ph === "train" || f.ph === "stby" ? keep : docBars).push(f);
+    if (docBars.length > 1) {
+      let dlo: number | null = null, dhi: number | null = null; const names: string[] = [], seenN: { [n: string]: boolean } = {};
+      for (const f of docBars) {
+        const a = f.lo < 0 ? 0 : f.lo; if (dlo == null || a < dlo) dlo = a; if (dhi == null || f.hi > dhi) dhi = f.hi;
+        const nm = f.lab.replace(/📄|🔁/g, "").trim(); if (nm && !seenN[nm]) { seenN[nm] = true; names.push(nm); }
+      }
+      flts = keep.concat([{ lo: dlo as number, hi: dhi as number, ph: "doc", sup: false, lab: "📄 เอกสาร " + names.length + " ไฟลท์",
+        tip: name + "¦📄 งานเอกสาร (crew sign) " + names.length + " ไฟลท์¦" + names.join(", ") + "¦" + team + (g.pos ? " · " + g.pos : "") }]);
+    }
+  }
+  flts.sort((x, y) => x.lo - y.lo);
+  const laneEnd: number[] = [];
+  for (const f of flts) {
+    let ln = -1;
+    for (let i = 0; i < laneEnd.length; i++) if (f.lo >= laneEnd[i] - 1) { ln = i; break; }
+    if (ln < 0) { ln = laneEnd.length; laneEnd.push(0); }
+    laneEnd[ln] = f.hi; f.lane = ln;
+  }
+  const fo: GSeg[] = [];
+  for (const f of flts) {
+    const one = (x: number, y: number) => { if (y - x < 8) return; fo.push([x, y, f.ph, f.sup ? 1 : 0, f.lane as number, f.lab, f.tip]); };
+    if (f.hi > 1440) { one(f.lo, 1440); one(0, f.hi - 1440); } else one(f.lo < 0 ? 0 : f.lo, f.hi);
+  }
+  const out: { b?: GSeg[]; f?: GSeg[]; n?: number } = {};
+  if (bars.length) out.b = bars;
+  if (fo.length) out.f = fo;
+  if (laneEnd.length) out.n = laneEnd.length;
+  return out;
 }

@@ -80,4 +80,21 @@ const go = []; Object.keys(res.teams).forEach(t => res.teams[t].records.forEach(
 const gn = rows("PAS_Assignment").filter(a => /^ซัพ/.test(a.task)).map(a => a.team + "|" + a.emp_name + "|" + a.Title);
 const sameOut = JSON.stringify(go.sort()) === JSON.stringify(gn.sort()); if (!sameOut) bad++;
 console.log((sameOut ? "OK " : "XX ") + "ผูกงานซัพให้คนที่ส่งไปแล้ว: " + gn.join(", ") + (sameOut ? "" : "\n   เดิม " + go.join(", ")));
-console.log(bad ? bad + " FAILED" : "ALL PASSED (อ่านไฟล์เวร + คำขอซัพพอร์ต ตรงกับ RosterReader.gs / WebDashboard.gs)"); process.exit(bad ? 1 : 0);
+// Gantt รายคน: PAS_Duty.gantt_json ต้องวาดออกมาเหมือน rbTtGantt_ ทุกแถบ (ตำแหน่ง · สี/เฟส · เลน · ป้าย · รายละเอียด)
+{
+  const html = ctx.rbTtGantt_(res, null, -1, {});
+  const un = s => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  const pc = m => +(m / 1440 * 100).toFixed(4);
+  const go = html.split('<div class="gt-row').slice(2).map(h => ({
+    team: un((h.match(/data-team="([^"]*)"/) || [])[1] || ""), st: (h.match(/gt-status \w+">([^<]*)</) || [])[1],
+    b: [...h.matchAll(/gt-seg (gt-\w+)" style="left:([\d.e-]+)%;width:([\d.e-]+)%" data-tip="[^"]*"><span>(.*?)<\/span>/g)].map(m => [+(+m[2]).toFixed(4), +(+m[3]).toFixed(4), { "gt-shift": "s", "gt-ot": "o", "gt-ghost": "g" }[m[1]], un(m[4])]),
+    f: [...h.matchAll(/gt-flt (\w+)( sup)?" style="left:([\d.e-]+)%;width:([\d.e-]+)%;top:(\d+)px" data-tip="([^"]*)"><span>(.*?)<\/span>/g)].map(m => [+(+m[3]).toFixed(4), +(+m[4]).toFixed(4), m[1], m[2] ? 1 : 0, (+m[5] - 30) / 18, un(m[7]), un(m[6])]) }));
+  const gn = rows("PAS_Duty").filter(d => !d.gantt_hide).sort((x, y) => x.gantt_ord - y.gantt_ord).map(d => { const g = JSON.parse(d.gantt_json || "{}");
+    return { team: d.team, st: g.st, b: (g.b || []).map(x => [pc(x[0]), pc(x[1] - x[0]), x[2], x[3]]), f: (g.f || []).map(x => [pc(x[0]), pc(x[1] - x[0]), x[2], x[3], x[4], x[5], x[6]]) }; });
+  let gBad = 0; go.forEach((o, i) => { if (JSON.stringify(o) !== JSON.stringify(gn[i])) { gBad++; console.log("   เดิม " + JSON.stringify(o) + "\n   ใหม่ " + JSON.stringify(gn[i])); } });
+  if (go.length !== gn.length) gBad++;
+  const nJob = gn.reduce((s, x) => s + x.f.length, 0), nSup = gn.reduce((s, x) => s + x.f.filter(f => f[3]).length, 0);
+  if (gBad || nJob < 8 || nSup < 2) bad++;
+  console.log((gBad ? "XX " : "OK ") + "Gantt รายคน " + gn.length + " แถว · งาน " + nJob + " แถบ · ซัพข้ามทีม " + nSup + " (ตรงกับ rbTtGantt_)");
+}
+console.log(bad ? bad + " FAILED" : "ALL PASSED (อ่านไฟล์เวร + คำขอซัพพอร์ต + Gantt ตรงกับ RosterReader.gs / WebDashboard.gs)"); process.exit(bad ? 1 : 0);
