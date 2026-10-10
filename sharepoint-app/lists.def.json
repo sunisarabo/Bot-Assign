@@ -172,6 +172,10 @@
      "type": "Number"
     },
     {
+     "name": "pu_flights",
+     "type": "Number"
+    },
+    {
      "name": "cnt_work",
      "type": "Number"
     },
@@ -271,6 +275,42 @@
     {
      "name": "is_holiday",
      "type": "Boolean"
+    },
+    {
+     "name": "pu_util",
+     "type": "Number"
+    },
+    {
+     "name": "pu_staff",
+     "type": "Number"
+    },
+    {
+     "name": "pu_flights",
+     "type": "Number"
+    },
+    {
+     "name": "pu_support",
+     "type": "Number"
+    },
+    {
+     "name": "pu_idle_hrs",
+     "type": "Number"
+    },
+    {
+     "name": "pu_overlap",
+     "type": "Number"
+    },
+    {
+     "name": "pu_out",
+     "type": "Number"
+    },
+    {
+     "name": "pu_idle",
+     "type": "Number"
+    },
+    {
+     "name": "hourly_json",
+     "type": "Note"
     }
    ]
   },
@@ -364,6 +404,30 @@
     {
      "name": "util_pct",
      "type": "Number"
+    },
+    {
+     "name": "pu_duty_min",
+     "type": "Number"
+    },
+    {
+     "name": "pu_idle_min",
+     "type": "Number"
+    },
+    {
+     "name": "pu_max_gap",
+     "type": "Number"
+    },
+    {
+     "name": "pu_out_min",
+     "type": "Number"
+    },
+    {
+     "name": "pu_nflt",
+     "type": "Number"
+    },
+    {
+     "name": "pu_overlap",
+     "type": "Text"
     },
     {
      "name": "source_file",

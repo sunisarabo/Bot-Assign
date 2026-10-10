@@ -64,7 +64,7 @@ SortByColumns(
 | ตำแหน่ง | `LookUp(colEmp, Title = ThisItem.emp_code).pos_group` |
 | กะ (เข้า-ออก) | `If(ThisItem.bucket.Value = "OT_OFF", "OFF", ThisItem.shift_start & "–" & ThisItem.shift_end)` |
 | OT | `If(ThisItem.ot_hours > 0, ThisItem.ot_hours & "h " & Switch(ThisItem.ot_type.Value, "OFF", "OFF", "PRE", "ก่อนกะ", "หลังกะ") & " " & ThisItem.ot_time, "—")` |
-| Util | `If(ThisItem.duty_min > 0, ThisItem.util_pct & "%", "—")` · สี `If(ThisItem.util_pct >= 75, ColorValue("#c0392b"), ThisItem.util_pct >= 50, ColorValue("#1c7a4f"), ThisItem.util_pct >= 30, ColorValue("#b26a10"), ColorValue("#8a4f06"))` |
+| Util | `If(ThisItem.pu_duty_min > 0, ThisItem.util_pct & "%", "—")` · สี `If(ThisItem.util_pct >= 75, ColorValue("#c0392b"), ThisItem.util_pct >= 50, ColorValue("#1c7a4f"), ThisItem.util_pct >= 30, ColorValue("#b26a10"), ColorValue("#8a4f06"))` |
 | ไฟลท์ | `ThisItem.ac_flights` |
 | 🟩 ในกะ · 🟧 OT · 🟥 นอกกะ | `Index(Split(ThisItem.ac_zones, "/"), 1).Value` (2 = OT · 3 = นอกกะ · ช่องนอกกะ > 0 สีแดง) |
 | ไฟลท์ที่ทำ | `ThisItem.ac_job` (ตัวเล็ก ตัดบรรทัด) |

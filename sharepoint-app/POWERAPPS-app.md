@@ -61,7 +61,7 @@ Header (โลโก้ + `dpDay` + `ddTeam` + ปุ่มรีเฟรช) �
 | ทำงานจริง | `Sum(colMp, working)` |
 | ลาป่วย / พักร้อน | `Sum(colMp, sick) & " / " & Sum(colMp, annual)` |
 | OT รวม (ชม.) | `Text(Sum(colMp, ot_hours), "#,##0.0")` |
-| Util เฉลี่ย | `With({d: Filter(colDuty, duty_min > 0)}, If(IsEmpty(d), "–", Text(Average(d, util_pct), "0") & "%"))` |
+| Util เฉลี่ย | `With({d: Filter(colDuty, pu_duty_min > 0)}, If(IsEmpty(d), "–", Text(Sum(d, busy_min) / Sum(d, pu_duty_min) * 100, "0") & "%"))` (ติดงานรวม ÷ เวลาพร้อมรวม เหมือนเดิม) |
 | พีคอยู่เวร / ติดงาน | `Max(colHour, onDuty) & " / " & Max(colHour, onJob)` |
 
 **ตารางรายทีม** — Gallery `Items = Sort(colMp, team)` · label: `team`, `total`, `working`, `sick`, `annual`, `training`, `ot_hours`, `util_pct & "%"`
@@ -87,11 +87,28 @@ Concat(
 - ช่องค้นหาชื่อ `txtSearch`: เพิ่มในตัวกรอง `&& (IsBlank(txtSearch.Text) || txtSearch.Text in emp_name)`
 
 ## 6) หน้า Productivity / Util (`util`)
-Gallery `Items = Sort(Filter(colDuty, duty_min > 0 && (ddTeam.Selected.Value = "ALL" || team = ddTeam.Selected.Value)), util_pct, SortOrder.Descending)`
-- Label: `ThisItem.emp_name & " (" & ThisItem.team & ")"` · `ThisItem.util_pct & "%  ·  " & ThisItem.busy_min & "/" & ThisItem.duty_min & " นาที"`
+Gallery `Items = Sort(Filter(colDuty, pu_duty_min > 0 && (ddTeam.Selected.Value = "ALL" || team = ddTeam.Selected.Value)), util_pct, SortOrder.Descending)`
+- Label: `ThisItem.emp_name & " (" & ThisItem.team & ")"` · `ThisItem.util_pct & "%  ·  ติดงาน " & Text(ThisItem.busy_min / 60, "0.0") & " / " & Text(ThisItem.pu_duty_min / 60, "0.0") & " ชม. · ว่าง " & Text(ThisItem.pu_idle_min / 60, "0.0") & " ชม. · " & ThisItem.pu_nflt & " ไฟลท์"`
 - แถบ: Rectangle `Width = (Parent.TemplateWidth - 320) * ThisItem.util_pct / 100` · `Fill` ใช้สูตรสีเดียวกับหน้า Dashboard
 
-> util_pct = เวลาติดงาน (รวมช่วงซ้อนแล้ว · ตัดตามกะ) ÷ เวลาเวร — คำนวณใน `import-roster.ts` ตอนนำเข้า แอปจึงเร็ว
+> util_pct = เวลาติดงานไฟลท์ (รวมงานซัพ · ไม่นับอบรม · รวมช่วงซ้อนแล้ว) ÷ เวลาพร้อมทำงาน (กะ + OT) — **สูตรเดียวกับ Productivity.gs ของ PAS เดิม**
+> (ตรวจไฟล์ 10 ต.ค.: รายคน 467/467 · รายทีม 19/19 · KPI · รายชั่วโมง ตรงทั้งหมด) · คนติดอบรมไม่คิด Util (เหมือนเดิม)
+
+**แถบ KPI บนหัวหน้า** (จาก `PAS_DayStats` ของวันนั้น — `LookUp(PAS_DayStats, day_key = varDay)` เก็บใน `varDS`):
+Util รวม `varDS.pu_util & "%"` · คนทำงาน `varDS.pu_staff` · ไฟลท์ `varDS.pu_flights` · ไปซัพ `varDS.pu_support` · ชม.ว่างรวม `varDS.pu_idle_hrs`
+**รายทีม:** `Sort(colMp, util_pct, SortOrder.Descending)` · `util_pct` (ติดงานรวม ÷ เวลาพร้อมรวมของทีม) · `pu_flights` ไฟลท์ที่ทีมดูแล
+
+**⚠️ ควรทบทวน** (3 ปุ่มสลับ `varPUFlag`):
+| ปุ่ม | Items | แถว |
+|---|---|---|
+| งานซ้อนเวลา (`varDS.pu_overlap`) | `Filter(colDuty, !IsBlank(pu_overlap))` | `emp_name & " (" & team & ") — " & pu_overlap` |
+| ทำงานนอกกะ ≥ 1 ชม. (`varDS.pu_out`) | `Filter(colDuty, pu_out_min >= 60)` | `emp_name & " · กะ " & shift_code & " · นอกกะ " & Text(pu_out_min / 60, "0.0") & " ชม."` |
+| ว่างยาว ≥ 4 ชม. (`varDS.pu_idle`) | `Filter(colDuty, pu_max_gap >= 240)` | `emp_name & " · กะ " & shift_code & " · ว่างต่อเนื่อง " & Text(pu_max_gap / 60, "0.0") & " ชม."` |
+
+**กราฟรายชั่วโมง** (คนอยู่เวร / ติดงานไฟลท์ / จำนวนไฟลท์ — 00:00 → 03:00 วันถัดไป 27 ช่อง):
+`ClearCollect(colPUh, With({h: ParseJSON(varDS.hourly_json)}, ForAll(Sequence(27, 0) As i, {i: i.Value + 1, lb: Text(Mod(i.Value, 24), "00"), has: true, hol: false,
+  ot: Value(Index(h.on, i.Value + 1)), wk: Value(Index(h.busy, i.Value + 1)), fl: Value(Index(h.flt, i.Value + 1))})))` →
+ใช้ Image SVG แบบ `imgOTvsFlt` (POWERAPPS-ot.md 6.5) โดยแทน `colSeries` → `colPUh` · แท่ง = `ot` (อยู่เวร) ซ้อนแท่ง `wk` (ติดงาน) · เส้น = `fl`
 
 ## 7) หน้า Gantt (`gantt`) — เหมือน Gantt ของ PAS เดิม (`rbTtGantt_`)
 **ข้อมูลมาจากตัวนำเข้า** — `import-roster` คำนวณแถบของทุกคนแบบเดียวกับระบบเดิมแล้วเก็บใน `PAS_Duty.gantt_json`
@@ -115,7 +132,7 @@ Filter(Sort(colDuty, gantt_ord), !gantt_hide && !IsBlank(gantt_json) &&
 
 **ซ้าย (กว้าง 186):** Label ชื่อ `ThisItem.emp_name` (ตัวหนา 13) · Label เล็ก `ThisItem.team & If(IsBlank(ThisItem.pos_group), "", " · " & ThisItem.pos_group)` (สี `#5B7189`)
 ป้ายซัพ (แถวซัพพอร์ต · เหมือนระบบเดิม): `Text = "🤝 ซัพจาก " & Coalesce(ThisItem.support_from, "?") & Switch(ThisItem.support_src, "auto", " ·จากชื่อ", "master", " ·จากรายชื่อ", "dup", " ·รหัสซ้ำ", "")` · `Visible = ThisItem.is_support`
-ป้าย Util (Button ทำ pill · Size 9) `Text = ThisItem.util_pct & "%"` · `Visible = ThisItem.duty_min > 0`
+ป้าย Util (Button ทำ pill · Size 9) `Text = ThisItem.util_pct & "%"` · `Visible = ThisItem.pu_duty_min > 0`
 · `Fill = If(ThisItem.util_pct >= 75, ColorValue("#DCF2E4"), ThisItem.util_pct >= 50, ColorValue("#DCEBFA"), ThisItem.util_pct >= 30, ColorValue("#FFF3D6"), ColorValue("#FBE9EC"))`
 
 **ขวา: Image `imgG`** · X = 190 · `Width = Parent.TemplateWidth - 194` · `ImagePosition = ImagePosition.Fill`
@@ -179,7 +196,7 @@ Container ขวา `conGDetail` · กว้าง 340 · `Visible = !IsBlank(v
 With({g: ParseJSON(varGSel.gantt_json)},
   If(!IsBlank(g.st), "สถานะ: " & Text(g.st),
     Concat(Table(g.b) As s, Switch(Text(Index(s.Value, 3)), "s", "🟦 กะ ", "o", "🟧 ", "⬜ กะไม่ระบุเวลา ") & Text(Index(s.Value, 4)), Char(10)) &
-    Char(10) & "Util " & varGSel.util_pct & "% · ทำงาน " & Text(varGSel.busy_min / 60, "0.0") & " / " & Text(varGSel.duty_min / 60, "0.0") & " ชม." &
+    Char(10) & "Util " & varGSel.util_pct & "% · ทำงาน " & Text(varGSel.busy_min / 60, "0.0") & " / " & Text(varGSel.pu_duty_min / 60, "0.0") & " ชม." &
     If(IsBlank(varGSel.ac_status), "", Char(10) & "ตรวจ Assign: " & varGSel.ac_status & If(IsBlank(varGSel.ac_issue), "", " — " & varGSel.ac_issue))))
 ```
 - รายการงาน — Gallery `galGJob` (Flexible height) · `Items`:
