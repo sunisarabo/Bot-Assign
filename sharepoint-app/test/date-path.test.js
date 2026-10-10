@@ -41,6 +41,6 @@ for (const [p, exp] of cases) {
 }
 // ไฟล์ที่ไม่ใช่เวร PSA → skipped
 const sheet = (name, rows) => ({ getName: () => name, getRange: () => ({ getValues: () => rows, getTexts: () => rows.map(r => r.map(x => String(x))) }), getUsedRange: () => ({ getValues: () => rows }) });
-const ll = main({ getWorksheet: () => undefined, getWorksheets: () => [sheet("SOD", [Array(44).fill("")])] }, "Shared Documents/LL/5OCT.xlsx");
+const ll = main(require("./fakexl.js").book({ SOD: [Array(44).fill("")] }), "Shared Documents/LL/5OCT.xlsx");
 if (ll.status !== "skipped") { bad++; console.log("XX LL file not skipped"); } else console.log("OK  non-roster file skipped");
 console.log(bad ? bad + " FAILED" : "ALL PASSED"); process.exit(bad ? 1 : 0);

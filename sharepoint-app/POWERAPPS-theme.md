@@ -200,6 +200,24 @@ Concat(Filter(colAsg, emp_code = ThisItem.emp_code && win_hi > win_lo) As a,
 - เพิ่ม `galNavTop` (Gallery **แนวนอน**) บนสุดของ `conMain` · `Visible = App.Width < 760` · `Items = Filter(Menu, kind = "n")` · TemplateSize 130 · `Fill = T.rail` · ใช้ OnSelect เดียวกับ `galNav` · ป้ายเลือก = Rectangle เหลืองสูง 3 ด้านล่าง
 - `conKpis` เปิด Wrap แล้ว → มือถือเหลือ 2 ใบต่อแถว เอง · การ์ด 2 คอลัมน์ (`conRow`): `LayoutDirection = If(App.Width < 1100, LayoutDirection.Vertical, LayoutDirection.Horizontal)`
 
+## 9.5) แก้ "ขนาดในหน้าเว็บไม่สมดุล" (เช็คตามลำดับ)
+อาการที่เจอบ่อยเมื่อเปิดใน browser: มีขอบดำ/ขาวรอบแอป · ตัวหนังสือเล็ก/ใหญ่ผิดสัดส่วน · ด้านขวาโล่ง หรือของล้นจอ · การ์ดสูงไม่เท่ากัน
+
+| # | จุดที่ตรวจ | ค่าที่ถูก |
+|---|---|---|
+| 1 | Settings → Display | **Scale to fit = Off** · **Lock aspect ratio = Off** · Lock orientation = Off (ถ้ายังเปิด Scale to fit แอปจะถูกย่อ/ขยายทั้งก้อน → ขอบเหลือและตัวหนังสือเพี้ยน) |
+| 2 | ทุก Screen | `Width = Max(App.Width, App.MinScreenWidth)` · `Height = Max(App.Height, App.MinScreenHeight)` (ค่าเริ่มต้น — ถ้าเคยพิมพ์ 1366/768 ตายตัว ให้คืนค่านี้) |
+| 3 | `conApp` | X 0 · Y 0 · `Width = Parent.Width` · `Height = Parent.Height` |
+| 4 | `conMain` / `conContent` | ใน container แม่: **Flexible width = On** (Fill portions 1) · `conRail` เท่านั้นที่กว้างตายตัว 232 |
+| 5 | ของในหน้า (การ์ด, gallery, กราฟ) | ห้ามใส่ Width เป็นตัวเลข → ใช้ **Flexible width / Fill portions** ในแนวนอน หรือ `Width = Parent.Width - 32` (เผื่อ Padding ซ้ายขวา 16) ในแนวตั้ง · ตัด X/Y ที่พิมพ์ตายตัวทิ้ง (container จัดตำแหน่งเอง) |
+| 6 | แถว KPI `conKpis` | Horizontal · **Wrap = On** · การ์ดแต่ละใบ Fill portions 1 · **Minimum width 170** → จอกว้างได้ 6 ใบเท่ากัน จอแคบตกบรรทัดเอง |
+| 7 | การ์ด 2 คอลัมน์ `conRow` | ทั้งสองการ์ด Fill portions **เท่ากัน** (หรือ 2:1 ถ้าต้องการตารางใหญ่กว่า) · `Align (cross-axis) = Stretch` → การ์ดสูงเท่ากัน |
+| 8 | Gallery | `Width = Parent.Width` · `TemplateSize` คงที่ (เช่น 44) · Label ในแถว `Width = Parent.TemplateWidth * 0.3` (แบ่งเป็นสัดส่วน ไม่ใช่ px) |
+| 9 | กราฟ SVG (Image) | `Width = Parent.Width` · `ImagePosition = ImagePosition.Fit` · ใน SVG ใช้ `viewBox` + `preserveAspectRatio='none'` ถ้าอยากให้ยืดเต็มกว้าง |
+| 10 | ตัวหนังสือ | ใช้ขนาดจากธีมเท่านั้น (หัวหน้า 18 · หัวการ์ด 13 · เนื้อ 11 · ตัวเลข KPI 24) ไม่ต้องคูณตาม App.Width |
+
+ทดสอบ: เปิดแอปแล้วย่อ/ขยายหน้าต่าง browser — ทุกอย่างต้องยืดตาม ไม่มีขอบเหลือ ถ้ามีกล่องไหนไม่ยืด แปลว่ากล่องนั้นยังมี Width เป็นตัวเลข
+
 ## 10) ลำดับลงมือ (ประมาณ 2–3 ชม. สำหรับเปลือก + Dashboard)
 1. วาง `App.Formulas` (ข้อ 1) → ตั้ง Scale to fit = Off
 2. สร้าง `conApp` → `conRail` + `galNav` → `conMain` + `conTop` + `conContent` (ข้อ 2–4)

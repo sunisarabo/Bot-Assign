@@ -24,7 +24,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `POWERAPPS-flights.md` | หน้า **✈ Flights & SLA** (ต้องการ/มีจริง/ขาด ต่อเฟส ต่อไฟลท์ — ตรงกับ SLA.gs ทุกไฟลท์ในชุดทดสอบ) + การ์ดไฟลท์ขาดด่วนบน Dashboard |
 | `POWERAPPS-weekflights.md` | หน้า **🗓️ ไฟลท์สัปดาห์** (จากไฟล์ Assignment · ไฟลท์/วัน · คนตาม SLA ต่อเฟส · คน~ · พีคออก · จัดแล้ว/ขาด) |
 | `POWERAPPS-assigncheck.md` | หน้า **🧭 ตรวจ Assign** รายคน (ไฟลท์ในกะ/OT/นอกกะ · ช่วงว่าง · OT เหมาะสม? — ตรงกับ AssignCheck.gs ทุกคอลัมน์ในชุดทดสอบ) |
-| `POWERAPPS-support.md` | หน้า **🆘 Support / เติมคน** (ไฟลท์ขาด → ใครว่าง+รู้ระบบมาช่วย · ข้อความ SOS — ตรงกับ SLA.gs ทุกแถวในชุดทดสอบ) |
+| `POWERAPPS-support.md` | หน้า **🆘 Support / เติมคน** (ไฟลท์ขาด + **คำขอจากชีต SUPPORT REQUEST / Urgent Support ในไฟล์ assignment** → ใครว่าง+รู้ระบบมาช่วย · ข้อความ SOS — ตรงกับ SLA.gs ทุกแถวในชุดทดสอบ) |
 | `import-advroster.ts` | **Office Script** (สร้างจาก `import-roster.ts` ด้วย `node build.js`): ROSTER ล่วงหน้า + `PAS_Flights` + `PAS_Employees` → แผนจัดล่วงหน้า · Flow G ใน `FLOW-advance.md` |
 | `FLOW-notify.md` | **Flow I** อีเมลเตือนทุกเช้า: ทีมที่ยังลง assignment ไม่ครบ ล่วงหน้า 7 วัน + วันที่ยังไม่มีไฟล์เวร (แทน apNotifyMissingAssignments) |
 | `import-hsot.ts` | **Office Script**: ไฟล์ OT ขอจริงจาก HumanSoft → `PAS_OT_Request` (อ่านเหมือน OTCompare.gs) · Flow H ใน `FLOW-hsot.md` |
@@ -64,7 +64,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `PAS_Holidays` | ชื่อวันหยุด | วันหยุดประเพณี → OT นักขัต X1 · **ขึ้นปีใหม่เพิ่มที่นี่** (ตั้งต้นปี 2569 ให้แล้ว) |
 | `PAS_DataIssue` | `วันที่\|หมวด\|ลำดับ` | จุดที่ควรแก้ในไฟล์เวร (ตรวจตอนนำเข้า) |
 | `PAS_FlightSLA` | `วันที่\|ไฟลท์` | SLA ต่อไฟลท์ต่อวัน (คำนวณตอนนำเข้าเวร) |
-| `PAS_Support` | `วันที่\|ไฟลท์\|เฟส` | ไฟลท์ขาด SLA ต่อเฟส + คนที่ว่างช่วยได้ (คำนวณตอนนำเข้าเวร) |
+| `PAS_Support` | `วันที่\|ไฟลท์\|เฟส` | ไฟลท์ขาด SLA ต่อเฟส (source SLA) + คำขอซัพพอร์ตจากไฟล์ (source REQ) + คนที่ว่างช่วยได้ (คำนวณตอนนำเข้าเวร) |
 | `PAS_DayStats` | `วันที่` | สรุป 1 แถว/วัน: ไฟลท์ (จากไฟล์ assignment) · ขาด SLA · คนทำงาน · OT — กราฟ OT เทียบไฟลท์ |
 | `PAS_OT_Request` | `วันที่\|รหัส\|ลำดับ` | OT ที่ขอจริงจาก HumanSoft (Flow H) — เทียบกับ `PAS_OT_Person` |
 | `PAS_AdvPlan` · `PAS_AdvRoster` | `วันที่\|ชนิด\|ลำดับ` · `วันที่\|รหัส` | แผนจัดล่วงหน้าต่อไฟลท์ + พูลคนขึ้นเวรล่วงหน้า (Flow G) |

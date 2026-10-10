@@ -22,9 +22,9 @@ const T = {
   KE: tab([]),                                                                                                                  // ไม่มีคน → ไม่เตือน
 };
 const mp = [["MANPOWER 10 OCT 2026"]].concat(Object.keys(T).map(t => ["Team (" + t + ")"]));
-const xsheet = (name, rows) => ({ getName: () => name, getRange: (a) => ({ getValues: () => rows, getTexts: () => rows.slice(0, a === "A1:T4" ? 4 : rows.length).map(r => r.map(String)) }), getUsedRange: () => ({ getValues: () => rows }) });
-const tabs = { MANPOWER: xsheet("MANPOWER", mp) }; for (const t of Object.keys(T)) tabs[t] = xsheet(t, T[t]);
-const r = main({ getWorksheet: n => tabs[n], getWorksheets: () => Object.values(tabs) }, "Shared Documents/2026/10.OCT26/10OCT.xlsx");
+const X = require("./fakexl.js");
+const tabs = { MANPOWER: mp, ShiftDB: X.SHIFTDB }; for (const t of Object.keys(T)) tabs[t] = T[t];
+const r = main(X.book(tabs), "Shared Documents/2026/10.OCT26/10OCT.xlsx");
 const neu = r.batches.filter(b => b.list === "PAS_DataIssue").flatMap(b => [...b.body.matchAll(/^\{.*\}$/gm)].map(m => JSON.parse(m[0]))).filter(x => x.category === "notfilled")
   .map(x => { const m = x.who.match(/(\d+)\/(\d+)/); return x.team + " " + m[1] + "/" + m[2]; }).sort();
 const gs = (name, rows) => ({ getName: () => name, getLastRow: () => rows.length, getLastColumn: () => W, getRange: (r0, c0, nr, nc) => ({ getValues: () => rows.slice(0, nr).map(x => x.slice(0, nc)) }) });

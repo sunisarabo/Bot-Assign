@@ -304,6 +304,10 @@
      "type": "Text"
     },
     {
+     "name": "pos_group",
+     "type": "Text"
+    },
+    {
      "name": "bucket",
      "type": "Choice",
      "choices": [
@@ -948,8 +952,8 @@
   },
   {
    "title": "PAS_Support",
-   "desc": "ไฟลท์ขาด SLA (ต่อเฟส) + คนที่ว่างและรู้ระบบมาช่วยได้ (คำนวณตอนนำเข้าเวร · พอร์ตจาก SLA.gs Support)",
-   "titleLabel": "key (date|flight|phase)",
+   "desc": "ซัพพอร์ต: SLA = ไฟลท์ขาด SLA ต่อเฟส · REQ = คำขอจากแท็บ SUPPORT REQUEST / Urgent Support ในไฟล์เวร (จัดแล้ว/รอจัดคน) + คนที่ว่างและรู้ระบบมาช่วยได้",
+   "titleLabel": "key (date|flight|phase หรือ date|REQ|n)",
    "fields": [
     {
      "name": "day_key",
@@ -1031,6 +1035,62 @@
     {
      "name": "others_json",
      "type": "Note"
+    },
+    {
+     "name": "source",
+     "type": "Choice",
+     "choices": [
+      "SLA",
+      "REQ"
+     ]
+    },
+    {
+     "name": "req_team",
+     "type": "Text"
+    },
+    {
+     "name": "req_duty",
+     "type": "Text"
+    },
+    {
+     "name": "req_time",
+     "type": "Text"
+    },
+    {
+     "name": "assigned",
+     "type": "Text"
+    },
+    {
+     "name": "from_team",
+     "type": "Text"
+    },
+    {
+     "name": "req_status",
+     "type": "Text"
+    },
+    {
+     "name": "req_remark",
+     "type": "Text"
+    },
+    {
+     "name": "req_sheet",
+     "type": "Text"
+    },
+    {
+     "name": "label",
+     "type": "Text"
+    },
+    {
+     "name": "open_n",
+     "type": "Number"
+    },
+    {
+     "name": "win_user",
+     "type": "Boolean"
+    },
+    {
+     "name": "no_roster",
+     "type": "Boolean"
     }
    ]
   },

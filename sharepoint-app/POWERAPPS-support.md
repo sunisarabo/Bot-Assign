@@ -1,7 +1,14 @@
 # หน้า 🆘 Support / เติมคน (Power Apps) — แทนหน้าเดิมของ PAS
 
-ไฟลท์ที่ขาด SLA → แต่ละเฟสที่ขาด (SUP / Check-in / Gate / Arrival) → **ใครว่างและช่วยได้** เรียงตามความเหมาะสม
+2 แหล่งคำขอ → **ใครว่างและช่วยได้** เรียงตามความเหมาะสม
+1. **📋 คำขอจากไฟล์เวร (RQ)** — แท็บ `SUPPORT REQUEST` (+ `Urgent Support`) ที่ทีมกรอกขอซัพ: แถวที่ดิวตี้ใส่ชื่อแล้ว = **จัดแล้ว** (โชว์ทางเลือกสำรอง 3 คน) · แถวที่ยังไม่มีชื่อ = **รอจัดคน** → ระบบเสนอคนให้
+2. **ไฟลท์ที่ขาด SLA** — แต่ละเฟสที่ขาด (SUP / Check-in / Gate / Arrival)
+
+คนที่ดิวตี้ใส่ชื่อส่งไปซัพแล้ว → ระบบ **ผูกงานซัพกลับที่ตัวคนนั้น** (ช่วงเวลาตามคำขอ) → ขึ้นใน Gantt/ตรวจ Assign · นับเป็นคนของไฟลท์นั้นใน SLA · **ไม่ถูกแนะนำซ้ำ** ช่วงเวลาเดียวกัน
 คำนวณ **ตอนนำเข้าไฟล์เวร** (`import-roster.ts` → `supportRows` พอร์ตจาก `SLA.gs` `slaSupportRows_` / `slaCandidates_`) เก็บใน `PAS_Support` 1 แถว/ไฟลท์/เฟสที่ขาด
+> **ตรวจกับไฟล์จริง 10OCT.xlsx:** รันตัวเดิม (`RosterReader.gs` + `WebDashboard.gs` + `SLA.gs`) คู่กับตัวใหม่ → อ่านคน **798/798 ตรงทุกคน** · ไฟลท์ SLA **88/88** · แถวไฟลท์ขาด **11/11** · **คำขอจากไฟล์ 54/54** (ชื่อคนแนะนำ + ลำดับ + พนักงานอื่นๆ) · ตรวจ Assign **510/510**
+> ทดสอบถาวรใน repo: `test/reader-parity.test.js` (ไฟล์จำลองรูปแบบเดียวกัน)
+>
 > **ตรวจแล้วว่าตรงของเดิม:** `test/support-parity.test.js` รัน `SLA.gs` + `AirlineSupport.gs` ตัวจริงคู่กับตัวใหม่ → **ตรง 30/30 แถว** ทั้งรายชื่อคนช่วย **และลำดับ**, "พนักงานอื่นๆ", กฎสายการบิน, การจองคนไม่ให้แนะซ้ำ
 
 ## กติกา (เหมือนเดิม)
@@ -17,10 +24,13 @@
 | จองคน | คน top-N (N = จำนวนที่ขาด) ถูกจองให้ไฟลท์นั้น → ไฟลท์ถัดไปที่เวลาทับจะไม่แนะคนเดิมซ้ำ (ไล่ตามเวลา STD) |
 | ไม่มีเวลาเฟส | ขาด OP/CL/STD → ประเมินช่วงจากเวลาไฟลท์ที่มี (ติดป้าย "ประเมินเวลา") |
 
-**ยังไม่มี (เทียบเดิม):** ฟอร์ม "ขอซัพพอร์ต" ที่ทีมกรอกเอง (Support Request) · ตรวจรายชื่อที่จะส่ง (วางข้อความ Duty) — แจ้งได้ถ้าใช้ประจำ
+| คำขอ RQ | ไม่บล็อกด้วยกฎสายการบิน (ทีมขอมาเอง) · หน้าที่ → เฟส: SOD/SUP/FC = SUP · ARR/TF/CIQ = Arrival · CHECK/CI/CT/CS = Check-in · อื่น ๆ (GA/GM/G-I/G-D…) = Gate · เวลาเดียว (เช่น `2110`) → กางเป็นช่วงตามเฟส |
+| เพิ่มจากเดิม | อ่านแท็บ `Urgent Support` ด้วย · ไฟลท์เขียนแบบ `RON/PG408` → อ่านเป็น PG408 · เขียนขาเดียว (`G9715`) → จับคู่กับไฟลท์ในเวร (`G9714/715`) |
+
+**ยังไม่มี (เทียบเดิม):** ช่องเพิ่มคำขอเองในหน้าเว็บ (Duty) · ตรวจรายชื่อที่จะส่ง (วางข้อความ Duty) · แปลงข้อความไลน์เป็นชีต — ตอนนี้ให้กรอกในแท็บ SUPPORT REQUEST ของไฟล์เวร แล้วระบบนำเข้าให้เอง (~25 นาที)
 
 ## เปิดใช้
-1. รัน `provision-lists.js` ล่าสุด (สร้าง `PAS_Support`)
+1. รัน `provision-lists.js` ล่าสุด (สร้าง/เพิ่มคอลัมน์ `PAS_Support`: `source`, `req_team`, `req_duty`, `req_time`, `assigned`, `from_team`, `req_status`, `open_n` … · `PAS_Duty`: `pos_group`)
 2. วาง `import-roster.ts` ใหม่ · Flow B ตาม `FLOW-import.md`: ข้อ 1d (`PosRows` → พารามิเตอร์ `posg`) · ลบของวันเดิม **7 รอบ**
 3. Power Apps: Add data → `PAS_Support`
 
@@ -41,9 +51,28 @@ ClearCollect(colSup,
 ```
 > `cands_json` = อาร์เรย์ของ `[ชื่อ, ตำแหน่ง, ทีม, OFF, วันหยุด, กะ, OT, ชม.รวม, ระดับชม., ข้อความชม., จำนวนงาน, ไฟลท์ที่ทำ]` · ต้องเปิด **Settings → Updates → ParseJSON / Untyped objects** (เปิดอยู่แล้วในเวอร์ชันใหม่)
 
+## 1.5) 📋 คำขอซัพพอร์ตจากไฟล์ (แสดงก่อน — เหมือนเดิม)
+`colSupReq = Filter(colSup, source.Value = "REQ")` (ใส่เป็น `Items` ได้เลย) · หัว:
+```powerapps
+"📋 คำขอซัพพอร์ตจากไฟล์ (SUPPORT REQUEST) — " & CountRows(Filter(colSup, source.Value = "REQ")) & " รายการ · ✅ จัดแล้ว " &
+CountRows(Filter(colSup, source.Value = "REQ" && open_n = 0)) & " · ⏳ รอจัดคน " & CountRows(Filter(colSup, source.Value = "REQ" && open_n > 0))
+```
+Gallery `galSupReq` · `Items = SortByColumns(Filter(colSup, source.Value = "REQ" && (!tglReqOpen.Value || open_n > 0)), "std_min", SortOrder.Ascending)` · สวิตช์ `tglReqOpen` "เฉพาะที่รอจัดคน"
+| ช่อง | Text |
+|---|---|
+| ทีมที่ขอ · ไฟลท์ | `ThisItem.req_team` (pill ฟ้า) · `ThisItem.flight` (ตัวหนา) |
+| หน้าที่ · เวลา | `ThisItem.req_duty & " → " & ThisItem.phase.Value` · `Coalesce(ThisItem.req_time, ThisItem.win)` |
+| ผู้ไปซัพ | `If(ThisItem.open_n = 0, "✅ " & ThisItem.assigned & If(!IsBlank(ThisItem.from_team), " (" & ThisItem.from_team & ")", ""), "⏳ รอจัดคน")` · สี `If(ThisItem.open_n = 0, T.ok, T.warn)` |
+| แนะนำ (รอจัดคน) | `If(ThisItem.open_n > 0, If(IsBlank(ThisItem.picks), If(ThisItem.no_roster, "— ไม่พบไฟลท์ในเวร/ไม่มีเวลา (ใส่เวลาในคอลัมน์ เวลา/STBY)", "— ไม่มีคนว่างช่วงนี้"), "👉 " & Substitute(ThisItem.picks, Char(10), " · ")), "")` |
+| ทางเลือกสำรอง (จัดแล้ว) | `If(ThisItem.open_n = 0, "สำรอง: " & Concat(FirstN(ThisItem.cands, 3), name & " (" & team & ")", ", "), "")` (ตัวเล็ก สีรอง) |
+| Remark | `ThisItem.req_remark` (เช่น RE 07-17) |
+กดแถว → กางรายชื่อเต็ม (ใช้ gallery ซ้อน `galSupCand` แบบข้อ 3)
+
+> ในข้อ 3 (การ์ดไฟลท์ขาด SLA) ให้กรองเฉพาะ `source.Value = "SLA"` — `Items` เดิมเติม `&& source.Value = "SLA"`
+
 ## 2) หัว + ตัวกรอง
 ```powerapps
-"🆘 Support / เติมคน · ไฟลท์ขาด " & CountRows(Distinct(colSup, flight)) & " · ตำแหน่งที่ขาด " & Sum(colSup, short_n) & " คน" &
+"🆘 Support / เติมคน · ไฟลท์ขาด " & CountRows(Distinct(Filter(colSup, source.Value = "SLA"), flight)) & " · ตำแหน่งที่ขาด " & Sum(colSup, short_n) & " คน" &
 " · มีคนแนะนำ " & CountRows(Filter(colSup, n_cand > 0 && IsBlank(block))) & "/" & CountRows(colSup) & " แถว"
 ```
 - `ddSupPhase.Items = ["ทั้งหมด", "SUP", "Check-in", "Gate", "Arrival"]`
@@ -53,7 +82,7 @@ ClearCollect(colSup,
 ```powerapps
 SortByColumns(
     Filter(colSup,
-        (ddSupPhase.Selected.Value = "ทั้งหมด" || phase.Value = ddSupPhase.Selected.Value)
+        source.Value = "SLA" && (ddSupPhase.Selected.Value = "ทั้งหมด" || phase.Value = ddSupPhase.Selected.Value)
         && (tglSupBlocked.Value || IsBlank(block))),
     "std_min", SortOrder.Ascending)
 ```

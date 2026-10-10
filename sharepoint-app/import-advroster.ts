@@ -39,13 +39,13 @@ const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิ
 
 type Cell = string | number | boolean;
 interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number; ot_pre_people?: number; ot_pre_hours?: number; ot_post_people?: number; ot_post_hours?: number }
-interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; bucket: string; shift_code: string; shift_start: string; shift_end?: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; ot_type?: string; ot_time?: string; is_support: boolean;
+interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; pos_group?: string; bucket: string; shift_code: string; shift_start: string; shift_end?: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; ot_type?: string; ot_time?: string; is_support: boolean;
   ac_status?: string; ac_flights?: string; ac_job?: string; ac_zones?: string; ac_support?: number; ac_uncovered?: string; ac_gaps?: string; ac_gaps_raw?: string; ac_ot_verdict?: string; ac_issue?: string; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
 interface Batch { list: string; boundary: string; body: string; n: number }
-interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number; auto?: number }; batches: Batch[] }
+interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number; requests?: number; support_out?: number; auto?: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
 function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string): Result {
@@ -81,15 +81,20 @@ function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?
   const site = (siteUrl || SITE).replace(/\/$/, "");
   const batches: Batch[] = [];
   addBatches(batches, site, "PAS_Manpower", p.manpower);
-  addBatches(batches, site, "PAS_Duty", p.duty);
-  addBatches(batches, site, "PAS_Assignment", p.assignment);
   addBatches(batches, site, "PAS_OT_Person", p.otPerson);
   const pg = posGroups(posg);
   const pssSet = codeSet(pss); for (const e of Object.keys(pg)) if (pg[e] === "PSS") pssSet[e] = true;
+  for (const x of p.acRecs) if (x.rec.posGroup === "PSS" && x.rec.emp) pssSet[x.rec.emp] = true;          // ตำแหน่งจากไฟล์เวร (เหมือนเดิม)
+  const reqs = readSupportReq(workbook);
+  const nOut = attachSupportOut(reqs, p.acRecs, p.slaPeople, p.assignment, pick.iso, p.everyone);   // คนที่ดิวตี้ส่งไปซัพแล้ว → ติดงานช่วงนั้น
+  analyzeAssign(p.acRecs);
+  addBatches(batches, site, "PAS_Duty", p.duty);
+  addBatches(batches, site, "PAS_Assignment", p.assignment);
+  const recs = p.acRecs.map(x => x.rec);
   const slaR = computeSla(pick.iso, p.slaPeople, p.teamNames, parseSched(schedule), pssSet, parseRules(rules));
   const sla = slaR.rows;
-  const support = supportRows(pick.iso, slaR.flights, p.acRecs, pg);
-  const auto = autoPlanRows(pick.iso, slaR.flights, p.acRecs, pg);
+  const support = supportReqRows(pick.iso, reqs, slaR.flights, recs, pg).concat(supportRows(pick.iso, slaR.flights, recs, pg));
+  const auto = autoPlanRows(pick.iso, slaR.flights, recs, pg);
   addBatches(batches, site, "PAS_DataIssue", p.issues);
   addBatches(batches, site, "PAS_FlightSLA", sla);
   addBatches(batches, site, "PAS_Support", support);
@@ -102,7 +107,7 @@ function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?
     working: sumMp(m => m.cnt_work), ot_people: sumMp(m => m.ot_people), ot_hours: sumMp(m => m.ot_hours), ot_total: sumMp(m => m.ot_total), is_holiday: !!hol[pick.iso] }]);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
-    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length, support: support.length, auto: auto.length }, batches
+    counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length, support: support.length, requests: reqs.length, support_out: nOut, auto: auto.length }, batches
   };
 }
 
@@ -122,6 +127,609 @@ function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
   return teams;
 }
 
+// ======================= อ่านไฟล์เวร (พอร์ตจาก RosterReader.gs · readRosterFromSpreadsheet) =======================
+// อ่านแบบหาหัวตาราง (ID/NAME/SHIFT/STATUS/REMARK/OT/RE-SKED/FLIGHT) ต่อแท็บ เหมือนของเดิมทุกกติกา
+// ใช้ "ข้อความที่แสดงในเซลล์" (getTexts) → เวลาเป็น "HH:MM" แบบเดียวกับที่ Google ส่งให้ของเดิม
+// ต่างจากเดิม: ไม่อ่านสีพื้น/ขีดฆ่า (ไฟลท์ยกเลิกจับจากข้อความ CXL/CANCEL/ยกเลิก เท่านั้น) · ไม่เติมกะจาก ROSTER เดือน
+const SKIP_SHEETS_RR = ["MANPOWER", "ROSTER", "SUMMARY", "MASTER SMART SHIFT", "SHIFTDB", "CODE", "SUPPORT REQUEST", "แม่แบบ", "_CODES"];
+interface RAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string; AC?: string; activity?: boolean; supportOut?: boolean }
+interface RSpan { a: number | null; b: number | null; type: string | null }
+interface RRec { team: string; id: string; name: string; bkk: boolean; support: boolean; supportTeam: string; pos: string; re: string;
+  shift: string; shiftTime: string; shiftStart: number | null; shiftHrs: number; bucket: string; remark: string; remark2: string;
+  ot: number; otType: string | null; otSpans: RSpan[]; otTime: string; blankRow: boolean; assignments: RAsg[]; training: boolean; posGroup: string; fromShiftDB: boolean }
+interface RFlt { STA: string; STD: string; OP: string; CL: string; AC: string }
+interface RCol { col: number; name: string; lpShift?: boolean; end?: number; cancelled?: boolean }
+interface RZone { c0: number; c1: number; label: string; sta: string; std: string }
+interface RTab { name: string; recs: RRec[]; dupSkip: number; sheetDate: string; noTime: string[] }
+interface RCm { hdr: number; name: number; id: number; shift: number; time: number; pos: number; remark: number; remark2: number; jobtext: number;
+  re: number; resked: number; ot: number; ot2: number; ottot: number; ottot2: number; flt: number }
+
+// ข้อความเซลล์ → เหมือน rrClean_ ของเดิม (เวลา → HH:MM · วันที่ปฏิทิน → ว่าง · ตัด .0 ท้ายเลข)
+function rrClean(v: string): string {
+  let s = String(v == null ? "" : v).trim();
+  const tm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([AP]M)?$/i);
+  if (tm) { let h = +tm[1]; if (tm[3]) { const pm = /P/i.test(tm[3]); if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0; } return p2t(h) + ":" + tm[2]; }
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s) || /^\d{4}-\d{2}-\d{2}$/.test(s)) return "";
+  return s.replace(/\.0+$/, "");
+}
+function rrUp(v: string): string { return rrClean(v).toUpperCase(); }
+function rrClassify(shift: string, remark: string): string {
+  const rm = rrUp(remark).trim(), sh = rrUp(shift).trim(), core = rm.replace(/\(.*?\)/g, "").trim();
+  if (core.indexOf("SICK") === 0 || core === "SL" || core === "MC" || sh === "SICK" || sh === "SL" || sh === "MC") return "sick";
+  if (core.indexOf("VAC") === 0 || core === "BL" || core === "AL" || core === "VL" || core === "ML" || core === "PL" || core === "VACATION") return "vac";
+  if (core.indexOf("OT OFF") === 0 || core.indexOf("OT-OFF") === 0) return "ot_off";
+  if (core.indexOf("ONDUTY") === 0 || core.indexOf("ON DUTY") === 0) return "working";
+  if (core.indexOf("OFF") === 0 || core === "X") return "off";
+  if (/ป่วย/.test(core)) return "sick";                                       // เพิ่มจากของเดิม: สถานะภาษาไทย
+  if (/พักร้อน|ลากิจ|ลาคลอด|^ลา$/.test(core)) return "vac";
+  if (core === "") {
+    if (sh.indexOf("VAC") >= 0 || sh === "BL" || sh === "VL" || sh === "ML" || sh === "PL" || sh === "AL") return "vac";
+    if (sh === "SL" || sh === "SICK" || sh === "MC") return "sick";
+    if (sh === "" || sh === "X" || sh === "XX" || sh === "OFF" || sh === "-" || sh.indexOf("OFF") === 0) return "off";
+    return "working";
+  }
+  return "working";
+}
+function rrTimePair(s: string): string { const m = rrClean(s).match(/(\d{1,2})[:.]?(\d{2})/); return m ? p2t(+m[1]) + ":" + m[2] : ""; }
+function rrHHMM(s: string): string { const m = String(s || "").match(/(\d{1,2})(\d{2})$/); return m ? p2t(+m[1]) + ":" + m[2] : ""; }
+function rrLpZones(rows: string[][], hi: number, fltStart: number): RZone[] {
+  const zones: RZone[] = [];
+  for (let up = 1; up <= 4 && hi - up >= 0; up++) {
+    const hr = rows[hi - up]; if (!hr) continue;
+    const found: { c: number; label: string }[] = [];
+    for (let c = fltStart; c < hr.length; c++) {
+      const lbl = rrClean(hr[c]); if (!lbl) continue;
+      const m = lbl.toUpperCase().match(/(MORNING|AFTERNOON|EVENING|NIGHT)/);
+      if (m) found.push({ c, label: (/\bLP\b/i.test(lbl) ? "LP " : "") + m[1] });
+    }
+    if (!found.length) continue;
+    for (let i = 0; i < found.length; i++) {
+      const c0 = found[i].c, c1 = i + 1 < found.length ? found[i + 1].c : hr.length;
+      let sta = "", std = "";
+      for (let dr = hi - up; dr < hi; dr++) {
+        const drow = rows[dr] || [];
+        for (let cc = c0; cc < c1 && cc < drow.length; cc++) {
+          const sc = rrClean(drow[cc]);
+          const mA = sc.match(/A\s*:?\s*(\d{1,2})[:.]?(\d{2})/i); if (mA && !sta) sta = p2t(+mA[1]) + ":" + mA[2];
+          const mD = sc.match(/D\s*:?\s*(\d{1,2})[:.]?(\d{2})/i); if (mD && !std) std = p2t(+mD[1]) + ":" + mD[2];
+        }
+      }
+      zones.push({ c0, c1, label: found[i].label, sta, std });
+    }
+    break;
+  }
+  return zones;
+}
+function rrParseJobText(text: string): RAsg[] {
+  const out: RAsg[] = [];
+  if (!text) return out;
+  for (const chunk of String(text).split(/[,;\n]+/)) {
+    const c = rrClean(chunk); if (!c) continue;
+    const toks = c.split(/\s+/); let flight = "", times = ""; const role: string[] = [];
+    for (const t of toks) {
+      if (!flight && /^(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}(?:\/\d{2,4})?$/i.test(t)) { flight = t; continue; }
+      const tm = t.replace(/^[-–]+/, "");
+      if (flight && !times && /^\d{3,4}[\/-]\d{3,4}$/.test(tm)) { times = tm; continue; }
+      if (!flight && /^[A-Za-z][A-Za-z/().-]*$/.test(t)) role.push(t.toUpperCase());
+    }
+    if (!flight || !isFlightName(flight)) continue;
+    let sta = "", std = "";
+    if (times) { const p = times.split(/[\/-]/); sta = rrHHMM(p[0]); std = rrHHMM(p[1]); }
+    out.push({ flight, task: role.join(" "), STA: sta, STD: std, OP: "", CL: "" });
+  }
+  return out;
+}
+function rrSupportTeam(name: string): { team: string; name: string } {
+  const s = String(name || "").trim();
+  const mp = s.match(/^(.*\S)\s*\(\s*([A-Za-z][A-Za-z0-9]{1,4})\s*\)\s*$/);
+  if (mp) return { team: mp[2].toUpperCase(), name: mp[1].trim() };
+  const toks = s.split(/\s+/);
+  if (toks.length >= 2) { const last = toks[toks.length - 1].replace(/[()]/g, ""); if (/^[A-Z0-9]{2,5}$/.test(last) && /[A-Z]/.test(last)) return { team: last.toUpperCase(), name: toks.slice(0, -1).join(" ") }; }
+  return { team: "", name: s };
+}
+function rrIsTrainingTask(task: string): boolean {
+  return /\bTRAIN|\bOJT\b|\bBRIEF|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP|ORIENTATION|RECURRENT|TOWN\s?HALL|\bGOM\b|ACCESSOR|บินทดสอบ|RESIGN|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ|สอนงาน|ลาออก/i.test(String(task || ""));
+}
+function rrRemarkActivity(remark: string): { name: string; STA: string; STD: string }[] {
+  const s = String(remark || ""); if (!s) return [];
+  const KW = /\bTRAIN|\bOJT\b|\bBRIEF|\bCOURSE\b|MEETING|SEMINAR|WORKSHOP|E-?LEARN|LOAD CONTROL|ACCESSOR|RECURRENT|ORIENTATION|TOWN\s?HALL|\bGOM\b|MANDATORY|อบรม|สัมมนา|ประชุม|กิจกรรม|เทรน|บรีฟ|คอร์ส|หลักสูตร/i;
+  const tok = (t: string): string | null => {
+    const mm = t.match(/^(\d{1,2})[:.](\d{2})$/); if (mm) { const h = +mm[1], m = +mm[2]; return h < 24 && m < 60 ? p2t(h) + ":" + mm[2] : null; }
+    const hm = t.match(/^(\d{3,4})$/); if (hm) { const d = hm[1], mn = d.slice(-2), hh = d.slice(0, -2); return +hh < 24 && +mn < 60 ? p2t(+hh) + ":" + mn : null; }
+    const ho = t.match(/^(\d{1,2})$/); if (ho && +ho[1] < 24) return p2t(+ho[1]) + ":00";
+    return null;
+  };
+  const out: { name: string; STA: string; STD: string }[] = [];
+  for (const raw of s.split(/[\/\n;]|,\s/)) {
+    const seg = rrClean(raw); if (!seg || !KW.test(seg)) continue;
+    const m = seg.match(/(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4}|\d{1,2})/); if (!m) continue;
+    const a = tok(m[1]), b = tok(m[2]); if (!a || !b) continue;
+    const sm = (+a.slice(0, 2)) * 60 + (+a.slice(3)); if (sm < 300 || sm > 1320) continue;
+    out.push({ name: seg.slice(0, 50), STA: a, STD: b });
+  }
+  return out;
+}
+function rrExtractFlights(txt: string): RAsg[] {
+  const out: RAsg[] = [], seen: { [k: string]: boolean } = {};
+  if (!txt) return out;
+  const s = String(txt);
+  const reF = /[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[\/-]\s?(?:(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s?)?\d{2,4})*/gi;
+  const hits: { code: string; start: number; end: number }[] = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = reF.exec(s))) { const code = rrClean(mm[0]).replace(/\s+/g, ""); if (isFlightName(code)) hits.push({ code, start: mm.index, end: reF.lastIndex }); }
+  const hh = (str: string): string => { let m = String(str).match(/(\d{1,2})[:.](\d{2})/); if (!m) m = String(str).match(/\b(\d{2})(\d{2})\b/); if (!m) return ""; const h = +m[1], n = +m[2]; return h <= 24 && n < 60 ? p2t(h) + ":" + p2t(n) : ""; };
+  hits.forEach((h, i) => {
+    const key = (h.code.match(/\d{2,4}/g) || []).join("/"); if (!key || seen[key]) return; seen[key] = true;
+    const seg = s.substring(h.end, i + 1 < hits.length ? hits[i + 1].start : s.length);
+    let STA = "", STD = "", OP = "", CL = "";
+    const msta = seg.match(/STA\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i), mstd = seg.match(/STD\s*[:.]?\s*(\d{1,2}[:.]?\d{2})/i);
+    if (msta) STA = hh(msta[1]); if (mstd) STD = hh(mstd[1]);
+    if (!STA && !STD) {
+      const mr = seg.match(/(\d{1,2}[:.]\d{2}|\d{3,4})\s*[-–]\s*(\d{1,2}[:.]\d{2}|\d{3,4})/);
+      if (mr && hh(mr[1]) && hh(mr[2])) { OP = hh(mr[1]); CL = hh(mr[2]); }
+      else {
+        const mp = seg.match(/\((\d{1,2}[:.]?\d{2})\)/) || seg.match(/TIME\s*['"]?\s*(\d{1,2}[:.]?\d{2})/i) || seg.match(/[:：]\s*(\d{3,4})\b/) || seg.match(/(?:^|[\s'"])(\d{1,2}[:.]\d{2}|\d{4})(?=\s|$|['"])/);
+        if (mp) { const one = hh(mp[1]); if (one) { OP = one; CL = one; } }
+      }
+    }
+    out.push({ flight: h.code, task: "", STA, STD, OP, CL });
+  });
+  return out;
+}
+function rrRangeHours(s: string): number {
+  const m = rrClean(s).replace(/\./g, ":").match(/^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/); if (!m) return 0;
+  const a = (+m[1]) * 60 + (m[2] ? +m[2] : 0); let b = (+m[3]) * 60 + (m[4] ? +m[4] : 0); if (b <= a) b += 1440;
+  return Math.round((b - a) / 60 * 10) / 10;
+}
+function rrOtHours(v: string): number {
+  const s = rrUp(v);
+  if (!s || s === "-" || s === "NO OT" || s === "VAC" || s === "X") return 0;
+  const m = s.match(/^(\d{1,2}):(\d{2})(:\d{2})?$/);
+  if (m) { const h = +m[1], mi = +m[2]; return h <= 14 ? Math.round((h + mi / 60) * 10) / 10 : 0; }
+  if (/^\d+(\.\d+)?$/.test(s)) { const f = parseFloat(s); return f > 0 && f <= 14 ? f : 0; }
+  return rrRangeHours(s);
+}
+function rrMin(v: string): number | null {
+  const s = rrClean(v); if (!s) return null;
+  let m = s.match(/^(\d{1,2})[:.](\d{2})/); if (m) return +m[1] * 60 + +m[2];
+  m = s.match(/^(\d{2})(\d{2})$/); return m ? +m[1] * 60 + +m[2] : null;
+}
+function rrRangeStr(v: string): (number | null)[] {
+  const m = rrClean(v).match(/(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?/);
+  return m ? [(+m[1]) * 60 + (m[2] ? +m[2] : 0), (+m[3]) * 60 + (m[4] ? +m[4] : 0)] : [null, null];
+}
+function rrRangeCells(row: string[], col: number): (number | null)[] {
+  if (col < 0 || col >= row.length) return [null, null];
+  const r = rrRangeStr(row[col]); if (r[0] != null) return r;
+  return [rrMin(row[col]), col + 1 < row.length ? rrMin(row[col + 1]) : null];
+}
+function rrReadOtGroup(row: string[], otc: number, totc: number): { hours: number; range: (number | null)[] } | null {
+  if (otc < 0) return null;
+  let rng = rrRangeCells(row, otc), h: number;
+  if (rng[0] != null && rng[1] != null && rng[0] === rng[1]) rng = [null, null];
+  if (totc >= 0) {
+    h = rrOtHours(totc < row.length ? row[totc] : "");
+    if (!(h > 0) && rng[0] != null && rng[1] != null) { const a = rng[0]; let b = rng[1]; if (b <= a) b += 1440; h = Math.round((b - a) / 60 * 10) / 10; }
+  } else h = rrOtHours(otc < row.length ? row[otc] : "");
+  if (!(h > 0) && rng[0] == null) return null;
+  return { hours: h > 0 ? h : 0, range: rng };
+}
+function rrFmtRange(r: (number | null)[]): string { return r[0] != null && r[1] != null ? fmtMin(r[0]) + "-" + fmtMin(r[1]) : ""; }
+function rrAlignTo(a: number, b: number, rs: number, re: number): number[] {
+  if (b <= a) b += 1440;
+  let bestK = 0, bestGap = Infinity;
+  for (let k = -2; k <= 2; k++) { const aa = a + 1440 * k, bb = b + 1440 * k; const gap = aa > re ? aa - re : (bb < rs ? rs - bb : 0); if (gap < bestGap) { bestGap = gap; bestK = k; } }
+  return [a + 1440 * bestK, b + 1440 * bestK];
+}
+function rrOtType(srng: (number | null)[], orng: (number | null)[], isOff: boolean): string {
+  if (isOff) return "POST";
+  const si = srng[0]; let so = srng[1], oi = orng[0], oo = orng[1];
+  if (oi == null) return "POST";
+  if (oo == null) return si != null && oi < si ? "PRE" : "POST";
+  if (so != null && si != null && so <= si) so += 1440;
+  if (oo <= oi) oo += 1440;
+  if (si == null || so == null) return si != null && oi < si ? "PRE" : "POST";
+  const al = rrAlignTo(oi, oo, si, so); oi = al[0]; oo = al[1];
+  return oo <= si + 30 ? "PRE" : "POST";
+}
+function rrIsFlightHdr(h: string): boolean { return /(?:^|[\s\/])(?:[A-Z]{1,3}\s?\d{2,4}|\d[A-Z]\d{2,4})/.test(String(h || "")); }
+function rrIsCounterHdr(h: string): boolean { return /^\s*COUNTER\s+[A-Z]{0,2}\d{1,3}\b/i.test(String(h || "")); }
+function rrCellTimeVal(v: string): string {
+  const s = String(v == null ? "" : v).trim();
+  const m = s.match(/^(\d{1,2})[:.](\d{2})/); if (m) return +m[1] < 24 && +m[2] < 60 ? p2t(+m[1]) + ":" + m[2] : "";
+  const m2 = s.match(/^(\d{1,2})(\d{2})$/); if (m2 && +m2[1] < 24 && +m2[2] < 60) return p2t(+m2[1]) + ":" + m2[2];
+  return "";
+}
+function rrFindHeader(rows: string[][]): RCm | null {
+  for (let r = 0; r < Math.min(8, rows.length); r++) {
+    const u = rows[r].map(rrUp);
+    if (u.indexOf("NAME") < 0) continue;
+    let idIdx = u.indexOf("ID"); if (idIdx < 0) idIdx = u.indexOf("NO"); if (idIdx < 0) idIdx = u.indexOf("NO."); if (idIdx < 0) continue;
+    const st = u.indexOf("STATUS"), rk = u.indexOf("REMARK");
+    const cm: RCm = { hdr: r, name: u.indexOf("NAME"), id: idIdx, shift: u.indexOf("SHIFT"), time: u.indexOf("TIME"),
+      pos: u.indexOf("POSITION") >= 0 ? u.indexOf("POSITION") : u.indexOf("POS."), remark: st >= 0 ? st : rk, remark2: -1, jobtext: -1,
+      re: u.indexOf("RE"), resked: -1, ot: -1, ot2: -1, ottot: -1, ottot2: -1, flt: -1 };
+    cm.remark2 = st >= 0 && rk >= 0 && rk !== cm.remark ? rk : -1;
+    for (let jt = 0; jt < u.length; jt++) if (u[jt].indexOf("SUPPORT") >= 0 && /\bFL/.test(u[jt])) { cm.jobtext = jt; break; }
+    cm.resked = u.indexOf("RE-SKED"); if (cm.resked < 0) cm.resked = u.indexOf("RESKED"); if (cm.resked < 0) cm.resked = u.indexOf("RE-SKED.");
+    const otCols: number[] = [];
+    for (let oc = 0; oc < u.length; oc++) { const oh = u[oc].replace(/[\s.]/g, ""); if (oh === "OT" || oh.indexOf("OT(") === 0 || /^OT(ก่อน|หลัง|BEFORE|AFTER|PRE|POST)/i.test(oh)) otCols.push(oc); }
+    cm.ot = otCols.length ? otCols[0] : -1; cm.ot2 = otCols.length > 1 ? otCols[1] : -1;
+    const totAfter = (otc: number): number => {
+      if (otc < 0) return -1;
+      for (let c = otc + 1; c < u.length; c++) { const h = u[c].replace(/\./g, "").replace(/\s+/g, " ").trim(); if (h.indexOf("TOTAL") === 0 && c - otc > 0 && c - otc <= 3) return c; }
+      return -1;
+    };
+    cm.ottot = totAfter(cm.ot); cm.ottot2 = totAfter(cm.ot2);
+    if (cm.ottot < 0 && cm.ot >= 0) cm.ottot = cm.ot + 2;
+    if (cm.ottot2 < 0 && cm.ot2 >= 0) cm.ottot2 = cm.ot2 + 2;
+    cm.flt = u.indexOf("FLIGHT") >= 0 ? u.indexOf("FLIGHT") + 1 : -1;
+    if (cm.flt < 0) {
+      const after = Math.max(cm.remark, cm.ot, cm.ottot, cm.time, cm.shift, cm.name, cm.id);
+      for (let fc = after + 1; fc < u.length; fc++) if (rrIsFlightHdr(u[fc]) || rrIsCounterHdr(u[fc])) { cm.flt = fc; break; }
+    }
+    return cm;
+  }
+  return null;
+}
+function rrCleanFltName(nm: string): string { const m = String(nm || "").match(/\bFL[TG]?\.?\s+([A-Z0-9][A-Z0-9\/]*)/i); return m && /\d/.test(m[1]) ? m[1] : nm; }
+function rrBuildFltcols(rows: string[][], hi: number, fltStart: number): { flights: { [n: string]: RFlt }; fltcols: RCol[]; lpZones: RZone[] } {
+  const flights: { [n: string]: RFlt } = {}; let fltcols: RCol[] = [];
+  if (fltStart == null || fltStart < 0 || !rows[hi]) return { flights, fltcols, lpZones: [] };
+  const hdr = rows[hi], above = rows[hi - 1] || [];
+  for (let c = fltStart; c < hdr.length; c++) {
+    const nm = rrClean(hdr[c]), nu = nm.toUpperCase();
+    if (/^[AD]\s*['":]/.test(nm)) { const av = rrClean(above[c]); if (av && rrIsFlightHdr(av)) fltcols.push({ col: c, name: av, lpShift: true }); continue; }
+    if (nm && nm.charAt(0) !== "=" && nu !== "STA / STD" && nu !== "OP / CL" && nu !== "REMARK" && nu !== "RE" && nu !== "OT" && nu !== "COUNTER" && nu !== "NIL" && nu !== "-" && nu !== "N/A" && nu !== "NA")
+      fltcols.push({ col: c, name: rrCleanFltName(nm) });
+  }
+  const sta = rows[hi + 1] || [], opn = rows[hi + 2] || [];
+  let acRow: string[] | null = null;
+  for (let ar = hi + 1; ar <= hi + 5 && ar < rows.length; ar++) { const albl = fltStart - 1 >= 0 && fltStart - 1 < (rows[ar] || []).length ? rrClean(rows[ar][fltStart - 1]) : ""; if (/A\/?C\s*TYPE|AIRCRAFT/i.test(albl)) { acRow = rows[ar]; break; } }
+  for (let fi = 0; fi < fltcols.length; fi++) {
+    const c0 = fltcols[fi].col, c1 = fi + 1 < fltcols.length ? fltcols[fi + 1].col : hdr.length;
+    fltcols[fi].end = c1;
+    fltcols[fi].cancelled = /\b(CXL|CNL|CANCEL(?:LED)?)\b|ยกเลิก/i.test(fltcols[fi].name);
+    const staR = fltcols[fi].lpShift ? hdr : sta, opnR = fltcols[fi].lpShift ? sta : opn;
+    let staV = "", stdV = "", opV = "", clV = ""; const posS: string[] = [], posO: string[] = [];
+    for (let cc = c0; cc < c1; cc++) {
+      const sc = rrClean(staR[cc]), tv = rrTimePair(sc);
+      if (tv && tv !== "00:00") { if (/^\s*D/i.test(sc)) { if (!stdV) stdV = tv; } else if (/^\s*A/i.test(sc)) { if (!staV) staV = tv; } else posS.push(tv); }
+      const ocs = rrClean(opnR[cc]), ov = rrTimePair(ocs);
+      if (ov && ov !== "00:00") { if (/^\s*C/i.test(ocs)) { if (!clV) clV = ov; } else if (/^\s*O/i.test(ocs)) { if (!opV) opV = ov; } else posO.push(ov); }
+    }
+    if (!staV && posS.length) staV = posS.shift() as string; if (!stdV && posS.length) stdV = posS.shift() as string;
+    if (!opV && posO.length) opV = posO.shift() as string; if (!clV && posO.length) clV = posO.shift() as string;
+    let acV = ""; if (acRow) for (let ac = c0; ac < c1; ac++) { const av = rrClean(acRow[ac]); if (av) { acV = av; break; } }
+    flights[fltcols[fi].name] = { STA: staV, STD: stdV, OP: opV, CL: clV, AC: acV };
+  }
+  fltcols = fltcols.filter(f => !f.cancelled);
+  return { flights, fltcols, lpZones: rrLpZones(rows, hi, fltStart) };
+}
+function rrMergeAssigns(rec: RRec, more: RAsg[]) {
+  const key: { [k: string]: boolean } = {}; for (const a of rec.assignments) key[(a.flight || "") + "|" + (a.task || "")] = true;
+  for (const a of more) { const k = (a.flight || "") + "|" + (a.task || ""); if (!key[k]) { rec.assignments.push(a); key[k] = true; } }
+}
+function rrKnownAir(code: string): boolean {
+  const a = airlineOf(code); if (!a || a === "DEFAULT") return false;
+  return !!(SLA_T.RQ[a] || SLA_ROLES_T[a] || SLA_T.WIN[a] || SLA_T.ALIAS[a]);
+}
+function rrParseStandard(rows: string[][], team: string, noTime: string[]): { recs: RRec[]; dupSkip: number } | null {
+  const cm = rrFindHeader(rows); if (!cm) return null;
+  const hi = cm.hdr;
+  if (cm.jobtext < 0 && cm.remark >= 0) {
+    const supRole = /\b(ARR|GATE|GA|CREW|CRW|TRANSFER|TF|CI|CHECK|SUPP?ORT|STBY|SD)\b/i, supFlt = /(?:[A-Z]{1,3}|\d[A-Z])\s?\d{2,4}\s?\/\s?\d{2,4}|(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}/;
+    const loC = cm.remark + 1, hiC = cm.flt > 0 ? cm.flt - 1 : (rows[hi] ? rows[hi].length : 0);
+    let bestC = -1, bestN = 0;
+    for (let sc = loC; sc < hiC; sc++) { let nm = 0; for (let rr = hi + 1; rr < rows.length; rr++) { const sv = rows[rr] ? String(rows[rr][sc] || "") : ""; if (sv && supRole.test(sv) && supFlt.test(sv)) nm++; } if (nm > bestN) { bestN = nm; bestC = sc; } }
+    if (bestN >= 2) cm.jobtext = bestC;
+  }
+  const b1 = rrBuildFltcols(rows, hi, cm.flt);
+  let flights = b1.flights, fltcols = b1.fltcols, lpZones = b1.lpZones;
+  let hi2 = -1;
+  for (let hr = hi + 4; hr < rows.length; hr++) { const hrow = rows[hr]; if (!hrow) continue; if (rrUp(hrow[cm.id]) === "ID" && rrUp(hrow[cm.name]) === "NAME") { hi2 = hr; break; } }
+  let fltcols2: RCol[] = [], flights2: { [n: string]: RFlt } = {}, cm2flt = -1, sect2Differs = false;
+  if (hi2 >= 0) {
+    const u2 = rows[hi2].map(rrUp); cm2flt = u2.indexOf("FLIGHT") >= 0 ? u2.indexOf("FLIGHT") + 1 : cm.flt;
+    const b2 = rrBuildFltcols(rows, hi2, cm2flt); fltcols2 = b2.fltcols; flights2 = b2.flights;
+    sect2Differs = fltcols2.some(f => !fltcols.some(g => g.name === f.name));
+  }
+  for (const fc of fltcols.concat(fltcols2)) { const f = (flights[fc.name] || flights2[fc.name]); if (/\d/.test(fc.name) && isFlightName(fc.name) && f && !f.STA && !f.STD && !f.OP && !f.CL && noTime.indexOf(fc.name) < 0) noTime.push(fc.name); }
+  const recs: RRec[] = [], seen: { [k: string]: boolean } = {}, recByIdd: { [k: string]: RRec } = {};
+  let dupSkip = 0, inSect2 = false;
+  for (let rr = hi + 1; rr < rows.length; rr++) {
+    const row = rows[rr];
+    if (hi2 >= 0 && rr === hi2) { fltcols = fltcols2; flights = flights2; lpZones = []; cm.flt = cm2flt; inSect2 = true; }
+    const idRaw = cm.id < row.length ? rrClean(row[cm.id]) : "";
+    const isBkk = /^B\s*\d{6,7}\b/i.test(idRaw);
+    let idd = idRaw.replace(/\D/g, "");
+    if (idd.length < 6 && cm.id + 1 < row.length) { const rawNext = rrClean(row[cm.id + 1]).replace(/\.0+$/, ""); if (/^\d{6,8}$/.test(rawNext)) idd = rawNext; }
+    let name = cm.name < row.length ? rrClean(row[cm.name]) : "";
+    const posRaw0 = cm.pos >= 0 && cm.pos < row.length ? rrClean(row[cm.pos]) : "";
+    const SUP_PREFIX = /^\s*SUPP(?:ORT)?\b[\s:.\-]*/i;
+    let isSup = SUP_PREFIX.test(idRaw) || SUP_PREFIX.test(posRaw0) || SUP_PREFIX.test(name), supTeam = "";
+    if (isSup) {
+      const rawName = SUP_PREFIX.test(name) ? name.replace(SUP_PREFIX, "").trim() : name;
+      if (rawName && !/^(NAME|REMARK|SUPPORT|SUPP)$/i.test(rawName)) { const sp = rrSupportTeam(rawName); name = sp.name; supTeam = sp.team; idd = ("SUP" + supTeam + name).replace(/[^A-Za-z0-9ก-๙]/g, "").slice(0, 18); }
+      else isSup = false;
+    }
+    if (!name || (!isSup && (idd.length < 6 || idd.length > 8))) continue;
+    const nU = name.toUpperCase();
+    if (nU === "NAME" || nU === "REMARK" || nU === "SUPPORT" || nU === "JAIDEE") continue;
+    if (!isSup && rrUp(row[cm.id]).indexOf("EX") === 0) continue;
+    const dupOf = seen[idd] ? recByIdd[idd] : null;
+    const cell = (i: number) => i >= 0 && i < row.length ? rrClean(row[i]) : "";
+    const shift = cell(cm.shift), timev = cell(cm.time);
+    let remark = cell(cm.remark); const remark2 = cell(cm.remark2);
+    if (cm.remark - 1 >= 0 && !/\b(OFF|VAC|SICK|\bSL\b|\bBL\b|OT\s*OFF|ONDUTY)\b/i.test(rrUp(remark))) { const nbL = rrClean(row[cm.remark - 1]); if (/^(OFF|OT\s*-?\s*OFF|VAC(?:ATION)?|SICK|SL|BL|DAY\s*OFF|ลา|หยุด)\b/i.test(nbL)) remark = nbL; }
+    const leadLbl = cell(cm.flt - 1);
+    const assigns: RAsg[] = [];
+    for (const fc of fltcols) {
+      const tasks: string[] = [], times: string[] = [];
+      for (let cc = fc.col; cc < (fc.end || fc.col + 1); cc++) { const v = cc < row.length ? rrClean(row[cc]) : ""; if (!v) continue; const tv = rrCellTimeVal(v); if (tv) times.push(tv); else tasks.push(v); }
+      if (!tasks.length && !times.length) continue;
+      const info: RFlt = flights[fc.name] || { STA: "", STD: "", OP: "", CL: "", AC: "" };
+      let op = info.OP || "", cl = info.CL || "";
+      if (times.length && !op && !cl) { op = times[0]; cl = times[times.length - 1]; }
+      if (rrIsTrainingTask(tasks.join(" "))) { assigns.push({ flight: tasks.join(" "), task: "", STA: info.STA || "", STD: info.STD || "", OP: op, CL: cl }); continue; }
+      const codes = /หมายเลขไฟลท์|^(?:JOB|FLIGHT)\b/i.test(fc.name) ? rrExtractFlights(tasks.join(" ")) : null;
+      if (codes && codes.length) { for (const a of codes) assigns.push(a); continue; }
+      let lpz: RZone | null = null; for (const z of lpZones) if (fc.col >= z.c0 && fc.col < z.c1) { lpz = z; break; }
+      if (lpz && (lpz.sta || lpz.std) && !isFlightName(fc.name)) { assigns.push({ flight: lpz.label, task: tasks.join("/"), STA: info.STA || lpz.sta, STD: info.STD || lpz.std, OP: op, CL: cl }); continue; }
+      assigns.push({ flight: fc.name, task: tasks.join("/"), STA: info.STA || "", STD: info.STD || "", OP: op, CL: cl, AC: info.AC || "" });
+      if (/^[A-Z]{2}$/.test(team.toUpperCase()) && !isFlightName(fc.name)) {
+        const air = team.toUpperCase();
+        for (const tk of tasks) { const mm = String(tk).match(/^([A-Z]{1,3})(\d{3,4})$/); if (mm && isFlightName(air + mm[2])) assigns.push({ flight: air + mm[2], task: mm[1] || "", STA: "", STD: "", OP: "", CL: "" }); }
+      }
+    }
+    if (cm.flt - 1 >= 0 && cm.flt - 1 < row.length) {
+      const label = rrClean(row[cm.flt - 1]);
+      if (label && !/^(OFF|VAC|SICK|SL|BL|X|ONDUTY|SUPPORT|PASSENGER|NIL)/i.test(label)) {
+        const nums: { [n: string]: boolean } = {};
+        for (const a of assigns) for (const n of (a.flight.match(/\d{2,4}/g) || [])) nums[n] = true;
+        for (let code of (label.match(/[A-Z0-9]{1,3}\s?\d{2,4}(?:\s?\/\s?\d{2,4})?/gi) || [])) {
+          code = code.trim(); const cn = code.match(/\d{2,4}/g) || [];
+          const allDup = cn.length > 0 && cn.every(n => nums[n]);
+          if (cn.length && !allDup && isFlightName(code) && rrKnownAir(code)) { assigns.push({ flight: code, task: "", STA: "", STD: "", OP: "", CL: "" }); for (const n of cn) nums[n] = true; }
+        }
+      }
+    }
+    if (cm.jobtext >= 0 && cm.jobtext < row.length) {
+      const jobs = rrParseJobText(rrClean(row[cm.jobtext]));
+      if (jobs.length) {
+        const jn: { [n: string]: boolean } = {}; for (const a of assigns) for (const n of (a.flight.match(/\d{2,4}/g) || [])) jn[n] = true;
+        for (const a of jobs) { const cn = a.flight.match(/\d{2,4}/g) || []; if (cn.length && !cn.some(n => jn[n])) { assigns.push(a); for (const n of cn) jn[n] = true; } }
+      }
+    }
+    for (const ac of rrRemarkActivity(remark2 || remark)) if (!assigns.some(a => a.flight === ac.name)) assigns.push({ flight: ac.name, task: "", STA: ac.STA, STD: ac.STD, OP: "", CL: "", activity: true });
+    const twoSided = cm.ot2 >= 0;
+    const otG1 = rrReadOtGroup(row, cm.ot, cm.ottot), otG2 = twoSided ? rrReadOtGroup(row, cm.ot2, cm.ottot2) : null;
+    const otSpans: RSpan[] = []; let oth = 0;
+    if (otG1) { oth += otG1.hours; if (otG1.range[0] != null) otSpans.push({ a: otG1.range[0], b: otG1.range[1], type: twoSided ? "PRE" : null }); }
+    if (otG2) { oth += otG2.hours; if (otG2.range[0] != null) otSpans.push({ a: otG2.range[0], b: otG2.range[1], type: "POST" }); }
+    oth = Math.round(oth * 10) / 10;
+    let bkt = rrClassify(shift || timev, remark);
+    if ((bkt === "working" || bkt === "off") && remark2) { const rc2 = rrClassify("", remark2); if (rc2 === "vac" || rc2 === "sick") bkt = rc2; }
+    if (bkt === "working" && /^\s*(OFF|X{1,2})\b/i.test(timev)) bkt = "off";
+    if (bkt === "working" && /^OFF\b/i.test(leadLbl) && !assigns.some(a => isFlightName(a.flight))) bkt = "off";
+    if (bkt === "off" && oth > 0) bkt = "ot_off";
+    if (bkt === "ot_off" && !(oth > 0)) bkt = "off";
+    if (isSup) { bkt = assigns.length ? "working" : "off"; oth = 0; }
+    let srng = cm.time >= 0 ? rrRangeCells(row, cm.time) : rrRangeStr(shift);
+    let reTime = "";
+    if (cm.resked >= 0) { const rs = rrRangeCells(row, cm.resked); if (rs[0] != null) { srng = rs; reTime = rrFmtRange(rs); } }
+    const prim = otSpans.length ? [otSpans[otSpans.length - 1].a, otSpans[otSpans.length - 1].b] : [null, null];
+    const otType = oth > 0 ? (twoSided ? (otG2 ? "POST" : "PRE") : rrOtType(srng, prim, bkt === "ot_off")) : null;
+    const s0 = srng[0], s1 = srng[1];
+    const rec: RRec = { team, id: idd, name, bkk: isBkk, support: isSup, supportTeam: supTeam, pos: cm.pos >= 0 ? cell(cm.pos) : "",
+      re: reTime || cell(cm.re), shift: shift || timev, shiftTime: rrFmtRange(srng) || (shift || timev), shiftStart: s0,
+      shiftHrs: s0 != null && s1 != null ? Math.round((((s1 <= s0 ? s1 + 1440 : s1) - s0) / 60) * 10) / 10 : 0,
+      bucket: bkt, remark, remark2, ot: oth, otType, otSpans, otTime: oth > 0 ? otSpans.map(s => rrFmtRange([s.a, s.b])).filter(x => !!x).join(", ") : "",
+      blankRow: !shift && !timev && !remark && s0 == null && assigns.length === 0, assignments: assigns, training: false, posGroup: "", fromShiftDB: false };
+    if (dupOf) {
+      if (inSect2 && sect2Differs) {
+        rrMergeAssigns(dupOf, rec.assignments);
+        if (dupOf.blankRow && !rec.blankRow) {
+          dupOf.shift = rec.shift; dupOf.shiftTime = rec.shiftTime; dupOf.shiftStart = rec.shiftStart; dupOf.shiftHrs = rec.shiftHrs; dupOf.bucket = rec.bucket;
+          dupOf.remark = rec.remark; dupOf.ot = rec.ot; dupOf.otType = rec.otType; dupOf.otSpans = rec.otSpans; dupOf.otTime = rec.otTime; dupOf.pos = rec.pos; dupOf.re = rec.re;
+          dupOf.blankRow = false;
+        }
+        if (dupOf.bucket !== "working" && dupOf.bucket !== "ot_off" && !/^(OFF|VAC|SICK|SL|BL)\b/i.test(rrUp(dupOf.remark)) && rec.assignments.some(a => isFlightName(a.flight))) dupOf.bucket = "working";
+        continue;
+      }
+      if (dupOf.blankRow && !rec.blankRow) Object.assign(dupOf, rec);
+      else if (!rec.blankRow) dupSkip++;
+      continue;
+    }
+    seen[idd] = true; recByIdd[idd] = rec; recs.push(rec);
+  }
+  rrApplyTrainingNotes(rows, recs);
+  for (const r of recs) {
+    const onDuty = r.bucket === "working" || r.bucket === "ot_off";
+    const trnStatus = /\bTRN\b|TRAIN|อบรม/i.test(rrUp(r.remark)) || /\bTRN\b/i.test(rrUp(r.shift));
+    const hasFlt = r.assignments.some(a => isFlightName(a.flight));
+    const remarkTrain = !hasFlt && rrIsTrainingTask(r.remark2 || "");
+    r.training = onDuty && (trnStatus || remarkTrain || (r.assignments.length > 0 && !hasFlt && r.assignments.some(a => rrIsTrainingTask(a.flight) || rrIsTrainingTask(a.task))));
+  }
+  return { recs, dupSkip };
+}
+function rrApplyTrainingNotes(rows: string[][], recs: RRec[]) {
+  const notes: { act: string; who: string }[] = [];
+  for (const row of rows) for (const cell of (row || [])) {
+    const c = rrClean(cell); if (!c || c.indexOf(":") < 0 || !rrIsTrainingTask(c)) continue;
+    const i = c.indexOf(":"), act = c.slice(0, i).trim(), who = c.slice(i + 1).trim();
+    if (act && who) notes.push({ act, who: who.toUpperCase() });
+  }
+  if (!notes.length) return;
+  for (const r of recs) {
+    const first = String(r.name || "").toUpperCase().split(/[\s(]/)[0]; if (first.length < 3) continue;
+    if (r.assignments.some(a => isFlightName(a.flight))) continue;
+    for (const n of notes) if (n.who.indexOf(first) >= 0) r.assignments = [{ flight: n.act, task: "", STA: "", STD: "", OP: "", CL: "" }];
+  }
+}
+function rrBlank(team: string, name: string, pos: string, shift: string, bucket: string, ot: number, asg: RAsg[]): RRec {
+  return { team, id: "", name, bkk: false, support: false, supportTeam: "", pos, re: "", shift, shiftTime: shift, shiftStart: null, shiftHrs: 0, bucket, remark: "", remark2: "",
+    ot, otType: null, otSpans: [], otTime: "", blankRow: false, assignments: asg, training: false, posGroup: "", fromShiftDB: false };
+}
+function rrParsePorter(rows: string[][], team: string): RRec[] {
+  const recs: RRec[] = [];
+  for (let r = 2; r < rows.length; r++) { const row = rows[r];
+    for (const base of [0, 6]) { if (base + 4 >= row.length) continue;
+      const nm = rrClean(row[base]), sched = rrClean(row[base + 3]), ot = rrClean(row[base + 4]), nU = nm.toUpperCase();
+      if (!nm || nm.length < 2 || /^\d/.test(nm) || nU === "NAME" || nU === "(INTER)" || nU === "(DOM)" || nU.indexOf("STBY") >= 0) continue;
+      recs.push(rrBlank(team, nm, "PORTER", sched, rrClassify(sched, ""), rrOtHours(ot), [])); } }
+  return recs;
+}
+function rrParseAdminDoc(rows: string[][], team: string): RRec[] {
+  const recs: RRec[] = [];
+  for (let r = 2; r < rows.length; r++) { const row = rows[r];
+    const nm = rrClean(row[0]), sched = row.length > 1 ? rrClean(row[1]) : "", nU = nm.toUpperCase();
+    if (!nm || nm.length < 2) continue;
+    if (/^(NAME|SCHEDULE|SHIFT|POSITION|TYPE|ON\s*DUTY|ONDUTY|OT\s*OFF|OFF|RE-?SKED|REMARK|FLIGHT|SUPP|SUPPORT|TOTAL)\b/.test(nU) || /^(SL|BL|VAC|ID|XX)$/.test(nU)) continue;
+    const flts: RAsg[] = []; for (let c = 2; c < row.length; c++) { const v = rrClean(row[c]); if (v) flts.push({ flight: v, task: "", STA: "", STD: "", OP: "", CL: "" }); }
+    recs.push(rrBlank(team, nm, "ADMINDOC", sched, !sched || sched.toUpperCase() === "OFF" ? "off" : "working", 0, flts)); }
+  return recs;
+}
+function rrParseCrewsign(rows: string[][], team: string): RRec[] {
+  const recs: RRec[] = []; let hi = -1;
+  for (let r = 0; r < Math.min(20, rows.length); r++) { const u = rows[r].map(rrUp); if (u.indexOf("STAFF NAME") >= 0 || (u.indexOf("SHIFT") >= 0 && u.indexOf("REMARK") >= 0)) { hi = r; break; } }
+  if (hi < 0) return recs;
+  const seen: { [k: string]: boolean } = {};
+  for (let rr = hi + 1; rr < rows.length; rr++) { const row = rows[rr];
+    const shift = rrClean(row[0]), name = row.length > 1 ? rrClean(row[1]) : "", flt = row.length > 3 ? rrClean(row[3]) : "", nU = name.toUpperCase();
+    if (!name || name.length < 2 || nU === "STAFF NAME" || nU === "NAME") continue;
+    const key = nU.replace(/[\s.]+/g, ""); if (seen[key]) continue; seen[key] = true;
+    const actual = shift.indexOf("/") >= 0 ? (shift.split("/").pop() as string).trim() : shift;
+    recs.push(rrBlank(team, name, "CREWSIGN", shift, shift ? rrClassify(actual, "") : rrClassify("", flt), 0, flt && rrUp(flt) !== "OFF" ? [{ flight: flt, task: "", STA: "", STD: "", OP: "", CL: "" }] : [])); }
+  return recs;
+}
+function rrIsSuName(raw: string): string | null {
+  let n = String(raw || "").trim().replace(/\s+(WK|TRN|EK|WY|QR|JQ|KC|ZF|FC|BOGO|PVT|ZF)\b.*$/i, "").trim();
+  if (!n || n.length < 2 || n === "-") return null;
+  const u = n.toUpperCase(); if (/\d/.test(u) || u.indexOf("PORTER") >= 0) return null;
+  if (["SPVR", "SOD", "OB", "ONBOARD", "RF", "CS", "ARR", "PSC", "STBY", "SCAN", "FILE", "MONITOR", "BRIEF", "NIL", "REMARK", "GATE", "AGENT", "PREPARED"].indexOf(u) >= 0) return null;
+  return n;
+}
+function rrParseSU(rows: string[][], team: string): RRec[] {
+  const staff: { [n: string]: { counter: { flts: string; time: string }[]; flights: RAsg[] } } = {};
+  const get = (raw: string): string | null => { const n = rrIsSuName(raw); if (!n) return null; if (!staff[n]) staff[n] = { counter: [], flights: [] }; return n; };
+  const split = (v: string) => rrClean(v).split(/[,\/]/);
+  let ci = -1, ga = -1, jb = -1;
+  for (let r = 0; r < Math.min(40, rows.length); r++) { const row = rows[r];
+    const c1 = rrUp(row[1]), c2 = rrUp(row[2]), c3 = rrUp(row[3]), c5 = rrUp(row[5]);
+    if (ci < 0 && c1 === "FLT" && (c2 === "TIME" || c2 === "SCHEDULE")) ci = r; else if (ga < 0 && c1 === "FLT" && c3.indexOf("GATE") >= 0) ga = r; else if (jb < 0 && c1 === "FLT" && c5.indexOf("SOD") >= 0) jb = r; }
+  const info: { [f: string]: { STA: string; STD: string; OP: string; CL: string } } = {};
+  if (ci >= 0) { let curflt = "";
+    for (let r1 = ci + 1; r1 < rows.length; r1++) { const row1 = rows[r1]; const f = rrClean(row1[1]), slot = rrClean(row1[2]);
+      if (rrUp(row1[1]).indexOf("ARRIVAL") === 0 || rrUp(row1[1]) === "FLT") break; if (!slot) continue;
+      if (f) curflt = f.replace(/\n/g, " ");
+      for (let c = 3; c < row1.length; c++) for (const p of split(row1[c])) { const nm = get(p); if (nm) staff[nm].counter.push({ flts: curflt, time: slot }); } } }
+  if (ga >= 0) { const groles = rows[ga].slice(3).map(rrClean);
+    for (let r2 = ga + 1; r2 < rows.length; r2++) { const row2 = rows[r2], flt2 = rrClean(row2[1]); if (!/SU\d/i.test(flt2)) continue;
+      const sta = rrClean(row2[2]); const i2 = info[flt2] = info[flt2] || { STA: "", STD: "", OP: "", CL: "" };
+      i2.STA = sta.split("/")[0] || ""; i2.STD = sta.indexOf("/") >= 0 ? sta.split("/")[1] : "";
+      for (let c2 = 3; c2 < row2.length; c2++) { const role2 = groles[c2 - 3] || "GATE";
+        for (const p of split(row2[c2])) { if (rrUp(p) === "SPVR") continue; const nm = get(p); if (nm) staff[nm].flights.push({ flight: flt2, task: role2, STA: i2.STA, STD: i2.STD, OP: "", CL: "" }); } } } }
+  if (jb >= 0) { const jroles = rows[jb].slice(5).map(rrClean);
+    for (let r3 = jb + 1; r3 < rows.length; r3++) { const row3 = rows[r3], flt3 = rrClean(row3[1]); if (!/SU\d/i.test(flt3)) continue;
+      const opcls = rrClean(row3[4]); const i3 = info[flt3] = info[flt3] || { STA: "", STD: "", OP: "", CL: "" };
+      if (opcls.indexOf("/") >= 0) { i3.OP = opcls.split("/")[0]; i3.CL = opcls.split("/")[1]; }
+      for (let c3 = 5; c3 < row3.length; c3++) { const role3 = jroles[c3 - 5] || "";
+        for (const p of split(row3[c3])) { if (rrUp(p) === "PORTER CS") continue; const nm = get(p); if (nm) staff[nm].flights.push({ flight: flt3, task: role3, STA: i3.STA || "", STD: i3.STD || "", OP: i3.OP || "", CL: i3.CL || "" }); } } } }
+  const recs: RRec[] = [];
+  for (const nm of Object.keys(staff)) { const d = staff[nm]; let shift = "";
+    if (d.counter.length) { const ts = d.counter.map(s => s.time).filter(t => /[-–:]/.test(t)); if (ts.length) shift = ts[0].split(/[-–]/)[0].trim() + "-" + (ts[ts.length - 1].split(/[-–]/).pop() as string).trim(); }
+    const assigns = d.flights.slice();
+    if (d.counter.length) { const fset: { [f: string]: boolean } = {}; for (const s of d.counter) for (const x of (s.flts.match(/SU\d+(?:\/\d+)?/ig) || [])) fset[x] = true;
+      assigns.unshift({ flight: "CHECK-IN COMMON", task: Object.keys(fset).join(" "), STA: "", STD: "", OP: d.counter[0].time, CL: d.counter[d.counter.length - 1].time }); }
+    recs.push(rrBlank(team, nm, "", shift, assigns.length || shift ? "working" : "off", 0, assigns)); }
+  return recs;
+}
+function rrSheetDate(rows: string[][]): string {
+  for (let r = 0; r < Math.min(4, rows.length); r++) for (let c = 0; c < Math.min(20, rows[r].length); c++) {
+    const m = String(rows[r][c] == null ? "" : rows[r][c]).match(/(\d{1,2})\s*\/\s*([A-Za-z]{3,4})/); if (m) return m[1].replace(/^0/, "") + "/" + m[2].toUpperCase(); }
+  return "";
+}
+function rrParseSheet(name: string, rows: string[][], noTime: string[]): { recs: RRec[]; dupSkip: number } | null {
+  const n = name.trim().toUpperCase();
+  for (const sk of SKIP_SHEETS_RR) if (n.indexOf(sk) >= 0) return null;
+  if (rows.length < 3) return null;
+  const std = (): { recs: RRec[]; dupSkip: number } | null => rrParseStandard(rows, name, noTime);
+  if (n.indexOf("PORTER") >= 0 && n.indexOf("CREW") >= 0) { const s = std(); return s && s.recs.length ? s : { recs: rrParseCrewsign(rows, name), dupSkip: 0 }; }
+  if (n === "PORTER") { const s = std(); return s && s.recs.length ? s : { recs: rrParsePorter(rows, name), dupSkip: 0 }; }
+  if (n.indexOf("ADMIN") >= 0 && n.indexOf("DOC") >= 0) { const s = std(); return s && s.recs.length ? s : { recs: rrParseAdminDoc(rows, name), dupSkip: 0 }; }
+  if (n === "SU" || n.indexOf("SU ") === 0) { const s = std(); return s && s.recs.length ? s : { recs: rrParseSU(rows, name), dupSkip: 0 }; }
+  return std();
+}
+function rrRevNo(nm: string): number { const u = nm.toUpperCase(); const m = u.match(/REV\.?\s*0*(\d+)/); if (m) return +m[1]; return /REV/.test(u) ? 0 : -1; }
+function rrTeamBase(nm: string): string { return nm.replace(/REV\.?\s*\d*/ig, "").replace(/[\s._\-]+/g, "").toUpperCase(); }
+function posGroupOfTeam(pos: string, team: string): string {
+  const t = team.toUpperCase();
+  if (t.indexOf("CREW") >= 0) return "Crewsign"; if (t.indexOf("PORTER") >= 0) return "Porter"; if (t.indexOf("ADMIN") >= 0 && t.indexOf("DOC") >= 0) return "AdminD"; if (t.indexOf("GLOB") >= 0) return "Globlex";
+  return posGroupOf(pos);
+}
+/** อ่านทั้งไฟล์ → แท็บทีม + record รายคน (เหมือน readRosterFromSpreadsheet ของเดิม) */
+function readRoster(sheets: { name: string; rows: string[][] }[]): { tabs: RTab[]; dropped: string[] } {
+  const shiftDB: { [c: string]: { in: number; out: number | null; hrs: number } } = {};
+  const sdb = sheets.filter(s => /^(SHIFTDB|SHIFT DB)$/i.test(s.name.trim()))[0];
+  if (sdb) for (let si = 1; si < sdb.rows.length; si++) {
+    const r = sdb.rows[si], code = String(r[0] == null ? "" : r[0]).trim().toUpperCase().replace(/[^A-Z0-9]/g, ""); if (!code) continue;
+    const inM = rrMin(String(r[1] || "")); let outM = rrMin(String(r[2] || "")); if (inM == null) continue;
+    if (outM != null && outM <= inM) outM += 1440;
+    shiftDB[code] = { in: inM, out: outM, hrs: outM != null ? Math.round((outM - inM) / 60 * 10) / 10 : (+r[3] || 0) };
+  }
+  const maxRev: { [b: string]: number } = {};
+  for (const s of sheets) { const b = rrTeamBase(s.name), rv = rrRevNo(s.name); if (maxRev[b] === undefined || rv > maxRev[b]) maxRev[b] = rv; }
+  const taken: { [b: string]: boolean } = {}, tabs: RTab[] = [], dropped: string[] = [];
+  for (const s of sheets) {
+    const b = rrTeamBase(s.name); if (rrRevNo(s.name) !== maxRev[b] || taken[b]) continue; taken[b] = true;
+    const noTime: string[] = [];
+    const p = rrParseSheet(s.name, s.rows, noTime);
+    if (!p || !p.recs.length) {
+      const nmU = s.name.trim().toUpperCase();
+      if (!SKIP_SHEETS_RR.some(k => nmU.indexOf(k) >= 0) && s.rows.length >= 8 && Math.max(0, ...s.rows.map(r => r.length)) >= 4) dropped.push(s.name.trim());
+      continue;
+    }
+    for (const r of p.recs) {
+      r.posGroup = posGroupOfTeam(r.pos, s.name);
+      if (r.shiftStart == null && (r.bucket === "working" || r.bucket === "ot_off")) {
+        const d = shiftDB[String(r.shift || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "")];
+        if (d) { r.shiftStart = d.in; r.shiftTime = fmtMin(d.in) + "-" + fmtMin((d.out == null ? d.in : d.out) % 1440); r.shiftHrs = d.hrs; r.fromShiftDB = true; }
+      }
+    }
+    tabs.push({ name: s.name.trim(), recs: p.recs, dupSkip: p.dupSkip, sheetDate: rrSheetDate(s.rows), noTime });
+  }
+  return { tabs, dropped };
+}
+
+// ข้อความทั้งแท็บตั้งแต่ A1 (getTexts = สิ่งที่แสดงในเซลล์ เหมือนที่ของเดิมได้จาก Google) · ข้ามแท็บที่ไม่ใช่ทีม
+function sheetTexts(workbook: ExcelScript.Workbook): { name: string; rows: string[][] }[] {
+  const out: { name: string; rows: string[][] }[] = [];
+  for (const ws of workbook.getWorksheets()) {
+    const nm = ws.getName(), nU = nm.trim().toUpperCase();
+    if (SKIP_SHEETS_RR.some(k => nU.indexOf(k) >= 0) && !/^(SHIFTDB|SHIFT DB)$/.test(nU)) continue;
+    const u = ws.getUsedRange(true); if (!u) continue;
+    const R = u.getRowIndex() + u.getRowCount(), C = Math.min(210, u.getColumnIndex() + u.getColumnCount());
+    // อ่านทีละ 300 แถว · หยุดเมื่อเจอช่วงว่างทั้งช่วง (แท็บทีมมักมีแถวแม่แบบว่างยาวถึง ~1,000 แถว → อ่านเฉพาะที่มีข้อมูล ให้สคริปต์เร็ว)
+    let rows: string[][] = [];
+    for (let r0 = 0; r0 < R; r0 += 300) {
+      const part = ws.getRangeByIndexes(r0, 0, Math.min(300, R - r0), C).getTexts();
+      if (r0 > 0 && part.every(row => row.every(c => c === ""))) break;
+      rows = rows.concat(part);
+    }
+    out.push({ name: nm, rows });
+  }
+  return out;
+}
+function bucketOfRec(r: RRec): string {
+  if (r.training) return "TRAINING";
+  if (r.bucket === "working") return "WORKING";
+  if (r.bucket === "ot_off") return "OT_OFF";
+  if (r.bucket === "off") return "OFF";
+  if (r.bucket === "sick") return "SICK";
+  if (r.bucket === "vac") return bucketOf(r.remark, r.remark2, 0) === "LEAVE" ? "LEAVE" : "VACATION";   // ลากิจ/คลอด แยกจากพักร้อน (สรุปสัปดาห์)
+  return "OFF";
+}
 function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string, isHol: boolean) {
   const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [], otPerson: OtRow[] = [];
   const month = day.slice(0, 7), week = mondayOf(day);
@@ -130,143 +738,90 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   const tabDates: { [team: string]: string } = {};
   const slaPeople: SlaPerson[] = [];
   const acRecs: { rec: AcRec; row: DutyRow }[] = [];
-  for (const t of teams) {
-    const ws = workbook.getWorksheet(t.code);
-    let people = 0;
-    if (!ws) addIssue(issues, day, "droptab", t.code, "ไม่พบแท็บ", "MANPOWER มีทีม " + t.code + " แต่ไม่มีแท็บชื่อนี้ — ทั้งทีมหายจากยอด/ไฟลท์ (ชื่อแท็บต้องตรงรหัสทีม)");
-    let otSum = 0, holSum = 0, otOff = 0, otPpl = 0, uSum = 0, uN = 0;
-    const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0, off: 0, otOff: 0, staff: 0, preP: 0, preH: 0, postP: 0, postH: 0 }, counted: { [e: string]: boolean } = {};
-    if (ws) {
-      const g = ws.getRange("A1:AQ300").getValues();
-      tabDates[t.code] = sheetDate(ws.getRange("A1:T4").getTexts());
-      const nameSeen: { [n: string]: boolean } = {};
-      const fRow = findByS(g, "FLIGHT"), sRow = findByS(g, "STA"), oRow = findByS(g, "OP");
-      const flights: { base: number; code: string; STA: string; STD: string; OP: string; CL: string }[] = [];
-      if (fRow >= 0) for (let b = 19; b + 3 < g[fRow].length; b += 4) {
-        const code = String(g[fRow][b] || "").trim();
-        if (!code || !/\d|BRE?IF|GOM/i.test(code)) continue;
-        flights.push({ base: b, code, STA: hhmm(sRow >= 0 ? g[sRow][b] : ""), STD: hhmm(sRow >= 0 ? g[sRow][b + 2] : ""), OP: hhmm(oRow >= 0 ? g[oRow][b] : ""), CL: hhmm(oRow >= 0 ? g[oRow][b + 2] : "") });
-      }
-      for (const f of flights)
-        if (/\d/.test(f.code) && !f.STA && !f.STD && !f.OP && !f.CL)
-          addIssue(issues, day, "flttime", t.code, f.code, "ไฟลท์ไม่มี STA/STD — เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้");
-      const seen: { [k: string]: number } = {};
-      // ตรวจ "ทีมยังลง assignment ไม่ครบ" (เหมือน apTeamsNotFilled_ ของเดิม): ลงแล้ว = มีสถานะ หรือมีงานในคอลัมน์ไฟลท์ · ทีมสแตนด์บายมีกะก็พอ
-      const fillCheck = !/PORTER|CREWSIGN|ADMIN\s*DOC/i.test(t.code), standby = /CHARTER|\bZF\b|PVT|PVTLP|\bLP\b|STBY|STAND ?BY|FLOAT/i.test(t.code);
-      let fillPeople = 0, filled = 0;
-      for (const row of g) {
-        const fid = String(row[0] == null ? "" : row[0]).replace(/\D/g, "");
-        if (!fillCheck || fid.length < 6 || fid.length > 8 || !String(row[2] || "").trim()) continue;
-        fillPeople++;
-        const hasJob = row.slice(19).some(c => String(c == null ? "" : c).trim() !== "");
-        if (String(row[16] || "").trim() || hasJob || (standby && String(row[3] || "").trim())) filled++;
-      }
-      if (fillPeople > 0 && filled < fillPeople)
-        addIssue(issues, day, "notfilled", t.code, "ลง " + filled + "/" + fillPeople, "ยังลง assignment ไม่ครบ — ค้าง " + (fillPeople - filled) + " คน (ไม่มีสถานะและไม่มีงาน)");
-      for (const row of g) {
-        const id = row[0], name = String(row[2] || "").trim();
-        if (typeof id !== "number" || !name || name.indexOf("Ex.") === 0) continue;
-        const emp = String(id);
-        people++;
-        // แถวซัพพอร์ต "ชื่อ (WY)" = มาช่วยจากทีมอื่น → ไม่นับ OT ที่ทีมนี้ (นับที่ทีมต้นสังกัด) — เหมือน RosterReader
-        const sup = name.match(/\(([A-Z0-9]{2,4})\)\s*$/i);
-        const isSup = !!sup && sup[1].toUpperCase() !== t.code.toUpperCase();
-        const og1 = otGroup(row[10], row[11], row[12]), og2 = otGroup(row[13], row[14], row[15]);
-        const ot = isSup ? 0 : round1((og1 ? og1.h : 0) + (og2 ? og2.h : 0));
-        const bucket = bucketOf(String(row[16] || ""), String(row[17] || ""), ot);
-        const ds = t2m(row[4]), hrs = n(row[6]);
-        // เวลาเลิกกะ (F) + ช่วง OT 2 กลุ่ม (K/L ชม.M · N/O ชม.P) — เหมือน rrRangeCells_/rrReadOtGroup_ ของเดิม
-        const seCell = timeOnly(row[5]);
-        let de = (ds != null && hrs) ? ds + Math.round(hrs * 60) : null;
-        if (ds != null && de != null && de <= ds) de += 1440;
-        const dutyMin = (ds != null && de != null && isWork(bucket)) ? de - ds : 0;
-
-        // ---- ตรวจข้อมูล (กติกาเดียวกับ rbDataCheckHtml) ----
-        const nk = name.toUpperCase();
-        if (nameSeen[nk]) addIssue(issues, day, "dupname", t.code, name, "ชื่อซ้ำในทีม (อาจกรอกซ้ำ 2 แถว)");
-        nameSeen[nk] = true;
-        if (!isSup && /^\d{6,8}$/.test(emp)) {
-          const it = idTeams[emp] || (idTeams[emp] = { teams: [], name });
-          if (it.teams.indexOf(t.code) < 0) it.teams.push(t.code);
-        }
-        const fltCells = flights.filter(f => /\d/.test(f.code) && [0, 1, 2, 3].some(k => String(row[f.base + k] == null ? "" : row[f.base + k]).trim() !== ""));
-        if (!isSup && isWork(bucket) && ds == null && fltCells.length)
-          addIssue(issues, day, "noshift", t.code, name, "มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้" + (String(row[3] || "").trim() ? " (รหัส " + String(row[3]).trim() + ")" : " (ไม่มีรหัสกะ)"));
-        if (!isSup && bucket === "OFF" && fltCells.length)
-          addIssue(issues, day, "offflt", t.code, name, "ชีตเขียนหยุด (OFF/X) แต่ถูกจัดลงไฟลท์ " + fltCells.map(f => f.code).join(", ") + " — ถ้ามาทำงานให้แก้เป็น Onduty · ถ้ามาช่วย OT ให้กรอกชั่วโมง OT");
-
-        const iv: number[][] = [];
-        const sp: SlaPerson = { team: t.code, emp, name, ds, de: de == null ? null : de, asg: [] };
-        if (isWork(bucket)) slaPeople.push(sp);
-        if (isWork(bucket)) for (const f of flights) {
-          const cells = [0, 1, 2, 3].map(k => String(row[f.base + k] == null ? "" : row[f.base + k]).trim()).filter(x => x !== "");
-          if (!cells.length) continue;
-          const w = winOf(f);
-          if (w) iv.push(w);
-          sp.asg.push({ code: f.code, task: cells.filter(x => !/^\d{1,2}[:.]\d{2}$/.test(x)).join(" "), STA: f.STA, STD: f.STD, OP: f.OP, CL: f.CL });
-          assignment.push({
-            Title: f.code, day_key: day, work_date: day, team: t.code, emp_code: emp, emp_name: name,
-            task: cells.join(" ").slice(0, 255), sta: f.STA, std: f.STD, counter_open: f.OP, counter_close: f.CL,
-            win_lo: w ? w[0] : 0, win_hi: w ? w[1] : 0, is_flight: /\d/.test(f.code)
-          });
-        }
-        const busy = mergeMin(dutyMin > 0 ? clampIv(iv, ds as number, de as number) : iv);
-        const util = dutyMin > 0 ? Math.min(100, Math.round(busy / dutyMin * 100)) : 0;
-        if (dutyMin > 0) { uSum += util; uN++; }
-        // วันหยุดประเพณี: มาทำงาน = OT นักขัต X1 เท่าชั่วโมงกะ (ไม่นับอบรม/ซัพพอร์ต)
-        const otHol = (isHol && !isSup && bucket === "WORKING" && hrs > 0) ? hrs : 0;
-        if (!isSup && !counted[emp]) {                                // นับหัวรายวัน (1 คน/ทีม · ไม่นับซัพพอร์ต) — สรุปสัปดาห์
-          counted[emp] = true;
-          cnt.staff++;
-          if (bucket === "OT_OFF") cnt.otOff++;
-          if (bucket === "OFF") cnt.off++;
-          if (isWork(bucket)) cnt.work++;
-          else if (bucket === "SICK") cnt.sick++;
-          else if (bucket === "VACATION") cnt.vac++;
-          else if (bucket === "LEAVE") cnt.personal++;
-          else if (bucket === "TRAINING") cnt.training++;
-        }
-        if (!isSup) {
-          otSum += ot; holSum += otHol;
-          if (bucket === "OT_OFF") otOff += ot;
-          if (ot > 0) otPpl++;
-          if (ot + otHol > 0) otPerson.push({
-            Title: day + "|" + emp + "|" + t.code, day_key: day, month_key: month, week_key: week, emp_code: emp, emp_name: name,
-            team: t.code, ot_hours: round1(ot), ot_hol_hours: round1(otHol), ot_total: round1(ot + otHol)
-          });
-        }
-        // ---- ประเภท OT (ก่อน/หลังกะ) — rrOtType_ ----
-        const ssA = ds, seA = ds != null ? (seCell != null ? seCell : (hrs ? ds + Math.round(hrs * 60) : null)) : null;
-        const spans: { a: number | null; b: number | null; type: string }[] = [];
-        if (og1 && og1.a != null) spans.push({ a: og1.a, b: og1.b, type: og2 ? "PRE" : "" });
-        if (og2 && og2.a != null) spans.push({ a: og2.a, b: og2.b, type: "POST" });
-        const prim = spans.length ? [spans[spans.length - 1].a, spans[spans.length - 1].b] : [null, null];
-        const otType = ot > 0 ? (og2 ? "POST" : otTypeOf([ssA, seA], prim, bucket === "OT_OFF")) : "";
-        if (!isSup && ot > 0 && bucket !== "OT_OFF") { if (otType === "PRE") { cnt.preP++; cnt.preH += ot; } else { cnt.postP++; cnt.postH += ot; } }
-        const k = day + "|" + t.code + "|" + emp;
-        seen[k] = (seen[k] || 0) + 1;
-        if (seen[k] === 2) addIssue(issues, day, "dupblock", t.code, name + " (" + emp + ")", "รหัสนี้อยู่ในแท็บ 2 แถว/2 บล็อก — อาจมีตารางคนซ้อนซ้ำ · ลบบล็อกซ้ำเพื่อกันข้อมูลตกหล่น/นับซ้ำ");
-        duty.push({
-          Title: seen[k] > 1 ? k + "#" + seen[k] : k, day_key: day, work_date: day, team: t.code, emp_code: emp, emp_name: name,
-          bucket, shift_code: String(row[3] || "").trim(), shift_start: ds != null ? m2hhmm(ds) : "",
-          shift_end: seA != null ? m2hhmm(seA) : "", shift_hours: hrs, ot_hours: round1(ot), ot_hol_hours: round1(otHol),
-          ot_type: bucket === "OT_OFF" && ot > 0 ? "OFF" : otType, ot_time: spans.length ? fmtRange(spans[0].a, spans[0].b) : "", is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src
-        });
-        if (isWork(bucket)) acRecs.push({ row: duty[duty.length - 1], rec: {
-          team: t.code, name, emp, hrs, bucket, ss: ssA, se: seA, ot, otType, otSpans: spans, otTime: spans.length ? fmtRange(spans[0].a, spans[0].b) : "",
-          shiftCode: String(row[3] || "").trim(),
-          asg: flights.map(f => ({ f, cells: [0, 1, 2, 3].map(k2 => String(row[f.base + k2] == null ? "" : row[f.base + k2]).trim()).filter(x => x !== "") }))
-            .filter(x => x.cells.length).map(x => ({ flight: x.f.code, task: x.cells.filter(c => !/^\d{1,2}[:.]\d{2}$/.test(c)).join(" "), STA: x.f.STA, STD: x.f.STD, OP: x.f.OP, CL: x.f.CL })) } });
-      }
+  const everyone: { team: string; name: string; emp: string }[] = [];          // ทุกคนในไฟล์ (รวมคนหยุด) — ใช้จับชื่อในคำขอซัพ
+  const rd = readRoster(sheetTexts(workbook));
+  const mpByCode: { [c: string]: TeamHead } = {}; for (const t of teams) mpByCode[t.code.toUpperCase()] = t;
+  const tabNames: { [c: string]: boolean } = {}; for (const tb of rd.tabs) tabNames[tb.name.toUpperCase()] = true;
+  for (const t of teams) if (!tabNames[t.code.toUpperCase()])
+    addIssue(issues, day, "droptab", t.code, workbook.getWorksheet(t.code) ? "อ่านไม่ได้ทั้งแท็บ" : "ไม่พบแท็บ",
+      "MANPOWER มีทีม " + t.code + " แต่ไม่มีแท็บที่อ่านได้ (ต้องมีหัวตาราง ID + NAME) — ทั้งทีมหายจากยอด/ไฟลท์");
+  for (const tb of rd.tabs) {
+    const team = tb.name, mpt = mpByCode[team.toUpperCase()];
+    tabDates[team] = tb.sheetDate;
+    if (tb.dupSkip >= 3) addIssue(issues, day, "dupblock", team, tb.dupSkip + " แถว", "รหัสซ้ำในแท็บ " + tb.dupSkip + " แถว (มีข้อมูลทั้งคู่) — อาจมีตารางคนซ้อนซ้ำ · ลบบล็อกซ้ำเพื่อกันข้อมูลตกหล่น/นับซ้ำ");
+    for (const f of tb.noTime) addIssue(issues, day, "flttime", team, f, "ไฟลท์ไม่มี STA/STD — เติมเวลาในชีต ไม่งั้นเช็ค SLA / หาคนช่วยไม่ได้");
+    // ทีมยังลง assignment ไม่ครบ (apTeamsNotFilled_): ลงแล้ว = มีสถานะ หรือมีงาน · ทีมสแตนด์บายมีกะก็พอ
+    if (!/PORTER|CREWSIGN|ADMIN\s*DOC/i.test(team)) {
+      const standby = /CHARTER|\bZF\b|PVT|PVTLP|\bLP\b|STBY|STAND ?BY|FLOAT/i.test(team);
+      const ppl = tb.recs.filter(r => !r.support), filled = ppl.filter(r => !!r.remark || r.assignments.length > 0 || (standby && !!r.shift)).length;
+      if (ppl.length > 0 && filled < ppl.length) addIssue(issues, day, "notfilled", team, "ลง " + filled + "/" + ppl.length, "ยังลง assignment ไม่ครบ — ค้าง " + (ppl.length - filled) + " คน (ไม่มีสถานะและไม่มีงาน)");
     }
-    if (ws && people === 0)
-      addIssue(issues, day, "droptab", t.code, "อ่านไม่ได้ทั้งแท็บ", "แท็บนี้ไม่มีแถวพนักงานที่อ่านได้ (คอลัมน์ A ต้องเป็นรหัสตัวเลข · C = ชื่อ) — ทั้งทีมหายจากยอด/ไฟลท์");
+    let otSum = 0, holSum = 0, otOff = 0, otPpl = 0, uSum = 0, uN = 0;
+    const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0, off: 0, otOff: 0, staff: 0, preP: 0, preH: 0, postP: 0, postH: 0 };
+    const nameSeen: { [n: string]: boolean } = {}, seen: { [k: string]: number } = {};
+    for (const r of tb.recs) {
+      const emp = r.id || ("N" + r.name.replace(/[^A-Za-z0-9ก-๙]/g, "").slice(0, 16)), name = r.name, isSup = r.support;
+      if (!isSup) everyone.push({ team, name, emp });
+      const bucket = bucketOfRec(r), ot = isSup ? 0 : r.ot;
+      const ds = r.shiftStart, hrs = r.shiftHrs;
+      const de = ds != null && hrs ? ds + Math.round(hrs * 60) : null;
+      const dutyMin = ds != null && de != null && isWork(bucket) ? de - ds : 0;
+      const flts = r.assignments.filter(a => isFlightName(a.flight));
+      const nk = name.toUpperCase();
+      if (nameSeen[nk]) addIssue(issues, day, "dupname", team, name, "ชื่อซ้ำในทีม (อาจกรอกซ้ำ 2 แถว)");
+      nameSeen[nk] = true;
+      if (!isSup && /^\d{6,8}$/.test(emp)) { const it = idTeams[emp] || (idTeams[emp] = { teams: [], name }); if (it.teams.indexOf(team) < 0) it.teams.push(team); }
+      if (!isSup && isWork(bucket) && ds == null && flts.length)
+        addIssue(issues, day, "noshift", team, name, "มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้" + (r.shift ? " (รหัส " + r.shift + ")" : " (ไม่มีรหัสกะ)"));
+      if (!isSup && bucket === "OFF" && flts.length)
+        addIssue(issues, day, "offflt", team, name, "ชีตเขียนหยุด (OFF/X) แต่ถูกจัดลงไฟลท์ " + flts.map(f => f.flight).join(", ") + " — ถ้ามาทำงานให้แก้เป็น Onduty · ถ้ามาช่วย OT ให้กรอกชั่วโมง OT");
+      const iv: number[][] = [];
+      const sp: SlaPerson = { team, emp, name, ds, de, asg: [] };
+      const onDuty = r.bucket === "working" || r.bucket === "ot_off";           // รวมคนติดอบรม (ของเดิมยังนับงานไฟลท์ของเขา)
+      if (onDuty) slaPeople.push(sp);
+      if (onDuty) for (const a of r.assignments) {
+        const w = winOf(a); if (w) iv.push(w);
+        sp.asg.push({ code: a.flight, task: a.task, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, AC: a.AC || "" });
+        assignment.push({ Title: a.flight.slice(0, 255), day_key: day, work_date: day, team, emp_code: emp, emp_name: name, task: a.task.slice(0, 255),
+          sta: a.STA, std: a.STD, counter_open: a.OP, counter_close: a.CL, win_lo: w ? w[0] : 0, win_hi: w ? w[1] : 0, is_flight: isFlightName(a.flight) });
+      }
+      const busy = mergeMin(dutyMin > 0 ? clampIv(iv, ds as number, de as number) : iv);
+      const util = dutyMin > 0 ? Math.min(100, Math.round(busy / dutyMin * 100)) : 0;
+      if (dutyMin > 0) { uSum += util; uN++; }
+      const otHol = isHol && !isSup && !r.training && r.bucket === "working" && hrs > 0 ? hrs : 0;   // วันหยุดประเพณี = OT นักขัต X1 (rrAddBucket_)
+      if (!isSup) {
+        cnt.staff++;
+        if (bucket === "TRAINING") cnt.training++;
+        else if (bucket === "WORKING") cnt.work++;
+        else if (bucket === "OT_OFF") { cnt.work++; cnt.otOff++; }
+        else if (bucket === "OFF") cnt.off++;
+        else if (bucket === "SICK") cnt.sick++;
+        else if (bucket === "VACATION") cnt.vac++;
+        else if (bucket === "LEAVE") cnt.personal++;
+        otSum += ot; holSum += otHol;
+        if (r.bucket === "ot_off") otOff += ot;
+        if (ot > 0) otPpl++;
+        if (ot > 0 && r.bucket !== "ot_off") { if (r.otType === "PRE") { cnt.preP++; cnt.preH += ot; } else { cnt.postP++; cnt.postH += ot; } }
+        if (ot + otHol > 0) otPerson.push({ Title: day + "|" + emp + "|" + team, day_key: day, month_key: month, week_key: week, emp_code: emp, emp_name: name,
+          team, ot_hours: round1(ot), ot_hol_hours: round1(otHol), ot_total: round1(ot + otHol) });
+      }
+      const spans: { a: number | null; b: number | null; type: string }[] = r.otSpans.map(s => ({ a: s.a, b: s.b, type: s.type || "" }));
+      const k = day + "|" + team + "|" + emp;
+      seen[k] = (seen[k] || 0) + 1;
+      duty.push({ Title: seen[k] > 1 ? k + "#" + seen[k] : k, day_key: day, work_date: day, team, emp_code: emp, emp_name: name, pos_group: r.posGroup,
+        bucket, shift_code: r.shift.slice(0, 50), shift_start: ds != null ? m2hhmm(ds) : "", shift_end: de != null ? m2hhmm(de) : "", shift_hours: hrs,
+        ot_hours: round1(ot), ot_hol_hours: round1(otHol), ot_type: r.bucket === "ot_off" && ot > 0 ? "OFF" : (ot > 0 ? r.otType || "POST" : ""),
+        ot_time: r.otTime, is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src });
+      if (onDuty) acRecs.push({ row: duty[duty.length - 1], rec: {
+        team, name, emp, hrs, bucket: r.bucket === "ot_off" ? "OT_OFF" : "WORKING", training: r.training, ss: ds, se: de, ot, otType: r.otType || "", otSpans: spans, otTime: r.otTime, shiftCode: r.shift, posGroup: r.posGroup,
+        asg: r.assignments.map(a => ({ flight: a.flight, task: a.task, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, supportOut: !!a.supportOut })) } });
+    }
     manpower.push({
-      Title: day + "|" + t.code, day_key: day, month_key: month, work_date: day, team: t.code, total: t.total, working: t.working,
-      sick: t.sick, annual: t.annual, training: t.training, ot_hours: round1(otSum), ot_hol_hours: round1(holSum),
+      Title: day + "|" + team, day_key: day, month_key: month, work_date: day, team, total: mpt ? mpt.total : 0, working: mpt ? mpt.working : 0,
+      sick: mpt ? mpt.sick : 0, annual: mpt ? mpt.annual : 0, training: mpt ? mpt.training : 0, ot_hours: round1(otSum), ot_hol_hours: round1(holSum),
       ot_total: round1(otSum + holSum), ot_people: otPpl, ot_off_hours: round1(otOff), is_holiday: isHol, util_pct: uN ? Math.round(uSum / uN) : 0,
       cnt_work: cnt.work, cnt_sick: cnt.sick, cnt_vac: cnt.vac, cnt_personal: cnt.personal, cnt_training: cnt.training,
-      cnt_off: cnt.off, cnt_ot_off: cnt.otOff, cnt_staff: cnt.staff, mp_ot_hours: round1(t.mpOt || 0),
+      cnt_off: cnt.off, cnt_ot_off: cnt.otOff, cnt_staff: cnt.staff, mp_ot_hours: round1(mpt && mpt.mpOt ? mpt.mpOt : 0),
       ot_pre_people: cnt.preP, ot_pre_hours: round1(cnt.preH), ot_post_people: cnt.postP, ot_post_hours: round1(cnt.postH)
     });
   }
@@ -274,7 +829,6 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
     const it = idTeams[emp];
     if (it.teams.length > 1) addIssue(issues, day, "dupteam", it.teams.join(" + "), it.name + " (" + emp + ")", "รหัสเดียวกันโผล่หลายทีม — นับซ้ำ · ถ้าไปช่วยให้ทำเป็นแถวซัพพอร์ต \"ชื่อ (ทีม)\" แทน");
   }
-  // แท็บที่วันที่ (เช่น 29/JUN) ต่างจากทีมส่วนใหญ่ → อาจลืมอัปเดตแท็บ
   const dc: { [d: string]: number } = {};
   for (const tm of Object.keys(tabDates)) if (tabDates[tm]) dc[tabDates[tm]] = (dc[tabDates[tm]] || 0) + 1;
   const ds2 = Object.keys(dc);
@@ -284,15 +838,18 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       if (tabDates[tm] && tabDates[tm] !== maj)
         addIssue(issues, day, "staledate", tm, "วันที่บนแท็บ = " + tabDates[tm], "แท็บนี้เป็นวันที่ " + tabDates[tm] + " แต่ทีมส่วนใหญ่เป็น " + maj + " — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)");
   }
-  // ---- ตรวจ Assign รายคน (AssignCheck.gs acAnalyze_) → เก็บในแถว PAS_Duty ----
+  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: rd.tabs.map(x => x.name), acRecs, everyone, rd };
+}
+// ตรวจ Assign รายคน (AssignCheck.gs acAnalyze_) → เขียนลงแถว PAS_Duty (เรียกหลังผูกงานซัพพอร์ตแล้ว)
+function analyzeAssign(acRecs: { rec: AcRec; row: DutyRow }[]) {
   const owner = acOwnerTeams(acRecs.map(x => x.rec));
   for (const x of acRecs) {
+    if (x.rec.training) continue;                                              // อบรม — ไม่ตรวจ Assign (เหมือนเดิม)
     const a = acAnalyzeRec(x.rec, owner);
-    x.row.ac_status = a.status; x.row.ac_flights = a.flights; x.row.ac_job = a.job.slice(0, 4000); x.row.ac_zones = a.zones;
+    x.row.ac_status = a.status; x.row.ac_flights = a.flights; x.row.ac_job = a.job.slice(0, 4000); x.row.ac_zones = a.status === "nowin" ? "" : a.zones;
     x.row.ac_support = a.support; x.row.ac_uncovered = a.uncovered.slice(0, 255); x.row.ac_gaps = a.gaps.slice(0, 255);
     x.row.ac_gaps_raw = a.gapsRaw.slice(0, 255); x.row.ac_ot_verdict = a.otVerdict; x.row.ac_issue = a.issue.slice(0, 4000);
   }
-  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: teams.map(x => x.code), acRecs: acRecs.map(x => x.rec) };
 }
 
 // ======================= SharePoint $batch =======================
@@ -405,7 +962,7 @@ function baseName(p: string): string { const s = p.split("/"); return s[s.length
 // ======================= Flights & SLA (พอร์ตจาก SLA.gs · slaCollectFlights_ / slaReq_ / slaPhasesOf_) =======================
 // ตารางคัดจาก SLA.gs อัตโนมัติ: RQ=[SUP,CI,ARR,GATE,TTL] ต่อสาย · AC=ต่อชนิดเครื่อง · ALIAS · WIN=[ci,cc,post,brief,ccMissing] (นาทีเทียบ STD) · DBREQ=สายที่ใช้ roles
 const SLA_T: { RQ: { [a: string]: number[] }; AC: { [a: string]: (string | number)[][] }; ALIAS: { [a: string]: string }; WIN: { [a: string]: number[] }; DBREQ: { [a: string]: number[] }; SYS: { [a: string]: string }; SUPOK: { [a: string]: string[] }; CIINTEAM: string[] } = {"RQ":{"3K":[1,4,1,1,8],"3U":[1,4,1,1,8],"6B":[1,5,2,1,10],"6E":[1,5,1,1,9],"8L":[1,4,1,1,8],"8M":[1,3,1,1,7],"9C":[1,5,1,1,9],"9H":[1,4,1,1,8],"AF":[1,9,1,1,13],"AI":[1,6,1,1,9],"AK":[1,4,1,1,8],"AQ":[1,3,1,1,7],"AY":[1,5,1,1,9],"B2":[1,6,1,1,10],"BY":[1,5,2,1,10],"C6":[1,4,1,1,8],"CA":[1,6,1,1,10],"CX":[1,6,2,1,11],"CZ":[1,6,1,1,10],"DE":[1,6,2,1,11],"DK":[1,4,1,1,8],"DV":[1,4,1,1,8],"EK":[1,7,4,1,14],"EO":[1,6,1,1,10],"EY":[1,7,1,1,12],"FM":[1,4,1,1,8],"FY":[1,3,1,1,6],"G2":[1,6,1,1,10],"G8":[1,4,1,1,8],"G9":[1,4,1,1,8],"H4":[1,5,1,1,9],"HB":[1,3,1,1,7],"HH":[1,4,1,1,8],"HO":[1,4,1,1,8],"HU":[1,6,1,1,10],"HX":[1,5,1,1,9],"HY":[1,5,1,1,8],"IT":[1,4,1,1,7],"IX":[1,4,1,1,7],"JQ":[1,7,1,1,10],"KC":[1,5,1,1,9],"KE":[1,8,1,1,11],"KY":[1,3,1,1,7],"LJ":[1,4,1,1,8],"LO":[1,6,1,1,10],"LY":[1,7,4,1,14],"MH":[1,4,1,1,8],"MU":[1,4,1,1,8],"N0":[1,5,1,1,9],"N4":[1,6,1,1,10],"NO":[1,6,1,1,10],"OD":[1,4,1,1,7],"OM":[1,4,1,1,8],"OQ":[1,4,1,1,8],"OV":[1,4,1,1,8],"OZ":[1,6,1,1,10],"PG":[1,0,1,2,8],"PN":[1,4,1,1,8],"QP":[1,5,1,1,9],"QR":[1,11,3,1,17],"QZ":[1,4,1,1,8],"S7":[1,4,1,1,8],"SG":[1,4,1,1,7],"SQ":[1,4,1,1,8],"SU":[1,8,1,1,12],"SV":[1,7,2,1,12],"TK":[1,8,4,1,15],"TR":[1,5,1,1,10],"U6":[1,4,1,1,8],"UO":[1,4,2,1,8],"VJ":[1,4,1,1,8],"VN":[1,7,1,1,10],"W5":[1,7,2,1,12],"WK":[1,6,2,1,11],"WY":[1,7,1,1,11],"WZ":[1,6,1,1,10],"ZF":[1,6,1,1,10],"ZH":[1,4,1,1,8]},"AC":{"QR":[["B777",11,3,1,17],["B787",9,2,1,14]],"EY":[["B787-9",6,1,1,11],["B787-10",7,1,1,12],["A321Neo",5,1,1,11]],"KE":[["A333/B772/B787",7,1,1,10],["B773",8,1,1,11]],"SU":[["B777",8,1,1,12],["A333",7,1,1,11],["B737/A320/A321Neo",4,1,1,8]],"TR":[["A320",3,1,1,8],["A321",4,1,1,9],["B787",5,1,1,10]],"JQ":[["B787",7,1,1,10],["A321Neo",5,1,1,8]],"AK":[["A320",3,1,1,7],["A321",4,1,1,8]],"QZ":[["A320",3,1,1,7],["A321",4,1,1,8]],"PG":[["A319/320",0,1,2,8],["ATR",0,1,1,6]],"CX":[["A330",6,2,1,11],["A321NEO",5,2,1,10]],"KC":[["A320",4,1,1,8],["B737",5,1,1,9]],"6E":[["A321",5,1,1,9],["A320",4,1,1,8]],"CA":[["A320/B737",4,1,1,8],["A330",6,1,1,10]],"CZ":[["A320",4,1,1,8],["A321",4,1,1,8],["A330",6,1,1,10]],"HU":[["B737",4,1,1,8],["A330",6,1,1,10]],"SV":[["B789",6,2,1,11],["B78X",7,2,1,12]],"VN":[["A320/A321",5,1,1,8],["B787/A350",7,1,1,10]]},"ALIAS":{"3K":"JQ","GX":"CA","KX":"CA","8H":"CA","BK":"CA","PVT":"PRIVATE"},"WIN":{"SQ":[-240,-40,30,60,0],"CX":[-240,-60,30,60,0],"LY":[-240,-60,30,60,0],"QR":[-240,-45,30,60,0],"MH":[-240,-60,30,60,0],"DE":[-240,-45,30,60,0],"PG":[-45,-15,20,60,0],"AK":[-180,-60,20,60,0],"QZ":[-180,-60,20,60,0],"SU":[-180,-40,30,60,0],"B2":[-180,-40,30,60,0],"W5":[-180,-40,30,60,0],"3U":[-180,-60,30,60,0],"CA":[-180,-50,30,60,0],"MU":[-180,-50,30,60,0],"CZ":[-180,-45,30,60,0],"FM":[-180,-50,30,60,0],"HO":[-180,-45,30,60,0],"HU":[-180,-50,30,60,0],"AQ":[-180,-45,30,60,0],"HX":[-240,-50,30,60,0],"EY":[-180,-60,45,60,0],"AY":[-180,-60,30,60,0],"DV":[-180,-60,30,60,0],"KE":[-240,-45,30,60,0],"KC":[-240,-45,30,60,0],"OZ":[-180,-45,30,60,0],"NO":[-180,-45,30,60,0],"AF":[-240,-45,30,60,0],"LJ":[-180,-45,20,60,0],"OV":[-180,-45,20,60,0],"WY":[-180,-60,20,60,0],"G9":[-180,-60,20,60,0],"DK":[-180,-60,20,60,0],"9C":[-180,-45,20,60,0],"EK":[-240,-60,30,60,0],"UO":[-180,-45,20,60,0],"FY":[-144,-45,20,60,0],"6B":[-180,-45,20,60,0],"BY":[-180,-45,20,60,0],"AI":[-180,-45,20,60,0],"IX":[-180,-45,20,60,0],"JQ":[-180,-60,20,60,0],"IT":[-180,-45,20,60,0],"N0":[-180,-45,20,60,0],"TK":[-180,-60,30,60,0],"VJ":[-180,-45,20,60,0],"OD":[-180,-45,20,60,0],"SG":[-180,-45,20,60,0],"HY":[-180,-45,20,60,0],"TR":[-150,-60,20,60,0],"6E":[-180,-45,20,60,0],"QP":[-180,-45,20,60,0],"SV":[-240,-45,30,60,0],"WK":[-198,-45,30,60,0],"KA":[-180,-45,20,60,0],"ZF":[-180,-45,20,60,0],"HH":[-180,-45,20,60,0],"LO":[-180,-45,20,60,0],"EO":[-180,-45,20,60,0],"S7":[-180,-45,20,60,0],"8L":[-180,-45,20,60,0],"8M":[-180,-45,20,60,0],"9H":[-180,-45,20,60,0],"C6":[-180,-45,20,60,0],"G2":[-180,-45,20,60,0],"H4":[-180,-45,20,60,0],"HB":[-180,-45,20,60,0],"KY":[-180,-45,20,60,0],"N4":[-180,-45,20,60,0],"OM":[-180,-45,20,60,0],"OQ":[-180,-45,20,60,0],"PN":[-180,-45,20,60,0],"VN":[-180,-45,20,60,0],"WZ":[-180,-45,20,60,0],"ZH":[-180,-45,20,60,0],"PRIVATE":[-60,-20,20,20,0],"CHARTER":[-120,-30,20,30,0],"DEFAULT":[-180,-45,20,60,0]},"DBREQ":{"SQ":[1,6,0,6,13],"CX":[1,7,0,7,15],"LY":[1,8,0,4,13],"QR":[1,12,3,4,20],"MH":[1,4,1,3,9],"DE":[1,5,1,4,11],"PG":[1,0,2,7,9],"AK":[1,3,1,3,8],"QZ":[1,3,1,3,8],"SU":[1,16,1,5,23],"B2":[1,7,0,0,8],"W5":[1,7,0,0,8],"3U":[1,4,1,5,11],"CA":[1,6,1,4,12],"MU":[1,5,1,4,11],"CZ":[1,4,1,4,10],"FM":[1,5,1,4,11],"HO":[1,4,2,3,10],"HU":[1,4,1,4,10],"AQ":[1,4,1,3,9],"HX":[1,5,1,4,11],"EY":[1,4,1,5,11],"AY":[1,4,1,3,9],"DV":[1,4,1,3,9],"KE":[1,5,1,1,8],"KC":[1,6,1,1,9],"OZ":[1,4,1,1,7],"NO":[1,4,1,1,7],"AF":[1,5,2,1,9],"LJ":[1,4,1,1,7],"OV":[1,4,1,1,7],"WY":[1,6,1,6,15],"G9":[1,4,1,0,6],"DK":[1,4,1,0,6],"9C":[1,4,1,1,7],"EK":[1,6,4,5,16],"UO":[1,4,2,3,10],"FY":[1,3,1,3,8],"6B":[1,4,1,3,9],"BY":[1,4,1,3,9],"AI":[1,3,2,5,12],"IX":[1,4,0,0,5],"JQ":[1,5,3,6,15],"IT":[1,4,1,2,8],"N0":[1,4,1,2,8],"TK":[1,3,2,4,11],"VJ":[1,2,1,1,5],"OD":[1,1,1,1,5],"SG":[1,4,1,2,8],"HY":[1,4,1,2,8],"TR":[1,5,1,3,10],"6E":[1,5,1,0,7],"QP":[1,5,1,0,7],"SV":[1,7,2,3,14],"WK":[1,7,2,3,14],"KA":[1,5,1,3,10],"ZF":[1,5,1,3,10],"HH":[1,4,1,2,8],"LO":[1,4,1,2,8],"EO":[1,4,1,2,8],"S7":[1,5,1,3,10],"8L":[1,5,1,1,8],"8M":[1,4,1,1,7],"9H":[1,5,1,1,8],"C6":[1,5,1,1,8],"G2":[1,7,1,1,10],"H4":[1,6,1,1,9],"HB":[1,4,1,1,7],"KY":[1,4,1,1,7],"N4":[1,7,1,1,10],"OM":[1,5,1,1,8],"OQ":[1,5,1,1,8],"PN":[1,5,1,1,8],"VN":[1,7,1,1,10],"WZ":[1,7,1,1,10],"ZH":[1,5,1,1,8],"PRIVATE":[1,1,0,1,3],"CHARTER":[1,2,1,1,5],"DEFAULT":[1,4,1,2,8]},"SYS":{"3K":"Gonow","3U":"Angel Lite","6B":"iPort","6E":"Gonow","8H":"TravelSky","8L":"TravelSky","8M":"iPort","9C":"TravelSky","9H":"TravelSky","AF":"Altea","AI":"Altea","AK":"Gonow","AQ":"TravelSky","AY":"Altea","B2":"ASTRA","BK":"TravelSky","BY":"iPort","C6":"iPort","CA":"TravelSky","CX":"Altea","CZ":"TravelSky","DE":"Altea","DK":"Altea","DV":"TWD","EK":"AS Connect","EO":"Lydia DCS","EY":"Altea","FM":"TravelSky","FY":"Gonow","G2":"iPort","G8":"Gonow","G9":"Altea","GX":"TravelSky","H4":"iPort","HB":"TravelSky","HH":"iPort","HO":"TravelSky","HU":"TravelSky","HX":"iPort","HY":"Altea","IT":"iPort","IX":"Gonow","JQ":"Gonow","KA":"iPort","KC":"Altea","KE":"Altea","KX":"TravelSky","KY":"TravelSky","LJ":"iFlyRes","LO":"iPort","LY":"Altea","MH":"Altea","MU":"TravelSky","N0":"Gonow","N4":"Lydia DCS","NO":"iPort","OD":"Sabre","OM":"iPort","OQ":"TravelSky","OV":"iPort","OZ":"Altea","PG":"Altea","PN":"TravelSky","QP":"Gonow","QR":"Altea","QZ":"Gonow","S7":"TWD","SG":"Gonow","SQ":"Altea","SU":"ASTRA","SV":"Altea","TK":"TOYA","TR":"Gonow","U6":"Gonow","UO":"Gonow","VJ":"iPort","VN":"Altea","W5":"AVIA","WK":"Altea","WY":"Sabre","WZ":"ASTRA","ZF":"ASTRA","ZH":"TravelSky"},"SUPOK":{"AK":["ARR","GATE"],"QZ":["ARR","GATE"],"8M":["ARR","GATE"],"ZF":["CI","ARR","GATE"],"LO":["CI","ARR","GATE"],"N4":["ARR","GATE"],"HH":["CI","ARR","GATE"],"EO":["ARR","GATE"],"S7":["ARR","GATE"],"CZ":["ARR","GATE"],"MU":["GATE"],"FM":["GATE"],"3U":["GATE"],"CA":["ARR","GATE"],"HO":["ARR","GATE"],"HX":["ARR","GATE"],"HU":["GATE"],"6B":["ARR","GATE"],"BY":["ARR","GATE"],"UO":[],"EK":[],"FY":[],"EY":["ARR","GATE"],"AY":["ARR","GATE"],"DV":["CI","ARR","GATE"],"AI":["ARR","GATE"],"IX":["ARR","GATE"],"JQ":["ARR","GATE"],"IT":["CI","ARR","GATE"],"KC":["ARR","GATE"],"OZ":[],"KE":[],"LJ":["ARR"],"NO":["ARR","GATE"],"OV":["ARR","GATE"],"PG":["ARR","GATE"],"PRIVATE":["ARR"],"QR":[],"DE":["ARR","GATE"],"MH":["ARR","GATE"],"OM":["ARR","GATE"],"SQ":["ARR","GATE"],"CX":["ARR","GATE"],"LY":["CI","ARR","GATE"],"SU":["ARR","GATE"],"W5":["ARR","GATE"],"B2":[],"TK":[],"HY":["ARR","GATE"],"OD":["ARR","GATE"],"VJ":["ARR","GATE"],"SG":["ARR","GATE"],"TR":["ARR","GATE"],"6E":["ARR","GATE"],"QP":["ARR","GATE"],"WK":["ARR","GATE"],"SV":["ARR","GATE"],"G9":["ARR","GATE"],"WY":["ARR","GATE"],"9C":["ARR","GATE"],"DK":["CI","ARR","GATE"],"3K":[],"8L":["SUP","CI","GATE","ARR"],"9H":["SUP","CI","GATE","ARR"],"AF":["GATE"],"AQ":["SUP","CI","GATE","ARR"],"C6":[],"G2":["SUP","CI","GATE","ARR"],"G8":[],"HB":[],"KY":["SUP","CI","GATE","ARR"],"N0":[],"OQ":["SUP","CI","GATE","ARR"],"PN":["SUP","CI","GATE","ARR"],"U6":[],"VN":["ARR","GATE"],"WZ":["SUP","CI","GATE","ARR"],"ZH":["SUP","CI","GATE","ARR"]},"CIINTEAM":["EY","QR","EK"]};
-interface SlaAsg { code: string; task: string; STA: string; STD: string; OP: string; CL: string }
+interface SlaAsg { code: string; task: string; STA: string; STD: string; OP: string; CL: string; AC?: string }
 interface SlaPerson { team: string; emp: string; name: string; ds: number | null; de: number | null; asg: SlaAsg[] }
 interface SchedRow { ac: string; sta: string; std: string; cancelled: boolean }
 interface SlaRow {
@@ -433,9 +990,9 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
       if (al && al !== "DEFAULT") { const c = airCnt[al] = airCnt[al] || {}; c[p.team] = (c[p.team] || 0) + 1; }
       const key = flightKeyOf(raw);
       if (!key || /SUU?PP?ORT/i.test(key)) continue;
-      const f = flights[key] = flights[key] || { flight: raw, airline: airlineOf(key), teams: {}, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, AC: "", as: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
+      const f = flights[key] = flights[key] || { flight: raw, airline: airlineOf(key), teams: {}, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, AC: a.AC || "", as: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 }, staff: [] };
       f.teams[p.team] = true;
-      if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD; if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL;
+      if (!f.STA && a.STA) f.STA = a.STA; if (!f.STD && a.STD) f.STD = a.STD; if (!f.OP && a.OP) f.OP = a.OP; if (!f.CL && a.CL) f.CL = a.CL; if (!f.AC && a.AC) f.AC = a.AC;
       const phs = phasesOf(a.task);
       if (!phs.length) { f.staff.push(p.name + " (" + p.team + ") " + a.task + " [เทรน]"); continue; }
       for (const ph of phs) (f.as as { [k: string]: number })[ph]++;
@@ -617,8 +1174,8 @@ function parseRules(json?: string): { [a: string]: number[] } {
 
 // ======================= ตรวจ Assign (พอร์ตจาก AssignCheck.gs · acAnalyze_ / acAnalyzeRecord_ / acFlightWin_ / acDuty_) =======================
 const AC_COVER_TOL = 60, AC_GAP_MIN = 180, AC_EDGE_MIN = 240, AC_WIN_MAX = 14 * 60;
-interface AcAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string }
-interface AcRec { team: string; name: string; emp?: string; hrs?: number; bucket: string; ss: number | null; se: number | null; ot: number; otType: string;
+interface AcAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string; supportOut?: boolean }
+interface AcRec { team: string; name: string; emp?: string; posGroup?: string; training?: boolean; hrs?: number; bucket: string; ss: number | null; se: number | null; ot: number; otType: string;
   otSpans: { a: number | null; b: number | null; type: string }[]; otTime: string; shiftCode: string; asg: AcAsg[] }
 interface AcRes { status: string; flights: string; job: string; zones: string; support: number; uncovered: string; gaps: string; gapsRaw: string; otVerdict: string; issue: string }
 
@@ -626,7 +1183,7 @@ function acOwnerTeams(recs: AcRec[]): { [al: string]: string } {
   const cnt: { [al: string]: { [t: string]: number } } = {};
   for (const r of recs) {
     if (skipTeam(r.team)) continue;
-    for (const a of r.asg) { if (!isFlightName(a.flight)) continue; const al = airlineOf(a.flight); const c = cnt[al] = cnt[al] || {}; c[r.team] = (c[r.team] || 0) + 1; }
+    for (const a of r.asg) { if (!isFlightName(a.flight) || a.supportOut) continue; const al = airlineOf(a.flight); const c = cnt[al] = cnt[al] || {}; c[r.team] = (c[r.team] || 0) + 1; }
   }
   const owner: { [al: string]: string } = {};
   for (const al of Object.keys(cnt)) { let best = "", bn = -1; for (const t of Object.keys(cnt[al])) if (cnt[al][t] > bn) { bn = cnt[al][t]; best = t; } owner[al] = best; }
@@ -907,7 +1464,9 @@ interface PoolP { name: string; emp: string; team: string; posGroup: string; off
   busy: number[][]; hold: number[][]; sys: { [s: string]: boolean }; nflt: number; shiftDisp: string; otDisp: string; hrs: number; hlevel: string; htxt: string; flts: string[]; plan: number }
 interface SupportRow { Title: string; day_key: string; month_key: string; flight: string; airline: string; system: string; team: string; std: string;
   phase: string; short_n: number; win: string; win_fb: boolean; no_flight_time: boolean; need_sys: string; block: string; n_cand: number;
-  picks: string; cands_json: string; others_json: string }
+  picks: string; cands_json: string; others_json: string;
+  source?: string; req_team?: string; req_duty?: string; req_time?: string; assigned?: string; from_team?: string; req_status?: string; req_remark?: string; req_sheet?: string;
+  label?: string; open_n?: number; win_user?: boolean; no_roster?: boolean }
 function sysNorm(s: string): string { return String(s || "").toLowerCase().replace(/[\s.]+/g, ""); }
 function sysOf(airline: string): string { return SLA_T.SYS[airline.toUpperCase()] || ""; }
 function needSys(airline: string, ph: string): string { if (ph !== "CI" && ph !== "SUP") return ""; const s = sysOf(airline); return s && sysNorm(s) !== "iport" ? s : ""; }
@@ -984,7 +1543,7 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
   for (const r of recs) if (/CHARTER|\bZF\b/i.test(r.team)) (sys[r.team] = sys[r.team] || {}).astra = true;
   const pool: PoolP[] = [];
   for (const r of recs) {
-    if (skipTeam(r.team)) continue;
+    if (skipTeam(r.team) || r.training) continue;                             // อบรม — ไม่ดึงมาช่วยไฟลท์
     const d = acDuty(r);
     if (d.ds == null || d.de == null) continue;
     const busy: number[][] = []; for (const a of r.asg) { const w = acFlightWin(a); if (w) busy.push(w); }
@@ -994,7 +1553,7 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
     });
     const otoff = r.bucket === "OT_OFF", hs = hoursStat(r);
     const st = r.ss != null && r.se != null ? fmtMin(r.ss) + "-" + fmtMin(r.se) : "";
-    pool.push({ name: r.name, emp: r.emp || "", team: r.team, posGroup: pg[r.emp || ""] || "", off: false, otoff, rest: otoff, float: isFloatTeam(r.team),
+    pool.push({ name: r.name, emp: r.emp || "", team: r.team, posGroup: r.posGroup || pg[r.emp || ""] || "", off: false, otoff, rest: otoff, float: isFloatTeam(r.team),
       ds: d.ds, de: d.de, busy, hold: [], sys: sys[r.team] || {}, nflt: flts.length,
       shiftDisp: otoff ? "OFF (มา OT)" : (st && st !== r.shiftCode ? (r.shiftCode ? r.shiftCode + " " + st : st) : (r.shiftCode || st || "-")),
       otDisp: r.ot > 0 ? r.ot + "h " + (otoff ? "OFF" : (r.otType === "PRE" ? "ก่อนกะ" : "หลังกะ")) + (r.otTime ? " " + r.otTime : "") : "-",
@@ -1028,23 +1587,27 @@ function candView(c: PoolP): (string | number | boolean)[] {
   const pos = c.posGroup === "PSS" ? "Sup" : c.posGroup === "SNR" ? "Snr" : c.posGroup === "PSA" ? "Agent" : (c.posGroup || "-");
   return [c.name, pos, c.team, c.off, c.rest, c.shiftDisp, c.otDisp, c.hrs, c.hlevel, c.htxt, c.nflt, c.flts.join(" · ")];
 }
+/** 1 แถวซัพพอร์ต (slaSupRow_): ไฟลท์ f · เฟส ph · ขาด n · winOv = ช่วงที่ระบุเอง · ignoreElig = คำขอทีม (ไม่บล็อกด้วยกฎสาย) · reserveN = จองคนกี่คน */
+function supRow(day: string, f: SlaFlight, ph: string, n: number, pool: PoolP[], winOv: number[] | null, ignoreElig: boolean, reserveN?: number): SupportRow {
+  const LB: { [k: string]: string } = { SUP: "SUP", CI: "Check-in", GATE: "Gate", ARR: "Arrival" };
+  const elig = ignoreElig ? { ok: true, reason: "" } : canSupport(f.airline, ph);
+  const fbw = winOv ? { win: winOv, fb: false, noTime: false } : phaseWinFb(f.airline, f.STA, f.STD, ph), rwin = fbw.win;
+  const cands = elig.ok && rwin ? candidates(f, ph, pool, SLA_MAX_CAND, rwin) : [];
+  const resN = reserveN == null ? n : reserveN;
+  if (rwin) for (const c of cands.slice(0, resN)) c.hold.push(rwin);
+  const owin = winOv || phaseWinFull(f.airline, f.STA, f.STD, ph);
+  const others = elig.ok && owin ? otherCands(f, ph, pool, SLA_MAX_CAND, cands.map(c => c.name), owin) : [];
+  const picks = cands.slice(0, n).map(c => c.name + " / " + c.team);
+  return { Title: day + "|" + f.key + "|" + ph, day_key: day, month_key: day.slice(0, 7), flight: f.flight, airline: f.airline, system: sysOf(f.airline),
+    team: f.teamList, std: f.STD || f.STA || "", phase: LB[ph], short_n: n, win: rwin ? fmtMin(rwin[0]) + "-" + fmtMin(rwin[1]) : "",
+    win_fb: fbw.fb, no_flight_time: fbw.noTime, need_sys: needSys(f.airline, ph), block: elig.ok ? "" : elig.reason, n_cand: cands.length,
+    picks: picks.join("\n"), cands_json: JSON.stringify(cands.map(candView)), others_json: JSON.stringify(others.map(candView)), source: "SLA" };
+}
 function supportRows(day: string, flights: SlaFlight[], recs: AcRec[], pg: { [e: string]: string }): SupportRow[] {
   const pool = supportPool(recs, pg), out: SupportRow[] = [];
-  const LB: { [k: string]: string } = { SUP: "SUP", CI: "Check-in", GATE: "Gate", ARR: "Arrival" };
   for (const f of flights) {
     if (f.ok || f.noTime) continue;
-    for (const ph of ["SUP", "CI", "GATE", "ARR"]) {
-      const n = f.short[ph]; if (!n) continue;
-      const elig = canSupport(f.airline, ph), fbw = phaseWinFb(f.airline, f.STA, f.STD, ph), rwin = fbw.win;
-      const cands = elig.ok && rwin ? candidates(f, ph, pool, SLA_MAX_CAND, rwin) : [];
-      if (rwin) for (const c of cands.slice(0, n)) c.hold.push(rwin);
-      const others = elig.ok && rwin ? otherCands(f, ph, pool, SLA_MAX_CAND, cands.map(c => c.name), rwin) : [];
-      const picks = cands.slice(0, n).map(c => c.name + " / " + c.team);
-      out.push({ Title: day + "|" + f.key + "|" + ph, day_key: day, month_key: day.slice(0, 7), flight: f.flight, airline: f.airline, system: sysOf(f.airline),
-        team: f.teamList, std: f.STD || f.STA || "", phase: LB[ph], short_n: n, win: rwin ? fmtMin(rwin[0]) + "-" + fmtMin(rwin[1]) : "",
-        win_fb: fbw.fb, no_flight_time: fbw.noTime, need_sys: needSys(f.airline, ph), block: elig.ok ? "" : elig.reason, n_cand: cands.length,
-        picks: picks.join("\n"), cands_json: JSON.stringify(cands.map(candView)), others_json: JSON.stringify(others.map(candView)) });
-    }
+    for (const ph of ["SUP", "CI", "GATE", "ARR"]) { const n = f.short[ph]; if (n) out.push(supRow(day, f, ph, n, pool, null, false)); }
   }
   return out;
 }
@@ -1387,6 +1950,127 @@ function main(workbook: ExcelScript.Workbook, fromDay?: string, toDay?: string, 
   return { status: "ok", reason: "", from, to, days, counts, batches };
 }
 
+// ======================= คำขอซัพพอร์ตในไฟล์เวร (RosterReader.gs rrReadSupportReq_ · WebDashboard.gs rbAttachSupportOut_ / rbSupportHtml · SLA.gs slaManualSupportRows_) =======================
+// แท็บ "SUPPORT REQUEST" (และ "Urgent Support") : NO. | ทีมที่ขอ | FLIGHT | หน้าที่ | เวลา/STBY | ชื่อผู้ไปซัพพอร์ต | จากทีม | สถานะ | Re-sked/Remark
+interface SupReq { flightKey?: string; no: string; team: string; flight: string; duty: string; time: string; name: string; fromTeam: string; status: string; remark: string; sheet: string }
+function readSupportReq(workbook: ExcelScript.Workbook): SupReq[] {
+  const out: SupReq[] = [];
+  for (const sn of ["SUPPORT REQUEST", "SUPPORT REQUESTS", "Support Request", "Urgent Support", "URGENT SUPPORT"]) {
+    const ws = workbook.getWorksheet(sn); if (!ws) continue;
+    if (out.some(q => q.sheet.toUpperCase() === sn.toUpperCase())) continue;
+    const u0 = ws.getUsedRange(true); if (!u0) continue;
+    const vals = ws.getRangeByIndexes(0, 0, u0.getRowIndex() + u0.getRowCount(), Math.min(30, u0.getColumnIndex() + u0.getColumnCount())).getTexts();
+    let hi = -1; const C: { [k: string]: number } = {};
+    for (let r = 0; r < Math.min(6, vals.length); r++) {
+      const u = vals[r].map(x => String(x == null ? "" : x).trim()), uu = u.map(x => x.toUpperCase());
+      if (uu.indexOf("FLIGHT") >= 0 && u.some(x => /ทีมที่ขอ|^TEAM$/i.test(x))) {
+        hi = r;
+        const find = (re: RegExp) => { for (let i = 0; i < u.length; i++) if (re.test(u[i])) return i; return -1; };
+        C.team = find(/ทีมที่ขอ|^TEAM$/i); C.flight = uu.indexOf("FLIGHT"); C.duty = find(/หน้าที่|^DUTY$|^ROLE$/i); C.time = find(/เวลา|STBY|^TIME$/i);
+        C.name = find(/ชื่อ|^NAME$/i); C.from = find(/จากทีม|^FROM/i); C.status = find(/สถานะ|^STATUS$/i); C.remark = find(/RE-?SKED|REMARK/i);
+        break;
+      }
+    }
+    if (hi < 0) continue;
+    const g = (row: string[], i: number) => i >= 0 && i < row.length && row[i] != null ? String(row[i]).trim() : "";
+    for (let ri = hi + 1; ri < vals.length; ri++) {
+      const row = vals[ri], flight = g(row, C.flight), name = g(row, C.name), duty = g(row, C.duty);
+      if (!flight && !name && !duty) continue;
+      out.push({ no: g(row, 0), team: g(row, C.team), flight, duty, time: g(row, C.time), name, fromTeam: g(row, C.from), status: g(row, C.status),
+        remark: g(row, C.remark) === "0" ? "" : g(row, C.remark), sheet: ws.getName() });
+    }
+  }
+  return out;
+}
+function supDutyPhase(duty: string): string {
+  const d = String(duty || "").toUpperCase();
+  if (/\bSOD\b|\bSUP\b|SPVR|\bFC\b|CONTROL/.test(d)) return "SUP";
+  if (/\bARR\b|ARRIVAL|\bTF\b|CIQ|TRANSFER/.test(d)) return "ARR";
+  if (/CHECK|\bCI\b|COUNTER|\bCTR\b|CREW\s*SIGN|\bCS\b|\bCF\b|\bGK\b|\bCT\b/.test(d)) return "CI";
+  return "GATE";
+}
+function supReqWin(t: string, phase: string): string {
+  t = String(t == null ? "" : t).trim();
+  if (/[-–]/.test(t)) return t;
+  const m = t.match(/(\d{1,2})[:.](\d{2})/); if (!m) return "";
+  const mins = (+m[1]) * 60 + (+m[2]); let lo: number, hi: number;
+  if (phase === "CI") { lo = mins - 180; hi = mins + 15; } else if (phase === "ARR") { lo = mins - 20; hi = mins + 70; } else { lo = mins - 55; hi = mins + 25; }
+  return fmtMin(lo) + "-" + fmtMin(hi);
+}
+function parseWinTxt(s: string): number[] | null {
+  const m = String(s || "").match(/(\d{1,2})[:.]?(\d{2})\s*[-–]\s*(\d{1,2})[:.]?(\d{2})/); if (!m) return null;
+  const lo = (+m[1]) * 60 + (+m[2]); let hi = (+m[3]) * 60 + (+m[4]); if (hi <= lo) hi += 1440;
+  return [lo, hi];
+}
+/** เลขไฟลท์ในคำขอ → ชื่อไฟลท์ที่มีในเวรวันนั้น (เขียนขาเดียว เช่น G9715 = G9714/715) · "RON/PG408" → "PG408" */
+function reqFlight(raw: string, known: string[]): string {
+  let f = String(raw || "").trim();
+  if (!isFlightName(f)) { const m = f.toUpperCase().match(/(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s?\d{2,4}(?:\s?\/\s?(?:[A-Z][A-Z0-9])?\d{2,4})?/); if (!m || !isFlightName(m[0])) return ""; f = m[0]; }
+  const al = airlineOf(f), nums = (f.match(/\d{2,4}/g) || []).map(Number).filter(x => x >= 10);
+  if (known.some(k => k === f)) return f;
+  for (const k of known) {
+    if (airlineOf(k) !== al) continue;
+    const kn = (k.match(/\d{2,4}/g) || []).map(Number);
+    const full = kn.map((x, i) => i > 0 && x < 100 && kn[0] >= 100 ? Math.floor(kn[0] / 100) * 100 + x : x);   // "G9714/715" → 714, 715
+    if (nums.length && nums.some(x => full.indexOf(x) >= 0 || kn.indexOf(x) >= 0)) return k;
+  }
+  return f;
+}
+function nameKey(name: string): string { const s = String(name || "").trim().toUpperCase().split(/[\s(]/)[0]; return s.length >= 3 ? s : ""; }
+/** คนที่ดิวตี้ส่งไปซัพแล้ว → ผูกงานซัพที่ตัวคน (กันถูกแนะซ้ำ · นับคนให้ไฟลท์นั้น · ขึ้น Gantt) — rbAttachSupportOut_ */
+function attachSupportOut(reqs: SupReq[], acRecs: { rec: AcRec; row: DutyRow }[], people: SlaPerson[], assignment: AsgRow[], day: string, everyone: { team: string; name: string; emp: string }[]): number {
+  const work: { [k: string]: { rec: AcRec; row: DutyRow } } = {}; for (const x of acRecs) work[x.rec.team + "|" + (x.rec.emp || "")] = x;
+  const idx: { [k: string]: { team: string; name: string; emp: string }[] } = {};
+  for (const x of everyone) { const k = nameKey(x.name); if (k) (idx[k] = idx[k] || []).push(x); }
+  const spOf: { [k: string]: SlaPerson } = {}; for (const sp of people) spOf[sp.team + "|" + sp.emp] = sp;
+  const known: string[] = []; for (const sp of people) for (const a of sp.asg) if (isFlightName(a.code) && known.indexOf(a.code) < 0) known.push(a.code);
+  for (const q of reqs) q.flightKey = isFlightName(q.flight) && known.indexOf(q.flight) >= 0 ? q.flight : reqFlight(q.flight, known);
+  let n = 0;
+  for (const q of reqs) {
+    if (!q.name || !q.flightKey || !isFlightName(q.flight)) continue;
+    const k = nameKey(q.name); if (!k) continue;
+    const cands = idx[k] || []; let who: { team: string; name: string; emp: string } | undefined;
+    if (q.fromTeam) { const ft = q.fromTeam.toUpperCase(); who = cands.filter(c => { const ct = c.team.toUpperCase(); return ct.indexOf(ft) >= 0 || ft.indexOf(ct) >= 0; })[0]; }
+    if (!who) who = cands[0];
+    if (!who) continue;
+    const person = work[who.team + "|" + who.emp]; if (!person) continue;                // คนนั้นหยุด/ลา → ไม่มีผลกับตารางงาน
+    const r = person.rec;
+    const win = supReqWin(q.time, supDutyPhase(q.duty)), wm = win.match(/(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})/);
+    const op = wm ? wm[1] : "", cl = wm ? wm[2] : "";
+    if (r.asg.some(a => !!a.supportOut && a.flight === q.flightKey)) continue;
+    const task = "ซัพ " + (q.duty || "").trim() + (q.team ? " →" + q.team : "");
+    r.asg.push({ flight: q.flightKey, task, STA: "", STD: "", OP: op, CL: cl, supportOut: true });
+    const sp = spOf[r.team + "|" + (r.emp || "")]; if (sp) sp.asg.push({ code: q.flightKey, task, STA: "", STD: "", OP: op, CL: cl });
+    const w = winOf({ STA: "", STD: "", OP: op, CL: cl });
+    assignment.push({ Title: q.flightKey.slice(0, 255), day_key: day, work_date: day, team: r.team, emp_code: r.emp || "", emp_name: r.name, task: task.slice(0, 255),
+      sta: "", std: "", counter_open: op, counter_close: cl, win_lo: w ? w[0] : 0, win_hi: w ? w[1] : 0, is_flight: true });
+    n++;
+  }
+  return n;
+}
+/** แถว Support จากคำขอในไฟล์ (rbSupportHtml reqRows → slaManualSupportRows_ showAlt) */
+function supportReqRows(day: string, reqs: SupReq[], flights: SlaFlight[], recs: AcRec[], pg: { [e: string]: string }): SupportRow[] {
+  const list = reqs.map(q => {
+    const ph = supDutyPhase(q.duty), covered = !!q.name || /จัดแล้ว|เสร็จ|assigned|done/i.test(q.status);
+    return { q, ph, win: supReqWin(q.time, ph), open: covered ? 0 : 1, label: (q.duty || "") + (q.team ? " · ขอโดย " + q.team : "") };
+  }).filter(r => !!r.q.flightKey);
+  if (!list.length) return [];
+  const fmap: { [k: string]: SlaFlight } = {}; for (const f of flights) fmap[flightKeyOf(f.flight)] = f;
+  const pool = supportPool(recs, pg), out: SupportRow[] = [];
+  list.forEach((rq, i) => {
+    const fname = rq.q.flightKey || rq.q.flight, key = flightKeyOf(fname);
+    const f: SlaFlight = fmap[key] || { key, flight: fname.toUpperCase().trim(), airline: airlineOf(fname), STA: "", STD: "", teams: {}, short: {}, ok: false, noTime: true, teamList: "",
+      req: { SUP: 0, CI: 0, GATE: 0, ARR: 0, total: 0 } };
+    const winOv = rq.win ? parseWinTxt(rq.win) : null;
+    const row = supRow(day, f, rq.ph, rq.open, pool, winOv, true, rq.open <= 0 ? 3 : undefined);
+    row.Title = day + "|REQ|" + (i + 1); row.source = "REQ"; row.flight = rq.q.flight; row.req_team = rq.q.team; row.req_duty = rq.q.duty; row.req_time = rq.q.time;
+    row.assigned = rq.q.name; row.from_team = rq.q.fromTeam; row.req_status = rq.q.status; row.req_remark = rq.q.remark; row.req_sheet = rq.q.sheet;
+    row.label = rq.label; row.open_n = rq.open; row.short_n = rq.open; row.win_user = !!winOv; row.no_roster = !fmap[key] && !winOv;
+    out.push(row);
+  });
+  return out;
+}
+
 function posGroups(json?: string): { [e: string]: string } {
   const out: { [e: string]: string } = {};
   if (!json) return out;
@@ -1432,6 +2116,12 @@ function m2hhmm(m: number): string { m = ((m % 1440) + 1440) % 1440; return pad(
 function t2m(v: Cell): number | null {
   if (typeof v === "number") return Math.round((v - Math.floor(v)) * 1440);   // Excel time serial
   const m = String(v || "").match(/(\d{1,2})[:.](\d{2})/); return m ? (+m[1]) * 60 + (+m[2]) : null;
+}
+// เวลาหัวไฟลท์: "A : 08:35" · "D :1225" · "O : 0930" · ค่าเวลาของ Excel → "HH:MM" (ไม่มีตัวเลข = ว่าง)
+function hdrTime(v: Cell): string {
+  if (typeof v === "number") return hhmm(v);
+  const m = String(v || "").replace(/^\s*[A-Z]{1,3}\s*:\s*/i, "").match(/(\d{1,2})[:.]?(\d{2})/);
+  return m && +m[1] < 24 && +m[2] < 60 ? m2hhmm((+m[1]) * 60 + (+m[2])) : "";
 }
 function hhmm(v: Cell): string { const m = t2m(v); return m == null || (typeof v === "number" && v === 0) ? "" : m2hhmm(m); }
 function isWork(b: string): boolean { return b === "WORKING" || b === "OT_OFF"; }
