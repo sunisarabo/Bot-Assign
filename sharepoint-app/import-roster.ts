@@ -37,7 +37,7 @@ const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิ
 
 type Cell = string | number | boolean;
 interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number; ot_pre_people?: number; ot_pre_hours?: number; ot_post_people?: number; ot_post_hours?: number }
-interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; pos_group?: string; bucket: string; shift_code: string; shift_start: string; shift_end?: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; ot_type?: string; ot_time?: string; is_support: boolean;
+interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; pos_group?: string; bucket: string; shift_code: string; shift_start: string; shift_end?: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; ot_type?: string; ot_time?: string; is_support: boolean; support_from?: string; support_src?: string;
   ac_status?: string; ac_flights?: string; ac_job?: string; ac_zones?: string; ac_support?: number; ac_uncovered?: string; ac_gaps?: string; ac_gaps_raw?: string; ac_ot_verdict?: string; ac_issue?: string; gantt_json?: string; gantt_hide?: boolean; gantt_ord?: number; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
@@ -73,7 +73,7 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   if (!pick) return empty("หาวันที่ไม่ได้จาก path/ชื่อไฟล์/หัว MANPOWER — ตั้งชื่อไฟล์เช่น 19SEP.xlsx ในโฟลเดอร์ 09.SEP26 หรือส่ง workDate", "", "");
 
   const hol = holidaySet(holidays);
-  const p = parseRoster(workbook, teams, pick.iso, baseName(path), !!hol[pick.iso]);
+  const p = parseRoster(workbook, teams, pick.iso, baseName(path), !!hol[pick.iso], masterIdx(posg));
   if (hdr && hdr.iso !== pick.iso)
     addIssue(p.issues, pick.iso, "filedate", "MANPOWER", baseName(path), "วันที่หัวชีต MANPOWER = " + hdr.iso + " แต่ชื่อไฟล์/โฟลเดอร์ = " + pick.iso + " — ตรวจว่าวางไฟล์ถูกวัน หรือหัวชีตลืมเปลี่ยน");
   const site = (siteUrl || SITE).replace(/\/$/, "");
@@ -90,7 +90,7 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   addBatches(batches, site, "PAS_Duty", p.duty);
   addBatches(batches, site, "PAS_Assignment", p.assignment);
   const recs = p.acRecs.map(x => x.rec);
-  const slaR = computeSla(pick.iso, p.slaPeople, p.teamNames, parseSched(schedule), pssSet, parseRules(rules));
+  const slaR = computeSla(pick.iso, p.slaPeople, p.teamNames, parseSched(schedule), pssSet, parseRules(rules), p.counters, p.fMode);
   const sla = slaR.rows;
   const support = supportReqRows(pick.iso, reqs, slaR.flights, recs, pg).concat(supportRows(pick.iso, slaR.flights, recs, pg));
   const auto = autoPlanRows(pick.iso, slaR.flights, recs, pg);
@@ -729,7 +729,7 @@ function bucketOfRec(r: RRec): string {
   if (r.bucket === "vac") return bucketOf(r.remark, r.remark2, 0) === "LEAVE" ? "LEAVE" : "VACATION";   // ลากิจ/คลอด แยกจากพักร้อน (สรุปสัปดาห์)
   return "OFF";
 }
-function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string, isHol: boolean) {
+function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string, isHol: boolean, midx?: MIdx) {
   const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [], otPerson: OtRow[] = [];
   const month = day.slice(0, 7), week = mondayOf(day);
   const issues: IssueRow[] = [];
@@ -739,7 +739,15 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   const acRecs: { rec: AcRec; row: DutyRow }[] = [];
   const gRows: GRow[] = [];
   const everyone: { team: string; name: string; emp: string }[] = [];          // ทุกคนในไฟล์ (รวมคนหยุด) — ใช้จับชื่อในคำขอซัพ
-  const rd = readRoster(sheetTexts(workbook));
+  const sts = sheetTexts(workbook);
+  const rd = readRoster(sts);
+  // ขั้นหลังอ่าน (เหมือน rbLoadResLLraw_): เคาน์เตอร์ → ตัดคนซ้ำข้ามทีม → หาทีมให้แถวซัพ → MODE
+  const counters = counterRead(workbook, sts, day);
+  applyCounterTimes(rd.tabs, counters);
+  const srcOf = new Map<RRec, string>();
+  dedupeTeams(rd.tabs, midx || {}, srcOf);
+  resolveSupportTeams(rd.tabs, midx || {}, srcOf);
+  const fMode = formModeIndex(sts);
   const mpByCode: { [c: string]: TeamHead } = {}; for (const t of teams) mpByCode[t.code.toUpperCase()] = t;
   const tabNames: { [c: string]: boolean } = {}; for (const tb of rd.tabs) tabNames[tb.name.toUpperCase()] = true;
   for (const t of teams) if (!tabNames[t.code.toUpperCase()])
@@ -773,6 +781,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       if (!isSup && /^\d{6,8}$/.test(emp)) { const it = idTeams[emp] || (idTeams[emp] = { teams: [], name }); if (it.teams.indexOf(team) < 0) it.teams.push(team); }
       if (!isSup && isWork(bucket) && ds == null && flts.length)
         addIssue(issues, day, "noshift", team, name, "มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้" + (r.shift ? " (รหัส " + r.shift + ")" : " (ไม่มีรหัสกะ)"));
+      if (isSup && !r.supportTeam)
+        addIssue(issues, day, "supnoteam", team, name, "แถวซัพพอร์ตแต่ไม่มีรหัสทีมต้นสังกัด — ใส่ \"ชื่อ + รหัสทีม\" เช่น \"สมชาย PVT\"");
       if (!isSup && bucket === "OFF" && flts.length)
         addIssue(issues, day, "offflt", team, name, "ชีตเขียนหยุด (OFF/X) แต่ถูกจัดลงไฟลท์ " + flts.map(f => f.flight).join(", ") + " — ถ้ามาทำงานให้แก้เป็น Onduty · ถ้ามาช่วย OT ให้กรอกชั่วโมง OT");
       const iv: number[][] = [];
@@ -811,7 +821,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       duty.push({ Title: seen[k] > 1 ? k + "#" + seen[k] : k, day_key: day, work_date: day, team, emp_code: emp, emp_name: name, pos_group: r.posGroup,
         bucket, shift_code: r.shift.slice(0, 50), shift_start: ds != null ? m2hhmm(ds) : "", shift_end: de != null ? m2hhmm(de) : "", shift_hours: hrs,
         ot_hours: round1(ot), ot_hol_hours: round1(otHol), ot_type: r.bucket === "ot_off" && ot > 0 ? "OFF" : (ot > 0 ? r.otType || "POST" : ""),
-        ot_time: r.otTime, is_support: isSup, duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src });
+        ot_time: r.otTime, is_support: isSup, support_from: isSup ? (r.supportTeam || "").slice(0, 100) : "", support_src: isSup && r.supportTeam ? (srcOf.get(r) || "sheet") : "", duty_min: dutyMin, busy_min: busy, util_pct: util, source_file: src });
       if (onDuty) acRecs.push({ row: duty[duty.length - 1], rec: {
         team, name, emp, hrs, bucket: r.bucket === "ot_off" ? "OT_OFF" : "WORKING", training: r.training, ss: ds, se: de, ot, otType: r.otType || "", otSpans: spans, otTime: r.otTime, shiftCode: r.shift, posGroup: r.posGroup,
         asg: r.assignments.map(a => ({ flight: a.flight, task: a.task, STA: a.STA, STD: a.STD, OP: a.OP, CL: a.CL, supportOut: !!a.supportOut, activity: !!a.activity })) } });
@@ -839,7 +849,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
       if (tabDates[tm] && tabDates[tm] !== maj)
         addIssue(issues, day, "staledate", tm, "วันที่บนแท็บ = " + tabDates[tm], "แท็บนี้เป็นวันที่ " + tabDates[tm] + " แต่ทีมส่วนใหญ่เป็น " + maj + " — อาจลืมอัปเดตแท็บ (ข้อมูลทั้งทีมเป็นของวันเก่า)");
   }
-  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: rd.tabs.map(x => x.name), acRecs, everyone, rd, gRows };
+  return { manpower, duty, assignment, otPerson, issues, slaPeople, teamNames: rd.tabs.map(x => x.name), acRecs, everyone, rd, gRows, counters, fMode };
 }
 // ตรวจ Assign รายคน (AssignCheck.gs acAnalyze_) → เขียนลงแถว PAS_Duty (เรียกหลังผูกงานซัพพอร์ตแล้ว)
 function analyzeAssign(acRecs: { rec: AcRec; row: DutyRow }[]) {
@@ -971,12 +981,12 @@ interface SlaRow {
   team_list: string; req_sup: number; req_ci: number; req_gate: number; req_arr: number; req_total: number;
   as_sup: number; as_ci: number; as_gate: number; as_arr: number; as_total: number;
   short_sup: number; short_ci: number; short_gate: number; short_arr: number; short_total: number; short_text: string;
-  ok: boolean; no_time: boolean; fragment: boolean; ferry: boolean; sched_cancelled: boolean; unassigned: boolean; redist: string; staff_text: string
+  ok: boolean; no_time: boolean; fragment: boolean; ferry: boolean; sched_cancelled: boolean; unassigned: boolean; redist: string; staff_text: string; mode?: string; ctr?: number
 }
 type Req = { SUP: number; CI: number; GATE: number; ARR: number; total: number };
 
 interface SlaFlight { key: string; flight: string; airline: string; STA: string; STD: string; teams: { [t: string]: boolean }; short: { [ph: string]: number }; ok: boolean; noTime: boolean; teamList: string; req: Req }
-function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched: { [k: string]: SchedRow }, pss: { [e: string]: boolean }, rules: { [a: string]: number[] }): { rows: SlaRow[]; flights: SlaFlight[] } {
+function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched: { [k: string]: SchedRow }, pss: { [e: string]: boolean }, rules: { [a: string]: number[] }, counters?: CMap | null, fMode?: { [k: string]: string }): { rows: SlaRow[]; flights: SlaFlight[] } {
   const flights: { [k: string]: { flight: string; airline: string; teams: { [t: string]: boolean }; STA: string; STD: string; OP: string; CL: string; AC: string;
     as: Req; staff: string[] } } = {};
   const teamSups: { [t: string]: number[][] } = {}, teamCounter: { [t: string]: number[][] } = {}, airCnt: { [a: string]: { [t: string]: number } } = {};
@@ -1027,6 +1037,8 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
     const akNum = f.airline === "AK" ? +((f.flight.match(/\d{3,4}/) || ["0"])[0]) : 0;
     const ferry = akNum >= 1000;
     if (ferry) { req.CI = 0; req.ARR = 0; req.GATE = 0; req.total = req.SUP; }
+    let ctr: number | null = null;                                     // ท่าจัดเคาน์เตอร์ให้กี่ช่อง → เพดานเช็คอิน (แท็บ COUNTER)
+    if (counters && req.CI > 0) { ctr = counterFor(counters, f.flight); if (ctr != null && ctr < req.CI) { req.total -= (req.CI - ctr); req.CI = ctr; } }
     const home = homeTeamOf(f.airline);
     const dep = realMin(f.STD), arr0 = realMin(f.STA);
     let hasDep = dep != null, hasArr = arr0 != null;
@@ -1069,7 +1081,8 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
       short_sup: short.SUP || 0, short_ci: short.CI || 0, short_gate: short.GATE || 0, short_arr: short.ARR || 0, short_total: shortTotal,
       short_text: parts.length ? parts.join(" · ") : (shortTotal ? "ขาดรวม " + shortTotal : ""),
       ok, no_time: noTime, fragment: false, ferry, sched_cancelled: cancelled,
-      unassigned: !!(f as { unassigned?: boolean }).unassigned, redist: redist.join(","), staff_text: f.staff.join("\n").slice(0, 4000)
+      unassigned: !!(f as { unassigned?: boolean }).unassigned, redist: redist.join(","), staff_text: f.staff.join("\n").slice(0, 4000),
+      mode: fMode && fMode[key] ? fMode[key] : "", ctr: ctr == null ? undefined : ctr
     });
   }
   // เศษขา: ไฟลท์ไม่มีเวลาที่เลขไฟลท์ทุกตัวไปซ้ำกับไฟลท์ที่มีเวลา → ซ่อนได้
@@ -2293,5 +2306,189 @@ function ganttOne(g: GRow, owner: { [al: string]: string }): { b?: GSeg[]; f?: G
   if (bars.length) out.b = bars;
   if (fo.length) out.f = fo;
   if (laneEnd.length) out.n = laneEnd.length;
+  return out;
+}
+
+// ================= ขั้นหลังอ่านไฟล์ (rbLoadResLLraw_ — WebDashboard.gs) =================
+// 1) แท็บ COUNTER ในไฟล์เวร → เติมเวลาเปิด-ปิดเคาน์เตอร์ (rbApplyCounterTimes_) + เพดานเช็คอินใน SLA (counterForFlight_)
+// 2) รหัสเดียวกันหลายทีม → เก็บที่ต้นสังกัด อีกทีมเป็นแถวซัพ (rbDedupeTeams_ + rbPickHome_)
+// 3) แถวซัพไม่มีรหัสทีม → หาทีมจากชื่อในเวรวันนั้น แล้วจากรายชื่อพนักงาน (rbResolveSupportTeams_ ชั้น 1–2)
+// 4) MODE เคาน์เตอร์ (ปกติ / Common check-in) แถว 2 ของแท็บ (formModeIndex_)
+type MIdx = { [k: string]: { [team: string]: boolean } };
+type CMap = { [k: string]: string | number };
+/** รายชื่อพนักงาน (PAS_Employees: name_en · name_th · team) → ชื่อ(คำแรก) → ทีม — แทน rbMasterNameTeam_ */
+function masterIdx(json?: string): MIdx {
+  const out: MIdx = {};
+  if (!json) return out;
+  let arr: { name_en?: string; name_th?: string; team?: string }[] = [];
+  try { arr = JSON.parse(json); } catch (e) { return out; }
+  for (const e of arr) {
+    const team = String(e.team || "").trim(); if (!team) continue;
+    for (const nm of [e.name_en, e.name_th]) { const k = nameKey(String(nm || "")); if (k) (out[k] = out[k] || {})[team] = true; }
+  }
+  return out;
+}
+function counterRowDate(v: string): { d: number; m: number; y: number } | null {
+  const m = String(v == null ? "" : v).match(/\b(\d{1,2})[.\/\-](\d{1,2})[.\/\-](\d{2,4})\b/);
+  if (!m) return null;
+  let y = +m[3]; if (y < 100) y += 2000;
+  return { d: +m[1], m: +m[2], y };
+}
+function counterParse(rows0: string[][], iso: string): CMap | null {
+  const rows = rows0.map(r => r.slice(0, 20));
+  if (rows.length < 3) return null;
+  let hi = -1, cAir = 0, cFlt = 1, cCtr = -1, cOpen = -1, cDate = -1, cLabel = -1;
+  for (let r = 0; r < Math.min(rows.length, 6); r++) {
+    const line = rows[r].map(v => String(v || "").toUpperCase());
+    const hasFlt = line.some(v => v.indexOf("FLIGHT") >= 0), hasCnt = line.some(v => /NO\.?\s*OF/.test(v)), hasCtr = line.some(v => v.indexOf("COUNTER") >= 0);
+    if (hasFlt && (hasCnt || hasCtr)) {
+      hi = r; cAir = 0; cFlt = 1; cCtr = -1; cOpen = -1; cDate = -1; cLabel = -1;
+      line.forEach((v, i) => {
+        if (v.indexOf("AIRLINE") >= 0) cAir = i;
+        else if (v.indexOf("FLIGHT") >= 0) cFlt = i;
+        else if (/NO\.?\s*OF/.test(v)) cCtr = i;
+        else if (v.indexOf("COUNTER") >= 0) cLabel = i;
+        else if (v.indexOf("OPEN") >= 0) cOpen = i;
+        else if (v.indexOf("DATE") >= 0) cDate = i;
+      });
+      break;
+    }
+  }
+  if (hi < 0 || (cCtr < 0 && cLabel < 0)) return null;
+  if (cDate < 0) {
+    for (let c = 0; c < (rows[hi + 1] || []).length; c++) {
+      let hit = 0;
+      for (let rr = hi + 1; rr < Math.min(rows.length, hi + 6); rr++) if (counterRowDate((rows[rr] || [])[c])) hit++;
+      if (hit >= 2) { cDate = c; break; }
+    }
+  }
+  const wd = iso ? { d: +iso.slice(8, 10), m: +iso.slice(5, 7), y: +iso.slice(0, 4) } : null;
+  const agg: { [f: string]: { air: string; cnt: number; labels: { [l: string]: boolean }; op: string; cl: string } } = {}, order: string[] = [];
+  let curAir = "", curDate: { d: number; m: number; y: number } | null = null;
+  for (let i = hi + 1; i < rows.length; i++) {
+    if (cDate >= 0) { const rd = counterRowDate(rows[i][cDate]); if (rd) curDate = rd; }
+    if (wd && cDate >= 0 && (!curDate || !(curDate.d === wd.d && curDate.m === wd.m && curDate.y === wd.y))) continue;
+    const air = String(rows[i][cAir] || "").trim().toUpperCase(); if (air) curAir = air;
+    const flt = String(rows[i][cFlt] || "").trim().toUpperCase().replace(/\s+/g, "");
+    if (!flt || flt.indexOf("FLIGHT") >= 0) continue;
+    let a = agg[flt]; if (!a) { a = agg[flt] = { air: curAir, cnt: 0, labels: {}, op: "", cl: "" }; order.push(flt); }
+    if (!a.air) a.air = curAir;
+    if (cCtr >= 0) { const nn = parseInt(String(rows[i][cCtr] || "").replace(/[^0-9.]/g, ""), 10); if (nn > 0) a.cnt = Math.max(a.cnt, nn); }
+    if (cLabel >= 0) { const lb = String(rows[i][cLabel] || "").trim().toUpperCase().replace(/\s+/g, ""); if (lb && /\d/.test(lb)) a.labels[lb] = true; }
+    if (cOpen >= 0) {
+      const oc = String(rows[i][cOpen] || "").match(/(\d{1,2})[:.]?(\d{2})/g);
+      if (oc && oc.length) { const o = rrTimePair(oc[0]), c2 = oc.length > 1 ? rrTimePair(oc[oc.length - 1]) : "";
+        if (o && (a.op === "" || o < a.op)) a.op = o; if (c2 && (a.cl === "" || c2 > a.cl)) a.cl = c2; }
+    }
+  }
+  const map: CMap = {}; let nEntry = 0;
+  for (const flt of order) {
+    const a = agg[flt];
+    const n = (cCtr >= 0 && a.cnt > 0) ? a.cnt : Object.keys(a.labels).length;
+    if (!(n > 0)) continue;
+    const op = a.op, cl = a.cl;
+    map[flt] = n; nEntry++;
+    if (op) { map["@" + flt] = op; if (cl) map["~" + flt] = cl; }
+    const mm = flt.match(/^([0-9A-Z]{2})?(\d{2,4})/);
+    if (mm) { const ai = mm[1] || a.air; if (ai) { map[ai + mm[2]] = n; if (op) { map["@" + ai + mm[2]] = op; if (cl) map["~" + ai + mm[2]] = cl; } } map["#" + mm[2]] = n; if (op) { map["@#" + mm[2]] = op; if (cl) map["~#" + mm[2]] = cl; } }
+  }
+  return nEntry ? map : null;
+}
+/** counterReadFromRoster_: แท็บชื่อมี COUNTER ก่อน แล้วแท็บไหนก็ได้ที่รูปแบบตรง */
+function counterRead(workbook: ExcelScript.Workbook, have: { name: string; rows: string[][] }[], iso: string): CMap | null {
+  const byName: { [n: string]: string[][] } = {}; for (const s of have) byName[s.name] = s.rows;
+  const rowsOf = (ws: ExcelScript.Worksheet): string[][] => {
+    if (byName[ws.getName()]) return byName[ws.getName()];
+    const u = ws.getUsedRange(true); if (!u) return [];
+    const R = u.getRowIndex() + u.getRowCount(), C = Math.min(20, u.getColumnIndex() + u.getColumnCount());
+    const head = ws.getRangeByIndexes(0, 0, Math.min(6, R), C).getTexts();
+    if (!head.some(r => r.some(v => /FLIGHT/i.test(v))) || !head.some(r => r.some(v => /COUNTER|NO\.?\s*OF/i.test(v)))) return head;   // หัวไม่ตรง → ไม่ต้องอ่านต่อ
+    return R > 6 ? head.concat(ws.getRangeByIndexes(6, 0, R - 6, C).getTexts()) : head;
+  };
+  const sheets = workbook.getWorksheets();
+  for (const ws of sheets) if (ws.getName().toUpperCase().indexOf("COUNTER") >= 0) { const m = counterParse(rowsOf(ws), iso); if (m) return m; }
+  for (const ws of sheets) { const m = counterParse(rowsOf(ws), iso); if (m) return m; }
+  return null;
+}
+function counterTimesFor(map: CMap | null, flight: string): { op: string; cl: string } | null {
+  if (!map) return null;
+  const s = String(flight || "").toUpperCase().replace(/\s+/g, ""), air = airlineOf(flight), keys = [s];
+  for (const nn of s.match(/\d{2,4}/g) || []) { if (air) keys.push(air + nn); keys.push("#" + nn); }
+  for (const k of keys) if (map["@" + k] != null) return { op: String(map["@" + k]), cl: String(map["~" + k] || "") };
+  return null;
+}
+function counterFor(map: CMap | null, flight: string): number | null {
+  if (!map) return null;
+  const s = String(flight || "").toUpperCase().replace(/\s+/g, "");
+  if (map[s] != null) return +map[s];
+  const air = airlineOf(flight);
+  for (const nn of s.match(/\d{2,4}/g) || []) {
+    if (air && map[air + nn] != null) return +map[air + nn];
+    if (map["#" + nn] != null) return +map["#" + nn];
+  }
+  return null;
+}
+function applyCounterTimes(tabs: RTab[], map: CMap | null) {
+  if (!map) return;
+  for (const t of tabs) for (const r of t.recs) for (const a of r.assignments) {
+    if (a.OP && a.OP !== "00:00") continue;
+    const ct = counterTimesFor(map, a.flight);
+    if (ct && ct.op) { a.OP = ct.op; if (ct.cl && (!a.CL || a.CL === "00:00")) a.CL = ct.cl; }
+  }
+}
+function pickHome(arr: { team: string; r: RRec }[], midx: MIdx): string {
+  const teams = arr.map(x => x.team);
+  for (const x of arr) { const k = nameKey(x.r.name), mt = k ? Object.keys(midx[k] || {}) : []; if (mt.length === 1 && teams.indexOf(mt[0]) >= 0) return mt[0]; }
+  const score = (x: { r: RRec }) => { const r = x.r; let s = 0; if (r.bucket === "working") s += 4; else if (r.bucket === "ot_off") s += 3; if (r.shiftStart != null) s += 2; if (r.ot > 0) s += 1; s += r.assignments.length * 0.1; return s; };
+  let best = arr[0]; for (const x of arr) if (score(x) > score(best)) best = x;
+  return best.team;
+}
+/** คืนจำนวนแถวที่เปลี่ยนเป็นซัพ — srcOf เก็บที่มา ("dup" / "auto" / "master") ไว้แสดง "ซัพจาก …" */
+function dedupeTeams(tabs: RTab[], midx: MIdx, srcOf: Map<RRec, string>): number {
+  const idMap: { [id: string]: { team: string; r: RRec }[] } = {};
+  for (const t of tabs) for (const r of t.recs) {
+    if (r.support) continue;
+    const id = String(r.id || "").replace(/\D/g, ""); if (!/^\d{6,8}$/.test(id)) continue;
+    (idMap[id] = idMap[id] || []).push({ team: t.name, r });
+  }
+  let changed = 0;
+  for (const id of Object.keys(idMap)) {
+    const arr = idMap[id], ts: { [t: string]: boolean } = {}; for (const x of arr) ts[x.team] = true;
+    if (Object.keys(ts).length < 2) continue;
+    const home = pickHome(arr, midx);
+    for (const x of arr) { if (x.team === home) continue; x.r.support = true; x.r.supportTeam = home; srcOf.set(x.r, "dup"); changed++; }
+  }
+  return changed;
+}
+function resolveSupportTeams(tabs: RTab[], midx: MIdx, srcOf: Map<RRec, string>) {
+  const idx: { [k: string]: { [t: string]: boolean } } = {};
+  for (const t of tabs) for (const r of t.recs) { if (r.support) continue; const k = nameKey(r.name); if (k) (idx[k] = idx[k] || {})[t.name] = true; }
+  const left: { recv: string; r: RRec; k: string }[] = [];
+  for (const t of tabs) for (const r of t.recs) {
+    if (!r.support || r.supportTeam) continue;
+    const k = nameKey(r.name); if (!k) continue;
+    const teams = Object.keys(idx[k] || {}).filter(x => x !== t.name);
+    if (teams.length === 1) { r.supportTeam = teams[0]; srcOf.set(r, "auto"); } else left.push({ recv: t.name, r, k });
+  }
+  for (const u of left) {
+    if (u.r.supportTeam) continue;
+    const teams = Object.keys(midx[u.k] || {}).filter(x => x !== u.recv);
+    if (teams.length === 1) { u.r.supportTeam = teams[0]; srcOf.set(u.r, "master"); }
+  }
+}
+/** MODE เคาน์เตอร์ที่ Duty ใส่เองในแถว 2 (ปกติ / Common check-in) → คีย์ไฟลท์ */
+function formModeIndex(sheets: { name: string; rows: string[][] }[]): { [k: string]: string } {
+  const out: { [k: string]: string } = {};
+  for (const s of sheets) {
+    if (/MANPOWER|MASTER|SHIFTDB|CODE|ALL FLIGHTS|_CODES/i.test(s.name)) continue;
+    const r2 = s.rows[1] || [], r3 = s.rows[2] || [];
+    if (!r2.some(v => /common|ปกติ/i.test(String(v || "")))) continue;
+    let fc = -1; for (let c = 0; c < r3.length; c++) if (String(r3[c] || "").trim().toUpperCase() === "FLIGHT") { fc = c; break; }
+    if (fc < 0) continue;
+    for (let c = fc + 1; c < r3.length; c++) {
+      const v = String(r3[c] || "").trim();
+      if (v && /(?:[A-Z]{2}|[0-9][A-Z]|[A-Z][0-9])\s*\d{2,4}/i.test(v)) { const m = String(r2[c] || "").trim(); if (m) out[flightKeyOf(v.replace(/\s/g, ""))] = /common/i.test(m) ? "Common check-in" : "ปกติ"; }
+    }
+  }
   return out;
 }

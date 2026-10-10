@@ -67,8 +67,9 @@
 1b. **Get items `Holidays`** — `PAS_Holidays` · Top Count `500` → **Select `HolKeys`** From `value` · Map (โหมดข้อความ) = `item()?['day_key']`
    (วันหยุดประเพณี → OT นักขัต X1 · ขึ้นปีใหม่ เพิ่มวันหยุดใน List นี้อย่างเดียว ไม่ต้องแก้ flow/สคริปต์)
 1c. **Get items `Rules`** — `PAS_SLARules` · Top 500 → **Select `RuleRows`**: `Title`, `sup`, `ci`, `arr`, `gate`, `total` (โหมดตาราง แมปคอลัมน์ชื่อเดียวกัน)
-1d. **Get items `Pos`** — `PAS_Employees` · Filter `status eq 'ACTIVE'` · Top 5000 · Pagination On → **Select `PosRows`** (โหมดตาราง): `Title`, `pos_group`
-   (ตำแหน่งพนักงาน → เครดิต SUP จากหัวหน้า + คัดคนช่วย SUP = Sup/Snr + เรียงคนช่วย Agent ก่อน)
+1d. **Get items `Pos`** — `PAS_Employees` · Filter `status eq 'ACTIVE'` · Top 5000 · Pagination On → **Select `PosRows`** (โหมดตาราง): `Title`, `pos_group`, `name_en`, `name_th`, `team`
+   (ตำแหน่งพนักงาน → เครดิต SUP จากหัวหน้า + คัดคนช่วย SUP = Sup/Snr + เรียงคนช่วย Agent ก่อน ·
+   ชื่อ + ทีม → หาทีมต้นสังกัดของแถวซัพที่ไม่ใส่ทีม และเลือกต้นสังกัดเมื่อรหัสเดียวกันอยู่หลายทีม — แทนไฟล์ master ของระบบเดิม)
 2. **Apply to each** (`value`) — Concurrency **1**  ← ในลูปนี้ `items('Apply_to_each')` = แถวคิว
    1. **Update item** (คิว): status Value = `Running`
    2. **Scope `Import`**:

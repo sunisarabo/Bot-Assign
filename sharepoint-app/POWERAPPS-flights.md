@@ -60,7 +60,7 @@ SortByColumns(
 | เวลา/เครื่อง | `"STA " & Coalesce(ThisItem.sta, "–") & " · STD " & Coalesce(ThisItem.std, "–") & If(!IsBlank(ThisItem.ac), " · " & ThisItem.ac, "")` |
 | ป้ายสถานะ | `If(ThisItem.no_time, "⚪ ไม่มีเวลา — เติม STA/STD", ThisItem.unassigned, "🔴 ยังไม่จัดคน", ThisItem.ok, "✅ ครบ SLA", "🔴 " & ThisItem.short_text)` |
 | สีป้าย | `If(ThisItem.ok && !ThisItem.no_time, ColorValue("#2E7D32"), ThisItem.no_time, Color.Gray, Color.Red)` |
-| ป้ายเสริม | `If(ThisItem.ferry, "Ferry ", "") & If(ThisItem.sched_cancelled, "ยกเลิก (ตารางบิน) ", "") & If(!IsBlank(ThisItem.redist), "เกลี่ยคน: " & ThisItem.redist, "")` |
+| ป้ายเสริม | `If(ThisItem.ferry, "Ferry ", "") & If(ThisItem.sched_cancelled, "ยกเลิก (ตารางบิน) ", "") & If(ThisItem.mode = "Common check-in", "🔗 Common ", "") & If(!IsBlank(ThisItem.ctr), "เคาน์เตอร์ท่า " & ThisItem.ctr & " ", "") & If(!IsBlank(ThisItem.redist), "เกลี่ยคน: " & ThisItem.redist, "")` |
 | แถบ 4 เฟส | Gallery แนวนอนซ้อน (ด้านล่าง) |
 | รายชื่อ | Label (ย่อ/ขยายด้วยปุ่ม) `ThisItem.staff_text` |
 

@@ -114,6 +114,7 @@ Filter(Sort(colDuty, gantt_ord), !gantt_hide && !IsBlank(gantt_json) &&
 `galG.OnSelect = Set(varGSel, ThisItem)`
 
 **ซ้าย (กว้าง 186):** Label ชื่อ `ThisItem.emp_name` (ตัวหนา 13) · Label เล็ก `ThisItem.team & If(IsBlank(ThisItem.pos_group), "", " · " & ThisItem.pos_group)` (สี `#5B7189`)
+ป้ายซัพ (แถวซัพพอร์ต · เหมือนระบบเดิม): `Text = "🤝 ซัพจาก " & Coalesce(ThisItem.support_from, "?") & Switch(ThisItem.support_src, "auto", " ·จากชื่อ", "master", " ·จากรายชื่อ", "dup", " ·รหัสซ้ำ", "")` · `Visible = ThisItem.is_support`
 ป้าย Util (Button ทำ pill · Size 9) `Text = ThisItem.util_pct & "%"` · `Visible = ThisItem.duty_min > 0`
 · `Fill = If(ThisItem.util_pct >= 75, ColorValue("#DCF2E4"), ThisItem.util_pct >= 50, ColorValue("#DCEBFA"), ThisItem.util_pct >= 30, ColorValue("#FFF3D6"), ColorValue("#FBE9EC"))`
 
