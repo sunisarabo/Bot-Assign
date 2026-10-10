@@ -349,7 +349,7 @@ function rrCellTimeVal(v: string): string {
 }
 function rrFindHeader(rows: string[][]): RCm | null {
   for (let r = 0; r < Math.min(8, rows.length); r++) {
-    const u = rows[r].map(rrUp);
+    const u = rows[r].map(x => rrUp(x));
     if (u.indexOf("NAME") < 0) continue;
     let idIdx = u.indexOf("ID"); if (idIdx < 0) idIdx = u.indexOf("NO"); if (idIdx < 0) idIdx = u.indexOf("NO."); if (idIdx < 0) continue;
     const st = u.indexOf("STATUS"), rk = u.indexOf("REMARK");
@@ -437,7 +437,7 @@ function rrParseStandard(rows: string[][], team: string, noTime: string[]): { re
   for (let hr = hi + 4; hr < rows.length; hr++) { const hrow = rows[hr]; if (!hrow) continue; if (rrUp(hrow[cm.id]) === "ID" && rrUp(hrow[cm.name]) === "NAME") { hi2 = hr; break; } }
   let fltcols2: RCol[] = [], flights2: { [n: string]: RFlt } = {}, cm2flt = -1, sect2Differs = false;
   if (hi2 >= 0) {
-    const u2 = rows[hi2].map(rrUp); cm2flt = u2.indexOf("FLIGHT") >= 0 ? u2.indexOf("FLIGHT") + 1 : cm.flt;
+    const u2 = rows[hi2].map(x => rrUp(x)); cm2flt = u2.indexOf("FLIGHT") >= 0 ? u2.indexOf("FLIGHT") + 1 : cm.flt;
     const b2 = rrBuildFltcols(rows, hi2, cm2flt); fltcols2 = b2.fltcols; flights2 = b2.flights;
     sect2Differs = fltcols2.some(f => !fltcols.some(g => g.name === f.name));
   }
@@ -599,7 +599,7 @@ function rrParseAdminDoc(rows: string[][], team: string): RRec[] {
 }
 function rrParseCrewsign(rows: string[][], team: string): RRec[] {
   const recs: RRec[] = []; let hi = -1;
-  for (let r = 0; r < Math.min(20, rows.length); r++) { const u = rows[r].map(rrUp); if (u.indexOf("STAFF NAME") >= 0 || (u.indexOf("SHIFT") >= 0 && u.indexOf("REMARK") >= 0)) { hi = r; break; } }
+  for (let r = 0; r < Math.min(20, rows.length); r++) { const u = rows[r].map(x => rrUp(x)); if (u.indexOf("STAFF NAME") >= 0 || (u.indexOf("SHIFT") >= 0 && u.indexOf("REMARK") >= 0)) { hi = r; break; } }
   if (hi < 0) return recs;
   const seen: { [k: string]: boolean } = {};
   for (let rr = hi + 1; rr < rows.length; rr++) { const row = rows[rr];
@@ -631,13 +631,13 @@ function rrParseSU(rows: string[][], team: string): RRec[] {
       if (rrUp(row1[1]).indexOf("ARRIVAL") === 0 || rrUp(row1[1]) === "FLT") break; if (!slot) continue;
       if (f) curflt = f.replace(/\n/g, " ");
       for (let c = 3; c < row1.length; c++) for (const p of split(row1[c])) { const nm = get(p); if (nm) staff[nm].counter.push({ flts: curflt, time: slot }); } } }
-  if (ga >= 0) { const groles = rows[ga].slice(3).map(rrClean);
+  if (ga >= 0) { const groles = rows[ga].slice(3).map(x => rrClean(x));
     for (let r2 = ga + 1; r2 < rows.length; r2++) { const row2 = rows[r2], flt2 = rrClean(row2[1]); if (!/SU\d/i.test(flt2)) continue;
       const sta = rrClean(row2[2]); const i2 = info[flt2] = info[flt2] || { STA: "", STD: "", OP: "", CL: "" };
       i2.STA = sta.split("/")[0] || ""; i2.STD = sta.indexOf("/") >= 0 ? sta.split("/")[1] : "";
       for (let c2 = 3; c2 < row2.length; c2++) { const role2 = groles[c2 - 3] || "GATE";
         for (const p of split(row2[c2])) { if (rrUp(p) === "SPVR") continue; const nm = get(p); if (nm) staff[nm].flights.push({ flight: flt2, task: role2, STA: i2.STA, STD: i2.STD, OP: "", CL: "" }); } } } }
-  if (jb >= 0) { const jroles = rows[jb].slice(5).map(rrClean);
+  if (jb >= 0) { const jroles = rows[jb].slice(5).map(x => rrClean(x));
     for (let r3 = jb + 1; r3 < rows.length; r3++) { const row3 = rows[r3], flt3 = rrClean(row3[1]); if (!/SU\d/i.test(flt3)) continue;
       const opcls = rrClean(row3[4]); const i3 = info[flt3] = info[flt3] || { STA: "", STD: "", OP: "", CL: "" };
       if (opcls.indexOf("/") >= 0) { i3.OP = opcls.split("/")[0]; i3.CL = opcls.split("/")[1]; }
@@ -1095,7 +1095,7 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
   // เศษขา: ไฟลท์ไม่มีเวลาที่เลขไฟลท์ทุกตัวไปซ้ำกับไฟลท์ที่มีเวลา → ซ่อนได้
   const timed: { [n: number]: boolean } = {};
   for (const r of rows) if (!r.no_time) for (const n of (r.flight.match(/\d+/g) || [])) timed[+n] = true;
-  for (const r of rows) if (r.no_time) { const nums = (r.flight.match(/\d+/g) || []).map(Number); r.fragment = nums.length > 0 && nums.every(n => timed[n]); }
+  for (const r of rows) if (r.no_time) { const nums = (r.flight.match(/\d+/g) || []).map(x => Number(x)); r.fragment = nums.length > 0 && nums.every(n => timed[n]); }
   const byKey: { [k: string]: SlaRow } = {};
   for (const r of rows) byKey[r.flight_key] = r;
   const cmp = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0;
@@ -1622,7 +1622,7 @@ function supRow(day: string, f: SlaFlight, ph: string, n: number, pool: PoolP[],
   return { Title: day + "|" + f.key + "|" + ph, day_key: day, month_key: day.slice(0, 7), flight: f.flight, airline: f.airline, system: sysOf(f.airline),
     team: f.teamList, std: f.STD || f.STA || "", phase: LB[ph], short_n: n, win: rwin ? fmtMin(rwin[0]) + "-" + fmtMin(rwin[1]) : "",
     win_fb: fbw.fb, no_flight_time: fbw.noTime, need_sys: needSys(f.airline, ph), block: elig.ok ? "" : elig.reason, n_cand: cands.length,
-    picks: picks.join("\n"), cands_json: JSON.stringify(cands.map(candView)), others_json: JSON.stringify(others.map(candView)), source: "SLA" };
+    picks: picks.join("\n"), cands_json: JSON.stringify(cands.map(x => candView(x))), others_json: JSON.stringify(others.map(x => candView(x))), source: "SLA" };
 }
 function supportRows(day: string, flights: SlaFlight[], recs: AcRec[], pg: { [e: string]: string }): SupportRow[] {
   const pool = supportPool(recs, pg), out: SupportRow[] = [];
@@ -1688,7 +1688,7 @@ function apFillGaps(flights: SlaFlight[], pool: PoolP[]): ApRow[] {
       out.push({ Title: "", day_key: "", month_key: "", kind: "FILL", flight: f.flight, airline: f.airline, system: sysOf(f.airline), team: f.teamList,
         sta: f.STA, std: f.STD || f.STA || "", seq: 0, phase: AP_LB[ph], need_n: need, base_n: need, remain: need - picked.length,
         win: win ? fmtMin(win[0]) + "-" + fmtMin(win[1]) : "", need_sys: needSys(f.airline, ph), block: sup.ok ? "" : sup.reason,
-        people_json: JSON.stringify(picked.map(apView)) });
+        people_json: JSON.stringify(picked.map(x => apView(x))) });
     }
   }
   return out;
@@ -1712,7 +1712,7 @@ function apReplan(flights: SlaFlight[], pool: PoolP[], owner: { [al: string]: st
         if (p) asg[ph].push(p); else { sx[ph] = pr[ph] - k; break; }
       }
     }
-    const js = (a: PoolP[]) => JSON.stringify(a.map(apView));
+    const js = (a: PoolP[]) => JSON.stringify(a.map(x => apView(x)));
     out.push({ Title: "", day_key: "", month_key: "", kind: "AUTO", flight: f.flight, airline: f.airline, system: sysOf(f.airline), team: home,
       sta: f.STA, std: f.STD, seq: 0, req_sup: pr.SUP, req_ci: pr.CI, req_gate: pr.GATE, req_arr: pr.ARR,
       short_sup: sx.SUP || 0, short_ci: sx.CI || 0, short_gate: sx.GATE || 0, short_arr: sx.ARR || 0,
@@ -1917,7 +1917,7 @@ function advPlanDay(day: string, front: AdvFront[], emp: { [id: string]: AdvEmp 
     let req = 0, have = 0;
     for (const role of ADV_ROLES) {
       const k = role.k.toLowerCase(), need = f.roles[role.k] || 0;
-      row["req_" + k] = need; row["short_" + k] = x.sx[role.k] || 0; row["a_" + k] = JSON.stringify(x.asg[role.k].map(view));
+      row["req_" + k] = need; row["short_" + k] = x.sx[role.k] || 0; row["a_" + k] = JSON.stringify(x.asg[role.k].map(x => view(x)));
       req += need; have += x.asg[role.k].length;
       if (x.sx[role.k]) ot[role.k] = advOtCands(pool, x.win[role.k] || null, x.sx[role.k]);
     }
@@ -2027,11 +2027,11 @@ function parseWinTxt(s: string): number[] | null {
 function reqFlight(raw: string, known: string[]): string {
   let f = String(raw || "").trim();
   if (!isFlightName(f)) { const m = f.toUpperCase().match(/(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s?\d{2,4}(?:\s?\/\s?(?:[A-Z][A-Z0-9])?\d{2,4})?/); if (!m || !isFlightName(m[0])) return ""; f = m[0]; }
-  const al = airlineOf(f), nums = (f.match(/\d{2,4}/g) || []).map(Number).filter(x => x >= 10);
+  const al = airlineOf(f), nums = (f.match(/\d{2,4}/g) || []).map(x => Number(x)).filter(x => x >= 10);
   if (known.some(k => k === f)) return f;
   for (const k of known) {
     if (airlineOf(k) !== al) continue;
-    const kn = (k.match(/\d{2,4}/g) || []).map(Number);
+    const kn = (k.match(/\d{2,4}/g) || []).map(x => Number(x));
     const full = kn.map((x, i) => i > 0 && x < 100 && kn[0] >= 100 ? Math.floor(kn[0] / 100) * 100 + x : x);   // "G9714/715" → 714, 715
     if (nums.length && nums.some(x => full.indexOf(x) >= 0 || kn.indexOf(x) >= 0)) return k;
   }
