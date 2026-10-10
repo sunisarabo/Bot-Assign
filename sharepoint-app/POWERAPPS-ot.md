@@ -182,7 +182,7 @@ Concat(Filter(colSeries, varOTChart = "month" || Mod(i, 5) = 0 || i = 1) As s,
 |---|---|
 | OT ต่อไฟลท์ | `With({f: Sum(Filter(colSeries, has), fl)}, If(f > 0, Text(Sum(Filter(colSeries, has), ot) / f, "0.00") & " ชม./ไฟลท์", "—"))` |
 | OT ต่อคนทำงาน | `With({w: Sum(Filter(colSeries, has), wk)}, If(w > 0, Text(Sum(Filter(colSeries, has), ot) / w, "0.00") & " ชม./คน", "—"))` |
-| ไฟลท์เฉลี่ย / วัน | `Round(Average(Filter(colSeries, has), fl), 0) & " ไฟลท์"` (รายเดือน: ใช้ `fl` ต่อเดือน) |
+| ไฟลท์เฉลี่ย / วัน | `If(IsEmpty(Filter(colSeries, has)), "–", Round(Average(Filter(colSeries, has), fl), 0) & " ไฟลท์")` (รายเดือน: ใช้ `fl` ต่อเดือน) |
 
 **🔎 วันที่ OT สูงเกินงาน** (รายวันเท่านั้น) — Gallery `Items`:
 ```powerapps

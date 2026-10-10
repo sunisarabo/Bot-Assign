@@ -123,7 +123,7 @@ If(ThisItem.kind = "n",
 | ตัวเลข | Size 20 · Bold · `T.ink` (หน่วยต่อท้ายใช้ Label แยก Size 11 `T.ink2`) |
 | แถบวัด (meter) | Rectangle พื้น: Height 6 · `Fill = T.surface2` · `BorderColor = T.line` / Rectangle ค่า: Width = `Parent.Width * Min(1, ค่า/100)` · `Fill = T.ok` (หรือ `T.brand`) |
 | บรรทัดเล็ก | Size 9 · `T.ink2` |
-ตัวอย่าง 5 ใบ (ใช้ collection เดิมใน `POWERAPPS-dashboard.md`): คนทำงาน `Sum(colMp, working) & " / " & Sum(colMp, total)` · ลา `Sum(colMp, sick) & " · " & Sum(colMp, annual) & " · " & Sum(colMp, training)` · OT `Sum(colMp, ot_people) & " คน"` · ไฟลท์ `CountRows(colSla)` + pill ขาด/ครบ · Util `Round(Average(Filter(colDuty, duty_min > 0), util_pct), 0) & "%"`
+ตัวอย่าง 5 ใบ (ใช้ collection เดิมใน `POWERAPPS-dashboard.md`): คนทำงาน `Sum(colMp, working) & " / " & Sum(colMp, total)` · ลา `Sum(colMp, sick) & " · " & Sum(colMp, annual) & " · " & Sum(colMp, training)` · OT `Sum(colMp, ot_people) & " คน"` · ไฟลท์ `CountRows(colSla)` + pill ขาด/ครบ · Util `With({d: Filter(colDuty, duty_min > 0)}, If(IsEmpty(d), "–", Round(Average(d, util_pct), 0) & "%"))`
 
 **ป้ายสถานะ (pill)** — Button (Label โค้งมนไม่ได้) · Height 22 · Radius 11 · Size 9 · Semibold · Padding L/R 9 · `OnSelect` ว่าง · `HoverFill = Self.Fill` · `PressedFill = Self.Fill`
 | สถานะ | Fill / Color |
@@ -169,7 +169,7 @@ If(varDay = Text(Today(), "yyyy-mm-dd"),
 
 **วงแหวน % (ใช้กับ Util / % OT)** — Image เล็ก 64×64:
 ```powerapps
-With({p: Min(1, Average(Filter(colDuty, duty_min > 0), util_pct) / 100)},
+With({p: If(IsEmpty(Filter(colDuty, duty_min > 0)), 0, Min(1, Average(Filter(colDuty, duty_min > 0), util_pct) / 100))},
 "data:image/svg+xml;utf8," & EncodeUrl(
 "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><circle cx='18' cy='18' r='15.9' fill='none' stroke='#E6EEFC' stroke-width='4'/>" &
 "<circle cx='18' cy='18' r='15.9' fill='none' stroke='#1D428A' stroke-width='4' stroke-linecap='round' stroke-dasharray='" & Round(p * 100, 1) & " 100' transform='rotate(-90 18 18)'/></svg>"))
@@ -194,6 +194,7 @@ Concat(Filter(colAsg, emp_code = ThisItem.emp_code && win_hi > win_lo) As a,
 "</svg>"))
 ```
 ชื่อคนเป็น Label ซ้าย (Width 110) · เส้นเวลา/ชั่วโมงทำเป็นอีก Image เดียวด้านบนของ Gallery
+> **ฉบับมีชื่อไฟลท์/งานในแถบ + กดแถวดูรายละเอียด:** ใช้สูตรใน `POWERAPPS-app.md` ข้อ 7 แทน (วาด 1:1 ด้วย `Self.Width` ตัวหนังสือไม่ยืด)
 
 ## 9) มือถือ / จอแคบ
 - `conRail.Visible = App.Width >= 760`
@@ -217,6 +218,12 @@ Concat(Filter(colAsg, emp_code = ThisItem.emp_code && win_hi > win_lo) As a,
 | 10 | ตัวหนังสือ | ใช้ขนาดจากธีมเท่านั้น (หัวหน้า 18 · หัวการ์ด 13 · เนื้อ 11 · ตัวเลข KPI 24) ไม่ต้องคูณตาม App.Width |
 
 ทดสอบ: เปิดแอปแล้วย่อ/ขยายหน้าต่าง browser — ทุกอย่างต้องยืดตาม ไม่มีขอบเหลือ ถ้ามีกล่องไหนไม่ยืด แปลว่ากล่องนั้นยังมี Width เป็นตัวเลข
+
+## 9.6) แถบแดง error บนหน้าแอป
+| ข้อความ | สาเหตุ | แก้ |
+|---|---|---|
+| `ไม่สามารถใช้ฟังก์ชัน Average กับตารางว่างเปล่า` | วัน/ช่วงที่ยังไม่มีข้อมูล (เช่น ก่อนนำเข้า) แล้วการ์ด Util/ค่าเฉลี่ยเรียก `Average` | ครอบด้วย `If(IsEmpty(ตาราง), "–", Average(ตาราง, คอลัมน์))` — สูตรในเอกสารแก้ให้แล้ว (Util ใน Dashboard · วงแหวน Util · ไฟลท์เฉลี่ย/วัน) |
+| `อาร์กิวเมนต์ที่สองของฟังก์ชัน 'Index' ต้องอยู่ระหว่าง 1 และ N` | `Index(ตาราง, n)` ที่ n เกินจำนวนแถว (เช่น ตารางสัดส่วนคอลัมน์มี N ค่า แต่เรียกช่องที่ N+1 · หรือ Index ของ 7 วันแต่ n เป็น 0/8) | ใน Studio เปิด **App checker (ไอคอนหูฟัง) → Formulas** จะชี้ control ที่ผิด · แก้เป็น `If(n >= 1 && n <= CountRows(ตาราง), Index(ตาราง, n).Value)` · ถ้าเป็น `WfCol` ต้องมีค่า = จำนวนคอลัมน์ + 1 (เริ่ม 0 จบ 1) |
 
 ## 10) ลำดับลงมือ (ประมาณ 2–3 ชม. สำหรับเปลือก + Dashboard)
 1. วาง `App.Formulas` (ข้อ 1) → ตั้ง Scale to fit = Off
