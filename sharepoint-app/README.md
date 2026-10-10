@@ -28,6 +28,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `import-advroster.ts` | **Office Script** (สร้างจาก `import-roster.ts` ด้วย `node build.js`): ROSTER ล่วงหน้า + `PAS_Flights` + `PAS_Employees` → แผนจัดล่วงหน้า · Flow G ใน `FLOW-advance.md` |
 | `FLOW-notify.md` | **Flow I** อีเมลเตือนทุกเช้า: ทีมที่ยังลง assignment ไม่ครบ ล่วงหน้า 7 วัน + วันที่ยังไม่มีไฟล์เวร (แทน apNotifyMissingAssignments) |
 | `import-hsot.ts` | **Office Script**: ไฟล์ OT ขอจริงจาก HumanSoft → `PAS_OT_Request` (อ่านเหมือน OTCompare.gs) · Flow H ใน `FLOW-hsot.md` |
+| `import-othr.ts` | **Office Script**: ไฟล์ OT จ่ายจริงทั้งปีงบ ("OT OCT25 - JUL 26.xlsx" ชีต ข้อมูลคำนวณ) → `PAS_OTHR_*` · นำเข้าเฉพาะเดือนที่เปลี่ยน · Flow J ใน `FLOW-othr.md` · แท็บ 💰 ใน `POWERAPPS-ot.md` ข้อ 9 |
 | `POWERAPPS-otahead.md` | หน้า **🔮 OT ล่วงหน้า** (ต่อวัน · รายทีม · รายคน 36/144) + **🔍 ตรวจ OT** (ขอจริง HumanSoft vs แผนในไฟล์เวร — เลือกวันใดก็ได้) |
 | `POWERAPPS-advance.md` | หน้า **📅 จัดล่วงหน้า** (7 บทบาทต่อไฟลท์ · คนให้ OT คลุมได้ · คนพัก · หลายวัน — ตรงกับ AdvancePlan.gs ทุกไฟลท์ในชุดทดสอบ) |
 | `POWERAPPS-autoassign.md` | หน้า **🤖 Auto Assign** (เติมจาก Assign เดิม + จัดเวรใหม่ทั้งหมดตาม SLA + คนพัก/สำรอง + ข้อความแจ้งรายทีม — ตรงกับ AutoPlan.gs ทุกแถวในชุดทดสอบ) |
@@ -67,6 +68,10 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `PAS_Support` | `วันที่\|ไฟลท์\|เฟส` | ไฟลท์ขาด SLA ต่อเฟส (source SLA) + คำขอซัพพอร์ตจากไฟล์ (source REQ) + คนที่ว่างช่วยได้ (คำนวณตอนนำเข้าเวร) |
 | `PAS_DayStats` | `วันที่` | สรุป 1 แถว/วัน: ไฟลท์ (จากไฟล์ assignment) · ขาด SLA · คนทำงาน · OT — กราฟ OT เทียบไฟลท์ |
 | `PAS_OT_Request` | `วันที่\|รหัส\|ลำดับ` | OT ที่ขอจริงจาก HumanSoft (Flow H) — เทียบกับ `PAS_OT_Person` |
+| `PAS_OTHR_Month` | `เดือน\|แผนก` | OT จ่ายจริง สรุปเดือน × แผนก (ALL/KP/LP/LL) + กำลังพล/ไฟลท์/เกินเพดาน (Flow J) |
+| `PAS_OTHR_Day` | `วัน\|แผนก\|ทีม` | OT จ่ายจริง รายวัน × ทีม |
+| `PAS_OTHR_Person` | `เดือน\|รหัส` | OT จ่ายจริง รายคน × เดือน |
+| `PAS_OTHR_Over` | `ชนิด\|ช่วง\|รหัส` | เกิน 36 ชม./สัปดาห์ · 144 ชม./เดือน (OT จ่ายจริง) |
 | `PAS_AdvPlan` · `PAS_AdvRoster` | `วันที่\|ชนิด\|ลำดับ` · `วันที่\|รหัส` | แผนจัดล่วงหน้าต่อไฟลท์ + พูลคนขึ้นเวรล่วงหน้า (Flow G) |
 | `PAS_AutoPlan` | `วันที่\|ชนิด\|ลำดับ` | Auto Assign: `FILL` เติมจาก Assign เดิม · `AUTO` จัดใหม่ทั้งหมด · `BENCH` คนพัก (คำนวณตอนนำเข้าเวร) |
 | `PAS_SLARules` | รหัสสาย | กำลังคนมาตรฐานต่อเที่ยวบิน (แทนชีต STANDARD MANNING · แก้ได้) |

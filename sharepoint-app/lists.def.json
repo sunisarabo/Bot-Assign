@@ -2522,6 +2522,316 @@
      "holiday_date": "2026-12-31"
     }
    ]
+  },
+  {
+   "title": "PAS_OTHR_Month",
+   "desc": "OT จ่ายจริงจากไฟล์ OT ทั้งปีงบ (import-othr · Flow J) — สรุป เดือน × แผนก (ALL/KP/LP/LL): ชั่วโมง · ครั้ง · คน · ประเภท · Code (JSON) · กำลังพล · ไฟลท์ · เกินเพดาน · sig ใช้ข้ามเดือนที่ไม่เปลี่ยน",
+   "titleLabel": "month|dept",
+   "fields": [
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "dept",
+     "type": "Choice",
+     "choices": [
+      "ALL",
+      "KP",
+      "LP",
+      "LL"
+     ],
+     "indexed": true
+    },
+    {
+     "name": "dept_label",
+     "type": "Text"
+    },
+    {
+     "name": "month_label",
+     "type": "Text"
+    },
+    {
+     "name": "days_in_month",
+     "type": "Number"
+    },
+    {
+     "name": "hours",
+     "type": "Number"
+    },
+    {
+     "name": "cnt",
+     "type": "Number"
+    },
+    {
+     "name": "people",
+     "type": "Number"
+    },
+    {
+     "name": "h_t15",
+     "type": "Number"
+    },
+    {
+     "name": "h_off",
+     "type": "Number"
+    },
+    {
+     "name": "h_hol",
+     "type": "Number"
+    },
+    {
+     "name": "h_t30",
+     "type": "Number"
+    },
+    {
+     "name": "codes_json",
+     "type": "Note"
+    },
+    {
+     "name": "types_json",
+     "type": "Note"
+    },
+    {
+     "name": "headcount",
+     "type": "Number"
+    },
+    {
+     "name": "new_hires",
+     "type": "Number"
+    },
+    {
+     "name": "resigned",
+     "type": "Number"
+    },
+    {
+     "name": "flights",
+     "type": "Number"
+    },
+    {
+     "name": "flight_days",
+     "type": "Number"
+    },
+    {
+     "name": "over36_people",
+     "type": "Number"
+    },
+    {
+     "name": "over36_times",
+     "type": "Number"
+    },
+    {
+     "name": "over144_people",
+     "type": "Number"
+    },
+    {
+     "name": "over144_times",
+     "type": "Number"
+    },
+    {
+     "name": "sig",
+     "type": "Text"
+    },
+    {
+     "name": "data_updated",
+     "type": "Text"
+    },
+    {
+     "name": "source_file",
+     "type": "Text"
+    }
+   ]
+  },
+  {
+   "title": "PAS_OTHR_Day",
+   "desc": "OT จ่ายจริง รายวัน × แผนก × ทีม (import-othr) — กราฟรายวัน/รายสัปดาห์ · LL รวมเป็นทีม LL",
+   "titleLabel": "day|dept|team",
+   "fields": [
+    {
+     "name": "day_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "week_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "dept",
+     "type": "Choice",
+     "choices": [
+      "KP",
+      "LP",
+      "LL"
+     ]
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "hours",
+     "type": "Number"
+    },
+    {
+     "name": "cnt",
+     "type": "Number"
+    },
+    {
+     "name": "people",
+     "type": "Number"
+    },
+    {
+     "name": "h_t15",
+     "type": "Number"
+    },
+    {
+     "name": "h_off",
+     "type": "Number"
+    },
+    {
+     "name": "h_hol",
+     "type": "Number"
+    },
+    {
+     "name": "h_t30",
+     "type": "Number"
+    }
+   ]
+  },
+  {
+   "title": "PAS_OTHR_Person",
+   "desc": "OT จ่ายจริง รายคน × เดือน (import-othr) — Top OT · ชั่วโมงสูงสุดต่อสัปดาห์ · เกิน 144",
+   "titleLabel": "month|emp",
+   "fields": [
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_code",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_name",
+     "type": "Text"
+    },
+    {
+     "name": "dept",
+     "type": "Choice",
+     "choices": [
+      "KP",
+      "LP",
+      "LL"
+     ]
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "hours",
+     "type": "Number"
+    },
+    {
+     "name": "cnt",
+     "type": "Number"
+    },
+    {
+     "name": "days",
+     "type": "Number"
+    },
+    {
+     "name": "h_t15",
+     "type": "Number"
+    },
+    {
+     "name": "h_off",
+     "type": "Number"
+    },
+    {
+     "name": "h_hol",
+     "type": "Number"
+    },
+    {
+     "name": "h_t30",
+     "type": "Number"
+    },
+    {
+     "name": "max_week",
+     "type": "Number"
+    },
+    {
+     "name": "over_month",
+     "type": "Boolean"
+    }
+   ]
+  },
+  {
+   "title": "PAS_OTHR_Over",
+   "desc": "รายชื่อเกินเพดาน OT จ่ายจริง: > 36 ชม./สัปดาห์ (จ.–อา.) · > 144 ชม./เดือน (import-othr) — สัปดาห์ข้ามเดือนนับเป็นเดือนของวันจันทร์",
+   "titleLabel": "kind|period|emp",
+   "fields": [
+    {
+     "name": "month_key",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "kind",
+     "type": "Choice",
+     "choices": [
+      "week",
+      "month"
+     ]
+    },
+    {
+     "name": "period_key",
+     "type": "Text"
+    },
+    {
+     "name": "period_label",
+     "type": "Text"
+    },
+    {
+     "name": "emp_code",
+     "type": "Text",
+     "indexed": true
+    },
+    {
+     "name": "emp_name",
+     "type": "Text"
+    },
+    {
+     "name": "dept",
+     "type": "Choice",
+     "choices": [
+      "KP",
+      "LP",
+      "LL"
+     ]
+    },
+    {
+     "name": "team",
+     "type": "Text"
+    },
+    {
+     "name": "hours",
+     "type": "Number"
+    },
+    {
+     "name": "limit_h",
+     "type": "Number"
+    }
+   ]
   }
  ],
  "rosterRoot": "Shared Documents/"

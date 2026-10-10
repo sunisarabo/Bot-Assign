@@ -96,3 +96,34 @@ Set(varWfTot, {
 - ต่างที่จำนวนไฟลท์ → PAS เดิมใช้ **ตารางบินก่อน** (ถ้ามีแท็บวันนั้น) แล้วค่อยใช้ไฟล์ Assignment · หน้าใหม่ใช้ **ไฟล์ Assignment อย่างเดียว** ตามที่กำหนด
   (ไฟลท์ที่อยู่ในตารางบินแต่ไม่ได้จัดคน ดูได้ที่หน้า Flights & SLA ตัวกรอง "ยังไม่จัดคน")
 - ต่างที่ "คน~" ของไฟลท์เดียวกัน → A/C TYPE ไม่ตรง (เติมจากตารางบินอัตโนมัติ ถ้าแท็บเวรว่าง)
+
+---
+
+## 5) จัดหน้าให้สมดุล (แก้จากภาพหน้าจอจริง 10 ต.ค.)
+อาการที่เห็น → สาเหตุ → วิธีแก้
+
+| อาการ | สาเหตุ | แก้ |
+|---|---|---|
+| มีแถบเลื่อนแนวนอนล่างสุด · เมนูซ้ายโดนตัด ("ol Tower") | หน้าจอกว้างกว่าหน้าต่าง | Settings → Display: **Scale to fit = Off · Lock aspect ratio = Off** · `App.MinScreenWidth = 1024` · ทุก Screen `Width = Max(App.Width, App.MinScreenWidth)` · `conApp.Width = Parent.Width` |
+| ปุ่ม "สัปดาห์ของวันที่เลือก" ล้นขวา | หัวข้อ + 3 ปุ่มวางด้วย X ตายตัว | ใส่ใน **Horizontal container `conWfHead`** (Width = Parent.Width · Wrap On · Gap 8 · Align ตรงกลางแนวตั้ง) · Label หัวข้อ Flexible width On · ปุ่ม Width 120 ข้อความสั้น `"◀ ก่อน"` `"ถัดไป ▶"` `"📅 วันที่เลือก"` |
+| ตารางสัปดาห์ไม่เต็มกว้าง ขวามีช่องว่าง · คอลัมน์ห่างไม่เท่ากัน | Gallery/Label กว้างเป็น px | `galWf.Width = Parent.Width` และวางคอลัมน์ตามสัดส่วนด้วย `WfCol` (ด้านล่าง) ทั้งแถวหัว แถวข้อมูล และแถวรวม |
+| ตารางรายไฟลท์แคบกว่าตารางบน และสูงแค่ ~2 แถว | Gallery สูง/กว้างตายตัว | `galWfFlt` อยู่ใน Vertical container ของหน้า → **Flexible height On (Fill portions 1) · Minimum height 320** · Width = Parent.Width · ใช้ `WfFltCol` แบบเดียวกัน |
+| แถวสูงเกิน หน้ายาว | TemplateSize ใหญ่ | `galWf.TemplateSize = 38` · `galWf.Height = 8 * 38 + 4` (7 วัน + เผื่อ) · ตัวหนังสือในแถว Size 11 · หัวคอลัมน์ Size 11 ตัวหนา · หัวข้อหน้า Size 16 |
+
+**สัดส่วนคอลัมน์ — วางใน `App.Formulas` ครั้งเดียว**
+```powerapps
+// จุดเริ่มคอลัมน์ (0–1) · ตารางสัปดาห์ 10 ช่อง: วันที่ ไฟลท์ SUP CI Gate Arr คน~ พีคออก จัดแล้ว ขาดSLA
+WfCol = [0, .14, .23, .31, .40, .48, .57, .66, .77, .86, 1];
+// รายไฟลท์ 10 ช่อง: Flight สาย STA/STD เครื่อง SUP CI Gate Arr คน~ จัดแล้ว
+WfFltCol = [0, .16, .23, .37, .47, .54, .61, .68, .75, .84, 1];
+```
+ทุก Label ในแถว (ตัวอย่างช่องที่ n — วันที่ n=1, ไฟลท์ n=2, …):
+```powerapps
+X     = Parent.TemplateWidth * Index(WfCol, n).Value + 8
+Width = Parent.TemplateWidth * (Index(WfCol, n + 1).Value - Index(WfCol, n).Value) - 8
+```
+แถวหัวคอลัมน์ (อยู่นอก Gallery) ใช้ `galWf.Width` แทน `Parent.TemplateWidth` → หัวกับข้อมูลตรงกันทุกขนาดจอ
+พื้นฟ้าคอลัมน์ "คน~" = Rectangle `X/Width` ตามช่อง n=7 · Height = Parent.TemplateHeight
+
+**ลำดับในหน้า (Vertical container `conWflt`, Gap 10, Padding 16):**
+`conWfHead` (สูงอัตโนมัติ) → แถวหัว `conWfCols` (36) → `galWf` (8×38) → แถวรวม (40) → หมายเหตุ (Auto height) → หัวรายวัน → แถวหัว `conWfFltCols` (32) → `galWfFlt` (**Flexible height**)
