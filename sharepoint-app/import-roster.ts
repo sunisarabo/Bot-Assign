@@ -2633,5 +2633,5 @@ function productivity(acRecs: { rec: AcRec; row: DutyRow }[], manpower: MpRow[])
   const TD = Object.keys(teams).reduce((s, t) => s + teams[t].duty, 0), TB = Object.keys(teams).reduce((s, t) => s + teams[t].busy, 0);
   const r1 = (v: number) => Math.round(v * 10) / 10;
   return { util: TD > 0 ? Math.round(TB / TD * 100) : 0, staff, flights: Object.keys(flightSet).length, support: supOut, otHrs: r1(otMin / 60), idleHrs: Math.round((TD - TB) / 60),
-    nOverlap, nOut, nIdle, hourly: JSON.stringify({ on: hrOn.map(r1), busy: hrBusy.map(r1), flt: hrFlt }) };
+    nOverlap, nOut, nIdle, hourly: JSON.stringify({ on: hrOn.map(x => r1(x)), busy: hrBusy.map(x => r1(x)), flt: hrFlt }) };
 }
