@@ -45,4 +45,13 @@ ok(rows(main(wb, "Shared Documents/2026/10.OCT26/08OCT.xlsx"), "PAS_Manpower")[0
 const ds = rows(main(wb, "Shared Documents/2026/10.OCT26/08OCT.xlsx"), "PAS_DayStats");
 ok(ds.length === 1 && ds[0].Title === "2026-10-08" && ds[0].ot_total === 9.5 && ds[0].ot_people === 2 && ds[0].working === 3 && ds[0].flights === 1,
   "PAS_DayStats 1 แถว/วัน: OT 9.5 · คน OT 2 · ทำงาน 3 (รวม OT OFF · ไม่นับซัพพอร์ต) · ไฟลท์ 1 (EY410 จากแถวซัพพอร์ต) → " + JSON.stringify(ds[0]));
+// ชม.รวม OT: 0.9999999 (=(OUT-IN)*24 ทศนิยมเพี้ยน) = 1 ชม. ไม่ใช่ 0.99999/24 · เศษวัน 0.0416 (=OUT-IN) = 1 ชม. · 0.5 (30 นาที) คงเดิม
+const ey3 = [blank()].concat(X.header([{ code: "EY410" }]));
+const p1 = person(3001001, "F1", "0.99999999999999911", 0); p1[10] = "07:00"; p1[11] = "08:00";
+const p2 = person(3001002, "F2", 0, "0.041666666666666664"); p2[13] = "21:00"; p2[14] = "22:00";
+const p3 = person(3001003, "F3", 0, "0.5"); p3[13] = "15:00"; p3[14] = "15:30";
+ey3.push(p1, p2, p3);
+const d3 = rows(main(X.book({ MANPOWER: mp, EY: ey3, ShiftDB: X.SHIFTDB }), "Shared Documents/2026/10.OCT26/09OCT.xlsx"), "PAS_Duty");
+const oh = c => (d3.find(x => x.emp_code === String(c)) || {}).ot_hours;
+ok(oh(3001001) === 1 && oh(3001002) === 1 && oh(3001003) === 0.5, "ชม.OT ตีความตามเวลาเข้า-ออก: 0.9999→1 · 1/24→1 · 0.5→0.5 → " + [oh(3001001), oh(3001002), oh(3001003)]);
 console.log(bad ? bad + " FAILED" : "ALL PASSED"); process.exit(bad ? 1 : 0);

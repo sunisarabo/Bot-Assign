@@ -203,7 +203,7 @@ function buildMonth(m: string, rs: ORec[], all: ORec[], weekMonth: (wk: string) 
   }
   // เดือน × แผนก
   const depts = ["ALL"].concat(Object.keys(rs.reduce((o: { [d: string]: boolean }, r) => { o[r.dept] = true; return o; }, {})).concat(Object.keys(hcm)).filter((d, i, a) => d !== "ALL" && a.indexOf(d) === i).sort());
-  const [y, mo] = m.split("-").map(Number), nd = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const [y, mo] = m.split("-").map(x => Number(x)), nd = new Date(Date.UTC(y, mo, 0)).getUTCDate();
   for (const d of depts) {
     const sub = d === "ALL" ? rs : rs.filter(r => r.dept === d), a = newAgg(), codes: { [c: string]: Agg } = {}, kinds: { [k: string]: Agg } = {};
     for (const r of sub) { addAgg(a, r); addAgg(codes[r.code || "-"] = codes[r.code || "-"] || newAgg(), r); addAgg(kinds[r.kind] = kinds[r.kind] || newAgg(), r); }
@@ -221,7 +221,7 @@ function buildMonth(m: string, rs: ORec[], all: ORec[], weekMonth: (wk: string) 
 
 // กำลังพล ณ สิ้นเดือน (เริ่มงาน ≤ สิ้นเดือน และยังไม่พ้นสภาพ ณ สิ้นเดือน) · เข้าใหม่ · ลาออก — ตามชีต แดชบอร์ด
 function headcount(emps: OEmp[], m: string): { [d: string]: number[] } {
-  const [y, mo] = m.split("-").map(Number), end = m + "-" + p2o(new Date(Date.UTC(y, mo, 0)).getUTCDate()), start = m + "-01";
+  const [y, mo] = m.split("-").map(x => Number(x)), end = m + "-" + p2o(new Date(Date.UTC(y, mo, 0)).getUTCDate()), start = m + "-01";
   const out: { [d: string]: number[] } = {};
   for (const e of emps) {
     for (const d of ["ALL", e.dept]) {
@@ -281,12 +281,12 @@ function mondayOf(iso: string): string {
   const m = new Date(d.getTime() - wd * 86400000);
   return m.getUTCFullYear() + "-" + p2o(m.getUTCMonth() + 1) + "-" + p2o(m.getUTCDate());
 }
-function thDate(iso: string): string { const [y, m, d] = iso.split("-").map(Number); return d + " " + TH_MON[m - 1] + " " + String(y + 543).slice(2); }
+function thDate(iso: string): string { const [y, m, d] = iso.split("-").map(x => Number(x)); return d + " " + TH_MON[m - 1] + " " + String(y + 543).slice(2); }
 function weekLabel(mon: string): string {
   const s = new Date(new Date(mon + "T00:00:00Z").getTime() + 6 * 86400000);
   return thDate(mon) + " – " + thDate(s.getUTCFullYear() + "-" + p2o(s.getUTCMonth() + 1) + "-" + p2o(s.getUTCDate()));
 }
-function monthLabel(m: string): string { const [y, mo] = m.split("-").map(Number); return TH_MON[mo - 1] + " " + String(y + 543).slice(2); }
+function monthLabel(m: string): string { const [y, mo] = m.split("-").map(x => Number(x)); return TH_MON[mo - 1] + " " + String(y + 543).slice(2); }
 function fnv(s: string): number { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; }
 function r2(x: number): number { return Math.round(x * 100) / 100; }
 function p2o(x: number): string { return (x < 10 ? "0" : "") + x; }

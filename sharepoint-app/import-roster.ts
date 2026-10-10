@@ -53,8 +53,10 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   const empty = (reason: string, iso: string, src: string): Result =>
     ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0, ot_people: 0, issues: 0 }, batches: [] });
 
-  const mp = workbook.getWorksheet("MANPOWER");
-  const mv: Cell[][] = mp ? mp.getUsedRange().getValues() : [];
+  let mp = workbook.getWorksheet("MANPOWER");
+  if (!mp) for (const w of workbook.getWorksheets()) if (/^\s*MANPOWER\s*$/i.test(w.getName())) { mp = w; break; }   // ห้ามใช้ .find กับชีต (runtime ไม่รองรับ)
+  const mpUsed = mp ? mp.getUsedRange() : undefined;
+  const mv: Cell[][] = mpUsed ? mpUsed.getValues() : [];
   const headerText = mv.slice(0, 6).map(r => r.join(" ")).join(" ");
 
   // ---- วันที่ ----
@@ -114,16 +116,20 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
 }
 
 // ======================= อ่านไฟล์เวร =======================
-interface TeamHead { code: string; total: number; working: number; sick: number; annual: number; training: number; mpOt?: number }
+interface TeamHead { code: string; num?: string; total: number; working: number; sick: number; annual: number; training: number; mpOt?: number }
 
 function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
   const teams: TeamHead[] = [];
   for (const r of mv) {
-    const m = String(r[0] || "").match(/Team\s*\((.+?)\)/);
-    if (m) teams.push({ code: m[1].trim(), total: n(r[1]), working: n(r[9]), sick: n(r[3]), annual: n(r[5]), training: n(r[8]), mpOt: n(r[10]) });
+    // ผังใหม่ "Team (EY)" · เทมเพลตเก่า (ม.ค.–ส.ค.) "Team 6 (QR)" / "Team 1 (WY/EK)"
+    const m = String(r[0] || "").match(/Team\s*0?(\d*)\s*\((.+?)\)/i);
+    if (m) teams.push({ code: m[2].trim(), num: m[1] || "", total: n(r[1]), working: n(r[9]), sick: n(r[3]), annual: n(r[5]), training: n(r[8]), mpOt: n(r[10]) });
   }
   if (!teams.length) for (const ws of workbook.getWorksheets()) {
-    if (findByS(ws.getRange("A1:AQ60").getValues(), "FLIGHT") >= 0)
+    const g = ws.getRange("A1:AQ60").getValues();
+    const hdrOld = g.slice(0, 12).some(r => { const u = r.map(x => String(x == null ? "" : x).trim().toUpperCase()); return u.indexOf("ID") >= 0 && u.indexOf("NAME") >= 0; })
+      && g.slice(0, 12).some(r => r.some(x => String(x == null ? "" : x).trim().toUpperCase() === "FLIGHT"));
+    if (findByS(g, "FLIGHT") >= 0 || hdrOld)
       teams.push({ code: ws.getName(), total: 0, working: 0, sick: 0, annual: 0, training: 0 });
   }
   return teams;
@@ -313,6 +319,9 @@ function rrReadOtGroup(row: string[], otc: number, totc: number): { hours: numbe
     h = rrOtHours(totc < row.length ? row[totc] : "");
     if (!(h > 0) && rng[0] != null && rng[1] != null) { const a = rng[0]; let b = rng[1]; if (b <= a) b += 1440; h = Math.round((b - a) / 60 * 10) / 10; }
   } else h = rrOtHours(otc < row.length ? row[otc] : "");
+  // ชม.รวมที่เป็นเศษวัน (=OUT-IN · 0.0417) หรือทศนิยมเพี้ยน (0.9999) → เทียบกับช่วงเวลาเข้า-ออก แล้วปัด 1 ตำแหน่ง
+  if (h > 0 && rng[0] != null && rng[1] != null) { const a = rng[0]; let b = rng[1]; if (b <= a) b += 1440; const dur = (b - a) / 60; if (Math.abs(h * 24 - dur) < Math.abs(h - dur)) h = h * 24; }
+  h = Math.round(h * 10) / 10;
   if (!(h > 0) && rng[0] == null) return null;
   return { hours: h > 0 ? h : 0, range: rng };
 }
@@ -344,7 +353,7 @@ function rrCellTimeVal(v: string): string {
 }
 function rrFindHeader(rows: string[][]): RCm | null {
   for (let r = 0; r < Math.min(8, rows.length); r++) {
-    const u = rows[r].map(rrUp);
+    const u = rows[r].map(x => rrUp(x));
     if (u.indexOf("NAME") < 0) continue;
     let idIdx = u.indexOf("ID"); if (idIdx < 0) idIdx = u.indexOf("NO"); if (idIdx < 0) idIdx = u.indexOf("NO."); if (idIdx < 0) continue;
     const st = u.indexOf("STATUS"), rk = u.indexOf("REMARK");
@@ -432,7 +441,7 @@ function rrParseStandard(rows: string[][], team: string, noTime: string[]): { re
   for (let hr = hi + 4; hr < rows.length; hr++) { const hrow = rows[hr]; if (!hrow) continue; if (rrUp(hrow[cm.id]) === "ID" && rrUp(hrow[cm.name]) === "NAME") { hi2 = hr; break; } }
   let fltcols2: RCol[] = [], flights2: { [n: string]: RFlt } = {}, cm2flt = -1, sect2Differs = false;
   if (hi2 >= 0) {
-    const u2 = rows[hi2].map(rrUp); cm2flt = u2.indexOf("FLIGHT") >= 0 ? u2.indexOf("FLIGHT") + 1 : cm.flt;
+    const u2 = rows[hi2].map(x => rrUp(x)); cm2flt = u2.indexOf("FLIGHT") >= 0 ? u2.indexOf("FLIGHT") + 1 : cm.flt;
     const b2 = rrBuildFltcols(rows, hi2, cm2flt); fltcols2 = b2.fltcols; flights2 = b2.flights;
     sect2Differs = fltcols2.some(f => !fltcols.some(g => g.name === f.name));
   }
@@ -594,7 +603,7 @@ function rrParseAdminDoc(rows: string[][], team: string): RRec[] {
 }
 function rrParseCrewsign(rows: string[][], team: string): RRec[] {
   const recs: RRec[] = []; let hi = -1;
-  for (let r = 0; r < Math.min(20, rows.length); r++) { const u = rows[r].map(rrUp); if (u.indexOf("STAFF NAME") >= 0 || (u.indexOf("SHIFT") >= 0 && u.indexOf("REMARK") >= 0)) { hi = r; break; } }
+  for (let r = 0; r < Math.min(20, rows.length); r++) { const u = rows[r].map(x => rrUp(x)); if (u.indexOf("STAFF NAME") >= 0 || (u.indexOf("SHIFT") >= 0 && u.indexOf("REMARK") >= 0)) { hi = r; break; } }
   if (hi < 0) return recs;
   const seen: { [k: string]: boolean } = {};
   for (let rr = hi + 1; rr < rows.length; rr++) { const row = rows[rr];
@@ -626,13 +635,13 @@ function rrParseSU(rows: string[][], team: string): RRec[] {
       if (rrUp(row1[1]).indexOf("ARRIVAL") === 0 || rrUp(row1[1]) === "FLT") break; if (!slot) continue;
       if (f) curflt = f.replace(/\n/g, " ");
       for (let c = 3; c < row1.length; c++) for (const p of split(row1[c])) { const nm = get(p); if (nm) staff[nm].counter.push({ flts: curflt, time: slot }); } } }
-  if (ga >= 0) { const groles = rows[ga].slice(3).map(rrClean);
+  if (ga >= 0) { const groles = rows[ga].slice(3).map(x => rrClean(x));
     for (let r2 = ga + 1; r2 < rows.length; r2++) { const row2 = rows[r2], flt2 = rrClean(row2[1]); if (!/SU\d/i.test(flt2)) continue;
       const sta = rrClean(row2[2]); const i2 = info[flt2] = info[flt2] || { STA: "", STD: "", OP: "", CL: "" };
       i2.STA = sta.split("/")[0] || ""; i2.STD = sta.indexOf("/") >= 0 ? sta.split("/")[1] : "";
       for (let c2 = 3; c2 < row2.length; c2++) { const role2 = groles[c2 - 3] || "GATE";
         for (const p of split(row2[c2])) { if (rrUp(p) === "SPVR") continue; const nm = get(p); if (nm) staff[nm].flights.push({ flight: flt2, task: role2, STA: i2.STA, STD: i2.STD, OP: "", CL: "" }); } } } }
-  if (jb >= 0) { const jroles = rows[jb].slice(5).map(rrClean);
+  if (jb >= 0) { const jroles = rows[jb].slice(5).map(x => rrClean(x));
     for (let r3 = jb + 1; r3 < rows.length; r3++) { const row3 = rows[r3], flt3 = rrClean(row3[1]); if (!/SU\d/i.test(flt3)) continue;
       const opcls = rrClean(row3[4]); const i3 = info[flt3] = info[flt3] || { STA: "", STD: "", OP: "", CL: "" };
       if (opcls.indexOf("/") >= 0) { i3.OP = opcls.split("/")[0]; i3.CL = opcls.split("/")[1]; }
@@ -732,6 +741,17 @@ function bucketOfRec(r: RRec): string {
   if (r.bucket === "vac") return bucketOf(r.remark, r.remark2, 0) === "LEAVE" ? "LEAVE" : "VACATION";   // ลากิจ/คลอด แยกจากพักร้อน (สรุปสัปดาห์)
   return "OFF";
 }
+// ชื่อแท็บ → รหัสทีมตาม MANPOWER · เทมเพลตเก่า: แท็บ "TEAM 6 QR" / "REV01. AK" ↔ MANPOWER "Team 6 (QR)" (จับคู่ด้วยเลขทีม หรือรหัสสาย)
+function tabTeam(tab: string, teams: TeamHead[]): string {
+  const U = tab.trim().toUpperCase();
+  if (teams.some(t => t.code.toUpperCase() === U)) return tab.trim();
+  const num = (U.match(/TEAM\s*0?(\d+)/) || [])[1] || "";
+  const clean = U.replace(/TEAM\s*\d*|REV\.?\s*\d*\.?/g, " ").replace(/\s+/g, " ").trim();
+  const toks = clean.split(/[^A-Z0-9]+/).filter(x => x.length >= 2);
+  const codes = (t: TeamHead) => t.code.toUpperCase().split(/[\s\/,+&-]+/).filter(x => x);
+  const hit = (num ? teams.find(t => t.num === num) : undefined) || teams.find(t => t.code.toUpperCase() === clean) || teams.find(t => toks.some(k => codes(t).indexOf(k) >= 0));
+  return hit ? hit.code : (clean || tab.trim());
+}
 function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string, isHol: boolean, midx?: MIdx) {
   const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [], otPerson: OtRow[] = [];
   const month = day.slice(0, 7), week = mondayOf(day);
@@ -744,6 +764,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   const everyone: { team: string; name: string; emp: string }[] = [];          // ทุกคนในไฟล์ (รวมคนหยุด) — ใช้จับชื่อในคำขอซัพ
   const sts = sheetTexts(workbook);
   const rd = readRoster(sts);
+  for (const tb of rd.tabs) tb.name = tabTeam(tb.name, teams);   // เทมเพลตเก่า: ชื่อแท็บ → รหัสทีม MANPOWER (ก่อนตัดซ้ำ/หาทีมซัพ)
   // ขั้นหลังอ่าน (เหมือน rbLoadResLLraw_): เคาน์เตอร์ → ตัดคนซ้ำข้ามทีม → หาทีมให้แถวซัพ → MODE
   const counters = counterRead(workbook, sts, day);
   applyCounterTimes(rd.tabs, counters);
@@ -771,6 +792,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
     const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0, off: 0, otOff: 0, staff: 0, preP: 0, preH: 0, postP: 0, postH: 0 };
     const nameSeen: { [n: string]: boolean } = {}, seen: { [k: string]: number } = {};
     for (const r of tb.recs) {
+      // กันแถวที่ไม่ใช่พนักงาน: ชื่อเสีย (#REF!) / "-" / เวลา "08:35" (ตารางเวลาไฟลท์) / รหัส 1–3 หลัก
+      if (!/^[A-Za-z\u0E01-\u0E5B(]/.test(String(r.name || "").trim()) || /^\d{1,3}$/.test(String(r.id || "").trim())) continue;
       const emp = r.id || ("N" + r.name.replace(/[^A-Za-z0-9ก-๙]/g, "").slice(0, 16)), name = r.name, isSup = r.support;
       if (!isSup) everyone.push({ team, name, emp });
       const bucket = bucketOfRec(r), ot = isSup ? 0 : r.ot;
@@ -1091,7 +1114,7 @@ function computeSla(day: string, people: SlaPerson[], teamNames: string[], sched
   // เศษขา: ไฟลท์ไม่มีเวลาที่เลขไฟลท์ทุกตัวไปซ้ำกับไฟลท์ที่มีเวลา → ซ่อนได้
   const timed: { [n: number]: boolean } = {};
   for (const r of rows) if (!r.no_time) for (const n of (r.flight.match(/\d+/g) || [])) timed[+n] = true;
-  for (const r of rows) if (r.no_time) { const nums = (r.flight.match(/\d+/g) || []).map(Number); r.fragment = nums.length > 0 && nums.every(n => timed[n]); }
+  for (const r of rows) if (r.no_time) { const nums = (r.flight.match(/\d+/g) || []).map(x => Number(x)); r.fragment = nums.length > 0 && nums.every(n => timed[n]); }
   const byKey: { [k: string]: SlaRow } = {};
   for (const r of rows) byKey[r.flight_key] = r;
   const cmp = (x: string, y: string) => x < y ? -1 : x > y ? 1 : 0;
@@ -1654,7 +1677,7 @@ function supRow(day: string, f: SlaFlight, ph: string, n: number, pool: PoolP[],
   return { Title: day + "|" + f.key + "|" + ph, day_key: day, month_key: day.slice(0, 7), flight: f.flight, airline: f.airline, system: sysOf(f.airline),
     team: f.teamList, std: f.STD || f.STA || "", phase: LB[ph], short_n: n, win: rwin ? fmtMin(rwin[0]) + "-" + fmtMin(rwin[1]) : "",
     win_fb: fbw.fb, no_flight_time: fbw.noTime, need_sys: needSys(f.airline, ph), block: elig.ok ? "" : elig.reason, n_cand: cands.length,
-    picks: picks.join("\n"), cands_json: JSON.stringify(cands.map(candView)), others_json: JSON.stringify(others.map(candView)), source: "SLA" };
+    picks: picks.join("\n"), cands_json: JSON.stringify(cands.map(x => candView(x))), others_json: JSON.stringify(others.map(x => candView(x))), source: "SLA" };
 }
 function supportRows(day: string, flights: SlaFlight[], recs: AcRec[], pg: { [e: string]: string }): SupportRow[] {
   const pool = supportPool(recs, pg), out: SupportRow[] = [];
@@ -1720,7 +1743,7 @@ function apFillGaps(flights: SlaFlight[], pool: PoolP[]): ApRow[] {
       out.push({ Title: "", day_key: "", month_key: "", kind: "FILL", flight: f.flight, airline: f.airline, system: sysOf(f.airline), team: f.teamList,
         sta: f.STA, std: f.STD || f.STA || "", seq: 0, phase: AP_LB[ph], need_n: need, base_n: need, remain: need - picked.length,
         win: win ? fmtMin(win[0]) + "-" + fmtMin(win[1]) : "", need_sys: needSys(f.airline, ph), block: sup.ok ? "" : sup.reason,
-        people_json: JSON.stringify(picked.map(apView)) });
+        people_json: JSON.stringify(picked.map(x => apView(x))) });
     }
   }
   return out;
@@ -1744,7 +1767,7 @@ function apReplan(flights: SlaFlight[], pool: PoolP[], owner: { [al: string]: st
         if (p) asg[ph].push(p); else { sx[ph] = pr[ph] - k; break; }
       }
     }
-    const js = (a: PoolP[]) => JSON.stringify(a.map(apView));
+    const js = (a: PoolP[]) => JSON.stringify(a.map(x => apView(x)));
     out.push({ Title: "", day_key: "", month_key: "", kind: "AUTO", flight: f.flight, airline: f.airline, system: sysOf(f.airline), team: home,
       sta: f.STA, std: f.STD, seq: 0, req_sup: pr.SUP, req_ci: pr.CI, req_gate: pr.GATE, req_arr: pr.ARR,
       short_sup: sx.SUP || 0, short_ci: sx.CI || 0, short_gate: sx.GATE || 0, short_arr: sx.ARR || 0,
@@ -1949,7 +1972,7 @@ function advPlanDay(day: string, front: AdvFront[], emp: { [id: string]: AdvEmp 
     let req = 0, have = 0;
     for (const role of ADV_ROLES) {
       const k = role.k.toLowerCase(), need = f.roles[role.k] || 0;
-      row["req_" + k] = need; row["short_" + k] = x.sx[role.k] || 0; row["a_" + k] = JSON.stringify(x.asg[role.k].map(view));
+      row["req_" + k] = need; row["short_" + k] = x.sx[role.k] || 0; row["a_" + k] = JSON.stringify(x.asg[role.k].map(x => view(x)));
       req += need; have += x.asg[role.k].length;
       if (x.sx[role.k]) ot[role.k] = advOtCands(pool, x.win[role.k] || null, x.sx[role.k]);
     }
@@ -2059,11 +2082,11 @@ function parseWinTxt(s: string): number[] | null {
 function reqFlight(raw: string, known: string[]): string {
   let f = String(raw || "").trim();
   if (!isFlightName(f)) { const m = f.toUpperCase().match(/(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s?\d{2,4}(?:\s?\/\s?(?:[A-Z][A-Z0-9])?\d{2,4})?/); if (!m || !isFlightName(m[0])) return ""; f = m[0]; }
-  const al = airlineOf(f), nums = (f.match(/\d{2,4}/g) || []).map(Number).filter(x => x >= 10);
+  const al = airlineOf(f), nums = (f.match(/\d{2,4}/g) || []).map(x => Number(x)).filter(x => x >= 10);
   if (known.some(k => k === f)) return f;
   for (const k of known) {
     if (airlineOf(k) !== al) continue;
-    const kn = (k.match(/\d{2,4}/g) || []).map(Number);
+    const kn = (k.match(/\d{2,4}/g) || []).map(x => Number(x));
     const full = kn.map((x, i) => i > 0 && x < 100 && kn[0] >= 100 ? Math.floor(kn[0] / 100) * 100 + x : x);   // "G9714/715" → 714, 715
     if (nums.length && nums.some(x => full.indexOf(x) >= 0 || kn.indexOf(x) >= 0)) return k;
   }
@@ -2221,6 +2244,7 @@ function clampIv(iv: number[][], lo: number, hi: number): number[][] {
 //   n = จำนวนเลน · st = สถานะ (OFF / SL (ป่วย) / ลา) แทนแถบ   — นาทีอยู่ในช่วง 0–1440 (ตัดข้ามเที่ยงคืนแล้ว)
 interface GRow { row: DutyRow; raw: string; rec: AcRec | null; id: string; ot: number; shiftTime: string; pos: string; remark: string }
 type GSeg = (number | string)[];
+interface GF { lo: number; hi: number; ph: string; sup: boolean; lab: string; tip: string; lane?: number }
 function gFltPhase(task: string): string {
   const phs = phasesOf(task || "");
   if (phs.length) {
@@ -2276,7 +2300,6 @@ function ganttOne(g: GRow, owner: { [al: string]: string }): { b?: GSeg[]; f?: G
     const otRange = fmtMin(((sg[0] % 1440) + 1440) % 1440) + "-" + fmtMin(((sg[1] % 1440) + 1440) % 1440);
     seg(sg[0], sg[1], "o", "OT" + otH + " " + otRange);
   }
-  interface GF { lo: number; hi: number; ph: string; sup: boolean; lab: string; tip: string; lane?: number }
   let flts: GF[] = [];
   const PHL: { [p: string]: string } = { ci: "เช็คอิน", gate: "เกท", arr: "ขาเข้า", sod: "หัวหน้า/คุมงาน", lp: "โซน LP", stby: "STBY (รอจัดไฟลท์)", doc: "เอกสาร (กำหนดส่ง)", na: "งาน" };
   const clk = (m: number) => fmtMin(((m % 1440) + 1440) % 1440);
