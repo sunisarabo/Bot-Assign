@@ -61,7 +61,7 @@ Header (โลโก้ + `dpDay` + `ddTeam` + ปุ่มรีเฟรช) �
 | ทำงานจริง | `Sum(colMp, working)` |
 | ลาป่วย / พักร้อน | `Sum(colMp, sick) & " / " & Sum(colMp, annual)` |
 | OT รวม (ชม.) | `Text(Sum(colMp, ot_hours), "#,##0.0")` |
-| Util เฉลี่ย | `Text(Average(Filter(colDuty, duty_min > 0), util_pct), "0") & "%"` |
+| Util เฉลี่ย | `With({d: Filter(colDuty, duty_min > 0)}, If(IsEmpty(d), "–", Text(Average(d, util_pct), "0") & "%"))` |
 | พีคอยู่เวร / ติดงาน | `Max(colHour, onDuty) & " / " & Max(colHour, onJob)` |
 
 **ตารางรายทีม** — Gallery `Items = Sort(colMp, team)` · label: `team`, `total`, `working`, `sick`, `annual`, `training`, `ot_hours`, `util_pct & "%"`
@@ -93,26 +93,51 @@ Gallery `Items = Sort(Filter(colDuty, duty_min > 0 && (ddTeam.Selected.Value = "
 
 > util_pct = เวลาติดงาน (รวมช่วงซ้อนแล้ว · ตัดตามกะ) ÷ เวลาเวร — คำนวณใน `import-roster.ts` ตอนนำเข้า แอปจึงเร็ว
 
-## 7) หน้า Gantt (`gantt`)
-Gallery `galG` (TemplateHeight 28) · `Items` เหมือนหน้า Util แต่เรียง `shift_start_min`
-- Label ซ้าย (กว้าง 180): `ThisItem.emp_name`
-- **Image** (X = 185, Width = `Parent.TemplateWidth - 190`, Height 24) · `Image =`
+## 7) หน้า Gantt (`gantt`) — แถบมีชื่อไฟลท์/งาน
+Gallery `galG` (**TemplateSize 40**) · `Items` เหมือนหน้า Util แต่เรียง `shift_start_min`
+- Label ซ้าย (กว้าง 230): `ThisItem.emp_name & " · " & ThisItem.team`
+- **Image** `imgG` (X = 235, Width = `Parent.TemplateWidth - 240`, Height 36) · `Image =`
 ```powerapps
-With({W: 1000, span: Max(1, varHi - varLo)},
-  "data:image/svg+xml;utf8," & EncodeUrl(
-    "<svg xmlns='http://www.w3.org/2000/svg' width='" & W & "' height='24' preserveAspectRatio='none' viewBox='0 0 " & W & " 24'>" &
-    "<rect x='" & (ThisItem.shift_start_min - varLo) / span * W & "' y='4' width='" & ThisItem.duty_min / span * W &
-      "' height='16' rx='3' fill='#DCE4F2'/>" &
-    Concat(Filter(colAsg, emp_code = ThisItem.emp_code && team = ThisItem.team && win_hi > win_lo) As j,
-      "<rect x='" & (j.win_lo + If(j.win_lo < ThisItem.shift_start_min - 120, 1440, 0) - varLo) / span * W &
-      "' y='6' width='" & (j.win_hi - j.win_lo) / span * W &
-      "' height='12' rx='2' fill='" & If(j.is_flight, "#1D428A", "#E8A33D") & "'><title>" & j.Title & "</title></rect>") &
-    "</svg>"))
+// วาด 1:1 กับขนาดจริงของ Image (W = Self.Width) → ตัวหนังสือไม่ยืด/บี้
+With({W: Self.Width, H: Self.Height, lo: varLo, span: Max(60, varHi - varLo)},
+With({px: W / span, s0: ThisItem.shift_start_min},
+"data:image/svg+xml;utf8," & EncodeUrl(
+"<svg xmlns='http://www.w3.org/2000/svg' width='" & W & "' height='" & H & "' viewBox='0 0 " & W & " " & H &
+"' font-family='Segoe UI, Leelawadee UI, Tahoma, sans-serif' font-size='11' font-weight='600'>" &
+// แถบกะ (ฟ้าอ่อน)
+"<rect x='" & (s0 - lo) * px & "' y='3' width='" & ThisItem.duty_min * px & "' height='" & (H - 6) & "' rx='5' fill='#DCE4F2'/>" &
+// (ถ้ามีแถบ OT สีครีมอยู่แล้ว ให้คงบรรทัดนั้นไว้ตรงนี้)
+// งานแต่ละชิ้น: น้ำเงิน = ไฟลท์ · เขียว = ไปซัพทีมอื่น · ส้ม = งานอื่น (BRIEF/GOM/…) + ป้ายชื่อในแถบ
+Concat(SortByColumns(Filter(colAsg, emp_code = ThisItem.emp_code && team = ThisItem.team && win_hi > win_lo), "win_lo") As j,
+  With({x: (j.win_lo + If(j.win_lo < s0 - 120, 1440, 0) - lo) * px, w: (j.win_hi - j.win_lo) * px,
+        sup: StartsWith(j.task, "ซัพ"),
+        lb: j.Title & If(IsBlank(j.task) || j.task = j.Title, "", " · " & j.task)},
+    "<rect x='" & x & "' y='7' width='" & Max(2, w - 1) & "' height='" & (H - 14) & "' rx='3' fill='" &
+        If(sup, "#2E7D32", j.is_flight, "#1D428A", "#E8A33D") & "'/>" &
+    If(w >= 30,
+        "<text x='" & (x + 4) & "' y='" & (H / 2 + 4) & "' fill='" & If(sup || j.is_flight, "#FFFFFF", "#3B2A00") & "'>" &
+        Substitute(Substitute(Substitute(Left(lb, RoundDown((w - 6) / 6.5, 0)), "&", "&amp;"), "<", "&lt;"), "'", "&apos;") &
+        "</text>", ""))) &
+"</svg>")))
 ```
+ป้ายในแถบ = **รหัสไฟลท์ · งาน** (เช่น `SQ726/725 · CHECK IN`, `ซัพ ARR →SQ`) — แถบสั้นตัดท้ายให้พอดี · แถบแคบกว่า ~30px ไม่ใส่ป้าย (ดูรายละเอียดเต็มจากการกดแถว)
+
+**กดชื่อ/แถว → ดูงานทั้งหมดของคนนั้น** — `galG.OnSelect = Set(varGSel, ThisItem)`
+แผงรายละเอียด (Container ขวา กว้าง 300 · `Visible = !IsBlank(varGSel)`) · Label หัว `varGSel.emp_name & " · " & varGSel.team & " · กะ " & varGSel.shift_code` · Label รายการ (Auto height):
+```powerapps
+Concat(SortByColumns(Filter(colAsg, emp_code = varGSel.emp_code && team = varGSel.team), "win_lo") As j,
+    If(j.win_hi > j.win_lo,
+        Text(Mod(RoundDown(j.win_lo / 60, 0), 24), "00") & ":" & Text(Mod(j.win_lo, 60), "00") & "–" &
+        Text(Mod(RoundDown(j.win_hi / 60, 0), 24), "00") & ":" & Text(Mod(j.win_hi, 60), "00"), "ไม่มีเวลา") &
+    "   " & j.Title & If(IsBlank(j.task), "", "  " & j.task) &
+    If(IsBlank(j.sta) && IsBlank(j.std), "", "  (STA " & Coalesce(j.sta, "–") & " / STD " & Coalesce(j.std, "–") & ")"),
+  Char(10))
+```
+ปุ่ม ✕ ปิด: `Set(varGSel, Blank())`
+
 - แกนเวลา (ด้านบน gallery): Label `Text = Concat(Sequence((varHi - varLo) / 60 + 1, varLo / 60), Text(Mod(Value, 24), "00") & ":00", "      ")`
   (หรือวาง gallery แนวนอน `Items = Sequence((varHi - varLo)/60 + 1, varLo/60)`)
-
-แถบฟ้าอ่อน = กะ · น้ำเงิน = ไฟลท์ · ส้ม = งานอื่น (BRIEF/GOM)
+- คำอธิบายสี: `"ฟ้า = กะ · ครีม = OT · น้ำเงิน = ไฟลท์ · เขียว = ไปซัพทีมอื่น · ส้ม = งานอื่น"`
 
 ## 8) หน้า Porter / Pre-WC (`porter`) — แทน 🧳 Porter ของ PAS เดิม
 ข้อมูลจาก Flow E (`FLOW-porter.md`) · ต่อข้อมูลเพิ่ม `PAS_PorterStaff`
