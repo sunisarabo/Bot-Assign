@@ -48,7 +48,8 @@ interface Batch { list: string; boundary: string; body: string; n: number }
 interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number; requests?: number; support_out?: number; auto?: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
-function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string): Result {
+function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string, supRules?: string, teamRules?: string): Result {
+  applySupportRules(supRules, teamRules);                                   // กฎหาคนซัพ (PAS_SupportRules / PAS_TeamRules) — ว่าง = ค่าตั้งต้นเดิม
   const path = filePath || "";
   const warnings: string[] = [];
   const empty = (reason: string, iso: string, src: string): Result =>
@@ -1486,12 +1487,46 @@ interface SupportRow { Title: string; day_key: string; month_key: string; flight
   source?: string; req_team?: string; req_duty?: string; req_time?: string; assigned?: string; from_team?: string; req_status?: string; req_remark?: string; req_sheet?: string;
   label?: string; open_n?: number; win_user?: boolean; no_roster?: boolean }
 function sysNorm(s: string): string { return String(s || "").toLowerCase().replace(/[\s.]+/g, ""); }
-function sysOf(airline: string): string { return SLA_T.SYS[airline.toUpperCase()] || ""; }
+// กฎหาคนซัพพอร์ตที่แก้ได้ใน SharePoint (PAS_SupportRules รายสาย · PAS_TeamRules รายทีม) — ไม่ส่งมา = ใช้ค่าตั้งต้นเดิมของ SLA.gs
+let SUP_OV: { [a: string]: string[] } | null = null, SYS_OV: { [a: string]: string } | null = null, CIT_OV: string[] | null = null;
+let TEAM_OV: { [t: string]: { role: string; sys: string[] } } = {};
+function applySupportRules(supJson?: string, teamJson?: string) {
+  SUP_OV = null; SYS_OV = null; CIT_OV = null; TEAM_OV = {};
+  if (supJson) {
+    let arr: { Title?: string; support?: string | { Value?: string }; phases?: string; system?: string; ci_in_team?: boolean }[] = [];
+    try { arr = JSON.parse(supJson); } catch (e) { arr = []; }
+    if (arr.length) {
+      SUP_OV = {}; SYS_OV = {}; CIT_OV = [];
+      for (const r of arr) {
+        const a = String(r.Title || "").trim().toUpperCase(); if (!a) continue;
+        const sv = typeof r.support === "object" && r.support ? String(r.support.Value || "") : String(r.support || "");
+        const ph = String(r.phases || "").toUpperCase().split(/[^A-Z]+/).filter(x => ["SUP", "CI", "GATE", "ARR"].indexOf(x) >= 0);
+        if (/ไม่รับ|^NO/i.test(sv)) SUP_OV[a] = [];
+        else if (/รับ|^YES/i.test(sv)) SUP_OV[a] = ph.length ? ph : ["SUP", "CI", "GATE", "ARR"];
+        if (String(r.system || "").trim()) SYS_OV[a] = String(r.system).trim();
+        if (r.ci_in_team) CIT_OV.push(a);
+      }
+    }
+  }
+  if (teamJson) {
+    let arr: { Title?: string; role?: string | { Value?: string }; systems?: string }[] = [];
+    try { arr = JSON.parse(teamJson); } catch (e) { arr = []; }
+    for (const r of arr) {
+      const t = String(r.Title || "").trim().toUpperCase(); if (!t) continue;
+      const rv = typeof r.role === "object" && r.role ? String(r.role.Value || "") : String(r.role || "");
+      TEAM_OV[t] = { role: /ไม่ดึง/.test(rv) ? "skip" : /พูล/.test(rv) ? "pool" : "normal", sys: String(r.systems || "").split(/[,\/;]+/).map(x => sysNorm(x)).filter(x => !!x) };
+    }
+  }
+}
+function sysOf(airline: string): string { const a = airline.toUpperCase(); if (SYS_OV && SYS_OV[a] != null) return SYS_OV[a]; return SYS_OV ? "" : (SLA_T.SYS[a] || ""); }
+function supOkOf(a: string): string[] | undefined { return SUP_OV ? SUP_OV[a] : SLA_T.SUPOK[a]; }
+function ciInTeam(airline: string): boolean { return (CIT_OV || SLA_T.CIINTEAM).indexOf(airline.toUpperCase()) >= 0; }
+function teamRule(team: string): { role: string; sys: string[] } | null { return TEAM_OV[team.trim().toUpperCase()] || null; }
 function needSys(airline: string, ph: string): string { if (ph !== "CI" && ph !== "SUP") return ""; const s = sysOf(airline); return s && sysNorm(s) !== "iport" ? s : ""; }
 function isFloatTeam(team: string): boolean { return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY|CHARTER|\bZF\b/.test(team.toUpperCase()); }
 function canSupport(airline: string, ph: string): { ok: boolean; reason: string } {
   const a = airline.toUpperCase(), al = SLA_T.ALIAS[a];
-  const c = SLA_T.SUPOK[a] || (al ? SLA_T.SUPOK[al] : undefined);
+  const c = supOkOf(a) || (al ? supOkOf(al) : undefined);
   if (!c) return { ok: true, reason: "" };
   if (!c.length) return { ok: false, reason: "ไม่รับซัพพอร์ต (ใช้คนทีมตัวเอง)" };
   if (c.indexOf(ph) < 0) return { ok: false, reason: "รับซัพพอร์ตเฉพาะ " + c.filter(x => x !== "SUP").join("/") };
@@ -1559,9 +1594,11 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
     const s = sysOf(airlineOf(a.flight)); if (s) (sys[r.team] = sys[r.team] || {})[sysNorm(s)] = true;
   }
   for (const r of recs) if (/CHARTER|\bZF\b/i.test(r.team)) (sys[r.team] = sys[r.team] || {}).astra = true;
+  for (const r of recs) { const tr = teamRule(r.team); if (tr) for (const x of tr.sys) (sys[r.team] = sys[r.team] || {})[x] = true; }   // ระบบที่ทีมรู้เพิ่ม (PAS_TeamRules)
   const pool: PoolP[] = [];
   for (const r of recs) {
-    if (skipTeam(r.team) || r.training) continue;                             // อบรม — ไม่ดึงมาช่วยไฟลท์
+    const tr = teamRule(r.team);
+    if ((tr ? tr.role === "skip" : skipTeam(r.team)) || r.training) continue;   // ทีมที่ไม่ดึงมาซัพ · อบรม — ไม่ดึงมาช่วยไฟลท์
     const d = acDuty(r);
     if (d.ds == null || d.de == null) continue;
     const busy: number[][] = []; for (const a of r.asg) { const w = acFlightWin(a); if (w) busy.push(w); }
@@ -1571,7 +1608,7 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
     });
     const otoff = r.bucket === "OT_OFF", hs = hoursStat(r);
     const st = r.ss != null && r.se != null ? fmtMin(r.ss) + "-" + fmtMin(r.se) : "";
-    pool.push({ name: r.name, emp: r.emp || "", team: r.team, posGroup: r.posGroup || pg[r.emp || ""] || "", off: false, otoff, rest: otoff, float: isFloatTeam(r.team),
+    pool.push({ name: r.name, emp: r.emp || "", team: r.team, posGroup: r.posGroup || pg[r.emp || ""] || "", off: false, otoff, rest: otoff, float: tr ? tr.role === "pool" : isFloatTeam(r.team),
       ds: d.ds, de: d.de, busy, hold: [], sys: sys[r.team] || {}, nflt: flts.length,
       shiftDisp: otoff ? "OFF (มา OT)" : (st && st !== r.shiftCode ? (r.shiftCode ? r.shiftCode + " " + st : st) : (r.shiftCode || st || "-")),
       otDisp: r.ot > 0 ? r.ot + "h " + (otoff ? "OFF" : (r.otType === "PRE" ? "ก่อนกะ" : "หลังกะ")) + (r.otTime ? " " + r.otTime : "") : "-",
@@ -1580,7 +1617,7 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
   return pool;
 }
 function candidates(f: SlaFlight, ph: string, pool: PoolP[], max: number, win: number[]): PoolP[] {
-  if (ph === "CI" && SLA_T.CIINTEAM.indexOf(f.airline.toUpperCase()) >= 0) return [];
+  if (ph === "CI" && ciInTeam(f.airline)) return [];
   const nn = needSys(f.airline, ph) ? sysNorm(needSys(f.airline, ph)) : "";
   const c = pool.filter(p => !f.teams[p.team] && !(nn && !p.sys[nn]) && !(ph === "SUP" && p.posGroup !== "PSS" && p.posGroup !== "SNR") && freeIn(p, win));
   const ovh = (x: PoolP) => x.hlevel === "over" || x.hlevel === "high" ? 1 : 0, rst = (x: PoolP) => x.rest ? 1 : 0;
@@ -1593,7 +1630,7 @@ function candidates(f: SlaFlight, ph: string, pool: PoolP[], max: number, win: n
   return max ? c.slice(0, max) : c;
 }
 function otherCands(f: SlaFlight, ph: string, pool: PoolP[], max: number, exclude: string[], win: number[]): PoolP[] {
-  if (ph === "CI" && SLA_T.CIINTEAM.indexOf(f.airline.toUpperCase()) >= 0) return [];
+  if (ph === "CI" && ciInTeam(f.airline)) return [];
   const ex: { [n: string]: boolean } = {}; for (const n of exclude) ex[n] = true;
   const c = pool.filter(p => !ex[p.name] && !f.teams[p.team] && freeIn(p, win));
   const PRI: { [k: string]: number } = { PSA: 0, SNR: 1, PSS: 2 }, pri = (x: PoolP) => PRI[x.posGroup] == null ? 3 : PRI[x.posGroup];

@@ -59,4 +59,20 @@ const of = ctx.slaCollectFlights_(res, null).map(f => [f.flight, f.req.CI, f.req
 const nf = rows("PAS_FlightSLA").map(f => [f.flight, f.req_ci, f.req_total, f.as_ci, f.ok]);
 cmp("SLA ตัดเช็คอินตามเคาน์เตอร์ที่ท่าให้", of, nf);
 cmp("จำนวนเคาน์เตอร์ต่อไฟลท์", [2, 1, null], rows("PAS_FlightSLA").map(f => f.ctr == null ? null : f.ctr));
+// กฎหาคนซัพที่แก้ได้ (PAS_SupportRules / PAS_TeamRules): ค่าตั้งต้นใน List = ผลเดิม · แก้แล้วผลเปลี่ยนตาม
+{
+  const D = require("../lists.def.json"), seed = t => D.lists.find(l => l.title === t).seed;
+  const run = (sr, tr) => M.main(X.book(tabs), "Shared Documents/2026/10.OCT26/10OCT.xlsx", "", "", "", "", "", "", "", JSON.stringify(EMPS), sr && JSON.stringify(sr), tr && JSON.stringify(tr));
+  const sup = r2 => r2.batches.filter(b => b.list === "PAS_Support").flatMap(b => [...b.body.matchAll(/^\{.*\}$/gm)].map(m => JSON.parse(m[0])));
+  const view = r2 => sup(r2).map(x => [x.source, x.flight, x.phase, x.block, JSON.parse(x.cands_json).map(c => c[0] + "/" + c[2]).join(",")]);
+  const base = view(r), withSeed = view(run(seed("PAS_SupportRules"), seed("PAS_TeamRules")));
+  cmp("ค่าตั้งต้นใน PAS_SupportRules / PAS_TeamRules ให้ผลเหมือนเดิม", base, withSeed);
+  const anyFrom = (v, t) => v.some(x => x[4].split(",").some(c => c.endsWith("/" + t)));
+  const tr = seed("PAS_TeamRules").map(x => Object.assign({}, x)).concat([{ Title: "CHARTER", role: "ไม่ดึงมาซัพ", systems: "" }]);
+  const noCh = view(run(null, tr));
+  cmp("ทีม CHARTER ตั้ง 'ไม่ดึงมาซัพ' → ไม่มีผู้สมัครจาก CHARTER (ก่อนแก้มี)", [anyFrom(base, "CHARTER"), anyFrom(noCh, "CHARTER")], [true, false]);
+  const sr = seed("PAS_SupportRules").map(x => x.Title === "SQ" ? Object.assign({}, x, { support: "ไม่รับ" }) : x);
+  const noSq = view(run(sr, null)).filter(x => x[0] === "SLA" && /^SQ/.test(x[1]));
+  cmp("สาย SQ ตั้ง 'ไม่รับ' → แถว SLA ของ SQ ถูกบล็อก ไม่มีผู้สมัคร", noSq.every(x => !!x[3] && !x[4]) && noSq.length > 0, true);
+}
 console.log(bad ? bad + " FAILED" : "ALL PASSED (ขั้นหลังอ่านไฟล์ ตรงกับ rbLoadResLLraw_)"); process.exit(bad ? 1 : 0);
