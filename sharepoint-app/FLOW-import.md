@@ -70,6 +70,9 @@
 1d. **Get items `Pos`** — `PAS_Employees` · Filter `status eq 'ACTIVE'` · Top 5000 · Pagination On → **Select `PosRows`** (โหมดตาราง): `Title`, `pos_group`, `name_en`, `name_th`, `team`
    (ตำแหน่งพนักงาน → เครดิต SUP จากหัวหน้า + คัดคนช่วย SUP = Sup/Snr + เรียงคนช่วย Agent ก่อน ·
    ชื่อ + ทีม → หาทีมต้นสังกัดของแถวซัพที่ไม่ใส่ทีม และเลือกต้นสังกัดเมื่อรหัสเดียวกันอยู่หลายทีม — แทนไฟล์ master ของระบบเดิม)
+1e. **Get items `SupR`** — `PAS_SupportRules` · Top 500 → **Select `SupRows`** (โหมดตาราง): `Title`, `support` = `item()?['support']?['Value']`, `phases`, `system`, `ci_in_team`
+1f. **Get items `TeamR`** — `PAS_TeamRules` · Top 500 → **Select `TeamRows`**: `Title`, `role` = `item()?['role']?['Value']`, `systems`
+   (เงื่อนไขหาคนซัพพอร์ต — `POWERAPPS-support.md` ขั้น 2–3 · ไม่ใส่ = ใช้ค่าตั้งต้นเดิม)
 2. **Apply to each** (`value`) — Concurrency **1**  ← ในลูปนี้ `items('Apply_to_each')` = แถวคิว
    1. **Update item** (คิว): status Value = `Running`
    2. **Scope `Import`**:
@@ -80,7 +83,7 @@
       1. **Run script** — Location: Site · Document Library: `Documents` · File: `items('Apply_to_each')?['file_id']`
          · Script: `import-roster` · **filePath** = `items('Apply_to_each')?['Title']` · workDate: เว้นว่าง
          · **holidays** = `string(body('HolKeys'))`
-         · **schedule** = `string(body('SchedRows'))` · **rules** = `string(body('RuleRows'))` · **posg** = `string(body('PosRows'))` (ช่อง pss เว้นว่าง)
+         · **schedule** = `string(body('SchedRows'))` · **rules** = `string(body('RuleRows'))` · **posg** = `string(body('PosRows'))` · **supRules** = `string(body('SupRows'))` · **teamRules** = `string(body('TeamRows'))` (ช่อง pss เว้นว่าง)
       2. **Compose `R`** = `outputs('Run_script')?['body/result']`
       3. **Condition** `outputs('R')?['status']` is equal to `ok`
          - **No → Update item** (คิว): status `Skipped` · day_key = `outputs('R')?['work_date']` · message = `outputs('R')?['reason']`

@@ -36,9 +36,9 @@ const TH_FULL = ["มกราคม", "กุมภาพันธ์", "มี
 const TH_ABBR = ["มค", "กพ", "มีค", "เมย", "พค", "มิย", "กค", "สค", "กย", "ตค", "พย", "ธค"];
 
 type Cell = string | number | boolean;
-interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number; ot_pre_people?: number; ot_pre_hours?: number; ot_post_people?: number; ot_post_hours?: number }
+interface MpRow { Title: string; day_key: string; month_key: string; work_date: string; team: string; total: number; working: number; sick: number; annual: number; training: number; ot_hours: number; ot_hol_hours: number; ot_total: number; ot_people: number; ot_off_hours: number; is_holiday: boolean; util_pct: number; cnt_work: number; cnt_sick: number; cnt_vac: number; cnt_personal: number; cnt_training: number; cnt_off: number; cnt_ot_off: number; cnt_staff: number; mp_ot_hours: number; ot_pre_people?: number; ot_pre_hours?: number; ot_post_people?: number; ot_post_hours?: number; pu_flights?: number }
 interface DutyRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; pos_group?: string; bucket: string; shift_code: string; shift_start: string; shift_end?: string; shift_hours: number; ot_hours: number; ot_hol_hours: number; ot_type?: string; ot_time?: string; is_support: boolean; support_from?: string; support_src?: string;
-  ac_status?: string; ac_flights?: string; ac_job?: string; ac_zones?: string; ac_support?: number; ac_uncovered?: string; ac_gaps?: string; ac_gaps_raw?: string; ac_ot_verdict?: string; ac_issue?: string; gantt_json?: string; gantt_hide?: boolean; gantt_ord?: number; duty_min: number; busy_min: number; util_pct: number; source_file: string }
+  ac_status?: string; ac_flights?: string; ac_job?: string; ac_zones?: string; ac_support?: number; ac_uncovered?: string; ac_gaps?: string; ac_gaps_raw?: string; ac_ot_verdict?: string; ac_issue?: string; gantt_json?: string; gantt_hide?: boolean; gantt_ord?: number; pu_duty_min?: number; pu_idle_min?: number; pu_max_gap?: number; pu_out_min?: number; pu_nflt?: number; pu_overlap?: string; duty_min: number; busy_min: number; util_pct: number; source_file: string }
 interface AsgRow { Title: string; day_key: string; work_date: string; team: string; emp_code: string; emp_name: string; task: string; sta: string; std: string; counter_open: string; counter_close: string; win_lo: number; win_hi: number; is_flight: boolean }
 interface OtRow { Title: string; day_key: string; month_key: string; week_key: string; emp_code: string; emp_name: string; team: string; ot_hours: number; ot_hol_hours: number; ot_total: number }
 interface IssueRow { Title: string; day_key: string; month_key: string; category: string; team: string; who: string; detail: string }
@@ -46,7 +46,8 @@ interface Batch { list: string; boundary: string; body: string; n: number }
 interface Result { status: string; reason: string; work_date: string; date_source: string; warnings: string[]; counts: { teams: number; duty: number; assignment: number; ot_people: number; issues: number; flights?: number; short?: number; support?: number; requests?: number; support_out?: number; auto?: number }; batches: Batch[] }
 interface DatePick { iso: string; source: string }
 
-function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string): Result {
+function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: string, siteUrl?: string, holidays?: string, schedule?: string, pss?: string, rules?: string, dateOnly?: string, posg?: string, supRules?: string, teamRules?: string): Result {
+  applySupportRules(supRules, teamRules);                                   // กฎหาคนซัพ (PAS_SupportRules / PAS_TeamRules) — ว่าง = ค่าตั้งต้นเดิม
   const path = filePath || "";
   const warnings: string[] = [];
   const empty = (reason: string, iso: string, src: string): Result =>
@@ -80,8 +81,6 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
     addIssue(p.issues, pick.iso, "filedate", "MANPOWER", baseName(path), "วันที่หัวชีต MANPOWER = " + hdr.iso + " แต่ชื่อไฟล์/โฟลเดอร์ = " + pick.iso + " — ตรวจว่าวางไฟล์ถูกวัน หรือหัวชีตลืมเปลี่ยน");
   const site = (siteUrl || SITE).replace(/\/$/, "");
   const batches: Batch[] = [];
-  addBatches(batches, site, "PAS_Manpower", p.manpower);
-  addBatches(batches, site, "PAS_OT_Person", p.otPerson);
   const pg = posGroups(posg);
   const pssSet = codeSet(pss); for (const e of Object.keys(pg)) if (pg[e] === "PSS") pssSet[e] = true;
   for (const x of p.acRecs) if (x.rec.posGroup === "PSS" && x.rec.emp) pssSet[x.rec.emp] = true;          // ตำแหน่งจากไฟล์เวร (เหมือนเดิม)
@@ -89,6 +88,9 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   const nOut = attachSupportOut(reqs, p.acRecs, p.slaPeople, p.assignment, pick.iso, p.everyone);   // คนที่ดิวตี้ส่งไปซัพแล้ว → ติดงานช่วงนั้น
   analyzeAssign(p.acRecs);
   ganttRows(p.gRows, acOwnerTeams(p.acRecs.map(x => x.rec)));            // แถบ Gantt รายคน (เหมือน rbTtGantt_)
+  const pu = productivity(p.acRecs, p.manpower);                          // Util/ว่าง/ควรทบทวน (เหมือน Productivity.gs)
+  addBatches(batches, site, "PAS_Manpower", p.manpower);
+  addBatches(batches, site, "PAS_OT_Person", p.otPerson);
   addBatches(batches, site, "PAS_Duty", p.duty);
   addBatches(batches, site, "PAS_Assignment", p.assignment);
   const recs = p.acRecs.map(x => x.rec);
@@ -105,7 +107,8 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   const sumMp = (f: (m: MpRow) => number) => round1(p.manpower.reduce((s, m) => s + f(m), 0));
   addBatches(batches, site, "PAS_DayStats", [{ Title: pick.iso, day_key: pick.iso, month_key: pick.iso.slice(0, 7),
     flights: live.length, flights_short: live.filter(x => !x.ok && !x.no_time).length, people_req: live.reduce((s, x) => s + x.req_sup + Math.max(x.req_ci, x.req_gate) + x.req_arr, 0),
-    working: sumMp(m => m.cnt_work), ot_people: sumMp(m => m.ot_people), ot_hours: sumMp(m => m.ot_hours), ot_total: sumMp(m => m.ot_total), is_holiday: !!hol[pick.iso] }]);
+    working: sumMp(m => m.cnt_work), ot_people: sumMp(m => m.ot_people), ot_hours: sumMp(m => m.ot_hours), ot_total: sumMp(m => m.ot_total), is_holiday: !!hol[pick.iso],
+    pu_util: pu.util, pu_staff: pu.staff, pu_flights: pu.flights, pu_support: pu.support, pu_idle_hrs: pu.idleHrs, pu_overlap: pu.nOverlap, pu_out: pu.nOut, pu_idle: pu.nIdle, hourly_json: pu.hourly }]);
   return {
     status: "ok", reason: "", work_date: pick.iso, date_source: pick.source, warnings,
     counts: { teams: p.manpower.length, duty: p.duty.length, assignment: p.assignment.length, ot_people: p.otPerson.length, issues: p.issues.length, flights: sla.length, short: sla.filter(x => !x.ok && !x.no_time).length, support: support.length, requests: reqs.length, support_out: nOut, auto: auto.length }, batches
@@ -1505,12 +1508,46 @@ interface SupportRow { Title: string; day_key: string; month_key: string; flight
   source?: string; req_team?: string; req_duty?: string; req_time?: string; assigned?: string; from_team?: string; req_status?: string; req_remark?: string; req_sheet?: string;
   label?: string; open_n?: number; win_user?: boolean; no_roster?: boolean }
 function sysNorm(s: string): string { return String(s || "").toLowerCase().replace(/[\s.]+/g, ""); }
-function sysOf(airline: string): string { return SLA_T.SYS[airline.toUpperCase()] || ""; }
+// กฎหาคนซัพพอร์ตที่แก้ได้ใน SharePoint (PAS_SupportRules รายสาย · PAS_TeamRules รายทีม) — ไม่ส่งมา = ใช้ค่าตั้งต้นเดิมของ SLA.gs
+let SUP_OV: { [a: string]: string[] } | null = null, SYS_OV: { [a: string]: string } | null = null, CIT_OV: string[] | null = null;
+let TEAM_OV: { [t: string]: { role: string; sys: string[] } } = {};
+function applySupportRules(supJson?: string, teamJson?: string) {
+  SUP_OV = null; SYS_OV = null; CIT_OV = null; TEAM_OV = {};
+  if (supJson) {
+    let arr: { Title?: string; support?: string | { Value?: string }; phases?: string; system?: string; ci_in_team?: boolean }[] = [];
+    try { arr = JSON.parse(supJson); } catch (e) { arr = []; }
+    if (arr.length) {
+      SUP_OV = {}; SYS_OV = {}; CIT_OV = [];
+      for (const r of arr) {
+        const a = String(r.Title || "").trim().toUpperCase(); if (!a) continue;
+        const sv = typeof r.support === "object" && r.support ? String(r.support.Value || "") : String(r.support || "");
+        const ph = String(r.phases || "").toUpperCase().split(/[^A-Z]+/).filter(x => ["SUP", "CI", "GATE", "ARR"].indexOf(x) >= 0);
+        if (/ไม่รับ|^NO/i.test(sv)) SUP_OV[a] = [];
+        else if (/รับ|^YES/i.test(sv)) SUP_OV[a] = ph.length ? ph : ["SUP", "CI", "GATE", "ARR"];
+        if (String(r.system || "").trim()) SYS_OV[a] = String(r.system).trim();
+        if (r.ci_in_team) CIT_OV.push(a);
+      }
+    }
+  }
+  if (teamJson) {
+    let arr: { Title?: string; role?: string | { Value?: string }; systems?: string }[] = [];
+    try { arr = JSON.parse(teamJson); } catch (e) { arr = []; }
+    for (const r of arr) {
+      const t = String(r.Title || "").trim().toUpperCase(); if (!t) continue;
+      const rv = typeof r.role === "object" && r.role ? String(r.role.Value || "") : String(r.role || "");
+      TEAM_OV[t] = { role: /ไม่ดึง/.test(rv) ? "skip" : /พูล/.test(rv) ? "pool" : "normal", sys: String(r.systems || "").split(/[,\/;]+/).map(x => sysNorm(x)).filter(x => !!x) };
+    }
+  }
+}
+function sysOf(airline: string): string { const a = airline.toUpperCase(); if (SYS_OV && SYS_OV[a] != null) return SYS_OV[a]; return SYS_OV ? "" : (SLA_T.SYS[a] || ""); }
+function supOkOf(a: string): string[] | undefined { return SUP_OV ? SUP_OV[a] : SLA_T.SUPOK[a]; }
+function ciInTeam(airline: string): boolean { return (CIT_OV || SLA_T.CIINTEAM).indexOf(airline.toUpperCase()) >= 0; }
+function teamRule(team: string): { role: string; sys: string[] } | null { return TEAM_OV[team.trim().toUpperCase()] || null; }
 function needSys(airline: string, ph: string): string { if (ph !== "CI" && ph !== "SUP") return ""; const s = sysOf(airline); return s && sysNorm(s) !== "iport" ? s : ""; }
 function isFloatTeam(team: string): boolean { return /PVT|PRIVATE|\bLP\b|FLOAT|STBY|STAND ?BY|CHARTER|\bZF\b/.test(team.toUpperCase()); }
 function canSupport(airline: string, ph: string): { ok: boolean; reason: string } {
   const a = airline.toUpperCase(), al = SLA_T.ALIAS[a];
-  const c = SLA_T.SUPOK[a] || (al ? SLA_T.SUPOK[al] : undefined);
+  const c = supOkOf(a) || (al ? supOkOf(al) : undefined);
   if (!c) return { ok: true, reason: "" };
   if (!c.length) return { ok: false, reason: "ไม่รับซัพพอร์ต (ใช้คนทีมตัวเอง)" };
   if (c.indexOf(ph) < 0) return { ok: false, reason: "รับซัพพอร์ตเฉพาะ " + c.filter(x => x !== "SUP").join("/") };
@@ -1578,9 +1615,11 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
     const s = sysOf(airlineOf(a.flight)); if (s) (sys[r.team] = sys[r.team] || {})[sysNorm(s)] = true;
   }
   for (const r of recs) if (/CHARTER|\bZF\b/i.test(r.team)) (sys[r.team] = sys[r.team] || {}).astra = true;
+  for (const r of recs) { const tr = teamRule(r.team); if (tr) for (const x of tr.sys) (sys[r.team] = sys[r.team] || {})[x] = true; }   // ระบบที่ทีมรู้เพิ่ม (PAS_TeamRules)
   const pool: PoolP[] = [];
   for (const r of recs) {
-    if (skipTeam(r.team) || r.training) continue;                             // อบรม — ไม่ดึงมาช่วยไฟลท์
+    const tr = teamRule(r.team);
+    if ((tr ? tr.role === "skip" : skipTeam(r.team)) || r.training) continue;   // ทีมที่ไม่ดึงมาซัพ · อบรม — ไม่ดึงมาช่วยไฟลท์
     const d = acDuty(r);
     if (d.ds == null || d.de == null) continue;
     const busy: number[][] = []; for (const a of r.asg) { const w = acFlightWin(a); if (w) busy.push(w); }
@@ -1590,7 +1629,7 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
     });
     const otoff = r.bucket === "OT_OFF", hs = hoursStat(r);
     const st = r.ss != null && r.se != null ? fmtMin(r.ss) + "-" + fmtMin(r.se) : "";
-    pool.push({ name: r.name, emp: r.emp || "", team: r.team, posGroup: r.posGroup || pg[r.emp || ""] || "", off: false, otoff, rest: otoff, float: isFloatTeam(r.team),
+    pool.push({ name: r.name, emp: r.emp || "", team: r.team, posGroup: r.posGroup || pg[r.emp || ""] || "", off: false, otoff, rest: otoff, float: tr ? tr.role === "pool" : isFloatTeam(r.team),
       ds: d.ds, de: d.de, busy, hold: [], sys: sys[r.team] || {}, nflt: flts.length,
       shiftDisp: otoff ? "OFF (มา OT)" : (st && st !== r.shiftCode ? (r.shiftCode ? r.shiftCode + " " + st : st) : (r.shiftCode || st || "-")),
       otDisp: r.ot > 0 ? r.ot + "h " + (otoff ? "OFF" : (r.otType === "PRE" ? "ก่อนกะ" : "หลังกะ")) + (r.otTime ? " " + r.otTime : "") : "-",
@@ -1599,7 +1638,7 @@ function supportPool(recs: AcRec[], pg: { [e: string]: string }): PoolP[] {
   return pool;
 }
 function candidates(f: SlaFlight, ph: string, pool: PoolP[], max: number, win: number[]): PoolP[] {
-  if (ph === "CI" && SLA_T.CIINTEAM.indexOf(f.airline.toUpperCase()) >= 0) return [];
+  if (ph === "CI" && ciInTeam(f.airline)) return [];
   const nn = needSys(f.airline, ph) ? sysNorm(needSys(f.airline, ph)) : "";
   const c = pool.filter(p => !f.teams[p.team] && !(nn && !p.sys[nn]) && !(ph === "SUP" && p.posGroup !== "PSS" && p.posGroup !== "SNR") && freeIn(p, win));
   const ovh = (x: PoolP) => x.hlevel === "over" || x.hlevel === "high" ? 1 : 0, rst = (x: PoolP) => x.rest ? 1 : 0;
@@ -1612,7 +1651,7 @@ function candidates(f: SlaFlight, ph: string, pool: PoolP[], max: number, win: n
   return max ? c.slice(0, max) : c;
 }
 function otherCands(f: SlaFlight, ph: string, pool: PoolP[], max: number, exclude: string[], win: number[]): PoolP[] {
-  if (ph === "CI" && SLA_T.CIINTEAM.indexOf(f.airline.toUpperCase()) >= 0) return [];
+  if (ph === "CI" && ciInTeam(f.airline)) return [];
   const ex: { [n: string]: boolean } = {}; for (const n of exclude) ex[n] = true;
   const c = pool.filter(p => !ex[p.name] && !f.teams[p.team] && freeIn(p, win));
   const PRI: { [k: string]: number } = { PSA: 0, SNR: 1, PSS: 2 }, pri = (x: PoolP) => PRI[x.posGroup] == null ? 3 : PRI[x.posGroup];
@@ -2514,4 +2553,85 @@ function formModeIndex(sheets: { name: string; rows: string[][] }[]): { [k: stri
     }
   }
   return out;
+}
+
+// ================= ประสิทธิภาพการใช้กำลังพล (พอร์ตจาก Productivity.gs) =================
+// Util = เวลาติดงานไฟลท์ (รวมงานซัพ · ตัดอบรม) ÷ เวลาพร้อมทำงาน (กะ + OT ตาม acDuty) — คิดหลังผูกงานซัพแล้ว (เหมือนเดิม)
+interface PU { dutyMin: number; busyMin: number; idleMin: number; util: number; maxGap: number; nFlt: number; outMin: number; overlaps: string[]; ds: number; de: number; busyIv: number[][] }
+function puCalc(r: AcRec): PU | null {
+  const d = acDuty(r);
+  if (d.ds == null || d.de == null || d.de <= d.ds) return null;
+  const ds = d.ds, de = d.de, dutyMin = de - ds;
+  const iv: number[][] = [], flts: { f: string; lo: number; hi: number; real: boolean }[] = [];
+  for (const a of r.asg) {
+    if (!a.flight) continue;
+    if (a.activity || acIsActivity(a.flight)) continue;
+    const w = acFlightWin(a);
+    if (!w || (w[1] - w[0]) > AC_WIN_MAX) continue;
+    const fa = rrAlignTo(w[0], w[1], ds, de), lo = fa[0], hi = fa[1];
+    const clo = Math.max(lo, ds), chi = Math.min(hi, de);
+    if (chi > clo) iv.push([clo, chi]);
+    flts.push({ f: a.flight, lo, hi, real: isFlightName(a.flight) });
+  }
+  iv.sort((a, b) => a[0] - b[0]);
+  const merged: number[][] = [];
+  for (const w of iv) { const last = merged[merged.length - 1]; if (last && w[0] <= last[1]) last[1] = Math.max(last[1], w[1]); else merged.push([w[0], w[1]]); }
+  let busy = 0, maxGap = 0, cur = ds;
+  for (const w of merged) { if (w[0] - cur > maxGap) maxGap = w[0] - cur; busy += w[1] - w[0]; cur = Math.max(cur, w[1]); }
+  if (de - cur > maxGap) maxGap = de - cur;
+  let outMin = 0;
+  if (d.ss != null && d.se != null) for (const w of merged) outMin += Math.max(0, d.ss - w[0]) + Math.max(0, w[1] - d.se);
+  const overlaps: string[] = [];
+  for (let i = 0; i < flts.length; i++) for (let j = i + 1; j < flts.length; j++) {
+    const A = flts[i], B = flts[j];
+    if (!A.real || !B.real) continue;
+    if (A.f.split("/")[0] === B.f.split("/")[0]) continue;
+    if (Math.min(A.hi, B.hi) - Math.max(A.lo, B.lo) >= 30) overlaps.push(A.f + " × " + B.f);
+  }
+  const seen: { [k: string]: boolean } = {}; let nFlt = 0;
+  for (const x of flts) if (x.real) { const k = x.f.split("/")[0]; if (!seen[k]) { seen[k] = true; nFlt++; } }
+  return { dutyMin, busyMin: busy, idleMin: dutyMin - busy, util: dutyMin > 0 ? busy / dutyMin : 0, maxGap, nFlt, outMin, overlaps, ds, de, busyIv: merged };
+}
+function puAddHourly(arr: number[], a: number | null, b: number | null) {
+  if (a == null || b == null || b <= a) return;
+  for (let h = 0; h < 27; h++) { const lo = h * 60, hi = lo + 60, ov = Math.min(b, hi) - Math.max(a, lo); if (ov > 0) arr[h] += ov / 60; }
+}
+/** เขียนผลลง PAS_Duty (รายคน) · PAS_Manpower.util_pct (รายทีม = ติดงานรวม ÷ เวลาพร้อมรวม) · คืนรายชั่วโมง + KPI สำหรับ PAS_DayStats */
+function productivity(acRecs: { rec: AcRec; row: DutyRow }[], manpower: MpRow[]) {
+  const teams: { [t: string]: { duty: number; busy: number; fset: { [k: string]: boolean } } } = {};
+  const hrOn: number[] = [], hrBusy: number[] = [], hrFlt: number[] = []; for (let h = 0; h < 27; h++) { hrOn.push(0); hrBusy.push(0); hrFlt.push(0); }
+  const flightWins: { [k: string]: number[][] } = {}, flightSet: { [k: string]: boolean } = {};
+  let supOut = 0, staff = 0, otMin = 0, nOverlap = 0, nOut = 0, nIdle = 0;
+  for (const x of acRecs) {
+    const r = x.rec, row = x.row;
+    row.util_pct = 0; row.busy_min = 0; row.pu_duty_min = 0; row.pu_idle_min = 0; row.pu_max_gap = 0; row.pu_out_min = 0; row.pu_nflt = 0; row.pu_overlap = "";
+    if (r.training) continue;
+    const t = teams[r.team] || (teams[r.team] = { duty: 0, busy: 0, fset: {} });
+    staff++; if (r.ot > 0) otMin += Math.round(r.ot * 60);
+    for (const a of r.asg) {
+      if (a.supportOut) supOut++;
+      else if (a.flight && isFlightName(a.flight) && !skipTeam(r.team)) { const k = a.flight.split("/")[0]; t.fset[k] = true; flightSet[k] = true; }
+      if (a.flight && isFlightName(a.flight) && !(a.activity || acIsActivity(a.flight))) {
+        const fw = acFlightWin(a);
+        if (fw && (fw[1] - fw[0]) <= AC_WIN_MAX) { let flo = fw[0], fhi = fw[1]; while (flo < 0) { flo += 1440; fhi += 1440; } while (flo >= 1440) { flo -= 1440; fhi -= 1440; }
+          const kk = a.flight.split("/")[0]; (flightWins[kk] = flightWins[kk] || []).push([flo, fhi]); }
+      }
+    }
+    const pu = puCalc(r); if (!pu) continue;
+    t.duty += pu.dutyMin; t.busy += pu.busyMin;
+    puAddHourly(hrOn, pu.ds, pu.de); for (const w of pu.busyIv) puAddHourly(hrBusy, w[0], w[1]);
+    row.util_pct = Math.round(pu.util * 100); row.busy_min = pu.busyMin; row.pu_duty_min = pu.dutyMin; row.pu_idle_min = pu.idleMin;
+    row.pu_max_gap = pu.maxGap; row.pu_out_min = pu.outMin; row.pu_nflt = pu.nFlt; row.pu_overlap = pu.overlaps.join(", ").slice(0, 255);
+    if (pu.overlaps.length) nOverlap += pu.overlaps.length; if (pu.outMin >= 60) nOut++; if (pu.maxGap >= 240) nIdle++;
+  }
+  for (const m of manpower) { const t = teams[m.team]; m.util_pct = t && t.duty > 0 ? Math.round(t.busy / t.duty * 100) : 0; m.pu_flights = t ? Object.keys(t.fset).length : 0; }
+  for (const k of Object.keys(flightWins)) {
+    const ivs = flightWins[k].slice().sort((a, b) => a[0] - b[0]), mg: number[][] = [];
+    for (const w of ivs) { const last = mg[mg.length - 1]; if (last && w[0] <= last[1]) last[1] = Math.max(last[1], w[1]); else mg.push([w[0], w[1]]); }
+    for (let h = 0; h < 27; h++) { const lo = h * 60, hi = lo + 60; if (mg.some(w => Math.min(w[1], hi) - Math.max(w[0], lo) >= 15)) hrFlt[h]++; }
+  }
+  const TD = Object.keys(teams).reduce((s, t) => s + teams[t].duty, 0), TB = Object.keys(teams).reduce((s, t) => s + teams[t].busy, 0);
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  return { util: TD > 0 ? Math.round(TB / TD * 100) : 0, staff, flights: Object.keys(flightSet).length, support: supOut, otHrs: r1(otMin / 60), idleHrs: Math.round((TD - TB) / 60),
+    nOverlap, nOut, nIdle, hourly: JSON.stringify({ on: hrOn.map(x => r1(x)), busy: hrBusy.map(x => r1(x)), flt: hrFlt }) };
 }

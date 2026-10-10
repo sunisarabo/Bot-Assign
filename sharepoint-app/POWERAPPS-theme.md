@@ -123,7 +123,7 @@ If(ThisItem.kind = "n",
 | ตัวเลข | Size 20 · Bold · `T.ink` (หน่วยต่อท้ายใช้ Label แยก Size 11 `T.ink2`) |
 | แถบวัด (meter) | Rectangle พื้น: Height 6 · `Fill = T.surface2` · `BorderColor = T.line` / Rectangle ค่า: Width = `Parent.Width * Min(1, ค่า/100)` · `Fill = T.ok` (หรือ `T.brand`) |
 | บรรทัดเล็ก | Size 9 · `T.ink2` |
-ตัวอย่าง 5 ใบ (ใช้ collection เดิมใน `POWERAPPS-dashboard.md`): คนทำงาน `Sum(colMp, working) & " / " & Sum(colMp, total)` · ลา `Sum(colMp, sick) & " · " & Sum(colMp, annual) & " · " & Sum(colMp, training)` · OT `Sum(colMp, ot_people) & " คน"` · ไฟลท์ `CountRows(colSla)` + pill ขาด/ครบ · Util `With({d: Filter(colDuty, duty_min > 0)}, If(IsEmpty(d), "–", Round(Average(d, util_pct), 0) & "%"))`
+ตัวอย่าง 5 ใบ (ใช้ collection เดิมใน `POWERAPPS-dashboard.md`): คนทำงาน `Sum(colMp, working) & " / " & Sum(colMp, total)` · ลา `Sum(colMp, sick) & " · " & Sum(colMp, annual) & " · " & Sum(colMp, training)` · OT `Sum(colMp, ot_people) & " คน"` · ไฟลท์ `CountRows(colSla)` + pill ขาด/ครบ · Util `With({d: Filter(colDuty, pu_duty_min > 0)}, If(IsEmpty(d), "–", Round(Sum(d, busy_min) / Sum(d, pu_duty_min) * 100, 0) & "%"))`
 
 **ป้ายสถานะ (pill)** — Button (Label โค้งมนไม่ได้) · Height 22 · Radius 11 · Size 9 · Semibold · Padding L/R 9 · `OnSelect` ว่าง · `HoverFill = Self.Fill` · `PressedFill = Self.Fill`
 | สถานะ | Fill / Color |
@@ -169,7 +169,7 @@ If(varDay = Text(Today(), "yyyy-mm-dd"),
 
 **วงแหวน % (ใช้กับ Util / % OT)** — Image เล็ก 64×64:
 ```powerapps
-With({p: If(IsEmpty(Filter(colDuty, duty_min > 0)), 0, Min(1, Average(Filter(colDuty, duty_min > 0), util_pct) / 100))},
+With({p: With({d: Filter(colDuty, pu_duty_min > 0)}, If(IsEmpty(d), 0, Min(1, Sum(d, busy_min) / Sum(d, pu_duty_min))))},
 "data:image/svg+xml;utf8," & EncodeUrl(
 "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><circle cx='18' cy='18' r='15.9' fill='none' stroke='#E6EEFC' stroke-width='4'/>" &
 "<circle cx='18' cy='18' r='15.9' fill='none' stroke='#1D428A' stroke-width='4' stroke-linecap='round' stroke-dasharray='" & Round(p * 100, 1) & " 100' transform='rotate(-90 18 18)'/></svg>"))

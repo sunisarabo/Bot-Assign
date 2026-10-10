@@ -172,6 +172,10 @@
      "type": "Number"
     },
     {
+     "name": "pu_flights",
+     "type": "Number"
+    },
+    {
      "name": "cnt_work",
      "type": "Number"
     },
@@ -271,6 +275,42 @@
     {
      "name": "is_holiday",
      "type": "Boolean"
+    },
+    {
+     "name": "pu_util",
+     "type": "Number"
+    },
+    {
+     "name": "pu_staff",
+     "type": "Number"
+    },
+    {
+     "name": "pu_flights",
+     "type": "Number"
+    },
+    {
+     "name": "pu_support",
+     "type": "Number"
+    },
+    {
+     "name": "pu_idle_hrs",
+     "type": "Number"
+    },
+    {
+     "name": "pu_overlap",
+     "type": "Number"
+    },
+    {
+     "name": "pu_out",
+     "type": "Number"
+    },
+    {
+     "name": "pu_idle",
+     "type": "Number"
+    },
+    {
+     "name": "hourly_json",
+     "type": "Note"
     }
    ]
   },
@@ -364,6 +404,30 @@
     {
      "name": "util_pct",
      "type": "Number"
+    },
+    {
+     "name": "pu_duty_min",
+     "type": "Number"
+    },
+    {
+     "name": "pu_idle_min",
+     "type": "Number"
+    },
+    {
+     "name": "pu_max_gap",
+     "type": "Number"
+    },
+    {
+     "name": "pu_out_min",
+     "type": "Number"
+    },
+    {
+     "name": "pu_nflt",
+     "type": "Number"
+    },
+    {
+     "name": "pu_overlap",
+     "type": "Text"
     },
     {
      "name": "source_file",
@@ -2860,6 +2924,854 @@
     {
      "name": "limit_h",
      "type": "Number"
+    }
+   ]
+  },
+  {
+   "title": "PAS_SupportRules",
+   "desc": "กฎรับพนักงานซัพพอร์ตรายสายการบิน (แก้ได้): รับ/ไม่รับ · เฟสที่รับ · ระบบเช็คอินที่คนซัพต้องรู้ · เช็คอินต้องใช้คนทีมตัวเอง — ค่าตั้งต้นจาก AirlineSupport.gs",
+   "titleLabel": "airline",
+   "seedKey": "Title",
+   "fields": [
+    {
+     "name": "support",
+     "type": "Choice",
+     "choices": [
+      "รับ",
+      "ไม่รับ",
+      "ไม่กำหนด (รับทุกเฟส)"
+     ]
+    },
+    {
+     "name": "phases",
+     "type": "Text"
+    },
+    {
+     "name": "system",
+     "type": "Text"
+    },
+    {
+     "name": "ci_in_team",
+     "type": "Boolean"
+    },
+    {
+     "name": "note",
+     "type": "Text"
+    }
+   ],
+   "seed": [
+    {
+     "Title": "3K",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "3U",
+     "support": "รับ",
+     "phases": "GATE",
+     "system": "Angel Lite",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "6B",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "6E",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "8H",
+     "support": "ไม่กำหนด (รับทุกเฟส)",
+     "phases": "",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "8L",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "8M",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "9C",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "9H",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "AF",
+     "support": "รับ",
+     "phases": "GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "AI",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "AK",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "AQ",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "AY",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "B2",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "ASTRA",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "BK",
+     "support": "ไม่กำหนด (รับทุกเฟส)",
+     "phases": "",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "BY",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "C6",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "CA",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "CX",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "CZ",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "DE",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "DK",
+     "support": "รับ",
+     "phases": "CI,ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "DV",
+     "support": "รับ",
+     "phases": "CI,ARR,GATE",
+     "system": "TWD",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "EK",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "AS Connect",
+     "ci_in_team": true,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "EO",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Lydia DCS",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "EY",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": true,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "FM",
+     "support": "รับ",
+     "phases": "GATE",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "FY",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "G2",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "G8",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "G9",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "GX",
+     "support": "ไม่กำหนด (รับทุกเฟส)",
+     "phases": "",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "H4",
+     "support": "ไม่กำหนด (รับทุกเฟส)",
+     "phases": "",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "HB",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "HH",
+     "support": "รับ",
+     "phases": "CI,ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "HO",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "HU",
+     "support": "รับ",
+     "phases": "GATE",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "HX",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "HY",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "IT",
+     "support": "รับ",
+     "phases": "CI,ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "IX",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "JQ",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "KA",
+     "support": "ไม่กำหนด (รับทุกเฟส)",
+     "phases": "",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "KC",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "KE",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "KX",
+     "support": "ไม่กำหนด (รับทุกเฟส)",
+     "phases": "",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "KY",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "LJ",
+     "support": "รับ",
+     "phases": "ARR",
+     "system": "iFlyRes",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "LO",
+     "support": "รับ",
+     "phases": "CI,ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "LY",
+     "support": "รับ",
+     "phases": "CI,ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "MH",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "MU",
+     "support": "รับ",
+     "phases": "GATE",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "N0",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "N4",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Lydia DCS",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "NO",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "OD",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Sabre",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "OM",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "OQ",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "OV",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "OZ",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "PG",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "PN",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "PRIVATE",
+     "support": "รับ",
+     "phases": "ARR",
+     "system": "",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "QP",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "QR",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Altea",
+     "ci_in_team": true,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "QZ",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "S7",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "TWD",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "SG",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "SQ",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "SU",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "ASTRA",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "SV",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "TK",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "TOYA",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "TR",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "U6",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "UO",
+     "support": "ไม่รับ",
+     "phases": "",
+     "system": "Gonow",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "VJ",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "iPort",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "VN",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "W5",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "AVIA",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "WK",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Altea",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "WY",
+     "support": "รับ",
+     "phases": "ARR,GATE",
+     "system": "Sabre",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "WZ",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "ASTRA",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "ZF",
+     "support": "รับ",
+     "phases": "CI,ARR,GATE",
+     "system": "ASTRA",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    },
+    {
+     "Title": "ZH",
+     "support": "รับ",
+     "phases": "SUP,CI,GATE,ARR",
+     "system": "TravelSky",
+     "ci_in_team": false,
+     "note": "ค่าตั้งต้นจาก AirlineSupport.gs / SLA.gs"
+    }
+   ]
+  },
+  {
+   "title": "PAS_TeamRules",
+   "desc": "เงื่อนไขพนักงานแต่ละทีมในการหาคนซัพพอร์ต (แก้ได้): ปกติ / ทีมพูล (ดึงก่อน) / ไม่ดึงมาซัพ · ระบบเช็คอินที่ทีมรู้เพิ่ม (นอกจากที่ระบบเห็นจากงานในวันนั้น)",
+   "titleLabel": "ชื่อแท็บทีม",
+   "seedKey": "Title",
+   "fields": [
+    {
+     "name": "role",
+     "type": "Choice",
+     "choices": [
+      "ปกติ",
+      "ทีมพูล (ดึงก่อน)",
+      "ไม่ดึงมาซัพ"
+     ]
+    },
+    {
+     "name": "systems",
+     "type": "Text"
+    },
+    {
+     "name": "note",
+     "type": "Text"
+    }
+   ],
+   "seed": [
+    {
+     "Title": "CHARTER",
+     "role": "ทีมพูล (ดึงก่อน)",
+     "systems": "ASTRA",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "SVWK",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "SQ",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "TR",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "EY",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "EK",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "AK",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "PORTER",
+     "role": "ไม่ดึงมาซัพ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "PVTLP",
+     "role": "ทีมพูล (ดึงก่อน)",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "KE",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "CHN",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "JQ",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "PG",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "QR",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "SU",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "TK",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "WYG9",
+     "role": "ปกติ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "ADMIN DOC",
+     "role": "ไม่ดึงมาซัพ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
+    },
+    {
+     "Title": "PORTER CREWSIGN",
+     "role": "ไม่ดึงมาซัพ",
+     "systems": "",
+     "note": "ค่าตั้งต้นจากกติกาเดิม (slaSkipTeam_ / slaIsFloatTeam_)"
     }
    ]
   }
