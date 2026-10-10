@@ -54,7 +54,8 @@ function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?
   const empty = (reason: string, iso: string, src: string): Result =>
     ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0, ot_people: 0, issues: 0 }, batches: [] });
 
-  const mp = workbook.getWorksheet("MANPOWER") || workbook.getWorksheets().find(w => /^\s*MANPOWER\s*$/i.test(w.getName()));
+  let mp = workbook.getWorksheet("MANPOWER");
+  if (!mp) for (const w of workbook.getWorksheets()) if (/^\s*MANPOWER\s*$/i.test(w.getName())) { mp = w; break; }   // ห้ามใช้ .find กับชีต (runtime ไม่รองรับ)
   const mv: Cell[][] = mp ? mp.getUsedRange().getValues() : [];
   const headerText = mv.slice(0, 6).map(r => r.join(" ")).join(" ");
 
