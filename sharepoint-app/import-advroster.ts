@@ -56,7 +56,8 @@ function rosterMain(workbook: ExcelScript.Workbook, filePath?: string, workDate?
 
   let mp = workbook.getWorksheet("MANPOWER");
   if (!mp) for (const w of workbook.getWorksheets()) if (/^\s*MANPOWER\s*$/i.test(w.getName())) { mp = w; break; }   // ห้ามใช้ .find กับชีต (runtime ไม่รองรับ)
-  const mv: Cell[][] = mp ? mp.getUsedRange().getValues() : [];
+  const mpUsed = mp ? mp.getUsedRange() : undefined;
+  const mv: Cell[][] = mpUsed ? mpUsed.getValues() : [];
   const headerText = mv.slice(0, 6).map(r => r.join(" ")).join(" ");
 
   // ---- วันที่ ----
