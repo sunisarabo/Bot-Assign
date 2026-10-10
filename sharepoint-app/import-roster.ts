@@ -52,7 +52,7 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
   const empty = (reason: string, iso: string, src: string): Result =>
     ({ status: "skipped", reason, work_date: iso, date_source: src, warnings, counts: { teams: 0, duty: 0, assignment: 0, ot_people: 0, issues: 0 }, batches: [] });
 
-  const mp = workbook.getWorksheet("MANPOWER");
+  const mp = workbook.getWorksheet("MANPOWER") || workbook.getWorksheets().find(w => /^\s*MANPOWER\s*$/i.test(w.getName()));
   const mv: Cell[][] = mp ? mp.getUsedRange().getValues() : [];
   const headerText = mv.slice(0, 6).map(r => r.join(" ")).join(" ");
 
@@ -110,16 +110,20 @@ function main(workbook: ExcelScript.Workbook, filePath?: string, workDate?: stri
 }
 
 // ======================= อ่านไฟล์เวร =======================
-interface TeamHead { code: string; total: number; working: number; sick: number; annual: number; training: number; mpOt?: number }
+interface TeamHead { code: string; num?: string; total: number; working: number; sick: number; annual: number; training: number; mpOt?: number }
 
 function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
   const teams: TeamHead[] = [];
   for (const r of mv) {
-    const m = String(r[0] || "").match(/Team\s*\((.+?)\)/);
-    if (m) teams.push({ code: m[1].trim(), total: n(r[1]), working: n(r[9]), sick: n(r[3]), annual: n(r[5]), training: n(r[8]), mpOt: n(r[10]) });
+    // ผังใหม่ "Team (EY)" · เทมเพลตเก่า (ม.ค.–ส.ค.) "Team 6 (QR)" / "Team 1 (WY/EK)"
+    const m = String(r[0] || "").match(/Team\s*0?(\d*)\s*\((.+?)\)/i);
+    if (m) teams.push({ code: m[2].trim(), num: m[1] || "", total: n(r[1]), working: n(r[9]), sick: n(r[3]), annual: n(r[5]), training: n(r[8]), mpOt: n(r[10]) });
   }
   if (!teams.length) for (const ws of workbook.getWorksheets()) {
-    if (findByS(ws.getRange("A1:AQ60").getValues(), "FLIGHT") >= 0)
+    const g = ws.getRange("A1:AQ60").getValues();
+    const hdrOld = g.slice(0, 12).some(r => { const u = r.map(x => String(x == null ? "" : x).trim().toUpperCase()); return u.indexOf("ID") >= 0 && u.indexOf("NAME") >= 0; })
+      && g.slice(0, 12).some(r => r.some(x => String(x == null ? "" : x).trim().toUpperCase() === "FLIGHT"));
+    if (findByS(g, "FLIGHT") >= 0 || hdrOld)
       teams.push({ code: ws.getName(), total: 0, working: 0, sick: 0, annual: 0, training: 0 });
   }
   return teams;
@@ -309,6 +313,9 @@ function rrReadOtGroup(row: string[], otc: number, totc: number): { hours: numbe
     h = rrOtHours(totc < row.length ? row[totc] : "");
     if (!(h > 0) && rng[0] != null && rng[1] != null) { const a = rng[0]; let b = rng[1]; if (b <= a) b += 1440; h = Math.round((b - a) / 60 * 10) / 10; }
   } else h = rrOtHours(otc < row.length ? row[otc] : "");
+  // ชม.รวมที่เป็นเศษวัน (=OUT-IN · 0.0417) หรือทศนิยมเพี้ยน (0.9999) → เทียบกับช่วงเวลาเข้า-ออก แล้วปัด 1 ตำแหน่ง
+  if (h > 0 && rng[0] != null && rng[1] != null) { const a = rng[0]; let b = rng[1]; if (b <= a) b += 1440; const dur = (b - a) / 60; if (Math.abs(h * 24 - dur) < Math.abs(h - dur)) h = h * 24; }
+  h = Math.round(h * 10) / 10;
   if (!(h > 0) && rng[0] == null) return null;
   return { hours: h > 0 ? h : 0, range: rng };
 }
@@ -728,6 +735,17 @@ function bucketOfRec(r: RRec): string {
   if (r.bucket === "vac") return bucketOf(r.remark, r.remark2, 0) === "LEAVE" ? "LEAVE" : "VACATION";   // ลากิจ/คลอด แยกจากพักร้อน (สรุปสัปดาห์)
   return "OFF";
 }
+// ชื่อแท็บ → รหัสทีมตาม MANPOWER · เทมเพลตเก่า: แท็บ "TEAM 6 QR" / "REV01. AK" ↔ MANPOWER "Team 6 (QR)" (จับคู่ด้วยเลขทีม หรือรหัสสาย)
+function tabTeam(tab: string, teams: TeamHead[]): string {
+  const U = tab.trim().toUpperCase();
+  if (teams.some(t => t.code.toUpperCase() === U)) return tab.trim();
+  const num = (U.match(/TEAM\s*0?(\d+)/) || [])[1] || "";
+  const clean = U.replace(/TEAM\s*\d*|REV\.?\s*\d*\.?/g, " ").replace(/\s+/g, " ").trim();
+  const toks = clean.split(/[^A-Z0-9]+/).filter(x => x.length >= 2);
+  const codes = (t: TeamHead) => t.code.toUpperCase().split(/[\s\/,+&-]+/).filter(x => x);
+  const hit = (num ? teams.find(t => t.num === num) : undefined) || teams.find(t => t.code.toUpperCase() === clean) || teams.find(t => toks.some(k => codes(t).indexOf(k) >= 0));
+  return hit ? hit.code : (clean || tab.trim());
+}
 function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: string, src: string, isHol: boolean) {
   const duty: DutyRow[] = [], assignment: AsgRow[] = [], manpower: MpRow[] = [], otPerson: OtRow[] = [];
   const month = day.slice(0, 7), week = mondayOf(day);
@@ -739,6 +757,7 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
   const everyone: { team: string; name: string; emp: string }[] = [];          // ทุกคนในไฟล์ (รวมคนหยุด) — ใช้จับชื่อในคำขอซัพ
   const rd = readRoster(sheetTexts(workbook));
   const mpByCode: { [c: string]: TeamHead } = {}; for (const t of teams) mpByCode[t.code.toUpperCase()] = t;
+  for (const tb of rd.tabs) tb.name = tabTeam(tb.name, teams);
   const tabNames: { [c: string]: boolean } = {}; for (const tb of rd.tabs) tabNames[tb.name.toUpperCase()] = true;
   for (const t of teams) if (!tabNames[t.code.toUpperCase()])
     addIssue(issues, day, "droptab", t.code, workbook.getWorksheet(t.code) ? "อ่านไม่ได้ทั้งแท็บ" : "ไม่พบแท็บ",
@@ -758,6 +777,8 @@ function parseRoster(workbook: ExcelScript.Workbook, teams: TeamHead[], day: str
     const cnt = { work: 0, sick: 0, vac: 0, personal: 0, training: 0, off: 0, otOff: 0, staff: 0, preP: 0, preH: 0, postP: 0, postH: 0 };
     const nameSeen: { [n: string]: boolean } = {}, seen: { [k: string]: number } = {};
     for (const r of tb.recs) {
+      // กันแถวที่ไม่ใช่พนักงาน: ชื่อเสีย (#REF!) / "-" / เวลา "08:35" (ตารางเวลาไฟลท์) / รหัส 1–3 หลัก
+      if (!/^[A-Za-z\u0E01-\u0E5B(]/.test(String(r.name || "").trim()) || /^\d{1,3}$/.test(String(r.id || "").trim())) continue;
       const emp = r.id || ("N" + r.name.replace(/[^A-Za-z0-9ก-๙]/g, "").slice(0, 16)), name = r.name, isSup = r.support;
       if (!isSup) everyone.push({ team, name, emp });
       const bucket = bucketOfRec(r), ot = isSup ? 0 : r.ot;
