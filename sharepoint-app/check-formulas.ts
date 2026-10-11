@@ -1,5 +1,5 @@
 /*
- * check-formulas.ts (v4 · 11 ต.ค. 2569) — Office Script: ตรวจ + ซ่อมสูตรในไฟล์ daily assignment (ไฟล์เวรรายวัน) ทีละแท็บทีม
+ * check-formulas.ts (v5 · 11 ต.ค. 2569) — Office Script: ตรวจ + ซ่อมสูตรในไฟล์ daily assignment (ไฟล์เวรรายวัน) ทีละแท็บทีม
  *
  * ตรวจ 3 อย่าง
  *  1) ตารางพนักงาน (แถวที่มีชื่อ): คอลัมน์ที่ควรเป็นสูตร (เวลาเข้า/ออก/ชม.จาก ShiftDB · ชม. RE-SKED/OT ก่อน/หลังกะ · ไปซัพ) —
@@ -216,7 +216,7 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
             cell,
             kind,
             before: cur || "(ว่าง)",
-            after: "ใส่สูตรคืน → " + cfShow(t.ws, r, c),
+            after: "ใส่สูตรคืน → " + String(t.ws.getRangeByIndexes(r, c, 1, 1).getText() || ""),
             status: "แก้แล้ว",
           });
         } else {
@@ -233,7 +233,7 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
         if (fix) {
           const rg = t.ws.getRangeByIndexes(r, c, 1, 1);
           rg.setFormulaR1C1(gold);
-          const got = cfShow(t.ws, r, c);
+          const got = String(t.ws.getRangeByIndexes(r, c, 1, 1).getText() || "");
           if (cfSame(got, txt))
             issues.push({
               tab: t.name,
@@ -269,7 +269,7 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
         if (fix) {
           const rg = t.ws.getRangeByIndexes(r, c, 1, 1);
           rg.setFormulaR1C1(gold);
-          const got = cfShow(t.ws, r, c);
+          const got = String(t.ws.getRangeByIndexes(r, c, 1, 1).getText() || "");
           if (cfSame(got, txt))
             issues.push({
               tab: t.name,
@@ -316,9 +316,6 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
       }
     }
   }
-}
-function cfShow(ws: ExcelScript.Worksheet, r: number, c: number): string {
-  return String(ws.getRangeByIndexes(r, c, 1, 1).getText() || "");
 }
 function cfSame(a: string, b: string): boolean {
   return String(a).trim() === String(b).trim();
