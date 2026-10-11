@@ -1,5 +1,5 @@
 /*
- * check-formulas.ts — Office Script: ตรวจ + ซ่อมสูตรในไฟล์ daily assignment (ไฟล์เวรรายวัน) ทีละแท็บทีม
+ * check-formulas.ts (v3 · 11 ต.ค. 2569) — Office Script: ตรวจ + ซ่อมสูตรในไฟล์ daily assignment (ไฟล์เวรรายวัน) ทีละแท็บทีม
  *
  * ตรวจ 3 อย่าง
  *  1) ตารางพนักงาน (แถวที่มีชื่อ): คอลัมน์ที่ควรเป็นสูตร (เวลาเข้า/ออก/ชม.จาก ShiftDB · ชม. RE-SKED/OT ก่อน/หลังกะ · "ไปซัพ") —
@@ -100,9 +100,19 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
     if (c === t.nameCol) continue;
     const m = cfMajor(t, c);
     let gold = "";
-    if (m.n >= Math.max(3, Math.ceil(t.rows.length * 0.5))) gold = m.f;          // แท็บนี้ส่วนใหญ่ใช้สูตรนี้
-    else if (glob[c] && m.n <= 1) gold = glob[c];                            // แท็บพังทั้งคอลัมน์ → สูตรกลาง
-    if (!gold) continue;
+    // สูตรที่ถูก: แถวส่วนใหญ่ของแท็บใช้สูตรนี้ · ถ้าแท็บพังทั้งคอลัมน์ ใช้สูตรกลางของทุกแท็บ
+    const half = Math.max(3, Math.ceil(t.rows.length * 0.5));
+    if (m.n >= half) {
+      gold = m.f;
+    } else {
+      const g2 = glob[c];
+      if (g2 !== undefined && m.n < 2) {
+        gold = g2;
+      }
+    }
+    if (gold === "") {
+      continue;
+    }
     for (const r of t.rows) {
       const cur = t.f[r][c], txt = String(t.t[r][c] || "");
       if (cur === gold) continue;
@@ -110,7 +120,7 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
       if (cfIsErr(txt) || cur.indexOf("#REF!") >= 0 || cur === "") {
         const kind = cur === "" ? "สูตรหาย (ช่องว่าง)" : "ค่า error " + txt;
         if (fix) { t.ws.getRangeByIndexes(r, c, 1, 1).setFormulaR1C1(gold); issues.push({ tab: t.name, cell, kind, before: cur || "(ว่าง)", after: "ใส่สูตรคืน → " + cfShow(t.ws, r, c), status: "แก้แล้ว" }); }
-        else issues.push({ tab: t.name, cell, kind, before: cur || "(ว่าง)", after: "ควรเป็นสูตรเดียวกับแถวอื่น", status: "แก้ได้ (โหมด fix)" });
+        else { issues.push({ tab: t.name, cell, kind, before: cur || "(ว่าง)", after: "ควรเป็นสูตรเดียวกับแถวอื่น", status: "แก้ได้ (โหมด fix)" }); }
       } else if (!cfIsFormula(cur)) {
         if (fix) {
           const rg = t.ws.getRangeByIndexes(r, c, 1, 1);
@@ -118,7 +128,7 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
           const got = cfShow(t.ws, r, c);
           if (cfSame(got, txt)) issues.push({ tab: t.name, cell, kind: "พิมพ์ค่าทับสูตร", before: txt, after: "ใส่สูตรคืน (ได้ค่าเดิม " + got + ")", status: "แก้แล้ว" });
           else { rg.setValue(cur); issues.push({ tab: t.name, cell, kind: "พิมพ์ค่าทับสูตร (ค่าไม่ตรงกับสูตร)", before: txt, after: "สูตรให้ \"" + got + "\" — คงค่าที่พิมพ์ไว้ · " + cfHint(t, r, c), status: "ต้องตรวจเอง" }); }
-        } else issues.push({ tab: t.name, cell, kind: "พิมพ์ค่าทับสูตร", before: txt, after: "โหมด fix จะลองใส่สูตรคืน (ถ้าค่าไม่ตรงจะคงค่าเดิม)", status: "แก้ได้ (โหมด fix)" });
+        } else { issues.push({ tab: t.name, cell, kind: "พิมพ์ค่าทับสูตร", before: txt, after: "โหมด fix จะลองใส่สูตรคืน (ถ้าค่าไม่ตรงจะคงค่าเดิม)", status: "แก้ได้ (โหมด fix)" }); }
       } else {
         if (fix) {
           const rg = t.ws.getRangeByIndexes(r, c, 1, 1);
@@ -126,7 +136,7 @@ function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, is
           const got = cfShow(t.ws, r, c);
           if (cfSame(got, txt)) issues.push({ tab: t.name, cell, kind: "สูตรต่างจากแถวอื่น", before: cur, after: "ปรับเป็นสูตรมาตรฐาน (ผลเท่าเดิม)", status: "แก้แล้ว" });
           else { rg.setFormulaR1C1(cur); issues.push({ tab: t.name, cell, kind: "สูตรต่างจากแถวอื่น (ผลต่างกัน)", before: cur, after: "สูตรมาตรฐานให้ \"" + got + "\" แต่สูตรเดิมให้ \"" + txt + "\" — คงสูตรเดิม", status: "ต้องตรวจเอง" }); }
-        } else issues.push({ tab: t.name, cell, kind: "สูตรต่างจากแถวอื่น", before: cur, after: "แถวอื่นใช้ " + gold, status: "ต้องตรวจเอง" });
+        } else { issues.push({ tab: t.name, cell, kind: "สูตรต่างจากแถวอื่น", before: cur, after: "แถวอื่นใช้ " + gold, status: "ต้องตรวจเอง" }); }
       }
     }
   }
