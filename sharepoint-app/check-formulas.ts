@@ -31,9 +31,9 @@ function main(workbook: ExcelScript.Workbook, mode?: string) {
     const t = cfReadTab(ws); if (t) tabs.push(t);
   }
   // สูตรมาตรฐานของคอลัมน์ (ทุกแท็บ) — ใช้เมื่อแท็บพังทั้งคอลัมน์ และสูตรไม่ผูกชื่อทีม
-  const global = cfGlobalFormulas(tabs);
+  const glob = cfGlobalFormulas(tabs);
   for (const t of tabs) {
-    cfCheckPeople(t, global, fix, issues);
+    cfCheckPeople(t, glob, fix, issues);
     cfCheckSummary(t, fix, issues);
     cfCheckErrors(t, issues);
   }
@@ -94,14 +94,14 @@ function cfGlobalFormulas(tabs: CfTab[]): { [c: number]: string } {
 }
 
 // ---------- 1) ตารางพนักงาน ----------
-function cfCheckPeople(t: CfTab, global: { [c: number]: string }, fix: boolean, issues: CfIssue[]) {
+function cfCheckPeople(t: CfTab, glob: { [c: number]: string }, fix: boolean, issues: CfIssue[]) {
   if (!t.rows.length) return;
   for (let c = 0; c < t.nCols; c++) {
     if (c === t.nameCol) continue;
     const m = cfMajor(t, c);
     let gold = "";
     if (m.n >= Math.max(3, Math.ceil(t.rows.length * 0.5))) gold = m.f;          // แท็บนี้ส่วนใหญ่ใช้สูตรนี้
-    else if (global[c] && m.n <= 1) gold = global[c];                            // แท็บพังทั้งคอลัมน์ → สูตรกลาง
+    else if (glob[c] && m.n <= 1) gold = glob[c];                            // แท็บพังทั้งคอลัมน์ → สูตรกลาง
     if (!gold) continue;
     for (const r of t.rows) {
       const cur = t.f[r][c], txt = String(t.t[r][c] || "");
