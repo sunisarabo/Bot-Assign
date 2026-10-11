@@ -29,6 +29,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `import-advroster.ts` | **Office Script** (สร้างจาก `import-roster.ts` ด้วย `node build.js`): ROSTER ล่วงหน้า + `PAS_Flights` + `PAS_Employees` → แผนจัดล่วงหน้า · Flow G ใน `FLOW-advance.md` |
 | `FLOW-notify.md` | **Flow I** อีเมลเตือนทุกเช้า: ทีมที่ยังลง assignment ไม่ครบ ล่วงหน้า 7 วัน + วันที่ยังไม่มีไฟล์เวร (แทน apNotifyMissingAssignments) |
 | `import-hsot.ts` | **Office Script**: ไฟล์ OT ขอจริงจาก HumanSoft → `PAS_OT_Request` (อ่านเหมือน OTCompare.gs) · Flow H ใน `FLOW-hsot.md` |
+| `check-formulas.ts` | **Office Script**: ตรวจ + ซ่อมสูตรในไฟล์ daily assignment ทุกแท็บทีม (สูตรหาย · พิมพ์ทับ · #REF!) → แท็บ `ตรวจสูตร` · วิธีใช้ `CHECK-FORMULAS.md` |
 | `import-othr.ts` | **Office Script**: ไฟล์ OT จ่ายจริงทั้งปีงบ ("OT OCT25 - JUL 26.xlsx" ชีต ข้อมูลคำนวณ) → `PAS_OTHR_*` · นำเข้าเฉพาะเดือนที่เปลี่ยน · Flow J ใน `FLOW-othr.md` · แท็บ 💰 ใน `POWERAPPS-ot.md` ข้อ 9 |
 | `POWERAPPS-otahead.md` | หน้า **🔮 OT ล่วงหน้า** (ต่อวัน · รายทีม · รายคน 36/144) + **🔍 ตรวจ OT** (ขอจริง HumanSoft vs แผนในไฟล์เวร — เลือกวันใดก็ได้) |
 | `POWERAPPS-advance.md` | หน้า **📅 จัดล่วงหน้า** (7 บทบาทต่อไฟลท์ · คนให้ OT คลุมได้ · คนพัก · หลายวัน — ตรงกับ AdvancePlan.gs ทุกไฟลท์ในชุดทดสอบ) |

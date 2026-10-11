@@ -141,7 +141,7 @@ function readTeams(workbook: ExcelScript.Workbook, mv: Cell[][]): TeamHead[] {
 // อ่านแบบหาหัวตาราง (ID/NAME/SHIFT/STATUS/REMARK/OT/RE-SKED/FLIGHT) ต่อแท็บ เหมือนของเดิมทุกกติกา
 // ใช้ "ข้อความที่แสดงในเซลล์" (getTexts) → เวลาเป็น "HH:MM" แบบเดียวกับที่ Google ส่งให้ของเดิม
 // ต่างจากเดิม: ไม่อ่านสีพื้น/ขีดฆ่า (ไฟลท์ยกเลิกจับจากข้อความ CXL/CANCEL/ยกเลิก เท่านั้น) · ไม่เติมกะจาก ROSTER เดือน
-const SKIP_SHEETS_RR = ["MANPOWER", "ROSTER", "SUMMARY", "MASTER SMART SHIFT", "SHIFTDB", "CODE", "SUPPORT REQUEST", "แม่แบบ", "_CODES"];
+const SKIP_SHEETS_RR = ["MANPOWER", "ROSTER", "SUMMARY", "MASTER SMART SHIFT", "SHIFTDB", "CODE", "SUPPORT REQUEST", "แม่แบบ", "_CODES", "ตรวจสูตร"];
 interface RAsg { flight: string; task: string; STA: string; STD: string; OP: string; CL: string; AC?: string; activity?: boolean; supportOut?: boolean }
 interface RSpan { a: number | null; b: number | null; type: string | null }
 interface RRec { team: string; id: string; name: string; bkk: boolean; support: boolean; supportTeam: string; pos: string; re: string;
