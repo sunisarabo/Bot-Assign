@@ -2,7 +2,7 @@
 
 ตัวอย่างหน้าตา (กดเมนูได้ · ข้อมูลสมมุติ): <https://claude.ai/artifact/6oNVJXUgfdhVsfAy4dj6MX>
 
-แนวคิด: **เมนูข้างสีกรมท่า แบ่ง 5 กลุ่ม** (แทนแถบปุ่มด้านล่าง 17 ปุ่ม) · **แถบหัว** บอกหน้า · วันที่ · ทีม · สถานะนำเข้าล่าสุด · เนื้อหาเป็น **การ์ดพื้นขาว มุมโค้ง เงาบาง** บนพื้นเทาฟ้า · สีเหลือง taxiway ใช้ที่เดียว คือ **เมนูที่เลือก / เส้น "ตอนนี้"** · สีเขียว/ส้ม/แดงใช้กับ **สถานะ** เท่านั้น
+แนวคิด (โทน **กรมท่า · ฟ้า · ขาว** ตามโลโก้ `assets/pas-logo*.svg`): **เมนูข้างสีกรมท่า แบ่ง 5 กลุ่ม** (แทนแถบปุ่มด้านล่าง 17 ปุ่ม) · **แถบหัว** บอกหน้า · วันที่ · ทีม · สถานะนำเข้าล่าสุด · เนื้อหาเป็น **การ์ดพื้นขาว มุมโค้ง เงาบาง** บนพื้นเทาฟ้า · สีฟ้าใช้เป็นจุดเน้น: **เมนูที่เลือก / เส้น "ตอนนี้" / แถบกราฟ** · สีเขียว/ส้ม/แดงใช้กับ **สถานะ** เท่านั้น
 ทุกค่าสีและขนาดในเอกสารนี้ตรงกับตัวอย่างหน้าตา — ใช้ร่วมกับเอกสารหน้าเดิม (`POWERAPPS-*.md`) ได้เลย: สูตรข้อมูลเหมือนเดิม เปลี่ยนแค่ "เปลือก" และสไตล์
 
 ---
@@ -11,22 +11,24 @@
 App → `Formulas` (ถ้าไม่เห็น: Settings → Updates → เปิด **Named formulas**)
 ```powerapps
 T = {
-    bg:       ColorValue("#F2F5FA"),   // พื้นหลังแอป
+    bg:       ColorValue("#F3F7FB"),   // พื้นหลังแอป (ขาวอมฟ้า)
     surface:  ColorValue("#FFFFFF"),   // การ์ด
     surface2: ColorValue("#F7F9FC"),   // แถวสลับ / กล่องย่อย
-    ink:      ColorValue("#14213D"),   // ตัวอักษรหลัก
-    ink2:     ColorValue("#5A6782"),   // ตัวอักษรรอง / หัวตาราง
-    line:     ColorValue("#DDE3EE"),   // เส้นแบ่ง
-    rail:     ColorValue("#16336E"),   // เมนูข้าง
-    railInk:  ColorValue("#C9D5EE"),   // ตัวอักษรเมนู
-    railHi:   RGBA(255, 255, 255, 0.08),
-    brand:    ColorValue("#1D428A"),   // ปุ่มหลัก / แถบกราฟ
-    accent:   ColorValue("#E8A200"),   // เมนูที่เลือก / เส้นตอนนี้ (ใช้น้อย)
+    ink:      ColorValue("#0B2545"),   // ตัวอักษรหลัก (กรมท่า)
+    ink2:     ColorValue("#4F6480"),   // ตัวอักษรรอง / หัวตาราง
+    line:     ColorValue("#D6E4F2"),   // เส้นแบ่ง
+    rail:     ColorValue("#0B2545"),   // เมนูข้าง (กรมท่า — สีเดียวกับโลโก้)
+    railInk:  ColorValue("#BFD3EA"),   // ตัวอักษรเมนู
+    railHi:   RGBA(63, 169, 245, 0.16),   // พื้นเมนูที่เลือก (ฟ้าโปร่ง)
+    brand:    ColorValue("#13315C"),   // ปุ่มหลัก (กรมท่าสว่างขึ้นเล็กน้อย — ตัวหนังสือขาวอ่านชัด)
+    sky:      ColorValue("#3FA9F5"),   // ฟ้า — แถบกราฟ / ไฮไลต์ / ลิงก์
+    skySoft:  ColorValue("#E3F2FD"),   // ฟ้าอ่อน — พื้นป้าย / แถวที่เลือก
+    accent:   ColorValue("#3FA9F5"),   // เมนูที่เลือก / เส้นตอนนี้ (ฟ้า)
     ok:   ColorValue("#1E7F4F"), okSoft:   ColorValue("#E3F3EA"),
     warn: ColorValue("#A86300"), warnSoft: ColorValue("#FFF1D6"),
     bad:  ColorValue("#C0362C"), badSoft:  ColorValue("#FCE6E3"),
-    info: ColorValue("#2559C7"), infoSoft: ColorValue("#E6EEFC"),
-    barDuty: ColorValue("#B9C8E6"),
+    info: ColorValue("#1F7FCB"), infoSoft: ColorValue("#E3F2FD"),
+    barDuty: ColorValue("#BFE3FF"),
     font: "'Segoe UI', 'Leelawadee UI', sans-serif",   // Leelawadee UI = ไทยบน Windows
     r: 12                                               // มุมโค้งการ์ด
 };
@@ -58,6 +60,17 @@ Menu = Table(
 > ทุกคอนโทรลอ้างสีผ่าน `T.xxx` → อยากเปลี่ยนโทนทั้งแอป แก้ที่นี่ที่เดียว
 
 **ตั้งค่าแอป:** Settings → Display → **Scale to fit = Off** · Lock aspect ratio = Off (ให้ยืดตามจอ) · `Screen1.Fill = T.bg`
+
+### 1.1 โลโก้ PAS (`sharepoint-app/assets/`)
+| ไฟล์ | ใช้ที่ |
+|---|---|
+| `pas-logo-dark.svg` | หัวเมนูข้าง `conBrand` (พื้นกรมท่า — ตัวอักษรขาว · หางเครื่องบินฟ้า) |
+| `pas-logo.svg` | พื้นขาว: หัวรายงาน / อีเมล / หน้า login |
+| `pas-icon.svg` · `pas-icon-512.png` | ไอคอนแอป (Settings → General → **Icon** → อัปโหลด PNG · Background fill = `#0B2545`) |
+| `pas-logo.png` · `pas-logo-dark.png` | ใช้ที่อื่นที่ไม่รับ SVG (PowerPoint/Word/Teams) |
+
+**ใส่ในแอป:** แท็บ Insert → Media → **Upload** → เลือก `pas-logo-dark.svg` → ใส่ Image `imgBrand` ใน `conBrand` · `Image = 'pas-logo-dark'` · Height 40 · Width 130 · `ImagePosition = ImagePosition.Fit`
+(ตัวอักษร PAS เป็นเส้นโค้งแล้ว ไม่ต้องลงฟอนต์ — หน้าตาเหมือนกันทุกเครื่อง)
 
 ## 2) โครงหน้าจอ (Container ซ้อนกัน)
 ```
@@ -154,25 +167,25 @@ Concat([0, 60, 120, 180] As g,
     "<text x='28' y='" & (14 + 194 - g.Value / 180 * 194) & "' font-size='11' fill='#5A6782' text-anchor='end'>" & g.Value & "</text>") &
 Concat(colHour As h,
     With({x: 34 + h.hour * 28.25, yd: 10 + 194 - Min(h.onDuty, 180) / 180 * 194, yj: 10 + 194 - Min(h.onJob, 180) / 180 * 194},
-        "<rect x='" & (x + 2) & "' y='" & yd & "' width='24.25' height='" & (204 - yd) & "' rx='3' fill='#B9C8E6'/>" &
-        "<rect x='" & (x + 7) & "' y='" & yj & "' width='14' height='" & (204 - yj) & "' rx='2' fill='#1D428A'/>" &
+        "<rect x='" & (x + 2) & "' y='" & yd & "' width='24.25' height='" & (204 - yd) & "' rx='3' fill='#BFE3FF'/>" &
+        "<rect x='" & (x + 7) & "' y='" & yj & "' width='14' height='" & (204 - yj) & "' rx='2' fill='#13315C'/>" &
         If(Mod(h.hour, 3) = 0, "<text x='" & (x + 14) & "' y='222' font-size='11' fill='#5A6782' text-anchor='middle'>" & Text(h.hour, "00") & ":00</text>", ""))) &
 If(varDay = Text(Today(), "yyyy-mm-dd"),
     With({nx: 34 + (Hour(Now()) + Minute(Now()) / 60) * 28.25},
-        "<line x1='" & nx & "' x2='" & nx & "' y1='10' y2='204' stroke='#E8A200' stroke-width='2' stroke-dasharray='4 3'/>" &
-        "<rect x='" & (nx - 22) & "' y='10' width='44' height='17' rx='8' fill='#E8A200'/>" &
+        "<line x1='" & nx & "' x2='" & nx & "' y1='10' y2='204' stroke='#3FA9F5' stroke-width='2' stroke-dasharray='4 3'/>" &
+        "<rect x='" & (nx - 22) & "' y='10' width='44' height='17' rx='8' fill='#3FA9F5'/>" &
         "<text x='" & nx & "' y='22' font-size='11' font-weight='600' fill='#14213D' text-anchor='middle'>" & Text(Now(), "hh:mm") & "</text>"), "") &
 "</svg>")
 ```
 > แกนตั้งตายตัว 0–180 คน ถ้าวันไหนเกิน ให้เปลี่ยน `180` ทั้งหมดเป็น `RoundUp(Max(colHour, onDuty) / 60, 0) * 60`
-> คำอธิบายสี (legend) ทำเป็น 3 Label + สี่เหลี่ยมเล็กบนหัวการ์ด: อยู่เวร `#B9C8E6` · ติดงาน `#1D428A` · ตอนนี้ `#E8A200`
+> คำอธิบายสี (legend) ทำเป็น 3 Label + สี่เหลี่ยมเล็กบนหัวการ์ด: อยู่เวร `#BFE3FF` · ติดงาน `#13315C` · ตอนนี้ `#3FA9F5`
 
 **วงแหวน % (ใช้กับ Util / % OT)** — Image เล็ก 64×64:
 ```powerapps
 With({p: With({d: Filter(colDuty, pu_duty_min > 0)}, If(IsEmpty(d), 0, Min(1, Sum(d, busy_min) / Sum(d, pu_duty_min))))},
 "data:image/svg+xml;utf8," & EncodeUrl(
 "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'><circle cx='18' cy='18' r='15.9' fill='none' stroke='#E6EEFC' stroke-width='4'/>" &
-"<circle cx='18' cy='18' r='15.9' fill='none' stroke='#1D428A' stroke-width='4' stroke-linecap='round' stroke-dasharray='" & Round(p * 100, 1) & " 100' transform='rotate(-90 18 18)'/></svg>"))
+"<circle cx='18' cy='18' r='15.9' fill='none' stroke='#13315C' stroke-width='4' stroke-linecap='round' stroke-dasharray='" & Round(p * 100, 1) & " 100' transform='rotate(-90 18 18)'/></svg>"))
 ```
 
 ## 7) การ์ด "ไฟลท์ต้องเสริมด่วน" แบบใหม่ (Dashboard)
@@ -190,7 +203,7 @@ With({lo: varLo, span: Max(60, varHi - varLo), W: 760},
 "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 760 30'>" &
 "<rect x='" & (ThisItem.shift_start_min - lo) / span * W & "' y='2' width='" & ThisItem.duty_min / span * W & "' height='26' rx='6' fill='#E6EEFC' stroke='#DDE3EE'/>" &
 Concat(Filter(colAsg, emp_code = ThisItem.emp_code && win_hi > win_lo) As a,
-    "<rect x='" & (a.win_lo - lo) / span * W & "' y='7' width='" & (a.win_hi - a.win_lo) / span * W & "' height='16' rx='4' fill='#1D428A'/>") &
+    "<rect x='" & (a.win_lo - lo) / span * W & "' y='7' width='" & (a.win_hi - a.win_lo) / span * W & "' height='16' rx='4' fill='#13315C'/>") &
 "</svg>"))
 ```
 ชื่อคนเป็น Label ซ้าย (Width 110) · เส้นเวลา/ชั่วโมงทำเป็นอีก Image เดียวด้านบนของ Gallery

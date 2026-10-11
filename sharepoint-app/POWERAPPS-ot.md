@@ -85,7 +85,7 @@ ClearCollect(colOTAlert,
 ## 5) แท็บรายเดือน (`varOTTab = "month"`)
 **กราฟแท่ง "OT รวมรายทีม (ทั้งช่วง)"** — Gallery `galOTBar` · `Items = Filter(colOTTeam, total > 0)` · TemplateHeight 32
 - Label ทีม (กว้าง 180): `ThisItem.team`
-- Rectangle แท่ง: `X = 190` · `Width = Max(4, (Parent.TemplateWidth - 280) * ThisItem.total / Max(1, First(colOTTeam).total))` · `Fill = ColorValue("#1D428A")`
+- Rectangle แท่ง: `X = 190` · `Width = Max(4, (Parent.TemplateWidth - 280) * ThisItem.total / Max(1, First(colOTTeam).total))` · `Fill = ColorValue("#13315C")`
 - Label ค่า: `X = Self.X` ของแท่ง + Width + 6 · `Text = Text(ThisItem.total, "#,##0.0") & " ชม."`
 
 **ตาราง "OT · ทีม × เดือน (ชม.)"**
@@ -159,23 +159,23 @@ With({bw: (W - L - R) / n, ih: H - T - B},
 Concat([0, 0.25, 0.5, 0.75, 1] As g,
     "<line x1='" & L & "' x2='" & (W - R) & "' y1='" & (T + ih - g.Value * ih) & "' y2='" & (T + ih - g.Value * ih) & "' stroke='#DDE3EE'/>" &
     "<text x='" & (L - 6) & "' y='" & (T + ih - g.Value * ih + 4) & "' fill='#A86300' text-anchor='end'>" & Round(g.Value * varSerOT, 0) & "</text>" &
-    "<text x='" & (W - R + 6) & "' y='" & (T + ih - g.Value * ih + 4) & "' fill='#1D428A'>" & Round(g.Value * varSerFL, 0) & "</text>") &
+    "<text x='" & (W - R + 6) & "' y='" & (T + ih - g.Value * ih + 4) & "' fill='#13315C'>" & Round(g.Value * varSerFL, 0) & "</text>") &
 // แท่ง OT (ชม.) — วันหยุดนักขัตสีเข้มกว่า
 Concat(Filter(colSeries, has) As s,
     "<rect x='" & (L + (s.i - 1) * bw + bw * 0.18) & "' y='" & (T + ih - s.ot / varSerOT * ih) & "' width='" & (bw * 0.64) &
     "' height='" & (s.ot / varSerOT * ih) & "' rx='2' fill='" & If(s.hol, "#C77700", "#F2C46B") & "'/>") &
 // เส้นไฟลท์ + จุด
-"<polyline fill='none' stroke='#1D428A' stroke-width='2.2' stroke-linejoin='round' points='" &
+"<polyline fill='none' stroke='#13315C' stroke-width='2.2' stroke-linejoin='round' points='" &
 Concat(Filter(colSeries, has) As s, (L + (s.i - 0.5) * bw) & "," & (T + ih - s.fl / varSerFL * ih), " ") & "'/>" &
 Concat(Filter(colSeries, has) As s,
-    "<circle cx='" & (L + (s.i - 0.5) * bw) & "' cy='" & (T + ih - s.fl / varSerFL * ih) & "' r='2.6' fill='#1D428A'/>") &
+    "<circle cx='" & (L + (s.i - 0.5) * bw) & "' cy='" & (T + ih - s.fl / varSerFL * ih) & "' r='2.6' fill='#13315C'/>") &
 // ป้ายแกนนอน (รายวัน: ทุก 5 วัน · รายเดือน: ทุกเดือน)
 Concat(Filter(colSeries, varOTChart = "month" || Mod(i, 5) = 0 || i = 1) As s,
     "<text x='" & (L + (s.i - 0.5) * bw) & "' y='" & (H - 10) & "' fill='#5A6782' text-anchor='middle'>" & s.lb & "</text>") &
-"<text x='" & L & "' y='10' fill='#A86300'>OT (ชม.)</text><text x='" & (W - R) & "' y='10' fill='#1D428A' text-anchor='end'>ไฟลท์</text>" &
+"<text x='" & L & "' y='10' fill='#A86300'>OT (ชม.)</text><text x='" & (W - R) & "' y='10' fill='#13315C' text-anchor='end'>ไฟลท์</text>" &
 "</svg>")))
 ```
-คำอธิบายสี (Label + สี่เหลี่ยมเล็ก): แท่งเหลือง `#F2C46B` = OT ชม. · แท่งส้มเข้ม `#C77700` = วันหยุดนักขัต · เส้นน้ำเงิน `#1D428A` = จำนวนไฟลท์
+คำอธิบายสี (Label + สี่เหลี่ยมเล็ก): แท่งเหลือง `#F2C46B` = OT ชม. · แท่งส้มเข้ม `#C77700` = วันหยุดนักขัต · เส้นน้ำเงิน `#13315C` = จำนวนไฟลท์
 
 **ตัวเลขใต้กราฟ (3 ป้าย):**
 | ป้าย | Text |

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="PAS"><title>PAS</title><rect width="512" height="512" rx="112" fill="#0B2545"/><g transform="translate(76 70) scale(3)"><g>
+  <path d="M20 90 L62 20 Q64.5 16 69.5 16 L84 16 Q89.5 16 88.8 21.5 L80.5 90 Z" fill="#3FA9F5"/>
+  <circle cx="66" cy="61" r="14" fill="#0B2545"/>
+  <path d="M66 61 V51.5 M66 61 L73.5 64.5" stroke="#FFFFFF" stroke-width="3.6" stroke-linecap="round" fill="none"/>
+  <circle cx="66" cy="61" r="2.6" fill="#FFFFFF"/>
+  <rect x="10" y="98" width="100" height="9" rx="4.5" fill="#1E3A5F"/>
+  <rect x="16" y="98" width="30" height="9" rx="4.5" fill="#FFFFFF"/>
+  <rect x="52" y="98" width="20" height="9" rx="4.5" fill="#3FA9F5"/>
+  <rect x="78" y="98" width="26" height="9" rx="4.5" fill="#FFFFFF"/>
+</g></g></svg>

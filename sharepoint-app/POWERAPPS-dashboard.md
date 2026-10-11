@@ -65,7 +65,7 @@ ClearCollect(colOTAlert,
 ## 0) แถบวันหยุดประเพณี
 Label · `Visible = !IsBlank(varHolName)` · พื้น `#fff1f2` · `Text = "🎌 วันนี้วันหยุดประเพณี: " & varHolName & " — มาทำงาน = OT นักขัต X1 (เท่าชั่วโมงกะ)"`
 
-## 1) Hero (พื้นไล่สี AOT `#1D428A → #0f2a5c` · ตัวอักษรขาว)
+## 1) Hero (พื้นไล่สี AOT `#13315C → #0f2a5c` · ตัวอักษรขาว)
 | องค์ประกอบ | สูตร |
 |---|---|
 | วงแหวน % (Image) | ดูด้านล่าง · `pct = If(varK.staff > 0, Round((varK.work - varK.otoff) / varK.staff * 100, 0), 0)` |
@@ -109,14 +109,14 @@ Container + Label: `"🚨 ไฟลท์ต้องเสริมด่วน
 
 ## 5) กราฟ
 **📊 Working / Total ต่อทีม** — Insert → Charts → **Column chart** · `Items = Sort(colMp, cnt_work, SortOrder.Descending)` · Labels `team` · Series1 `cnt_work` · Series2 `cnt_staff`
-(สี: ทำงาน `#1D428A` · ทั้งหมด `#C9D6EA`)
+(สี: ทำงาน `#13315C` · ทั้งหมด `#C9D6EA`)
 
 **🧭 ภาพรวมสถานะ** — **Pie chart** · `Items`:
 ```powerapps
 Table({k: "ทำงาน", v: varK.work - varK.otoff}, {k: "OT OFF", v: varK.otoff}, {k: "OFF", v: varK.off},
       {k: "ป่วย", v: varK.sick}, {k: "ลา", v: varK.vac}, {k: "อบรม", v: varK.train})
 ```
-Labels `k` · Series `v` · สี: `#1D428A`, `#FEC909`, `#8FA6C4`, `#E5484D`, `#5EA9E6`, `#A855F7`
+Labels `k` · Series `v` · สี: `#13315C`, `#FEC909`, `#8FA6C4`, `#E5484D`, `#5EA9E6`, `#A855F7`
 
 ## 6) ⏱️ OT แยกประเภท — 2 กราฟแท่งแนวนอน (คน / ชม.)
 ```powerapps

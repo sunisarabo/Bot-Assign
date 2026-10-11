@@ -24,6 +24,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `POWERAPPS-flights.md` | หน้า **✈ Flights & SLA** (ต้องการ/มีจริง/ขาด ต่อเฟส ต่อไฟลท์ — ตรงกับ SLA.gs ทุกไฟลท์ในชุดทดสอบ) + การ์ดไฟลท์ขาดด่วนบน Dashboard |
 | `POWERAPPS-weekflights.md` | หน้า **🗓️ ไฟลท์สัปดาห์** (จากไฟล์ Assignment · ไฟลท์/วัน · คนตาม SLA ต่อเฟส · คน~ · พีคออก · จัดแล้ว/ขาด) |
 | `POWERAPPS-assigncheck.md` | หน้า **🧭 ตรวจ Assign** รายคน (ไฟลท์ในกะ/OT/นอกกะ · ช่วงว่าง · OT เหมาะสม? — ตรงกับ AssignCheck.gs ทุกคอลัมน์ในชุดทดสอบ) |
+| `assets/pas-logo*.svg` · `pas-icon*` | โลโก้ PAS (กรมท่า · ฟ้า · ขาว) — ตัวอักษรเป็นเส้นโค้ง ไม่ต้องลงฟอนต์ · วิธีใส่ในแอป `POWERAPPS-theme.md` ข้อ 1.1 |
 | `POWERAPPS-support.md` | หน้า **🆘 Support / เติมคน** (ไฟลท์ขาด + **คำขอจากชีต SUPPORT REQUEST / Urgent Support ในไฟล์ assignment** → ใครว่าง+รู้ระบบมาช่วย · ข้อความ SOS — ตรงกับ SLA.gs ทุกแถวในชุดทดสอบ) |
 | `import-advroster.ts` | **Office Script** (สร้างจาก `import-roster.ts` ด้วย `node build.js`): ROSTER ล่วงหน้า + `PAS_Flights` + `PAS_Employees` → แผนจัดล่วงหน้า · Flow G ใน `FLOW-advance.md` |
 | `FLOW-notify.md` | **Flow I** อีเมลเตือนทุกเช้า: ทีมที่ยังลง assignment ไม่ครบ ล่วงหน้า 7 วัน + วันที่ยังไม่มีไฟล์เวร (แทน apNotifyMissingAssignments) |

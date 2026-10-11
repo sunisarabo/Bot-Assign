@@ -52,7 +52,7 @@ Set(varHi, RoundUp(Max(Filter(colDuty, duty_min > 0), shift_start_min + duty_min
 ## 3) โครงหน้าจอ
 Header (โลโก้ + `dpDay` + `ddTeam` + ปุ่มรีเฟรช) · Main (เนื้อหา) · Footer ปุ่มแท็บ:
 `Set(varTab,"dash")` / `"tt"` / `"util"` / `"gantt"` / `"porter"` — แต่ละ container ตั้ง `Visible = varTab = "…"`
-สีหลัก AOTGA: `ColorValue("#1D428A")`
+สีหลัก AOTGA: `ColorValue("#13315C")`
 
 ## 4) หน้า Dashboard (`dash`)
 > **ฉบับเต็ม (ครบเท่า PAS เดิม): `POWERAPPS-dashboard.md`** — ด้านล่างเป็นฉบับเริ่มต้น
