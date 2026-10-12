@@ -37,6 +37,7 @@ Menu = Table(
     {kind: "g", id: "", label: "ภาพรวม", ic: ""},
     {kind: "n", id: "dash",  label: "Dashboard",          ic: "▦"},
     {kind: "n", id: "gantt", label: "Gantt รายคน",        ic: "☰"},   // รวมตารางงานไว้ในหน้านี้ (POWERAPPS-app.md 7.3)
+    {kind: "n", id: "util",  label: "Productivity / Util", ic: "%"},
     {kind: "g", id: "", label: "ไฟลท์ & SLA", ic: ""},
     {kind: "n", id: "flt",   label: "Flights & SLA",      ic: "✈"},
     {kind: "n", id: "wflt",  label: "ไฟลท์สัปดาห์",        ic: "▤"},
