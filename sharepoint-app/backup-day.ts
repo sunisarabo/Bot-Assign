@@ -1,7 +1,7 @@
 // backup-day.ts — สำรองข้อมูลดิบของ 1 วัน (จาก SharePoint Lists) ลงไฟล์ Excel รายเดือน
 // 1 ไฟล์ = 1 เดือน (เช่น PAS_2026-10.xlsx) · 1 แท็บ = 1 วัน (เช่น 10OCT) · แท็บ INDEX = สารบัญ
 // Flow K เรียกทีละ List: first = true ตอน List แรก → ล้างแท็บวันนั้นแล้วเขียนใหม่
-// v1 · 12 ต.ค. 2569
+// v1.1 · 12 ต.ค. 2569
 
 type Cell = string | number | boolean;
 type Obj = { [k: string]: unknown };
@@ -170,11 +170,10 @@ function main(
   const data = bkRows(rows || "");
   const cols = bkCols(data);
 
+  // first = ลบแท็บวันนั้นทิ้งแล้วสร้างใหม่
+  const prev = workbook.getWorksheet(tab);
+  if (prev && first) prev.delete();
   let ws = workbook.getWorksheet(tab);
-  if (ws && first) {
-    ws.delete();
-    ws = undefined;
-  }
   if (!ws) ws = workbook.addWorksheet(tab);
 
   // ต่อท้ายบล็อกเดิม (เว้น 1 แถว)
