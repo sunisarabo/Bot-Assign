@@ -6,7 +6,7 @@
 ```
 ไฟล์เวร .xlsx (ปี/เดือน/วัน)          Power Automate (3 flows)             SharePoint Lists (ฐานข้อมูล)         แอป
 Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้งไลบรารี → คิว → Run script  ──►  PAS_Manpower / PAS_Duty /   ──►  Power Apps (เว็บ/มือถือ/Teams)
- เดือนใหม่/ปีใหม่ = ไม่ต้องตั้งค่า        วันที่อ่านจาก path · ลบวันเดิม → $batch   PAS_Assignment / ImportLog …       Dashboard · Timetable · Util · Gantt
+ เดือนใหม่/ปีใหม่ = ไม่ต้องตั้งค่า        วันที่อ่านจาก path · ลบวันเดิม → $batch   PAS_Assignment / ImportLog …       Dashboard · Gantt รายคน · Util
 ```
 
 ใช้แต่ **ตัวต่อมาตรฐาน** (SharePoint · Excel Online (Business)) → พนักงานที่มี M365 ใช้ได้เลย
@@ -43,7 +43,8 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | `FLOW-master.md` | **Flow D** sync รายชื่อพนักงานอัตโนมัติ (ตรวจไฟล์ทุก 30 นาที เขียนเฉพาะที่เปลี่ยน) |
 | `batch-delete.ts` | Office Script ตัวช่วย: ID → `$batch` ลบ (ใช้ก่อนนำเข้าวันเดิมซ้ำ) |
 | `FLOW-import.md` | 3 flows: **A** เฝ้าทั้งไลบรารี → **B** นำเข้าจากคิว (ทุก 15 นาที) → **C** ย้อนหลังทั้งเดือน/ปี |
-| `POWERAPPS-app.md` | สร้างแอป Power Apps + สูตร Power Fx ครบทุกหน้า |
+| `POWERAPPS-app.md` | สร้างแอป Power Apps + สูตร Power Fx ครบทุกหน้า (ตารางงานรวมอยู่ในหน้า Gantt รายคน ข้อ 7.3) |
+| `backup-day.ts` · `FLOW-backup.md` | **Flow K** สำรองข้อมูลดิบหลังนำเข้าแต่ละวัน → Excel บน OneDrive (แยกจากไซต์) · **1 ไฟล์/เดือน · 1 แท็บ/วัน** + แท็บ INDEX |
 | `build.js` / `provision-lists.src.js` | ต้นฉบับ — แก้ `lists.def.json` แล้วรัน `node sharepoint-app/build.js` เพื่อสร้าง `provision-lists.js` ใหม่ |
 
 ## ขั้นตอน (ประมาณ 1–2 ชั่วโมง ครั้งเดียว)
@@ -58,7 +59,7 @@ Shared Documents/<ปี>/<เดือน>/  ──►  เฝ้าทั้�
 | List | คีย์ (Title) | ใช้ทำอะไร |
 |---|---|---|
 | `PAS_Manpower` | `วันที่\|ทีม` | KPI + ตารางรายทีม (total/working/sick/annual/training/OT/Util%) |
-| `PAS_Duty` | `วันที่\|ทีม\|รหัส` | Timetable รายคน · bucket · กะ · OT · duty_min / busy_min / util_pct |
+| `PAS_Duty` | `วันที่\|ทีม\|รหัส` | Gantt/ตารางงานรายคน · bucket · กะ · OT · duty_min / busy_min / util_pct |
 | `PAS_Assignment` | รหัสไฟลท์ | ไฟลท์/งานที่ได้รับรายคน · STA/STD/OP/CL · ช่วงงาน `win_lo–win_hi` (นาที) สำหรับ Gantt |
 | `PAS_Flights` · `PAS_Porter` · `PAS_PreWC` | เลขไฟลท์ | ตารางบิน · งาน Porter/Wheelchair · จอง WC ล่วงหน้า (กรอก/วางจาก CSV ใน `powerplatform/templates/`) |
 | `PAS_Employees` | รหัสพนักงาน | รายชื่อ · ทีม · แผนก PSA/LL · ตำแหน่ง/กลุ่ม · HKT/BKK/GLOBEX · ACTIVE/RESIGNED — sync จากไฟล์ Manpower |

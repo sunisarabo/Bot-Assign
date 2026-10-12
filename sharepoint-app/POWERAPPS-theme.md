@@ -36,7 +36,7 @@ T = {
 Menu = Table(
     {kind: "g", id: "", label: "ภาพรวม", ic: ""},
     {kind: "n", id: "dash",  label: "Dashboard",          ic: "▦"},
-    {kind: "n", id: "tt",    label: "Timetable · Gantt",  ic: "☰"},
+    {kind: "n", id: "gantt", label: "Gantt รายคน",        ic: "☰"},   // รวมตารางงานไว้ในหน้านี้ (POWERAPPS-app.md 7.3)
     {kind: "g", id: "", label: "ไฟลท์ & SLA", ic: ""},
     {kind: "n", id: "flt",   label: "Flights & SLA",      ic: "✈"},
     {kind: "n", id: "wflt",  label: "ไฟลท์สัปดาห์",        ic: "▤"},
@@ -195,7 +195,7 @@ Gallery `galUrgent` · `Items = FirstN(SortByColumns(Filter(colSla, !ok && !no_t
 - ขวา: เลขไฟลท์ Bold + ชิปเฟส 4 อัน (ข้อ 5) + บรรทัดคนแนะนำ:
   `Coalesce(Concat(Filter(colSup, flight = ThisItem.flight && IsBlank(block)), Substitute(picks, Char(10), " · "), " · "), "ยังไม่มีคนแนะนำ")` (Size 9 · `T.ink2`)
 
-## 8) Gantt รายคนแบบ SVG (หน้า Timetable)
+## 8) Gantt รายคนแบบ SVG (หน้า Gantt รายคน)
 Image ต่อคนใน Gallery (TemplateSize 42) — แถบกะอ่อน + แถบไฟลท์เข้ม + OT ส้ม:
 ```powerapps
 With({lo: varLo, span: Max(60, varHi - varLo), W: 760},

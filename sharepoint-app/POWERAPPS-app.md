@@ -51,7 +51,7 @@ Set(varHi, RoundUp(Max(Filter(colDuty, duty_min > 0), shift_start_min + duty_min
 
 ## 3) โครงหน้าจอ
 Header (โลโก้ + `dpDay` + `ddTeam` + ปุ่มรีเฟรช) · Main (เนื้อหา) · Footer ปุ่มแท็บ:
-`Set(varTab,"dash")` / `"tt"` / `"util"` / `"gantt"` / `"porter"` — แต่ละ container ตั้ง `Visible = varTab = "…"`
+`Set(varTab,"dash")` / `"util"` / `"gantt"` (Gantt + ตารางงาน) / `"porter"` — แต่ละ container ตั้ง `Visible = varTab = "…"`
 สีหลัก AOTGA: `ColorValue("#13315C")`
 
 ## 4) หน้า Dashboard (`dash`)
@@ -69,22 +69,10 @@ Header (โลโก้ + `dpDay` + `ddTeam` + ปุ่มรีเฟรช) �
 
 **กราฟรายชั่วโมง** — Insert → Charts → **Column chart** · `Items = colHour` · Labels = `hour` · Series = `onDuty`, `onJob`
 
-## 5) หน้า Timetable (`tt`)
-Gallery `galTT`:
-```powerapps
-Items = Sort(
-    Filter(colDuty, bucket.Value in ["WORKING", "OT_OFF"] && (ddTeam.Selected.Value = "ALL" || team = ddTeam.Selected.Value)),
-    shift_start_min, SortOrder.Ascending)
-```
-- บรรทัด 1: `ThisItem.team & " · " & ThisItem.emp_name & "  (" & ThisItem.shift_code & " " & ThisItem.shift_start & ", " & ThisItem.shift_hours & " ชม." & If(ThisItem.ot_hours > 0, " +OT " & ThisItem.ot_hours, "") & ")"`
-- บรรทัด 2 (ไฟลท์ของคนนี้):
-```powerapps
-Concat(
-    Sort(Filter(colAsg, emp_code = ThisItem.emp_code && team = ThisItem.team), win_lo),
-    Title & " [" & task & "] " & Coalesce(counter_open, sta) & "–" & Coalesce(counter_close, std),
-    "   ·   ")
-```
-- ช่องค้นหาชื่อ `txtSearch`: เพิ่มในตัวกรอง `&& (IsBlank(txtSearch.Text) || txtSearch.Text in emp_name)`
+## 5) ตารางงาน (เดิม `tt`) → รวมไว้ในหน้า Gantt รายคนแล้ว
+ไม่มีหน้า ☰ ตารางงาน แยกแล้ว — รายละเอียดเดิม (ทีม · ชื่อ · กะ · OT · ไฟลท์/งานของแต่ละคน) อยู่ที่ **ข้อ 7.3 มุมมองตาราง** ในหน้า Gantt รายคน
+(สลับ ▦ Gantt / ☰ ตาราง ได้ในหน้าเดียว · ตัวกรองทีม/ค้นหา และแผงรายละเอียดเมื่อกดชื่อ ใช้ร่วมกัน)
+**ย้ายของในแอปที่ทำไว้แล้ว:** ตัด (Ctrl+X) `galTT` จาก container ตารางงานเดิม → วางใน container หน้า Gantt → แก้สูตรตามข้อ 7.3 → ลบ container/หน้าเดิม → แก้ `Menu` ตาม `POWERAPPS-theme.md` (รายการ `gantt`)
 
 ## 6) หน้า Productivity / Util (`util`)
 Gallery `Items = Sort(Filter(colDuty, pu_duty_min > 0 && (ddTeam.Selected.Value = "ALL" || team = ddTeam.Selected.Value)), util_pct, SortOrder.Descending)`
@@ -110,7 +98,7 @@ Util รวม `varDS.pu_util & "%"` · คนทำงาน `varDS.pu_staff` �
   ot: Value(Index(h.on, i.Value + 1)), wk: Value(Index(h.busy, i.Value + 1)), fl: Value(Index(h.flt, i.Value + 1))})))` →
 ใช้ Image SVG แบบ `imgOTvsFlt` (POWERAPPS-ot.md 6.5) โดยแทน `colSeries` → `colPUh` · แท่ง = `ot` (อยู่เวร) ซ้อนแท่ง `wk` (ติดงาน) · เส้น = `fl`
 
-## 7) หน้า Gantt (`gantt`) — เหมือน Gantt ของ PAS เดิม (`rbTtGantt_`)
+## 7) หน้า Gantt รายคน (`gantt`) — เหมือน Gantt ของ PAS เดิม (`rbTtGantt_`) + มุมมองตารางงาน (ข้อ 7.3)
 **ข้อมูลมาจากตัวนำเข้า** — `import-roster` คำนวณแถบของทุกคนแบบเดียวกับระบบเดิมแล้วเก็บใน `PAS_Duty.gantt_json`
 (ช่วงงานตามเคาน์เตอร์/เกท/STD จริง · OT ก่อน/หลังกะตามเวลาที่ลง · อบรม · STBY ทีมพูล · เอกสาร crew sign รวมแถบ · ซัพข้ามทีม · งานทับกันแยกเลน · คนหยุด/ลา/ป่วย)
 > ตรวจกับไฟล์จริง 10 ต.ค.: **798 แถว ตรงกับ PAS เดิมทุกแถว** (แถบกะ/OT 713 · งาน 803 · ซัพข้ามทีม 46 · หยุด/ลา 258) — ทดสอบอัตโนมัติ `test/reader-parity.test.js`
@@ -211,6 +199,52 @@ With({g: ParseJSON(varGSel.gantt_json)},
   Label รายละเอียด (Auto height) `Concat(Split(ThisItem.tip, "¦") As t, t.Value, Char(10))`
   → ได้ เช่น `SQ726/SQ725 🔁 / ขาเข้า · ARR / ช่วงงาน 08:00-08:45 / STD 09:25 · เคาน์เตอร์ 05:35-08:25 / 🔁 ซัพข้ามทีม`
   ไม่มีงาน: Label `"ไม่มีงานที่ระบุเวลา"` · `Visible = IsEmpty(galGJob.AllItems)`
+
+### 7.3 มุมมองตาราง (แทนหน้า ☰ ตารางงานเดิม) — สลับในหน้าเดียวกัน
+**ปุ่มสลับ** (2 ปุ่มติดกันเหนือ gallery · ข้างช่องค้นหา):
+`btnGView1.Text = "▦ Gantt"` · `OnSelect = Set(varGView, "gantt")` ·
+`btnGView2.Text = "☰ ตาราง"` · `OnSelect = Set(varGView, "table")`
+`Fill = If(Coalesce(varGView, "gantt") = "gantt", T.accent, T.surface2)` (ปุ่ม 2 ใช้ `= "table"`) · `Color` สลับ `White` / `T.ink`
+- `galG.Visible` และไม้บรรทัดเวลา/คำอธิบายสี: `Coalesce(varGView, "gantt") = "gantt"`
+- `galGT.Visible = varGView = "table"`
+- เปิดจากเมนูอื่นแล้วให้กลับไป Gantt: ใน `galNav.OnSelect` เพิ่ม `If(ThisItem.id = "gantt", Set(varGView, "gantt"))` (ไม่ใส่ก็ได้ — จำมุมมองล่าสุด)
+
+Gallery `galGT` (Blank **flexible height** gallery · ตัวกรองเดียวกับ `galG` + ตัวเลือกแสดงคนหยุด/ลา):
+```powerapps
+Filter(Sort(colDuty, gantt_ord),
+    (tglGOff.Value || bucket.Value in ["WORKING", "OT_OFF"]) &&
+    (IsBlank(ddGTeam.Selected.Value) || ddGTeam.Selected.Value = "ทุกทีม" || team = ddGTeam.Selected.Value) &&
+    (IsBlank(txtGFind.Text) || txtGFind.Text in emp_name || txtGFind.Text in team || txtGFind.Text in emp_code))
+```
+`tglGOff` = Toggle "แสดงคนหยุด/ลา" (ค่าเริ่ม Off = เหมือนตารางงานเดิม) · `galGT.OnSelect = Set(varGSel, ThisItem)` → เปิดแผงรายละเอียดข้อ 7.2 เหมือนกด Gantt
+
+แถว (หัวคอลัมน์ทำเป็น Label แถวเดียวเหนือ gallery: ทีม · ชื่อ · กะ · OT · Util · งาน/ไฟลท์):
+| คอลัมน์ | กว้าง | Text |
+|---|---|---|
+| ทีม | 70 | `ThisItem.team` |
+| ชื่อ | 180 | `ThisItem.emp_name & If(ThisItem.is_support, "  🤝 " & Coalesce(ThisItem.support_from, ""), "")` (ตัวหนา) + บรรทัดเล็ก `ThisItem.emp_code & If(IsBlank(ThisItem.pos_group), "", " · " & ThisItem.pos_group)` |
+| กะ | 130 | `If(ThisItem.bucket.Value in ["WORKING", "OT_OFF"], ThisItem.shift_code & " " & ThisItem.shift_start & If(IsBlank(ThisItem.shift_end), "", "–" & ThisItem.shift_end) & " · " & ThisItem.shift_hours & " ชม.", ThisItem.bucket.Value)` |
+| OT | 70 | `If(ThisItem.ot_hours > 0, "+" & ThisItem.ot_hours & " ชม." & If(IsBlank(ThisItem.ot_time), "", Char(10) & ThisItem.ot_time), "")` (สี `T.warn`) |
+| Util | 56 | pill เดียวกับข้อ 7.1 (`ThisItem.util_pct & "%"`) |
+| งาน/ไฟลท์ | ที่เหลือ (`Parent.TemplateWidth - 530`) · **Auto height** | สูตรด้านล่าง |
+
+งาน/ไฟลท์ — เรียงตามเวลา จากแถบ Gantt ของคนนั้น (รวมงานซัพข้ามทีม 🔁 · อบรม · STBY · เอกสาร — ครบเท่า Gantt) · ถ้ายังไม่มี `gantt_json` (ข้อมูลเก่า) ใช้ Assignment แบบตารางงานเดิม:
+```powerapps
+If(!IsBlank(ThisItem.gantt_json) && IsBlank(ParseJSON(ThisItem.gantt_json).st),
+  Concat(
+    Sort(ForAll(Table(ParseJSON(ThisItem.gantt_json).f) As s,
+        { lo: Value(Index(s.Value, 1)), hi: Value(Index(s.Value, 2)),
+          sup: Value(Index(s.Value, 4)) = 1, lb: Text(Index(s.Value, 6)) }), lo),
+    Text(Time(0, lo, 0), "hh:mm") & "–" & Text(Time(0, hi, 0), "hh:mm") & " " & lb & If(sup, " 🔁", ""),
+    Char(10)),
+  Concat(
+    Sort(Filter(colAsg, emp_code = ThisItem.emp_code && team = ThisItem.team), win_lo),
+    Title & " [" & task & "] " & Coalesce(counter_open, sta) & "–" & Coalesce(counter_close, std),
+    Char(10)))
+```
+ไม่มีงาน: แสดง `"— ไม่มีงานที่ระบุเวลา —"` (ห่อด้วย `Coalesce(สูตรด้านบน, "— ไม่มีงานที่ระบุเวลา —")`)
+สีพื้นแถว: `If(ThisItem.IsSelected, T.skySoft, If(Mod(ThisItem.gantt_ord, 2) = 0, T.surface, T.surface2))`
+> มือถือ (`App.Width < 760`): ซ่อนคอลัมน์ OT/Util แล้วให้งาน/ไฟลท์ขึ้นบรรทัดใต้ชื่อ (`Visible = App.Width >= 760`)
 
 ## 8) หน้า Porter / Pre-WC (`porter`) — แทน 🧳 Porter ของ PAS เดิม
 ข้อมูลจาก Flow E (`FLOW-porter.md`) · ต่อข้อมูลเพิ่ม `PAS_PorterStaff`
