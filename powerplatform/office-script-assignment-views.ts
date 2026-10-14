@@ -45,26 +45,44 @@ function main(workbook: ExcelScript.Workbook, dayTab: string = ""): void {
   const jobs: { [code: string]: string[] } = {};
   for (const r of ag.rows) {
     const code = str(r[A.emp_code]); if (!code) continue;
-    const fl = str(r[A.Title] !== undefined ? r[0] : "");   // Title = flight code (คอลัมน์ 0)
-    const label = (fl || "") + (str(r[A.task]) ? " " + str(r[A.task]) : "");
-    (jobs[code] = jobs[code] || []).push(label.trim());
+    const fl = str(r[0]);                                   // คอลัมน์ 0 (Title) = รหัสไฟลท์
+    const label = (fl + (str(r[A.task]) ? " " + str(r[A.task]) : "")).trim();
+    if (label) (jobs[code] = jobs[code] || []).push(label);
   }
-  const per = fresh(workbook, "By Person");
-  bold(per.getRange("A1"), "งานรายคน (กรองด้วยรหัส/ชื่อได้) · " + dname, 16, ROYAL);
-  const H2 = ["รหัส", "ชื่อ", "ทีม", "กะ", "Util%", "จำนวนงาน", "ไฟลท์/งานที่รับ"];
-  per.getRangeByIndexes(2, 0, 1, H2.length).setValues([H2]); headerFmt(per.getRangeByIndexes(2, 0, 1, H2.length), ROYAL);
-  const body2 = du.rows
-    .filter(r => str(r[D.bucket]).toUpperCase().indexOf("WORK") >= 0 || str(r[D.bucket]).toUpperCase().indexOf("OT_OFF") >= 0)
-    .map(r => {
-      const code = str(r[D.emp_code]); const js = jobs[code] || [];
-      return [code, str(r[D.emp_name]), str(r[D.team]), str(r[D.shift_code]), n(r[D.util_pct]), js.length, js.join(" · ")];
-    });
-  if (body2.length) per.getRangeByIndexes(3, 0, body2.length, H2.length).setValues(body2);
-  // เปิด AutoFilter ให้กรองได้
-  per.getRangeByIndexes(2, 0, body2.length + 1, H2.length).getFormat().autofitColumns();
-  try { per.getAutoFilter().apply(per.getRangeByIndexes(2, 0, body2.length + 1, H2.length)); } catch (e) { }
 
-  console.log("Coverage: " + body1.length + " ไฟลท์ (ขาด " + short + ") · By Person: " + body2.length + " คน");
+  // รายคน (working) + ตำแหน่ง + งาน
+  type P = { code: string; name: string; team: string; pos: string; shift: string; util: number; nj: number; jobs: string };
+  const people: P[] = du.rows
+    .filter(r => str(r[D.bucket]).toUpperCase().indexOf("WORK") >= 0 || str(r[D.bucket]).toUpperCase().indexOf("OT_OFF") >= 0)
+    .map(r => { const code = str(r[D.emp_code]); const js = jobs[code] || []; return { code, name: str(r[D.emp_name]), team: str(r[D.team]), pos: str(r[D.pos_group]), shift: str(r[D.shift_code]), util: n(r[D.util_pct]), nj: js.length, jobs: js.join(" · ") }; });
+
+  // By Person (G) — กรองด้วยรหัส/ชื่อ/ทีม/ตำแหน่ง
+  const per = fresh(workbook, "By Person");
+  bold(per.getRange("A1"), "งานรายคน (กรองได้) · " + dname, 16, ROYAL);
+  const H2 = ["รหัส", "ชื่อ", "ทีม", "ตำแหน่ง", "กะ", "Util%", "จำนวนงาน", "ไฟลท์/งานที่รับ"];
+  per.getRangeByIndexes(2, 0, 1, H2.length).setValues([H2]); headerFmt(per.getRangeByIndexes(2, 0, 1, H2.length), ROYAL);
+  const b2 = people.map(p => [p.code, p.name, p.team, p.pos, p.shift, p.util, p.nj, p.jobs]);
+  if (b2.length) per.getRangeByIndexes(3, 0, b2.length, H2.length).setValues(b2);
+  per.getRangeByIndexes(2, 0, b2.length + 1, H2.length).getFormat().autofitColumns();
+  try { per.getAutoFilter().apply(per.getRangeByIndexes(2, 0, b2.length + 1, H2.length)); } catch (e) { }
+
+  // By Team (C) — สรุปหัวทีม + รายคนจัดกลุ่มตามทีม
+  const bt = fresh(workbook, "By Team");
+  bold(bt.getRange("A1"), "รายทีม (คนในทีม + งาน) · " + dname, 16, ROYAL);
+  const teams = Array.from(new Set(people.map(p => p.team))).sort();
+  bt.getRangeByIndexes(2, 0, 1, 3).setValues([["ทีม", "คนทำงาน", "Util เฉลี่ย"]]); headerFmt(bt.getRangeByIndexes(2, 0, 1, 3), ROYAL);
+  const sm = teams.map(t => { const ps = people.filter(p => p.team === t); const u = ps.filter(p => p.util > 0); return [t, ps.length, u.length ? Math.round(u.reduce((s, p) => s + p.util, 0) / u.length) : 0]; });
+  if (sm.length) bt.getRangeByIndexes(3, 0, sm.length, 3).setValues(sm);
+  const dh = 3 + sm.length + 2;
+  const H3 = ["ทีม", "รหัส", "ชื่อ", "ตำแหน่ง", "กะ", "Util%", "ไฟลท์/งาน"];
+  bt.getRangeByIndexes(dh - 1, 0, 1, H3.length).setValues([H3]); headerFmt(bt.getRangeByIndexes(dh - 1, 0, 1, H3.length), ROYAL);
+  const sorted = people.slice().sort((a, b) => a.team.localeCompare(b.team) || b.util - a.util);
+  const b3 = sorted.map(p => [p.team, p.code, p.name, p.pos, p.shift, p.util, p.jobs]);
+  if (b3.length) bt.getRangeByIndexes(dh, 0, b3.length, H3.length).setValues(b3);
+  try { bt.getAutoFilter().apply(bt.getRangeByIndexes(dh - 1, 0, b3.length + 1, H3.length)); } catch (e) { }
+  bt.getUsedRange().getFormat().autofitColumns();
+
+  console.log("Coverage: " + body1.length + " ไฟลท์ (ขาด " + short + ") · คน " + people.length + " · ทีม " + teams.length);
 }
 
 // ---- helpers ----
