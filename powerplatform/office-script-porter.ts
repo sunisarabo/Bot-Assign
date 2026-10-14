@@ -12,7 +12,8 @@
  *   parameter: slaMin = เกณฑ์ SLA (นาที) · เคสที่ col21 > slaMin นับว่า "เกิน"
  * ใช้: Excel Online (ไฟล์ Porter) → Automate → New Script → วาง → Run
  */
-function main(workbook: ExcelScript.Workbook, slaMin: number = 15): number {
+// slaMin = เกณฑ์ SLA ที่ "ตั้งเอง" (ยังไม่เป็นทางการ) ใช้ดู % ภายในเกณฑ์ · ปรับได้จาก Power Automate
+function main(workbook: ExcelScript.Workbook, slaMin: number = 20): number {
   const ROYAL = "#1D428A";
   const SVC = ["WCHR", "WCHS", "WCHC", "MAAS", "AVIH", "ETC"];
   const isDay = (s: string) => /^\d{2}[A-Z]{3}\d{2}$/.test(s);
@@ -20,6 +21,7 @@ function main(workbook: ExcelScript.Workbook, slaMin: number = 15): number {
   type Day = { date: string; cases: number; done: number; svc: { [k: string]: number }; durSum: number; durN: number; over: number; };
   const days: Day[] = [];
   const byAir: { [k: string]: number } = {};
+  const allDur: number[] = [];
   let totCases = 0, totDone = 0, durSum = 0, durN = 0, totOver = 0;
 
   for (const ws of workbook.getWorksheets()) {
@@ -36,25 +38,36 @@ function main(workbook: ExcelScript.Workbook, slaMin: number = 15): number {
       let s = String(r[17] || "").toUpperCase().trim(); if (SVC.indexOf(s) < 0) s = "ETC";
       d.svc[s] = (d.svc[s] || 0) + 1;
       const dur = t2m(r[21]);                             // เวลาดำเนินการ (นาที)
-      if (dur != null && dur > 0) { d.durSum += dur; d.durN++; durSum += dur; durN++; if (dur > slaMin) { d.over++; totOver++; } }
+      if (dur != null && dur > 0 && dur < 600) { d.durSum += dur; d.durN++; durSum += dur; durN++; allDur.push(dur); if (dur > slaMin) { d.over++; totOver++; } }
     }
     if (d.cases > 0) days.push(d);
   }
   days.sort((a, b) => a.date.localeCompare(b.date));
+  allDur.sort((a, b) => a - b);
+  const avgDur = durN ? Math.round(durSum / durN * 10) / 10 : 0;
+  const med = durN ? allDur[Math.floor(durN / 2)] : 0;
+  const mx = durN ? allDur[durN - 1] : 0;
+  const within = durN ? Math.round((durN - totOver) / durN * 100) : 0;
+  const bucket = (thr: number) => durN ? Math.round(allDur.filter(x => x <= thr).length / durN * 100) : 0;
 
   // ---- สร้าง Porter Dashboard ----
   const old = workbook.getWorksheet("Porter Dashboard"); if (old) old.delete();
   const dsh = workbook.addWorksheet("Porter Dashboard"); dsh.activate();
   bold(dsh.getRange("A1"), "PAS · Porter Dashboard", 18, ROYAL);
 
-  const avgDur = durN ? Math.round(durSum / durN) : 0;
-  dsh.getRange("A3:E3").setValues([["เคสรวม", "COMPLETED", "เฉลี่ยเวลา (นาที)", "เกินเกณฑ์ (>" + slaMin + "น.)", "วันมีข้อมูล"]]);
-  dsh.getRange("A4:E4").setValues([[totCases, totDone, avgDur, totOver, days.length]]);
-  dsh.getRange("A3:E3").getFormat().getFont().setBold(true);
-  dsh.getRange("A4:E4").getFormat().getFont().setColor(ROYAL); dsh.getRange("A4:E4").getFormat().getFont().setSize(14);
+  dsh.getRange("A3:F3").setValues([["เคสรวม", "COMPLETED", "เฉลี่ยเวลา(น.)", "median", "มากสุด", "วันมีข้อมูล"]]);
+  dsh.getRange("A4:F4").setValues([[totCases, totDone, avgDur, med, mx, days.length]]);
+  dsh.getRange("A3:F3").getFormat().getFont().setBold(true);
+  dsh.getRange("A4:F4").getFormat().getFont().setColor(ROYAL); dsh.getRange("A4:F4").getFormat().getFont().setSize(14);
+
+  // การกระจายเวลาดำเนินการ (ไว้ตั้ง SLA) — ยังไม่มี SLA ทางการ
+  bold(dsh.getRange("A5"), "การกระจายเวลาดำเนินการ (ไว้ใช้ตั้ง SLA · ปัจจุบันเกณฑ์ที่ตั้ง = " + slaMin + " น. → ภายในเกณฑ์ " + within + "%)", 11, "#5b7189");
+  dsh.getRange("A6:E6").setValues([["≤5 น.", "≤10 น.", "≤15 น.", "≤20 น.", "≤30 น."]]);
+  dsh.getRange("A7:E7").setValues([[bucket(5) + "%", bucket(10) + "%", bucket(15) + "%", bucket(20) + "%", bucket(30) + "%"]]);
+  dsh.getRange("A6:E6").getFormat().getFont().setBold(true);
 
   // ตารางรายวัน
-  const hr = 6;
+  const hr = 9;
   const head = ["วันที่", "เคส", "COMPLETED"].concat(SVC).concat(["เฉลี่ยเวลา", "เกิน SLA"]);
   dsh.getRange(1, 1).getCell(0, 0); // noop
   const hRange = dsh.getRangeByIndexes(hr - 1, 0, 1, head.length);
