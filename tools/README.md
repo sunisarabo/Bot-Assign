@@ -36,7 +36,32 @@ python3 tools/build_int_roster.py  HKT_Winter2627_Turnaround_Master.xlsx \
 - `BANDS` — ช่วงกะ (เช้า 05–14 · บ่าย 13–22 · ดึก 21–06, ซ้อน 1 ชม.)
 
 ### วิธีคิดหัวคน/กะ (sizing)
-หัวคนต่อกะ = **peak concurrent** ของคนที่ติดงานพร้อมกันในช่วงกะนั้น
-(ถ่วงน้ำหนักแต่ละไฟลท์ด้วย `TOTAL` จากกฎ manning ตามช่วงจอด STA→STD)
-→ เป็น **ค่าประมาณเชิงวางแผน (upper-bound)** เพราะถือว่าทีมประจำไฟลท์อยู่ตลอดช่วงจอด
-ปรับให้ละเอียดขึ้นได้โดยแยกหน้าต่างงาน CI (ก่อน STD) กับ ARR (หลัง STA)
+หัวคนต่อกะ = **peak concurrent** ของคนที่ติดงานพร้อมกันในช่วงกะนั้น โดยแยก **หน้าต่างงานจริงต่อเฟส**
+(CI เช็คอิน STD-180..STD-45 · GATE+SUP บอร์ด STD-60..STD+15 · ARR ขาเข้า STA-10..STA+45)
+ถ่วงน้ำหนักด้วยจำนวนคนเฉพาะเฟสจากกฎ manning → สมจริงกว่าการนับทั้งช่วงจอด
+ปรับหน้าต่าง/กฎได้ที่ค่าคงที่ `CI_OPEN/CI_CLOSE/GATE_*/ARR_*` และ `MANNING`
+
+---
+
+## build_roster.py
+จับ "คนจริงในทีม" (จากทะเบียน) ลงกะตามความต้องการรายวัน → ตารางเวรรายเดือน
+
+```bash
+python3 tools/build_roster.py \
+    --req  HKT_Winter2627_INT_RosterAssignment_2026-11.xlsx \
+    --reg  OT_Passenger_Service.xlsx \
+    -o     HKT_Nov2026_Roster_INT.xlsx \
+    --dataverse ./dataverse
+```
+| อาร์กิวเมนต์ | ความหมาย |
+|---|---|
+| `--req` | เวิร์กบุ๊กเดือน (มีชีต `ShiftReq_Daily`) จาก build_int_roster.py |
+| `--reg` | ไฟล์ทะเบียนพนักงาน (ชีต `ทะเบียน`) |
+| `--dataverse` | ออก `pas_duty_roster.csv` (long format) สำหรับ import |
+
+ผลลัพธ์: 1 ชีต/ทีม (คน×วัน = M/A/N/OFF ระบายสี) · `Coverage` (target/assigned/ขาด) · `Teams_NoStaff`
+- จับกะ: OFF ให้คนทำงานสะสมเยอะก่อน · กะดึกให้คนได้ N น้อยสุดก่อน · คนไม่พอ → scale + แจ้งขาด
+- ปรับทีม→พนักงานที่ `REG2TEAM` · เวลากะที่ `SHIFT_TIME`
+- ทีมที่ไม่มีคนในทะเบียน (เช่น ZF/DOM) จะอยู่ในชีต `Teams_NoStaff` (ต้องใช้ support/charter)
+
+> การนำ CSV เข้าระบบจริง (Dataverse/Power Apps) ดู `powerplatform/13-load-into-system.md`

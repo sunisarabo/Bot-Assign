@@ -60,6 +60,12 @@ MAN_DEF = [1, 4, 1, 1, 8]
 
 # ช่วงกะ (นาทีจากเที่ยงคืน · N พันข้ามวันถึง 06:00 = 1800) — ซ้อนกัน 1 ชม.เพื่อ handover
 BANDS = [('M', 5*60, 14*60), ('A', 13*60, 22*60), ('N', 21*60, 30*60)]
+
+# หน้าต่างงานจริงต่อเฟส (นาที) — ใช้สร้าง interval ถ่วงน้ำหนักด้วย "คนเฉพาะเฟส"
+# CI (เช็คอิน) เปิดก่อน STD · ปิดก่อนขึ้นเครื่อง · GATE+SUP ช่วงบอร์ดดิ้ง · ARR ช่วงเครื่องเข้า
+CI_OPEN, CI_CLOSE = 180, 45          # เช็คอิน: STD-180 .. STD-45
+GATE_LEAD, GATE_TAIL = 60, 15        # บอร์ด/คุมงาน: STD-60 .. STD+15
+ARR_LEAD, ARR_TAIL = 10, 45          # ขาเข้า: STA-10 .. STA+45
 WD_TH = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัส', 'ศุกร์', 'เสาร์', 'อาทิตย์']   # Monday=0
 ROYAL = '1D428A'
 
@@ -129,6 +135,28 @@ def manning(code):
     return MANNING.get(code, MAN_DEF)
 
 
+def flight_work_intervals(f):
+    """ช่วงงานจริงต่อเฟส → [(lo,hi,คน)] นาทีจากเที่ยงคืนของวันนั้น
+    turnaround: ARR@STA + CI(ก่อนออก) + GATE/SUP(บอร์ด) · one-way: เฉพาะฝั่งที่มี"""
+    sup, ci, arr, gate, _ = manning(f['code'])
+    sta = mins_from_midnight(f['sta'], f['date']) if isinstance(f['sta'], datetime.datetime) else None
+    std = mins_from_midnight(f['std'], f['date']) if isinstance(f['std'], datetime.datetime) else None
+    is_turn = f['type'] == 'Turnaround'
+    arr_only = f['type'] == 'Arrival only'
+    dep_only = not is_turn and not arr_only
+    out = []
+    if (is_turn or arr_only) and sta is not None:
+        w = arr + (sup if arr_only else 0)                 # one-way เข้า: มีหัวหน้าคุมเอง
+        if w > 0:
+            out.append((sta - ARR_LEAD, sta + ARR_TAIL, w))
+    if (is_turn or dep_only) and std is not None:
+        if ci > 0:
+            out.append((std - CI_OPEN, std - CI_CLOSE, ci))         # เช็คอิน
+        if sup + gate > 0:
+            out.append((std - GATE_LEAD, std + GATE_TAIL, sup + gate))   # บอร์ด + คุมงาน
+    return out
+
+
 def sheet_header(ws, n):
     fill = PatternFill('solid', fgColor=ROYAL); font = Font(color='FFFFFF', bold=True)
     for c in range(1, n + 1):
@@ -158,17 +186,13 @@ def build(flights, out_path, month=None):
     agg = defaultdict(lambda: {'turn': 0, 'ow': 0, 'mvt': 0, 'man': 0, 'ivs': []})
     for f in flights:
         k = (f['date'], team_of(f['code'])); A = agg[k]
-        sup, ci, arr, gate, tot = manning(f['code'])
         if f['type'] == 'Turnaround':
-            A['turn'] += 1; arr_p, dep_p = arr, sup + ci + gate
-        elif f['type'] == 'Arrival only':
-            A['ow'] += 1; arr_p, dep_p = sup + arr, 0
+            A['turn'] += 1
         else:
-            A['ow'] += 1; arr_p, dep_p = 0, sup + ci + gate
-        A['mvt'] += f['arr_mvt'] + f['dep_mvt']; A['man'] += arr_p + dep_p
-        if isinstance(f['gs'], datetime.datetime) and isinstance(f['ge'], datetime.datetime) and f['ge'] > f['gs']:
-            lo = mins_from_midnight(f['gs'], f['date']); hi = mins_from_midnight(f['ge'], f['date'])
-            A['ivs'].append((lo, hi, tot))
+            A['ow'] += 1
+        A['mvt'] += f['arr_mvt'] + f['dep_mvt']
+        for lo, hi, w in flight_work_intervals(f):
+            A['ivs'].append((lo, hi, w)); A['man'] += w
 
     r = wb.create_sheet('INT_Roster_Daily')
     rc = ['Date', 'Team', 'Turnarounds', 'OneWay', 'Flights', 'Movements', 'Peak_OnGround']
@@ -235,10 +259,8 @@ def build_month(flights, agg, out_path, ym):
     byday = defaultdict(lambda: {'flts': 0, 'ivs': []})
     for f in mflts:
         k = (f['date'], team_of(f['code'])); byday[k]['flts'] += 1
-        _, _, _, _, tot = manning(f['code'])
-        if isinstance(f['gs'], datetime.datetime) and isinstance(f['ge'], datetime.datetime) and f['ge'] > f['gs']:
-            lo = mins_from_midnight(f['gs'], f['date']); hi = mins_from_midnight(f['ge'], f['date'])
-            byday[k]['ivs'].append((lo, hi, tot))
+        for lo, hi, w in flight_work_intervals(f):
+            byday[k]['ivs'].append((lo, hi, w))
     for (d, t), A in sorted(byday.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
         reqs = [band_peak(A['ivs'], bs, be) for _, bs, be in BANDS]
         srd.append([d, WD_TH[d.weekday()], t, A['flts'], *reqs, peak_weight(A['ivs'])])
