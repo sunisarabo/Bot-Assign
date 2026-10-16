@@ -35,19 +35,36 @@ SHIFT_FONT = {'M': '996A13', 'A': '1864AB', 'N': '5F3DC4', 'OFF': 'ADB5BD'}
 ROYAL = '1D428A'
 
 
+import datetime as _dt
+
+
+def _serial_date(v):
+    if isinstance(v, _dt.datetime):
+        return v.date()
+    if isinstance(v, (int, float)) and v > 0:
+        return (_dt.date(1899, 12, 30) + _dt.timedelta(days=int(v)))
+    return None
+
+
 def load_staff(reg_path):
     wb = load_workbook(reg_path, read_only=True, data_only=True)
     ws = wb['ทะเบียน']; it = ws.iter_rows(values_only=True)
     h = list(next(it)); ix = {n: i for i, n in enumerate(h)}
     team_staff = defaultdict(list)
     for r in it:
-        if r[ix['EmpID']] is None or str(r[ix['Status']]) != 'Active':
+        if r[ix['EmpID']] is None:
             continue
+        # รวมคนที่ยัง active และคนที่พ้นสภาพ "ระหว่าง/หลัง" เดือน (จะคุมด้วยวันที่เอง)
         tname = REG2TEAM.get(str(r[ix['Team']] or '').strip())
         if not tname:
             continue
+        resign = _serial_date(r[ix['EndDate']]) if 'EndDate' in ix else None
+        start = _serial_date(r[ix['StartDate']]) if 'StartDate' in ix else None
+        status = str(r[ix['Status']])
+        if status != 'Active' and resign is None:
+            continue
         nick = str(r[ix['FirstNameTH']] or '').strip() or str(r[ix['EmpID']])
-        team_staff[tname].append({'id': str(r[ix['EmpID']]), 'nick': nick})
+        team_staff[tname].append({'id': str(r[ix['EmpID']]), 'nick': nick, 'resign': resign, 'start': start})
     return team_staff
 
 
