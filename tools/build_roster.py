@@ -247,9 +247,10 @@ def main():
         fp = os.path.join(args.dataverse, 'pas_duty_roster.csv')
         with open(fp, 'w', newline='', encoding='utf-8-sig') as fh:
             w = csv.writer(fh)
-            w.writerow(['pas_work_date', 'EmpCode(pas_employee)', 'pas_emp_name', 'Team(pas_team)',
+            w.writerow(['pas_name', 'pas_work_date', 'EmpCode(pas_employee)', 'pas_emp_name', 'Team(pas_team)',
                         'pas_bucket', 'pas_shift_code', 'pas_shift_start', 'pas_shift_end', 'pas_ot_hours'])
-            w.writerows(duty_rows)
+            for r in duty_rows:
+                w.writerow([r[1] + '_' + r[0]] + r)   # pas_name = EmpCode_date (คีย์ต่อแถว)
         print('dataverse pas_duty:', fp, '(%d rows)' % len(duty_rows))
     tot_short = sum(1 for ri in range(2, cov.max_row + 1) if (cov.cell(ri, 12).value or 0) > 0)
     tot_ot = sum((cov.cell(ri, 10).value or 0) + (cov.cell(ri, 11).value or 0) for ri in range(2, cov.max_row + 1))
