@@ -3,9 +3,13 @@
 หน้า **"งานของฉัน"** บน Power Apps — พนักงานใส่รหัสดูงานตัวเอง/ทีม
 กฎสิทธิ์ (ตาม `07-access-roles.md`): **ย้อนหลังได้ทุกวัน · ล่วงหน้าได้แค่ วันนี้+1**
 
-> สมมติ data source (ปรับชื่อให้ตรงของจริง):
-> - **`Duty`** — ไฟล์เวรรายคน: `work_date` · `emp_code` · `emp_name` · `team` · `position` · `shift_time` · `shift_hrs` · `ot_plan` · `util_pct` · `bucket`
-> - **`Assignment`** — งานที่รับ: `work_date` · `emp_code` · `flight` · `task` · `time_text`
+> ใช้ตาราง Dataverse จริงของโปรเจกต์ (ดู `tables.def.json` / `01` / `02`):
+> - **`pas_duties`** — `pas_work_date` · รหัส = lookup `pas_employee.pas_name` · `pas_emp_name`
+>   · ทีม = `pas_team.pas_name` / ไทย `pas_team.pas_label_th` · ตำแหน่ง `pas_employee.pas_position`
+>   · `pas_shift_code` · `pas_shift_start`/`pas_shift_end` (นาที) · `pas_shift_hours` · `pas_ot_hours`
+>   · `pas_bucket.Value` (WORKING/OT_OFF/OFF/SICK/VACATION/LEAVE/TRAINING) · `pas_duty_min`/`pas_busy_min`
+> - **`pas_assignments`** — ผูกกับ duty: `pas_duty.pas_duty` · ไฟลท์ `pas_flight_leg`/`pas_name`
+>   · `pas_task` · `pas_sta`/`pas_std` (นาที) · `pas_is_flight`
 
 ---
 
@@ -16,6 +20,8 @@ Set(varCap,   DateAdd(varToday, 1, Days));          // เพดาน = พร�
 Set(varDate,  varToday);
 Set(varStart, DateAdd(varToday, -5, Days));         // ให้ปุ่มสุดท้ายของแถบ = พรุ่งนี้พอดี
 Set(varCode,  "");
+Set(varRec,   Blank());
+Clear(colMyJobs);
 // แถบ 7 วัน
 ClearCollect(colStrip, ForAll(Sequence(7, 0), { d: DateAdd(varStart, Value, Days) }))
 ```
@@ -31,7 +37,7 @@ ClearCollect(colStrip, ForAll(Sequence(7, 0), { d: DateAdd(varStart, Value, Days
        If(ThisItem.d > varCap, RGBA(241,245,249,1), RGBA(255,255,255,1)))
     ```
   - **Color:** `If(ThisItem.d = varDate, White, If(ThisItem.d > varCap, RGBA(148,163,184,1), RGBA(15,23,42,1)))`
-  - **OnSelect:** `If(ThisItem.d <= varCap, Set(varDate, ThisItem.d); Reset(TextInput_Code); Set(varCode,""))`
+  - **OnSelect:** `If(ThisItem.d <= varCap, Set(varDate, ThisItem.d); LoadMyWork())`  ← ดู §4 เรื่อง LoadMyWork
   - (ป้ายล็อก) ไอคอน 🔒 `Visible = ThisItem.d > varCap`
 
 ## 3) ปุ่มเลื่อน + "วันนี้"
@@ -48,61 +54,86 @@ btnNext.OnSelect = Set(varStart, DateAdd(varStart, 7, Days));
 // วันนี้
 btnToday.OnSelect = Set(varDate, varToday);
                     Set(varStart, DateAdd(varToday, -5, Days));
-                    ClearCollect(colStrip, ForAll(Sequence(7,0), { d: DateAdd(varStart, Value, Days) }))
+                    ClearCollect(colStrip, ForAll(Sequence(7,0), { d: DateAdd(varStart, Value, Days) }));
+                    LoadMyWork()
 ```
 
-## 4) ช่องค้นหา + ปุ่ม "ดูงาน"
+## 4) โหลดงานของคน — `LoadMyWork` (วาง OnSelect ปุ่ม "ดูงาน" และเรียกซ้ำตอนเปลี่ยนวัน)
+> ไม่มี user-function ใน canvas → วางชุดนี้ไว้ที่ **`btnSearch.OnSelect`** และ **คัดลอกไปใส่ OnSelect ปุ่มวัน/ปุ่มวันนี้** (แทนคำว่า `LoadMyWork()` ข้างบน)
 ```powerapps
-// ปุ่มดูงาน (หรือ TextInput_Code.OnChange)
-btnSearch.OnSelect =
-    Set(varCode, Trim(TextInput_Code.Text));
-    // guard เพดานวันอีกชั้น (กันแก้ค่าภายนอก)
-    If(varDate > varCap, Set(varDate, varCap));
-    Set(varRec, LookUp(Duty, work_date = varDate, Trim(emp_code) = varCode));
-    ClearCollect(colMyJobs, Filter(Assignment, work_date = varDate, Trim(emp_code) = varCode))
+Set(varCode, Trim(TextInput_Code.Text));
+If(varDate > varCap, Set(varDate, varCap));                    // guard เพดานอีกชั้น
+// หา duty ของคนนี้ในวันนั้น (filter วันที่ delegable → แล้วค่อย LookUp รหัสในชุดเล็ก)
+Set(varRec, LookUp(Filter(pas_duties, pas_work_date = varDate),
+                   Trim(pas_employee.pas_name) = varCode));
+// งานที่รับ (ผูกกับ duty นั้น)
+Clear(colMyJobs);
+If(!IsBlank(varRec),
+   ClearCollect(colMyJobs,
+      AddColumns(
+         Filter(pas_assignments, pas_duty.pas_duty = varRec.pas_duty),
+         "label",  Coalesce(pas_flight_leg, pas_name),
+         "real",   pas_is_flight,
+         "timeTxt",
+            With({ s: pas_sta, d: pas_std },
+               If(!IsBlank(s) && !IsBlank(d),
+                  Text(RoundDown(s/60,0),"00") & ":" & Text(Mod(s,60),"00") & "–" &
+                  Text(RoundDown(d/60,0),"00") & ":" & Text(Mod(d,60),"00"),
+                  ""))
+      )
+   )
+)
 ```
-> ถ้าอยากให้เปลี่ยนวันแล้วโหลดคนเดิมอัตโนมัติ ให้ย้าย 3 บรรทัดท้าย (LookUp/ClearCollect) ไปไว้ใน `OnSelect` ของปุ่มวัน + ปุ่มเลื่อน ด้วย โดยใช้ `varCode` เดิม
 
 ## 5) การ์ดหัว + กะ + KPI (Label)
 ```powerapps
 // หัว: ชื่อ · รหัส · ทีม · ตำแหน่ง
-lblName.Text  = If(IsBlank(varRec), "—", varRec.emp_name)
-lblMeta.Text  = varCode & If(IsBlank(varRec), "", " · " & varRec.team & " · " & varRec.position)
+lblName.Text  = If(IsBlank(varRec), "—", varRec.pas_emp_name)
+lblMeta.Text  = varCode & If(IsBlank(varRec), "",
+                  " · " & varRec.pas_team.pas_name & " · " & varRec.pas_employee.pas_position)
 
-// กะของวันที่เลือก
+// กะของวันที่เลือก (HH:MM จากนาที)
 lblShift.Text = If(IsBlank(varRec), "ไม่มีข้อมูล",
-                   If(varRec.bucket in ["working","ot_off"], Coalesce(varRec.shift_time,"(ไม่ระบุเวลา)"), "—"))
-lblStatus.Text= Switch(varRec.bucket,
-                   "working","ขึ้นงาน", "ot_off","OT (วันหยุด)",
-                   "off","วันหยุด (OFF)", "sick","ลาป่วย", "leave","ลา", "ไม่ขึ้นงาน")
+   If(varRec.pas_bucket.Value in ["WORKING","OT_OFF"] && !IsBlank(varRec.pas_shift_start),
+      Text(RoundDown(varRec.pas_shift_start/60,0),"00") & ":" & Text(Mod(varRec.pas_shift_start,60),"00") & "–" &
+      Text(RoundDown(varRec.pas_shift_end/60,0),"00") & ":" & Text(Mod(varRec.pas_shift_end,60),"00"),
+      If(varRec.pas_bucket.Value in ["WORKING","OT_OFF"], Coalesce(varRec.pas_shift_code,"(ไม่ระบุเวลา)"), "—")))
+
+lblStatus.Text= Switch(varRec.pas_bucket.Value,
+                   "WORKING","ขึ้นงาน", "OT_OFF","OT (วันหยุด)",
+                   "OFF","วันหยุด (OFF)", "SICK","ลาป่วย",
+                   "VACATION","ลาพักร้อน", "LEAVE","ลา", "TRAINING","อบรม", "ไม่ขึ้นงาน")
 
 // KPI
-lblShiftHrs.Text = If(IsBlank(varRec) || Coalesce(varRec.shift_hrs,0)=0, "—", Text(varRec.shift_hrs) & " ชม.")
-lblOtHrs.Text    = If(Coalesce(varRec.ot_plan,0)>0, Text(varRec.ot_plan) & " ชม.", "—")
-lblUtil.Text     = If(IsBlank(varRec) || IsBlank(varRec.util_pct), "—", Text(varRec.util_pct) & "%")
+lblShiftHrs.Text = If(IsBlank(varRec) || Coalesce(varRec.pas_shift_hours,0)=0, "—", Text(varRec.pas_shift_hours) & " ชม.")
+lblOtHrs.Text    = If(Coalesce(varRec.pas_ot_hours,0)>0, Text(varRec.pas_ot_hours) & " ชม.", "—")
+lblUtil.Text     = If(IsBlank(varRec) || Coalesce(varRec.pas_duty_min,0)=0, "—",
+                      Text(RoundDown(varRec.pas_busy_min/varRec.pas_duty_min*100,0)) & "%")
 ```
 
 ## 6) ตารางงานที่ได้รับ (Gallery `galJobs`)
 ```powerapps
-galJobs.Items = colMyJobs          // ช่อง: flight · time_text · task
+galJobs.Items = colMyJobs          // ช่อง: label (ไฟลท์/งาน) · timeTxt · pas_task
 lblJobCount.Text = CountRows(colMyJobs) & " งาน"
 // ว่าง: Label "ไม่มีไฟลท์/งานในวันนี้"  Visible = CountRows(colMyJobs)=0
+// แยกงานไฟลท์จริง vs งานอื่น: ThisItem.real  (pas_is_flight)
 ```
 
 ## 7) DatePicker (ถ้าใช้แทน/เสริมแถบ) — คุมเพดานในตัว
 ```powerapps
-DatePicker_Pick.Max = varCap        // เลือกเกินพรุ่งนี้ไม่ได้
-DatePicker_Pick.OnChange = If(DatePicker_Pick.SelectedDate <= varCap, Set(varDate, DatePicker_Pick.SelectedDate))
+dpDate.Max = varCap        // เลือกเกินพรุ่งนี้ไม่ได้
+dpDate.OnChange = If(dpDate.SelectedDate <= varCap, Set(varDate, dpDate.SelectedDate); /* LoadMyWork() */)
 ```
 
 ---
 
 ## เพดาน "วันนี้+1" บังคับ 3 ชั้น
 1. **ปุ่มวันในแถบ** — `DisplayMode.Disabled` เมื่อ `d > varCap` (กดไม่ได้ + สีจาง + 🔒)
-2. **ปุ่ม ›** ปิดเมื่อแถบถึงพรุ่งนี้แล้ว · **DatePicker.Max = varCap**
+2. **ปุ่ม ›** ปิดเมื่อแถบถึงพรุ่งนี้แล้ว · **dpDate.Max = varCap**
 3. **ก่อนโหลดข้อมูล** — `If(varDate > varCap, Set(varDate, varCap))` กันค่าถูกตั้งจากที่อื่น
 
 ## หมายเหตุ
 - ย้อนหลังไม่จำกัด (ปุ่ม ‹ เลื่อนได้เรื่อย ๆ) ตรงตามกฎ "ดูย้อนหลังได้ตามต้องการ"
-- ถ้า `Duty`/`Assignment` อยู่บน Excel ที่แถวเยอะ ให้กรอง **รายวัน** (เท่ากับ `work_date = varDate`) และทำผ่าน flow แบบเดียวกับ `08-powerfx-ot-actual.md` เพื่อเลี่ยง delegation 2,000 แถว · ถ้าเป็น SharePoint List ที่ index `work_date` แล้ว `Filter()` delegable ตรง ๆ ได้
+- การกรอง `Filter(pas_duties, pas_work_date = varDate)` **delegable** ใน Dataverse (วันเดียว ~ไม่กี่ร้อยแถว) → `LookUp` ด้วย `pas_employee.pas_name` ทำในชุดเล็ก ปลอดภัย
+- ถ้า Studio เตือน delegation ที่ `pas_employee.pas_name` ให้แน่ใจว่า `Filter(pas_duties, pas_work_date=varDate)` อยู่ชั้นในสุด (ดึงวันเดียวก่อน)
 - "งานของฉัน" จริง ๆ = กรองด้วย `varCode` → พนักงานเปิดด้วยเมลกลางทีม/จอรวม แล้วพิมพ์รหัสตัวเอง (ไม่ต้องล็อกอินรายคน)

@@ -119,12 +119,12 @@ ClearCollect(
     ForAll(
         Table(ParseJSON(varResp.rows)),
         {
-            code: Trim(Text(ThisRecord.code)),
-            name: Text(ThisRecord.name),
-            dept: Text(ThisRecord.dept),
-            team: Text(ThisRecord.team),
+            code:   Trim(Text(ThisRecord.code)),
+            name:   Text(ThisRecord.name),
+            dept:   Text(ThisRecord.dept),
+            teamX:  Text(ThisRecord.team),      // ทีม/ตำแหน่ง จากไฟล์ OT (จับทีมจริงใน 08 ขั้น 3.3)
             otcode: Text(ThisRecord.otcode),
-            hrs:  Value(ThisRecord.hrs)
+            hrs:    Value(ThisRecord.hrs)
         }
     )
 )

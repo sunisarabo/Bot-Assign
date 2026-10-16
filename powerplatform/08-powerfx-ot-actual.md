@@ -53,13 +53,15 @@
 
 ## ขั้น 3 — Power Fx บนหน้า "ตรวจ OT ขอจริง"
 
-> สมมติ data source ฝั่ง **แผน** คือ `Duty` (ไฟล์เวร) ที่มีคอลัมน์
-> `work_date` · `emp_code` · `emp_name` · `team` · `ot_plan` (ชม. OT ที่ลงแผน) — ปรับชื่อให้ตรงของจริง
+> ฝั่ง **แผน** ใช้ตาราง Dataverse จริงของโปรเจกต์ (ดู `tables.def.json` / `01` / `02`):
+> **`pas_duties`** · วันที่ `pas_work_date` · OT ที่ลงแผน `pas_ot_hours`
+> · รหัสพนักงาน = lookup `pas_employee.pas_name` (Emp Code) · ชื่อ `pas_emp_name`
+> · ทีม = lookup `pas_team.pas_name` (Team Code) · bucket `pas_bucket.Value` (WORKING/OT_OFF/…)
 
 ### 3.1 ปุ่ม "แสดงผล/รีเฟรช" (หรือ `OnVisible` ของ Screen)
 ```powerapps
 // วันที่เลือก + คีย์
-Set(varDate, DatePicker1.SelectedDate);
+Set(varDate, dpDate.SelectedDate);
 Set(varKey, Text(varDate, "yyyy-mm-dd"));
 
 // (1) OT จริงจากไฟล์ OT รวม — ผ่าน flow (กรองวันแล้ว เบา)
@@ -69,36 +71,45 @@ ClearCollect(
     ForAll(
         Table(ParseJSON(varResp.rows)),
         {
-            code: Trim(Text(ThisRecord.code)),
-            name: Text(ThisRecord.name),
-            dept: Text(ThisRecord.dept),
-            team: Text(ThisRecord.team),
+            code:   Trim(Text(ThisRecord.code)),
+            name:   Text(ThisRecord.name),
+            dept:   Text(ThisRecord.dept),
+            teamX:  Text(ThisRecord.team),      // ทีม/ตำแหน่ง จากไฟล์ OT (airline group)
             otcode: Text(ThisRecord.otcode),
-            hrs:  Value(ThisRecord.hrs)
+            hrs:    Value(ThisRecord.hrs)
         }
     )
 );
 
-// (2) แผน OT จากไฟล์เวร (วันเดียว = เล็ก) — ปรับชื่อ source/คอลัมน์ตามจริง
+// (2) แผน OT จากไฟล์เวร (Dataverse · วันเดียว = เล็ก, filter วันที่ delegable)
 ClearCollect(
     colPlan,
     AddColumns(
-        Filter(Duty, work_date = varDate, ot_plan > 0),
-        "codeKey", Trim(Text(emp_code))
+        Filter(pas_duties, pas_work_date = varDate, pas_ot_hours > 0),
+        "codeKey",  Trim(pas_employee.pas_name),
+        "planHrs",  pas_ot_hours,
+        "teamCode", pas_team.pas_name,
+        "empName",  pas_emp_name
     )
 );
 
-// (3) สรุปรายคน: ขอจริง(ชม.) เทียบ แผน(ชม.)
+// (3) สรุปรายคน: ขอจริง(ชม.) เทียบ แผน(ชม.) + หาทีมให้ตรงกับไฟล์เวร
 ClearCollect(
     colActualByEmp,
     AddColumns(
         GroupBy(colActual, "code", "grp"),
-        "name",     First(grp).name,
-        "team",     First(grp).team,
-        "dept",     First(grp).dept,
-        "actHrs",   Sum(grp, hrs),
-        "items",    CountRows(grp),
-        "planHrs",  Sum(Filter(colPlan, codeKey = code), ot_plan)
+        "name",    First(grp).name,
+        "dept",    First(grp).dept,
+        "actHrs",  Sum(grp, hrs),
+        "items",   CountRows(grp),
+        "planHrs", Sum(Filter(colPlan, codeKey = code), planHrs),
+        // ทีม: ใช้ทีมจากไฟล์เวรก่อน → ถ้าไม่มี (คนหลุดแผน) ดึงจากทะเบียน → ท้ายสุด teamX จากไฟล์ OT
+        "team",
+            Coalesce(
+                LookUp(colPlan, codeKey = code).teamCode,
+                LookUp(pas_employees, pas_name = code).pas_team.pas_name,
+                First(grp).teamX
+            )
     )
 );
 
@@ -134,12 +145,16 @@ CountRows(Filter(colCmp, status = "เกินแผน")) & " คน (+" &
 ### 3.3 เทียบภาพรวม (ขอจริง vs แผน vs ต่าง)
 ```powerapps
 // ชั่วโมง OT รวม
-With({a: Sum(colActual, hrs), p: Sum(colPlan, ot_plan)},
+With({a: Sum(colActual, hrs), p: Sum(colPlan, planHrs)},
      "ขอจริง " & Text(a,"0.#") & " · แผน " & Text(p,"0.#") & " · ต่าง " & Text(a-p,"0.#"))
 
 // จำนวนคน (Headcount)
 With({a: CountRows(Distinct(colActual, code)), p: CountRows(Distinct(colPlan, codeKey))},
-     "ขอจริง " & a & " · แผน " & p & " · ต่าง " & (a-p))
+     "ขอจริง " & a.Value & " · แผน " & p.Value & " · ต่าง " & (a.Value - p.Value))
+
+// จำนวนทีมที่มี OT
+With({a: CountRows(Distinct(colCmp, team)), p: CountRows(Distinct(colPlan, teamCode))},
+     "ขอจริง " & a.Value & " · แผน " & p.Value)
 ```
 
 ### 3.4 สรุปรายทีม (Gallery)
@@ -163,7 +178,7 @@ ClearCollect(
 ```powerapps
 // Gallery.Items =
 Filter(colCmp, status = "หลุดแผน")
-// ช่อง: code · name · team · actHrs ("ชม.") · (จะโชว์ otcode/เวลาเพิ่มได้จาก colActual)
+// ช่อง: code · name · team · actHrs ("ชม.") · (จะโชว์ otcode เพิ่มได้จาก colActual)
 ```
 
 ### 3.6 กรณีไม่มีข้อมูลวันนั้น (เช่น ต.ค. ที่ไฟล์ยังไม่อัปเดต)
