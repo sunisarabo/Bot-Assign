@@ -1,0 +1,270 @@
+Team,Position,Count,PctFlights,Phase,Desc
+AK,Y2,1,0.7,CI,Economy Counter2
+AK,Y3,1,0.7,CI,Economy Counter3
+AK,Y1,1,0.65,CI,Economy Counter1
+AK,Q,1,0.1,CI,
+AK,Y4,1,0.05,CI,Economy Counter4
+AK,CRW,1,0.85,GATE,Crew Sign
+AK,PFD,2,0.85,GATE,Post Flight Doc
+AK,SOD,1,0.85,GATE,Supervisor Onduty
+AK,FC,1,0.75,GATE,Flight Controller
+AK,GA,3,0.75,GATE,Gate Agent
+AK,GC,1,0.7,GATE,Gate Controller
+AK,FR,1,0.65,GATE,Flight Release
+AK,GK,1,0.2,GATE,
+AK,ARR,1,0.45,ARR,Arrival
+AK,NTL,1,0.35,ARR,
+AK,INAD,1,0.1,ARR,
+CHN,GA,1,1.0,GATE,Gate Agent
+CHN,SOD,1,1.0,GATE,Supervisor Onduty
+CHN,ESCT,1,1.0,ARR,Airside escort
+EK,F1/Prio,1,0.846,CI,First Class Priority Counter1
+EK,Y1,2,0.846,CI,Economy Counter1
+EK,BIR,1,0.769,CI,ASST PAX TO BAGGAGE INSPECTION ROOM
+EK,WEB1,1,0.769,CI,Web check or Bag Drop Counter1
+EK,Y2,2,0.769,CI,Economy Counter2
+EK,SD,1,0.692,CI,Service Desk
+EK,J1/Prio,1,0.615,CI,Business Class or Priority Counter1
+EK,J2/Prio,1,0.615,CI,Business Class or Priority Counter2
+EK,WEB2,1,0.385,CI,Web check or Bag Drop Counter2
+EK,W1/Prio,1,0.308,CI,Premium Economy Counter1
+EK,Y3,2,0.154,CI,Economy Counter3
+EK,Y4,2,0.154,CI,Economy Counter4
+EK,Y6,1,0.154,CI,Economy Counter6
+EK,Y7,2,0.154,CI,Economy Counter7
+EK,WEB3,1,0.077,CI,Web check or Bag Drop Counter3
+EK,Doc,1,1.0,GATE,Document
+EK,FR,1,1.0,GATE,Flight Release
+EK,GA,6,1.0,GATE,Gate Agent
+EK,GC,1,1.0,GATE,Gate Controller
+EK,PFD,1,0.846,GATE,Post Flight Doc
+EK,FLW,1,0.769,GATE,Floor walker
+EK,BGO,2,0.692,GATE,Boco
+EK,FC,1,0.615,GATE,Flight Controller
+EK,Asst pax out,2,0.538,GATE,Asst departure passenger
+EK,Crewsign in,2,0.385,GATE,Crewsign arrival
+EK,Doc/crewsign,1,0.385,GATE,Document and crewsign (Turn around flight)
+EK,ASST,3,0.308,GATE,Operational Assistance New PSA
+EK,SOD,1,0.308,GATE,Supervisor Onduty
+EK,AC,1,1.0,ARR,Meet Aircraft
+EK,ARR,3,1.0,ARR,Arrival
+EK,TF/CIQ,1,0.385,ARR,Escort Trasfer Pax or CIQ
+EK,Asst pax in,2,0.308,ARR,Asst arrival passenger
+EK,WEL,3,0.154,ARR,Welcome Guest
+EY,Y1,1,0.889,CI,Economy Counter1
+EY,Y2,1,0.611,CI,Economy Counter2
+EY,PSC,1,0.556,CI,ทีม SQ
+EY,J1/Prio,1,0.5,CI,Business Class or Priority Counter1
+EY,WEB1,1,0.444,CI,Web check or Bag Drop Counter1
+EY,J1,1,0.389,CI,
+EY,J2/Prio,1,0.389,CI,Business Class or Priority Counter2
+EY,WEB2,1,0.389,CI,Web check or Bag Drop Counter2
+EY,F1/Prio,1,0.278,CI,First Class Priority Counter1
+EY,J2,1,0.278,CI,
+EY,BIR,2,0.222,CI,ASST PAX TO BAGGAGE INSPECTION ROOM
+EY,J3,1,0.222,CI,
+EY,SALE,1,0.222,CI,
+EY,WEB3,1,0.222,CI,Web check or Bag Drop Counter3
+EY,F1,1,0.167,CI,
+EY,Y3,1,0.056,CI,Economy Counter3
+EY,BGO,1,1.111,GATE,Boco
+EY,FC,1,0.889,GATE,Flight Controller
+EY,GA,12,0.889,GATE,Gate Agent
+EY,PFD,2,0.889,GATE,Post Flight Doc
+EY,SOD,1,0.889,GATE,Supervisor Onduty
+EY,GC,1,0.5,GATE,Gate Controller
+EY,GM,1,0.444,GATE,
+EY,FR,1,0.389,GATE,Flight Release
+EY,GK,1,0.389,GATE,
+EY,ASST,2,0.167,GATE,Operational Assistance New PSA
+EY,ARR,3,0.889,ARR,Arrival
+EY,WEL,1,0.889,ARR,Welcome Guest
+EY,RESA,1,0.444,ARR,
+EY,PRE WCH,1,0.222,ARR,
+EY,Asst pax in,1,0.167,ARR,Asst arrival passenger
+EY,FMAS,1,0.056,ARR,
+JQ,Y1,1,0.929,CI,Economy Counter1
+JQ,Y2,1,0.929,CI,Economy Counter2
+JQ,W1/Prio,1,0.5,CI,Premium Economy Counter1
+JQ,Y3,1,0.5,CI,Economy Counter3
+JQ,การเงิน,1,0.5,CI,Clear finance on behalf
+JQ,J1/Prio,1,0.429,CI,Business Class or Priority Counter1
+JQ,Y4,1,0.286,CI,Economy Counter4
+JQ,BIR,1,0.214,CI,ASST PAX TO BAGGAGE INSPECTION ROOM
+JQ,CS,1,0.214,CI,
+JQ,SD,1,0.214,CI,Service Desk
+JQ,J1,1,0.143,CI,
+JQ,R1,1,0.143,CI,
+JQ,WEB,1,0.143,CI,
+JQ,WEB1,1,0.143,CI,Web check or Bag Drop Counter1
+JQ,Y5,1,0.143,CI,Economy Counter5
+JQ,KIOSK,3,0.071,CI,
+JQ,GA,4,1.0,GATE,Gate Agent
+JQ,PFD,1,1.0,GATE,Post Flight Doc
+JQ,FC,1,0.929,GATE,Flight Controller
+JQ,SOD,1,0.929,GATE,Supervisor Onduty
+JQ,FR,1,0.857,GATE,Flight Release
+JQ,GC,1,0.857,GATE,Gate Controller
+JQ,CRW,1,0.714,GATE,Crew Sign
+JQ,ASST,2,0.143,GATE,Operational Assistance New PSA
+JQ,Manifest,1,0.143,GATE,ส่งก่อน STA -1 ชม. (ต้องส่งก่อนเปิดเคาน์เตอร์)
+JQ,ARR,1,0.929,ARR,Arrival
+JQ,TF/CIQ,3,0.286,ARR,Escort Trasfer Pax or CIQ
+JQ,TF,4,0.071,ARR,
+KE,Y1,1,0.929,CI,Economy Counter1
+KE,Y2,1,0.929,CI,Economy Counter2
+KE,J1/Prio,1,0.857,CI,Business Class or Priority Counter1
+KE,J2/Prio,1,0.857,CI,Business Class or Priority Counter2
+KE,W1/Prio,1,0.571,CI,Premium Economy Counter1
+KE,WEB1,1,0.429,CI,Web check or Bag Drop Counter1
+KE,WEB2,1,0.429,CI,Web check or Bag Drop Counter2
+KE,F1/Prio,1,0.286,CI,First Class Priority Counter1
+KE,Y3,1,0.214,CI,Economy Counter3
+KE,Y4,1,0.214,CI,Economy Counter4
+KE,GA,7,0.929,GATE,Gate Agent
+KE,FC,1,0.857,GATE,Flight Controller
+KE,FR,1,0.857,GATE,Flight Release
+KE,GC,1,0.857,GATE,Gate Controller
+KE,SOD,1,0.857,GATE,Supervisor Onduty
+KE,ASST,1,0.643,GATE,Operational Assistance New PSA
+KE,CRW,2,0.429,GATE,Crew Sign
+KE,Doc/crewsign,2,0.429,GATE,Document and crewsign (Turn around flight)
+KE,ARR,3,0.857,ARR,Arrival
+PG,GC,1,0.671,GATE,Gate Controller
+PG,SOD,1,0.457,GATE,Supervisor Onduty
+PG,GA,1,0.357,GATE,Gate Agent
+PG,G-D,1,0.343,GATE,Gate DOM
+PG,GC(INT),1,0.3,GATE,Gate Controller INTER
+PG,G-I,1,0.171,GATE,Gate INT
+PG,G(B),1,0.1,GATE,Ground Board 2nd Bus
+PG,GBD,1,0.471,ARR,Ground Board (At aircraft arrival and departure)
+PG,TF/CIQ,1,0.329,ARR,Escort Trasfer Pax or CIQ
+PG,AC,1,0.171,ARR,Meet Aircraft
+PG,ARR,1,0.029,ARR,Arrival
+PVTLP,SOD,1,0.692,GATE,Supervisor Onduty
+PVTLP,PORTER (GATE/ARR),1,0.308,GATE,Porter ประจำเกท / ขาเข้า
+PVTLP,Asst bag out,1,0.077,GATE,Asst departure baggage
+PVTLP,Asst crew out,1,0.077,GATE,Asst crew departure
+PVTLP,Asst pax out,1,0.077,GATE,Asst departure passenger
+PVTLP,Doc/crewsign,1,0.077,GATE,Document and crewsign (Turn around flight)
+PVTLP,FR,1,0.077,GATE,Flight Release
+QR,APPS,2,0.95,CI,fill in manual TH APPS
+QR,J1/Prio,1,0.95,CI,Business Class or Priority Counter1
+QR,WEB1,1,0.95,CI,Web check or Bag Drop Counter1
+QR,Y1,1,0.95,CI,Economy Counter1
+QR,J2/Prio,1,0.4,CI,Business Class or Priority Counter2
+QR,KSK,2,0.4,CI,
+QR,W1/Prio,1,0.4,CI,Premium Economy Counter1
+QR,WEB2,1,0.4,CI,Web check or Bag Drop Counter2
+QR,Y2,1,0.4,CI,Economy Counter2
+QR,Y3,1,0.4,CI,Economy Counter3
+QR,Y4,1,0.4,CI,Economy Counter4
+QR,ABD,1,0.35,CI,
+QR,PRIO,1,0.15,CI,Priority Counter
+QR,FR,1,0.95,GATE,Flight Release
+QR,GA,5,0.95,GATE,Gate Agent
+QR,GC,1,0.95,GATE,Gate Controller
+QR,PFD,1,0.95,GATE,Post Flight Doc
+QR,SOD,1,0.95,GATE,Supervisor Onduty
+QR,Doc,2,0.9,GATE,Document
+QR,FC,1,0.4,GATE,Flight Controller
+QR,CRW,1,0.35,GATE,Crew Sign
+QR,ARR,1,0.9,ARR,Arrival
+QR,CRQ,1,0.15,ARR,
+QR,CTQ,1,0.05,ARR,
+SQ,J1/Prio,1,0.871,CI,Business Class or Priority Counter1
+SQ,J2/Prio,1,0.839,CI,Business Class or Priority Counter2
+SQ,PRIO,1,0.645,CI,Priority Counter
+SQ,WEB1,1,0.613,CI,Web check or Bag Drop Counter1
+SQ,WEB2,1,0.613,CI,Web check or Bag Drop Counter2
+SQ,Y1,1,0.226,CI,Economy Counter1
+SQ,F1/Prio,1,0.129,CI,First Class Priority Counter1
+SQ,Y3,1,0.097,CI,Economy Counter3
+SQ,Y2,1,0.065,CI,Economy Counter2
+SQ,Y4,1,0.065,CI,Economy Counter4
+SQ,RQ CNTR,1,0.032,CI,
+SQ,W1/Prio,1,0.032,CI,Premium Economy Counter1
+SQ,WEB3,1,0.032,CI,Web check or Bag Drop Counter3
+SQ,Y6,1,0.032,CI,Economy Counter6
+SQ,FC,1,0.871,GATE,Flight Controller
+SQ,FR,1,0.871,GATE,Flight Release
+SQ,GA,3,0.871,GATE,Gate Agent
+SQ,GC,1,0.871,GATE,Gate Controller
+SQ,SOD,1,0.839,GATE,Supervisor Onduty
+SQ,CRW,1,0.677,GATE,Crew Sign
+SQ,PACCO,3,0.032,GATE,
+SQ,ARR,2,0.065,ARR,Arrival
+SQ,MAR,1,0.032,ARR,
+SQ,RQ WCH,1,0.032,ARR,
+SU,SOD,2,1.0,GATE,Supervisor Onduty
+TK,Y1,1,0.882,CI,Economy Counter1
+TK,Y2,1,0.882,CI,Economy Counter2
+TK,Y3,1,0.882,CI,Economy Counter3
+TK,Y4,1,0.765,CI,Economy Counter4
+TK,J1/Prio,1,0.294,CI,Business Class or Priority Counter1
+TK,BIR,2,0.118,CI,ASST PAX TO BAGGAGE INSPECTION ROOM
+TK,J2/Prio,1,0.118,CI,Business Class or Priority Counter2
+TK,WEB1,1,0.118,CI,Web check or Bag Drop Counter1
+TK,WEB2,1,0.118,CI,Web check or Bag Drop Counter2
+TK,CRW,1,1.0,GATE,Crew Sign
+TK,GC,1,1.0,GATE,Gate Controller
+TK,SOD,1,0.941,GATE,Supervisor Onduty
+TK,FC,1,0.882,GATE,Flight Controller
+TK,FR,1,0.882,GATE,Flight Release
+TK,GA,3,0.882,GATE,Gate Agent
+TK,PFD,1,0.647,GATE,Post Flight Doc
+TK,ASST,1,0.529,GATE,Operational Assistance New PSA
+TK,BGO,1,0.235,GATE,Boco
+TK,FLW,2,0.176,GATE,Floor walker
+TK,SOD C,1,0.059,GATE,Sup Counter
+TK,SOD G,1,0.059,GATE,Sup Gate
+TK,Asst pax in,1,0.824,ARR,Asst arrival passenger
+TK,ARR,1,0.765,ARR,Arrival
+TK,AC,1,0.235,ARR,Meet Aircraft
+TK,TF/CIQ,4,0.118,ARR,Escort Trasfer Pax or CIQ
+TR,Y3,1,1.0,CI,Economy Counter3
+TR,Y1,1,0.964,CI,Economy Counter1
+TR,Y2,1,0.964,CI,Economy Counter2
+TR,Y4,1,0.964,CI,Economy Counter4
+TR,Y5,1,0.357,CI,Economy Counter5
+TR,J1/Prio,1,0.107,CI,Business Class or Priority Counter1
+TR,FC,1,1.0,GATE,Flight Controller
+TR,GA,2,0.964,GATE,Gate Agent
+TR,GC,1,0.964,GATE,Gate Controller
+TR,SOD,1,0.786,GATE,Supervisor Onduty
+TR,ASST,1,0.321,GATE,Operational Assistance New PSA
+TR,FR,1,0.214,GATE,Flight Release
+TR,Asst pax out,1,0.143,GATE,Asst departure passenger
+TR,SOD C,1,0.143,GATE,Sup Counter
+TR,SOD G,1,0.107,GATE,Sup Gate
+TR,AC,1,0.964,ARR,Meet Aircraft
+TR,ARR,1,0.571,ARR,Arrival
+WYWK,Y1,1,1.0,CI,Economy Counter1
+WYWK,Y2,1,1.0,CI,Economy Counter2
+WYWK,J1/Prio,1,0.682,CI,Business Class or Priority Counter1
+WYWK,Y3,1,0.682,CI,Economy Counter3
+WYWK,Y4,1,0.682,CI,Economy Counter4
+WYWK,F1/Prio,1,0.318,CI,First Class Priority Counter1
+WYWK,WEB1,1,0.318,CI,Web check or Bag Drop Counter1
+WYWK,WEB2,1,0.318,CI,Web check or Bag Drop Counter2
+WYWK,J2/Prio,1,0.273,CI,Business Class or Priority Counter2
+WYWK,APPS,1,0.227,CI,fill in manual TH APPS
+WYWK,การเงิน,1,0.182,CI,Clear finance on behalf
+WYWK,Y5,1,0.136,CI,Economy Counter5
+WYWK,Y6,1,0.136,CI,Economy Counter6
+WYWK,BIR,1,0.091,CI,ASST PAX TO BAGGAGE INSPECTION ROOM
+WYWK,FC,1,1.0,GATE,Flight Controller
+WYWK,GA,4,1.0,GATE,Gate Agent
+WYWK,GC,1,1.0,GATE,Gate Controller
+WYWK,FR,1,0.727,GATE,Flight Release
+WYWK,SOD,1,0.682,GATE,Supervisor Onduty
+WYWK,SM,1,0.455,GATE,ทีม WY/WK
+WYWK,CRW,1,0.364,GATE,Crew Sign
+WYWK,Doc,1,0.227,GATE,Document
+WYWK,Crewsign in,1,0.045,GATE,Crewsign arrival
+WYWK,Crewsign out,1,0.045,GATE,Crewsign Departure
+WYWK,Doc/crewsign,1,0.045,GATE,Document and crewsign (Turn around flight)
+WYWK,SOD C,1,0.045,GATE,Sup Counter
+WYWK,AC,1,0.727,ARR,Meet Aircraft
+WYWK,ARR,1,0.591,ARR,Arrival
+WYWK,WEL,1,0.273,ARR,Welcome Guest

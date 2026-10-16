@@ -11,7 +11,7 @@ build_int_roster.py — จากตารางบิน turnaround master → 
 ปรับได้ที่ค่าคงที่ด้านล่าง: TEAMS (airline→team), MANNING (คน/ไฟลท์), BANDS (ช่วงกะ)
 rerun ได้ทุกครั้งที่ตารางบินอัปเดต
 """
-import argparse, csv, datetime, os
+import argparse, csv, datetime, math, os
 from collections import defaultdict, Counter
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, PatternFill
@@ -57,6 +57,27 @@ MANNING = {
     'KU':[1,7,2,1,11],'VS':[1,8,2,1,12],'IZ':[1,6,3,1,11],
 }
 MAN_DEF = [1, 4, 1, 1, 8]
+
+# สูตรตำแหน่งจริงต่อทีม (manning_positions.csv) → คาดหวังคน/ไฟลท์ แยกเฟส CI/GATE/ARR
+FORMULA_TEAM_MAP = {'WYWK': 'WY/WK', 'PVTLP': 'PVT'}
+TEAM_POS_MIN = 5.0          # ทีมที่ข้อมูลสูตรรวม < ค่านี้ → fallback SLA_RQ
+
+
+def load_team_pos(path=None):
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'manning_positions.csv')
+    if not os.path.exists(path):
+        return {}
+    tp = defaultdict(lambda: {'CI': 0.0, 'GATE': 0.0, 'ARR': 0.0, 'positions': []})
+    with open(path, encoding='utf-8') as fh:
+        for r in csv.DictReader(fh):
+            t = FORMULA_TEAM_MAP.get(r['Team'], r['Team'])
+            cnt, pct, ph = float(r['Count']), float(r['PctFlights']), r['Phase']
+            tp[t][ph] += cnt * pct
+            tp[t]['positions'].append((r['Position'], int(float(r['Count'])), pct, ph, r.get('Desc', '')))
+    return dict(tp)
+
+
+TEAM_POS = load_team_pos()
 
 # ช่วงกะ (นาทีจากเที่ยงคืน · N พันข้ามวันถึง 06:00 = 1800) — ซ้อนกัน 1 ชม.เพื่อ handover
 BANDS = [('M', 5*60, 14*60), ('A', 13*60, 22*60), ('N', 21*60, 30*60)]
@@ -135,25 +156,31 @@ def manning(code):
     return MANNING.get(code, MAN_DEF)
 
 
+def phase_weights(code):
+    """คืน (ci_w, gate_w, arr_w) คน/ไฟลท์ แยกเฟส — ใช้สูตรตำแหน่งจริงของทีมถ้ามีพอ ไม่งั้น fallback SLA_RQ"""
+    tp = TEAM_POS.get(team_of(code))
+    if tp and (tp['CI'] + tp['GATE'] + tp['ARR']) >= TEAM_POS_MIN:
+        return tp['CI'], tp['GATE'], tp['ARR']
+    sup, ci, arr, gate, _ = manning(code)
+    return float(ci), float(sup + gate), float(arr)     # map SLA_RQ → เฟส
+
+
 def flight_work_intervals(f):
     """ช่วงงานจริงต่อเฟส → [(lo,hi,คน)] นาทีจากเที่ยงคืนของวันนั้น
-    turnaround: ARR@STA + CI(ก่อนออก) + GATE/SUP(บอร์ด) · one-way: เฉพาะฝั่งที่มี"""
-    sup, ci, arr, gate, _ = manning(f['code'])
+    turnaround: ARR@STA + CI(ก่อนออก) + GATE(บอร์ด) · one-way: เฉพาะฝั่งที่มี"""
+    ci_w, gate_w, arr_w = phase_weights(f['code'])
     sta = mins_from_midnight(f['sta'], f['date']) if isinstance(f['sta'], datetime.datetime) else None
     std = mins_from_midnight(f['std'], f['date']) if isinstance(f['std'], datetime.datetime) else None
     is_turn = f['type'] == 'Turnaround'
     arr_only = f['type'] == 'Arrival only'
-    dep_only = not is_turn and not arr_only
     out = []
-    if (is_turn or arr_only) and sta is not None:
-        w = arr + (sup if arr_only else 0)                 # one-way เข้า: มีหัวหน้าคุมเอง
-        if w > 0:
-            out.append((sta - ARR_LEAD, sta + ARR_TAIL, w))
-    if (is_turn or dep_only) and std is not None:
-        if ci > 0:
-            out.append((std - CI_OPEN, std - CI_CLOSE, ci))         # เช็คอิน
-        if sup + gate > 0:
-            out.append((std - GATE_LEAD, std + GATE_TAIL, sup + gate))   # บอร์ด + คุมงาน
+    if (is_turn or arr_only) and sta is not None and arr_w > 0:
+        out.append((sta - ARR_LEAD, sta + ARR_TAIL, arr_w))
+    if (is_turn or not (is_turn or arr_only)) and std is not None:
+        if ci_w > 0:
+            out.append((std - CI_OPEN, std - CI_CLOSE, ci_w))            # เช็คอิน
+        if gate_w > 0:
+            out.append((std - GATE_LEAD, std + GATE_TAIL, gate_w))       # บอร์ด + คุมงาน
     return out
 
 
@@ -206,8 +233,8 @@ def build(flights, out_path, month=None):
     sc = ['Date', 'Team', 'Flights', 'Manning_Total'] + [b[0] + '_req' for b in BANDS] + ['Peak_Concurrent']
     s.append(sc)
     for (d, t), A in sorted(agg.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
-        reqs = [band_peak(A['ivs'], bs, be) for _, bs, be in BANDS]
-        s.append([d, t, A['turn'] + A['ow'], A['man'], *reqs, peak_weight(A['ivs'])])
+        reqs = [math.ceil(band_peak(A['ivs'], bs, be)) for _, bs, be in BANDS]
+        s.append([d, t, A['turn'] + A['ow'], round(A['man']), *reqs, math.ceil(peak_weight(A['ivs']))])
     sheet_header(s, len(sc)); autosize(s)
 
     # 4) สรุปต่อทีมทั้งฤดู
@@ -262,8 +289,8 @@ def build_month(flights, agg, out_path, ym):
         for lo, hi, w in flight_work_intervals(f):
             byday[k]['ivs'].append((lo, hi, w))
     for (d, t), A in sorted(byday.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
-        reqs = [band_peak(A['ivs'], bs, be) for _, bs, be in BANDS]
-        srd.append([d, WD_TH[d.weekday()], t, A['flts'], *reqs, peak_weight(A['ivs'])])
+        reqs = [math.ceil(band_peak(A['ivs'], bs, be)) for _, bs, be in BANDS]
+        srd.append([d, WD_TH[d.weekday()], t, A['flts'], *reqs, math.ceil(peak_weight(A['ivs']))])
     sheet_header(srd, len(cols)); autosize(srd)
 
     # Shift_Pattern_Weekly (ชุดชิพกะ: ต่อทีม × วันในสัปดาห์ → หัวคนที่ควรมี = max ของเดือน)
@@ -271,7 +298,7 @@ def build_month(flights, agg, out_path, ym):
     patflt = defaultdict(lambda: defaultdict(list))
     for (d, t), A in byday.items():
         wd = d.weekday()
-        reqs = [band_peak(A['ivs'], bs, be) for _, bs, be in BANDS]
+        reqs = [math.ceil(band_peak(A['ivs'], bs, be)) for _, bs, be in BANDS]
         for i, v in enumerate(reqs):
             pat[t][wd][i] = max(pat[t][wd][i], v)
         patflt[t][wd].append(A['flts'])

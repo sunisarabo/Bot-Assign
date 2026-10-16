@@ -37,9 +37,12 @@ python3 tools/build_int_roster.py  HKT_Winter2627_Turnaround_Master.xlsx \
 
 ### วิธีคิดหัวคน/กะ (sizing)
 หัวคนต่อกะ = **peak concurrent** ของคนที่ติดงานพร้อมกันในช่วงกะนั้น โดยแยก **หน้าต่างงานจริงต่อเฟส**
-(CI เช็คอิน STD-180..STD-45 · GATE+SUP บอร์ด STD-60..STD+15 · ARR ขาเข้า STA-10..STA+45)
-ถ่วงน้ำหนักด้วยจำนวนคนเฉพาะเฟสจากกฎ manning → สมจริงกว่าการนับทั้งช่วงจอด
-ปรับหน้าต่าง/กฎได้ที่ค่าคงที่ `CI_OPEN/CI_CLOSE/GATE_*/ARR_*` และ `MANNING`
+(CI เช็คอิน STD-180..STD-45 · GATE บอร์ด STD-60..STD+15 · ARR ขาเข้า STA-10..STA+45)
+
+**manning มาจากสูตรจริงของทีม** (`tools/manning_positions.csv` = Team·Position·Count·%flights·Phase
+สกัดจากไฟล์ "แผนที่เคยจัด") → คน/ไฟลท์/เฟส = Σ(Count × %flights) แยกตาม Phase
+ทีมที่ข้อมูลสูตรน้อย (< `TEAM_POS_MIN`) fallback เป็น `MANNING` (SLA_RQ) · แก้สูตรที่ CSV ได้เลย
+ปรับหน้าต่างได้ที่ `CI_OPEN/CI_CLOSE/GATE_*/ARR_*`
 
 ---
 
@@ -59,9 +62,12 @@ python3 tools/build_roster.py \
 | `--reg` | ไฟล์ทะเบียนพนักงาน (ชีต `ทะเบียน`) |
 | `--dataverse` | ออก `pas_duty_roster.csv` (long format) สำหรับ import |
 
-ผลลัพธ์: 1 ชีต/ทีม (คน×วัน = M/A/N/OFF ระบายสี) · `Coverage` (target/assigned/ขาด) · `Teams_NoStaff`
-- จับกะ: OFF ให้คนทำงานสะสมเยอะก่อน · กะดึกให้คนได้ N น้อยสุดก่อน · คนไม่พอ → scale + แจ้งขาด
-- ปรับทีม→พนักงานที่ `REG2TEAM` · เวลากะที่ `SHIFT_TIME`
-- ทีมที่ไม่มีคนในทะเบียน (เช่น ZF/DOM) จะอยู่ในชีต `Teams_NoStaff` (ต้องใช้ support/charter)
+ผลลัพธ์: 1 ชีต/ทีม (คน×วัน = M/A/N/OFF ระบายสี) · `Coverage` (target/ยืดกะ/เรียกวันหยุด/ยังขาด) · `Teams_NoStaff`
+- **กลบวันขาดตาม "บันได OT":** คนไม่พอ → (1) **ยืดกะ** คนที่อยู่ (OT ก่อน/หลัง, mark `+`)
+  → (2) **เรียกคนวันหยุด** (OT_OFF, mark `°`) → (3) ที่เหลือ = `ยังขาด`
+- เคารพ **วันเริ่ม/พ้นสภาพ** (คนยังไม่เข้า/ลาออก = `-` ไม่ถูกจัด)
+- จับกะ: OFF พัก ~1/7 (คนทำงานสะสมเยอะ off ก่อน) · กะดึกเฉลี่ยคนได้ N น้อยสุดก่อน
+- ปรับทีม→พนักงานที่ `REG2TEAM` · เวล่ากะ `SHIFT_TIME` · OT ที่ `EXTEND_OT_H`/`CALLED_OT_H`
+- ทีมที่ไม่มีคนในทะเบียน (ZF/DOM) อยู่ในชีต `Teams_NoStaff` (ต้องใช้ support/charter)
 
 > การนำ CSV เข้าระบบจริง (Dataverse/Power Apps) ดู `powerplatform/13-load-into-system.md`
