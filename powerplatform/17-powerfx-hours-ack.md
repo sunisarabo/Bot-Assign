@@ -77,7 +77,7 @@ btnStartJob.DisplayMode = If(ThisItem.pas_acknowledged = true, DisplayMode.Edit,
 | ช่องทาง | ใช้ได้กับพอตเตอร์? | วิธี |
 |---|---|---|
 | **In-app live** (แนะนำ) | ✅ | แอปพอตเตอร์ (จอรวม/เมลกลาง) มี **Timer** รีเฟรชทุก ~20 วิ → ถ้ามีเคสใหม่ของรหัสที่เลือก เด้งแบนเนอร์ + เสียง |
-| **LINE Notify** | ✅ | flow ส่งเข้า **กลุ่ม LINE ทีม** เมื่อมีเคสใหม่/งานซัพ (token กลาง, ไม่ต้องบัญชีรายคน) |
+| **LINE Messaging API** | ✅ | flow ส่งเข้า **กลุ่ม LINE ทีม** เมื่อมีเคสใหม่/งานซัพ (บอท OA, ไม่ต้องบัญชีรายคน) — ดูสเต็ป `18` · ⚠️ LINE Notify ถูกยกเลิกแล้ว |
 | Power Apps push | ❌ | ต้องบัญชี M365 รายคน — ใช้ได้เฉพาะ PSA ที่มีบัญชี (ซุป/duty) |
 
 ### In-app live (Power Fx ฝั่งพอตเตอร์)
@@ -93,9 +93,8 @@ ClearCollect(colPrev, colMyCases)
 ```
 > พอตเตอร์กด **"รับเคส"** = Acknowledge เหมือนข้อ C แล้วค่อยกด เริ่ม/จบงาน (ตาม WC Tracker เดิม)
 
-### LINE Notify (flow)
-Power Automate: trigger **When a row is added** (`pas_porter_job` / `pas_assignment` ที่เป็นงานซัพ)
-→ HTTP POST `https://notify-api.line.me/api/notify` header `Authorization: Bearer <TOKEN>`
-body `message=เคสใหม่ <flight> <service> รับที่ <gate>` → เข้า LINE กลุ่มทีม
+### LINE (flow)
+ใช้ **LINE Messaging API** (บอท Official Account) — ดูสเต็ปเต็มใน `18-notify-steps.md`
+(⚠️ LINE Notify เดิมถูกยกเลิกแล้ว มี.ค. 2025)
 
 > งานซัพพอร์ต (ข้ามทีม) ใช้กลไกเดียวกัน: assignment ที่มี flag ซัพ → แจ้งทีมปลายทาง
