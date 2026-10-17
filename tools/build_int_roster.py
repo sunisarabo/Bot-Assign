@@ -157,12 +157,11 @@ def manning(code):
 
 
 def phase_weights(code):
-    """คืน (ci_w, gate_w, arr_w) คน/ไฟลท์ แยกเฟส — ใช้สูตรตำแหน่งจริงของทีมถ้ามีพอ ไม่งั้น fallback SLA_RQ"""
-    tp = TEAM_POS.get(team_of(code))
-    if tp and (tp['CI'] + tp['GATE'] + tp['ARR']) >= TEAM_POS_MIN:
-        return tp['CI'], tp['GATE'], tp['ARR']
+    """คืน (ci_w, gate_w, arr_w) = 'จำนวนคนจริง/ไฟลท์' แยกเฟส (จาก SLA_RQ = headcount จริง)
+    *ไม่ใช้* สูตรตำแหน่ง (manning_positions) เพราะนั่นนับ 'บทบาท' ที่ 1 คนทำหลายตำแหน่งต่อเนื่อง
+    → สูตรตำแหน่งใช้ทำ 'ชิพ Assignment' แทน (pas_team_position)"""
     sup, ci, arr, gate, _ = manning(code)
-    return float(ci), float(sup + gate), float(arr)     # map SLA_RQ → เฟส
+    return float(ci), float(sup + gate), float(arr)
 
 
 def flight_work_intervals(f):
