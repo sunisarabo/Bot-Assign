@@ -107,14 +107,52 @@ ON_IN_CYCLE = 4
 LEAVE_BUCKET = {'SL': 'SICK', 'VL': 'VACATION'}     # ที่เหลือ (BL/ML/PL/…) → LEAVE
 
 
-def roster_team(staff, req_by_date, dates, leave=None):
+def load_prev_offsets(path, cycle=CYCLE, sheet='CODE กะงาน'):
+    """อ่าน roster เดือนก่อน (ชีต 'CODE กะงาน': รหัส·ชื่อ·[กะ,วันทำงาน/วันหยุด]×วัน)
+    → คืน {emp_code: offset} ให้รอบ 4-หยุด-2 ของเดือนใหม่ 'ต่อเนื่อง' จากปลายเดือนก่อน"""
+    if not path or not os.path.exists(path):
+        return {}
+    wb = load_workbook(path, read_only=True, data_only=True)
+    ws = wb[sheet] if sheet in wb.sheetnames else wb[wb.sheetnames[0]]
+    rows = list(ws.iter_rows(values_only=True))
+    hr = next((i for i, r in enumerate(rows[:6]) if r and str(r[0]).strip() == 'รหัส'), 2)
+    off = {}
+    for r in rows[hr + 2:]:
+        if not r or r[0] is None:
+            continue
+        code = str(r[0]).strip()
+        if not code or not code[0].isdigit():
+            continue
+        work, c = [], 3                                  # คอลัมน์ 'วันทำงาน/วันหยุด' = 3,5,7,…
+        while c < len(r):
+            fl = str(r[c] or '')
+            if 'วัน' in fl or '-' in fl:
+                work.append('หยุด' not in fl)
+            c += 2
+        if not work:
+            continue
+        last = work[-1]
+        cnt = 0
+        for v in reversed(work):
+            if v == last:
+                cnt += 1
+            else:
+                break
+        nxt = (cnt if cnt < 4 else 4) if last else (4 + cnt if cnt < 2 else 0)   # ตำแหน่งถัดไปในรอบ WWWWOO
+        off[code] = nxt % cycle
+    return off
+
+
+def roster_team(staff, req_by_date, dates, leave=None, prev_off=None):
     """ตารางเวร 'ทำ 4 หยุด 2 ต่อเนื่อง' (สลับ offset ให้คนครบทุกวัน) + กลบวันขาดด้วยบันได OT
     leave = {emp_id: {date: leave_code}} → คนลาถูกข้าม (ไม่จัดงาน/ไม่นับ off-cycle)
     คืน assign[date][id]={'sh','ot','bucket'} + coverage[date]"""
     leave = leave or {}
+    prev_off = prev_off or {}
     byid = {s['id']: s for s in staff}
     ids = [s['id'] for s in staff]
-    offset = {sid: k % CYCLE for k, sid in enumerate(ids)}     # กระจายวันหยุดให้ไม่ตรงกันหมด
+    # offset: ต่อจากเดือนก่อนถ้ามี (prev_off) ไม่งั้นกระจาย index%CYCLE
+    offset = {sid: prev_off.get(sid, k % CYCLE) for k, sid in enumerate(ids)}
     night_cnt = {i: 0 for i in ids}
     assign, coverage = {}, {}
     for di, d in enumerate(dates):
@@ -188,8 +226,12 @@ def main():
     ap.add_argument('-o', '--out', default='Roster.xlsx')
     ap.add_argument('--dataverse', default=None, help='โฟลเดอร์ output CSV pas_duty สำหรับ import')
     ap.add_argument('--leave', default=None, help='CSV วันลา (EmpCode,LeaveDate,LeaveType) → ข้ามคนลา')
+    ap.add_argument('--prev', default=None, help='roster เดือนก่อน (.xlsx ชีต CODE กะงาน) → ต่อรอบ 4-หยุด-2')
     args = ap.parse_args()
     duty_rows = []
+    prev_off = load_prev_offsets(args.prev) if args.prev else {}
+    if prev_off:
+        print('prev-month continuity:', len(prev_off), 'emps')
     leave = {}
     if args.leave and os.path.exists(args.leave):
         for r in csv.DictReader(open(args.leave, encoding='utf-8-sig')):
@@ -212,7 +254,7 @@ def main():
     order = sorted(teams_with, key=lambda t: -len(team_staff[t]))
     for t in order:
         staff = team_staff[t]
-        assign, coverage = roster_team(staff, req[t], dates, leave)
+        assign, coverage = roster_team(staff, req[t], dates, leave, prev_off)
         ws = wb.create_sheet(t.replace('/', '-')[:28])
         head = ['รหัส', 'ชื่อ'] + ['%d\n%s' % (d.day, WD[d.weekday()]) for d in dates]
         ws.append(head)
