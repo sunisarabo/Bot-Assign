@@ -61,6 +61,44 @@ def _distribute(nworkers, shifts):
     return tgt
 
 
+MIN_REST_H = 9              # พักระหว่างกะขั้นต่ำ (ชม.) — "8-9 ชม.ขึ้นไป"
+MIN_REST_MIN = MIN_REST_H * 60
+
+
+def _start_floor(prev, min_rest_min):
+    """เวลาเริ่มกะต่ำสุดที่ยอมให้วันนี้ เทียบกะ 'เมื่อวาน' → บังคับ 'หมุนไปข้างหน้า ไม่ย้อน' + พักพอ
+    prev=(ss,se) นาที ของกะเมื่อวาน (se อาจ >1440 ถ้าดึกข้ามคืน) · None=เมื่อวานไม่ได้ทำงาน → เริ่มกะไหนก็ได้ (รีเซ็ตรอบ)
+    - ไม่ย้อนสเกต: เริ่มวันนี้ ≥ เริ่มเมื่อวาน (เช้า→เช้า/บ่าย/ดึก ได้ · ดึก→เช้า ไม่ได้)
+    - พัก: (เริ่มวันนี้+1440) − จบเมื่อวาน ≥ min_rest"""
+    if not prev:
+        return 0
+    ss_prev, se_prev = prev
+    return max(ss_prev, se_prev + min_rest_min - 1440)
+
+
+def _assign_shifts(pool, shifts, targets, yday, night_cnt, min_rest_min):
+    """จับคน→กะ แบบ 'หมุนไปข้างหน้า' (เช้า→บ่าย→ดึก) ห้ามย้อน + พัก ≥ min_rest · คุมจำนวนต่อกะตาม targets
+    shifts: list {code,ss,se,night} · targets: จำนวนที่ต้องการต่อกะ (index ตรงกับ shifts) · คืน {sid: cell}
+    หลักการ: คนที่ 'ติดเพดานสูง' (เมื่อวานเข้าดึก) จัดก่อน กันชนช่องกะดึกที่จำกัด → คนอื่นไหลลงกะเช้าตามจำนวน"""
+    order_by_start = sorted(range(len(shifts)), key=lambda i: shifts[i]['ss'])
+    cap = list(targets)
+    floor = {w: _start_floor(yday.get(w), min_rest_min) for w in pool}
+    order = sorted(pool, key=lambda w: (-floor[w], night_cnt[w], w))
+    res = {}
+    for w in order:
+        pick = next((i for i in order_by_start if shifts[i]['ss'] >= floor[w] and cap[i] > 0), None)
+        if pick is None:   # ช่องที่เริ่ม ≥ floor เต็ม → ล้นช่องเริ่มต่ำสุดที่ยัง 'ไปข้างหน้า' ได้ (รักษากติกาก่อนจำนวน)
+            pick = next((i for i in order_by_start if shifts[i]['ss'] >= floor[w]), None)
+        if pick is None:   # ไม่มีกะไหนถึง floor (พักไม่พอทุกกะ) → กะเริ่มช้าสุด (เสียหายน้อยสุด)
+            pick = order_by_start[-1]
+        cap[pick] -= 1
+        s = shifts[pick]
+        res[w] = {'sh': s['code'], 'ot': 0, 'bucket': 'WORKING', 'ss': s['ss'], 'se': s['se']}
+        if s.get('night'):
+            night_cnt[w] += 1
+    return res
+
+
 def celltxt(c):
     """ข้อความในช่องกริด: กะ + เครื่องหมาย ° (เรียกวันหยุด OT) / + (ยืดกะ OT)"""
     if c['sh'] in ('OFF', '-'):
@@ -180,9 +218,10 @@ def load_prev_offsets(path, cycle=CYCLE, sheet='CODE กะงาน'):
     return off
 
 
-def roster_team(staff, req_by_date, dates, leave=None, prev_off=None, shifts=None):
+def roster_team(staff, req_by_date, dates, leave=None, prev_off=None, shifts=None, min_rest_min=MIN_REST_MIN):
     """ตารางเวร 'ทำ 4 หยุด 2 ต่อเนื่อง' (สลับ offset ให้คนครบทุกวัน) + กลบวันขาดด้วยบันได OT
     leave = {emp_id: {date: leave_code}} → คนลาถูกข้าม (ไม่จัดงาน/ไม่นับ off-cycle)
+    กะหมุน 'ไปข้างหน้า' (เช้า→ดึก) ห้ามย้อน + พัก ≥ min_rest (ดู _assign_shifts)
     คืน assign[date][id]={'sh','ot','bucket'} + coverage[date]"""
     leave = leave or {}
     prev_off = prev_off or {}
@@ -191,6 +230,7 @@ def roster_team(staff, req_by_date, dates, leave=None, prev_off=None, shifts=Non
     # offset: ต่อจากเดือนก่อนถ้ามี (prev_off) ไม่งั้นกระจาย index%CYCLE
     offset = {sid: prev_off.get(sid, k % CYCLE) for k, sid in enumerate(ids)}
     night_cnt = {i: 0 for i in ids}
+    yday = {}          # {sid: (ss, se)} กะ 'เมื่อวาน' ของคนที่ทำงาน (ไม่มี = เมื่อวานหยุด → รีเซ็ตรอบกะ)
     assign, coverage = {}, {}
     for di, d in enumerate(dates):
         av = set(i for i in ids if _avail(byid[i], d) and d not in leave.get(i, {}))
@@ -220,25 +260,16 @@ def roster_team(staff, req_by_date, dates, leave=None, prev_off=None, shifts=Non
             workers = on + called_ids
             cn = min(n, len(workers)); cm = min(m, len(workers) - cn); ca = len(workers) - cn - cm
         # แจกกะ: ถ้ามี template ของทีม → ลงกะจริงตามสัดส่วน · ไม่งั้น fallback M/A/N
-        pool = sorted(workers, key=lambda i: (night_cnt[i], i))
+        #        ทั้งสองทางหมุน 'ไปข้างหน้า' ไม่ย้อน + พัก ≥ min_rest (เทียบ yday)
+        pool = list(workers)
         if shifts:
             tgt = _distribute(len(workers), shifts)
-            k = 0
-            for si in sorted(range(len(shifts)), key=lambda x: (not shifts[x]['night'])):   # กะดึกก่อน
-                s = shifts[si]
-                for _ in range(tgt[si]):
-                    if k >= len(pool): break
-                    w = pool[k]; k += 1
-                    day[w] = {'sh': s['code'], 'ot': 0, 'bucket': 'WORKING', 'ss': s['ss'], 'se': s['se']}
-                    if s['night']: night_cnt[w] += 1
+            day = _assign_shifts(pool, shifts, tgt, yday, night_cnt, min_rest_min)
         else:
-            for i in pool[:cn]:
-                day[i] = {'sh': 'N', 'ot': 0, 'bucket': 'WORKING', 'ss': SHIFT_TIME['N'][0], 'se': SHIFT_TIME['N'][1]}; night_cnt[i] += 1
-            rest = [i for i in pool if i not in day]
-            for i in rest[:cm]:
-                day[i] = {'sh': 'M', 'ot': 0, 'bucket': 'WORKING', 'ss': SHIFT_TIME['M'][0], 'se': SHIFT_TIME['M'][1]}
-            for i in rest[cm:cm + ca]:
-                day[i] = {'sh': 'A', 'ot': 0, 'bucket': 'WORKING', 'ss': SHIFT_TIME['A'][0], 'se': SHIFT_TIME['A'][1]}
+            fb = [{'code': 'M', 'ss': SHIFT_TIME['M'][0], 'se': SHIFT_TIME['M'][1], 'night': False},
+                  {'code': 'A', 'ss': SHIFT_TIME['A'][0], 'se': SHIFT_TIME['A'][1], 'night': False},
+                  {'code': 'N', 'ss': SHIFT_TIME['N'][0], 'se': SHIFT_TIME['N'][1], 'night': True}]
+            day = _assign_shifts(pool, fb, [cm, ca, cn], yday, night_cnt, min_rest_min)
         for i in set(workers) - set(on):                       # คนถูกเรียกจากวันหยุด → OT_OFF
             if i in day:
                 day[i]['bucket'] = 'OT_OFF'; day[i]['ot'] = CALLED_OT_H
@@ -256,6 +287,13 @@ def roster_team(staff, req_by_date, dates, leave=None, prev_off=None, shifts=Non
                 avl = i in av
                 assign.setdefault(d, {})[i] = {'sh': ('OFF' if avl else '-'), 'ot': 0,
                                                'bucket': ('OFF' if avl else 'X')}
+        # จดกะวันนี้ไว้เป็น 'เมื่อวาน' ของวันถัดไป — เฉพาะคนที่ทำงานจริง (WORKING/OT_OFF)
+        # คนหยุด/ลา/ยังไม่เข้า = ไม่จด → วันถัดไปรีเซ็ต floor (เริ่มกะไหนก็ได้)
+        yday = {}
+        for i in ids:
+            c = assign[d].get(i)
+            if c and c.get('bucket') in ('WORKING', 'OT_OFF') and c.get('ss') is not None:
+                yday[i] = (c['ss'], c['se'])
         coverage[d] = {'need': need, 'asg': len(workers), 'ext': ext_used, 'called': called, 'short': max(residual, 0)}
     return assign, coverage
 
@@ -275,7 +313,9 @@ def main():
     ap.add_argument('--dataverse', default=None, help='โฟลเดอร์ output CSV pas_duty สำหรับ import')
     ap.add_argument('--leave', default=None, help='CSV วันลา (EmpCode,LeaveDate,LeaveType) → ข้ามคนลา')
     ap.add_argument('--prev', default=None, help='roster เดือนก่อน (.xlsx ชีต CODE กะงาน) → ต่อรอบ 4-หยุด-2')
+    ap.add_argument('--min-rest', type=float, default=MIN_REST_H, help='พักระหว่างกะขั้นต่ำ (ชม., ค่าปริยาย %d) — กันหมุนย้อน' % MIN_REST_H)
     args = ap.parse_args()
+    min_rest_min = int(args.min_rest * 60)
     duty_rows = []
     prev_off = load_prev_offsets(args.prev) if args.prev else {}
     shift_tmpl = load_shift_templates()
@@ -305,7 +345,7 @@ def main():
     order = sorted(teams_with, key=lambda t: -len(team_staff[t]))
     for t in order:
         staff = team_staff[t]
-        assign, coverage = roster_team(staff, req[t], dates, leave, prev_off, shift_tmpl.get(t))
+        assign, coverage = roster_team(staff, req[t], dates, leave, prev_off, shift_tmpl.get(t), min_rest_min)
         ws = wb.create_sheet(t.replace('/', '-')[:28])
         head = ['รหัส', 'ชื่อ'] + ['%d\n%s' % (d.day, WD[d.weekday()]) for d in dates]
         ws.append(head)
