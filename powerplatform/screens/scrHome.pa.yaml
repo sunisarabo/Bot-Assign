@@ -1,0 +1,138 @@
+Screens:
+  scrHome:
+    Properties:
+      Fill: =RGBA(244, 246, 248, 1)
+      OnVisible: |-
+        =ClearCollect(colHMenu,
+          { key: "my",      title: "งานของฉันวันนี้",   sub: "ดูงาน + กดรับทราบ",            icon: "📋", needEdit: false, accent: RGBA(29, 66, 138, 1) },
+          { key: "roster",  title: "ตารางเวร (Roster)", sub: "คน × วัน · แลกเวร/ลา/เปลี่ยนกะ", icon: "🗓", needEdit: false, accent: RGBA(29, 66, 138, 1) },
+          { key: "assign",  title: "มอบหมายงาน (Assign)", sub: "ลงตำแหน่งต่อไฟลท์",           icon: "🧭", needEdit: false, accent: RGBA(45, 106, 79, 1) },
+          { key: "flights", title: "ไฟลท์",             sub: "เพิ่ม/แก้/ยกเลิก",              icon: "✈", needEdit: true,  accent: RGBA(168, 99, 0, 1) },
+          { key: "wh",      title: "ชม.ทำงาน/OT",        sub: "รายสัปดาห์ · cap 48/36",       icon: "⏱", needEdit: false, accent: RGBA(90, 50, 140, 1) },
+          { key: "ot",      title: "ตรวจ OT",            sub: "OT ขอจริง",                    icon: "💰", needEdit: false, accent: RGBA(176, 58, 46, 1) }
+        );
+        Set(varHWho, Coalesce(varMe.emp_name, User().FullName, "ผู้ใช้"))
+    Children:
+      - recHHead:
+          Control: Rectangle@2.3.0
+          Properties:
+            Fill: =RGBA(29, 66, 138, 1)
+            Height: =84
+            Width: =Parent.Width
+            X: =0
+            Y: =0
+      - lblHTitle:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="PAS · ระบบจัดกำลังพล PSA-HKT"
+            Color: =RGBA(255, 255, 255, 1)
+            FontWeight: =FontWeight.Bold
+            Size: =20
+            X: =20
+            Y: =14
+            Width: =Parent.Width - 200
+            Height: =34
+      - lblHWho:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="สวัสดี " & varHWho
+            Color: =RGBA(220, 230, 250, 1)
+            Size: =12
+            X: =20
+            Y: =50
+            Width: =Parent.Width - 200
+            Height: =24
+      - lblHRole:
+          Control: Label@2.5.1
+          Properties:
+            Text: =If(varPriv, "โหมดแก้ไข (ซุป/แอดมิน)", "👁 ดูอย่างเดียว")
+            Fill: =If(varPriv, RGBA(45, 106, 79, 1), RGBA(90, 90, 90, 1))
+            Color: =RGBA(255, 255, 255, 1)
+            Align: =Align.Center
+            Size: =11
+            X: =Parent.Width - 190
+            Y: =26
+            Width: =170
+            Height: =32
+      - galHMenu:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Items: =Filter(colHMenu, !needEdit || varPriv)
+            TemplateSize: =120
+            TemplatePadding: =8
+            WrapCount: =Max(1, RoundDown((Self.Width) / 300, 0))
+            X: =16
+            Y: =100
+            Width: =Parent.Width - 32
+            Height: =Parent.Height - 116
+            TemplateFill: =RGBA(0, 0, 0, 0)
+          Children:
+            - recHCard:
+                Control: Rectangle@2.3.0
+                Properties:
+                  Fill: =RGBA(255, 255, 255, 1)
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 16
+                  Height: =Parent.TemplateHeight - 12
+            - recHBar:
+                Control: Rectangle@2.3.0
+                Properties:
+                  Fill: =ThisItem.accent
+                  X: =4
+                  Y: =4
+                  Width: =6
+                  Height: =Parent.TemplateHeight - 12
+            - lblHIcon:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.icon
+                  Size: =28
+                  X: =20
+                  Y: =14
+                  Width: =44
+                  Height: =48
+            - lblHCardT:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.title
+                  FontWeight: =FontWeight.Bold
+                  Size: =15
+                  Color: =RGBA(29, 66, 138, 1)
+                  X: =70
+                  Y: =20
+                  Width: =Parent.TemplateWidth - 90
+                  Height: =26
+            - lblHCardS:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.sub
+                  Size: =11
+                  Color: =RGBA(120, 120, 120, 1)
+                  X: =70
+                  Y: =48
+                  Width: =Parent.TemplateWidth - 90
+                  Height: =22
+            - btnHGo:
+                Control: Classic/Button@2.2.0
+                Properties:
+                  Text: =""
+                  Fill: =RGBA(0, 0, 0, 0)
+                  HoverFill: =RGBA(29, 66, 138, 0.06)
+                  PressedFill: =RGBA(29, 66, 138, 0.12)
+                  BorderColor: =RGBA(0, 0, 0, 0)
+                  Color: =RGBA(0, 0, 0, 0)
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 16
+                  Height: =Parent.TemplateHeight - 12
+                  OnSelect: |-
+                    =Switch(ThisItem.key,
+                      "my",      Navigate(scrMy),
+                      "roster",  Navigate(scrRoster),
+                      "assign",  Navigate(scrAssign),
+                      "flights", Navigate(scrFlights),
+                      "wh",      Navigate(scrWH),
+                      "ot",      Navigate(scrOT)
+                    )
