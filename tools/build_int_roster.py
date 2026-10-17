@@ -79,6 +79,21 @@ def load_team_pos(path=None):
 
 TEAM_POS = load_team_pos()
 
+
+def load_flight_manning(path=None):
+    """คน/ไฟลท์ 'จริง' แยกเฟส ต่อทีม (จากไฟล์วิเคราะห์ มาตรฐานไฟลท์) → flight_manning.csv
+    Team,CI,GATE,ARR → ใช้แทน SLA_RQ ประมาณการ (ทีมที่ไม่มี = fallback SLA)"""
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'flight_manning.csv')
+    if not os.path.exists(path):
+        return {}
+    fm = {}
+    for r in csv.DictReader(open(path, encoding='utf-8')):
+        fm[r['Team']] = (float(r['CI']), float(r['GATE']), float(r['ARR']))
+    return fm
+
+
+FLIGHT_MANNING = load_flight_manning()
+
 # ช่วงกะ (นาทีจากเที่ยงคืน · N พันข้ามวันถึง 06:00 = 1800) — ซ้อนกัน 1 ชม.เพื่อ handover
 BANDS = [('M', 5*60, 14*60), ('A', 13*60, 22*60), ('N', 21*60, 30*60)]
 
@@ -157,9 +172,12 @@ def manning(code):
 
 
 def phase_weights(code):
-    """คืน (ci_w, gate_w, arr_w) = 'จำนวนคนจริง/ไฟลท์' แยกเฟส (จาก SLA_RQ = headcount จริง)
-    *ไม่ใช้* สูตรตำแหน่ง (manning_positions) เพราะนั่นนับ 'บทบาท' ที่ 1 คนทำหลายตำแหน่งต่อเนื่อง
-    → สูตรตำแหน่งใช้ทำ 'ชิพ Assignment' แทน (pas_team_position)"""
+    """คืน (ci_w, gate_w, arr_w) = 'จำนวนคนจริง/ไฟลท์' แยกเฟส
+    ลำดับ: flight_manning.csv (คน/ไฟลท์จริงจากไฟล์วิเคราะห์) → ไม่มีทีมนั้น fallback SLA_RQ
+    *ไม่ใช้* สูตรตำแหน่ง (manning_positions = นับบทบาท) สำหรับ sizing — อันนั้นใช้ทำชิพ Assignment"""
+    fm = FLIGHT_MANNING.get(team_of(code))
+    if fm:
+        return fm
     sup, ci, arr, gate, _ = manning(code)
     return float(ci), float(sup + gate), float(arr)
 
