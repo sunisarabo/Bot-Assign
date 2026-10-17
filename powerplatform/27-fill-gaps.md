@@ -12,6 +12,19 @@
 
 ---
 
+## ขั้นที่ 0 · เพิ่มคอลัมน์ทั้งหมดก่อน (ทำทีเดียว)
+| ตาราง | คอลัมน์ | ชนิด | ใช้ใน |
+|---|---|---|---|
+| `PAS_Employees` | `app_role` | Choice `STAFF`/`SUP`/`ADMIN` (default STAFF) | A |
+| `PAS_Employees` | `work_email` | Text (ถ้ายังไม่มีฟิลด์อีเมล) | A |
+| `PAS_Assignment` | `acknowledged` | Yes/No (default No) | B |
+| `PAS_Assignment` | `ack_at` | Date and Time | B |
+| `PAS_Assignment` | `priority` | Choice `NORMAL`/`WHEELCHAIR`/`SUPPORT` (default NORMAL) | B |
+| (มีแล้ว) `pas_shift_template` | — | ดู `25` | C |
+> เสร็จขั้นนี้แล้วค่อยทำ A → B → C ตามลำดับ (A เป็นฐานของ gate ใน B/C)
+
+---
+
 ## A · `varPriv` คุมสิทธิ์ (07)
 
 เป้า: คนไม่มี M365 / พนักงานทั่วไป = **ดูอย่างเดียว** · หัวหน้าทีม(ซุป)/แอดมิน = **แก้ได้**
@@ -76,35 +89,55 @@ lblMode.Text = =If(varPriv, "โหมดแก้ไข (ซุป)", "👁 ด
 > ตอนลงงาน (ปุ่ม patch เดิมใน scrAssign) เพิ่มคีย์ `acknowledged: false` ใน record ที่ Patch
 > เคสวีลแชร์: เวลาลงตำแหน่งที่มี "WCHR/วีลแชร์" ให้ใส่ `priority: {Value:"WHEELCHAIR"}` (ดูข้อ 4)
 
-### 2) หน้า "งานของฉันวันนี้" (scrMy) — กริดเล็ก ๆ ที่พนักงานเปิดเอง
-วางแกลเลอรีเดียว (พนักงานไม่มี M365 เปิดผ่านลิงก์/เครื่องรวมก็เห็นของตัวเองถ้าเลือกรหัส)
+### 2) หน้า "งานของฉันวันนี้" (scrMy) — สแกฟโฟลด์เต็ม (หน้าใหม่)
+สร้าง Screen ใหม่ชื่อ `scrMy` → + Insert คอนโทรลตามนี้ (สไตล์เดียวกับหน้าอื่น: หัวน้ำเงิน #1D428A, responsive `App.Width`)
+พนักงานไม่มี M365 เปิดผ่านลิงก์/เครื่องรวม → เลือกรหัสตัวเองที่ `ddMyWho` (ถ้าล็อกอินมี `varMyCode` แล้วข้าม)
+
 ```powerapps
 // scrMy.OnVisible
 Set(varMyKey, Text(Today(), "yyyy-mm-dd"));
-ClearCollect(colMy, Filter(PAS_Assignment,
-    day_key = varMyKey,
-    emp_code = Coalesce(varMyCode, ddMyWho.Selected.code)))
+If(IsBlank(varMyCode) && IsBlank(colMyStaff),
+   ClearCollect(colMyStaff, ForAll(SortByColumns(Filter(PAS_Employees, status.Value="ACTIVE"), "emp_code") As s,
+     {lbl: s.emp_name & " · " & s.emp_code, code: s.emp_code})));
+Select(btnMyLoad)
 ```
-**galMy.Items** = `=SortByColumns(colMy, "sta")`
-แต่ละแถว:
+
+| คอนโทรล | ชนิด | property สำคัญ |
+|---|---|---|
+| `recMyHead` | Rectangle | `Fill=RGBA(29,66,138,1)` · `Height=64` · `Width=Parent.Width` |
+| `lblMyTitle` | Label | `Text="งานของฉันวันนี้"` · `Color=White` · `Bold` · `Size=18` · `X=20 Y=12` |
+| `btnMyBack` | Button | `Text="← กลับ"` · `OnSelect=Back()` · `X=Parent.Width-120 Y=14` |
+| `ddMyWho` | DropDown | `Visible=IsBlank(varMyCode)` · `Items=colMyStaff` · `X=20 Y=76 Width=260` |
+| `btnMyLoad` | Button | `Text="ดูงานของฉัน"` · `X=290 Y=76` · `OnSelect=` (ด้านล่าง) |
+| `lblMyWarn` | Label | แถบเตือน (ด้านล่าง) · `X=20 Y=120 Width=Parent.Width-40` |
+| `galMy` | Gallery (Vertical) | `Items=SortByColumns(colMy,"sta")` · `X=20 Y=168 Width=Parent.Width-40 Height=Parent.Height-178` · `TemplateSize=72` |
+| ↳ `lblMyFlt` | Label (ในแกลเลอรี) | ข้อความงาน (ด้านล่าง) |
+| ↳ `btnMyAck` | Button (ในแกลเลอรี) | ปุ่มรับทราบ (ด้านล่าง) · `X=Parent.TemplateWidth-150 Width=140` |
+| `tmrMyAlert` | Timer | `Duration=60000 Repeat=true AutoStart=true` · OnTimerEnd ดู B-4 |
+
 ```powerapps
-lblMyFlt.Text  = =ThisItem.Title & " · " & Coalesce(ThisItem.task, "") & "  " & ThisItem.sta & "–" & ThisItem.std
-// ไฮไลต์เคสด่วน
-lblMyFlt.Fill  = =Switch(ThisItem.priority.Value, "WHEELCHAIR", RGBA(255,224,178,1), "SUPPORT", RGBA(255,236,179,1), RGBA(255,255,255,1))
-// ปุ่มรับทราบ
-btnMyAck.Text      = =If(ThisItem.acknowledged, "✓ รับทราบแล้ว", "กดรับทราบ")
-btnMyAck.Fill      = =If(ThisItem.acknowledged, RGBA(198,224,180,1), RGBA(29,66,138,1))
+// btnMyLoad.OnSelect
+Set(varMyWho, Coalesce(varMyCode, ddMyWho.Selected.code));
+ClearCollect(colMy, Filter(PAS_Assignment, day_key = varMyKey, emp_code = varMyWho))
+
+// galMy row
+lblMyFlt.Text = =ThisItem.Title & " · " & Coalesce(ThisItem.task, "") & "   " & ThisItem.sta & "–" & ThisItem.std
+lblMyFlt.Fill = =Switch(ThisItem.priority.Value, "WHEELCHAIR", RGBA(255,224,178,1), "SUPPORT", RGBA(255,236,179,1), RGBA(255,255,255,1))
+
+btnMyAck.Text        = =If(ThisItem.acknowledged, "✓ รับทราบแล้ว", "กดรับทราบ")
+btnMyAck.Fill        = =If(ThisItem.acknowledged, RGBA(198,224,180,1), RGBA(29,66,138,1))
+btnMyAck.Color       = =If(ThisItem.acknowledged, RGBA(45,106,79,1), RGBA(255,255,255,1))
 btnMyAck.DisplayMode = =If(ThisItem.acknowledged, DisplayMode.Disabled, DisplayMode.Edit)
-btnMyAck.OnSelect  =
+btnMyAck.OnSelect    =
   =With({u: Patch(PAS_Assignment, ThisItem, {acknowledged: true, ack_at: Now()})},
      Remove(colMy, ThisItem); Collect(colMy, u));
    Notify("รับทราบงาน " & ThisItem.Title & " แล้ว", NotificationType.Success)
+
+// lblMyWarn (แถบเตือนบนหัว)
+lblMyWarn.Text = =With({n: CountRows(Filter(colMy, !acknowledged))}, If(n > 0, "⚠ ยังไม่รับทราบ " & n & " งาน — กดรับทราบก่อนเริ่มงาน", "รับทราบครบแล้ว ✓"))
+lblMyWarn.Fill = =If(CountRows(Filter(colMy, !acknowledged)) > 0, RGBA(253,226,226,1), RGBA(226,239,218,1))
 ```
-แถบเตือนบนหัวจอ (ยังไม่กดครบ):
-```powerapps
-lblMyWarn.Text    = =With({n: CountRows(Filter(colMy, !acknowledged))}, If(n > 0, "⚠ ยังไม่รับทราบ " & n & " งาน — กดรับทราบก่อนเริ่มงาน", "รับทราบครบแล้ว ✓"))
-lblMyWarn.Fill    = =If(CountRows(Filter(colMy, !acknowledged)) > 0, RGBA(253,226,226,1), RGBA(226,239,218,1))
-```
+> เพิ่มปุ่มเข้า scrMy จากเมนูหลัก (หรือหน้าแรก): `btnGoMy.OnSelect = Navigate(scrMy)`
 
 ### 3) gate "เริ่มงาน" ด้วยการรับทราบ
 ที่ใดก็ตามที่ให้กด "เริ่ม/ไปงาน" ให้เช็คก่อน:
@@ -199,7 +232,8 @@ btnRShSave.OnSelect =
 ---
 
 ## สรุปสิ่งที่ต้องทำใน Power Apps Studio
-1. **คอลัมน์ใหม่**: `PAS_Employees.app_role` · `PAS_Assignment.acknowledged/ack_at/priority`
+0. **คอลัมน์ทั้งหมด** (ขั้นที่ 0) ก่อน แล้วทำ A → B → C · การ import/export ข้อมูลทุกตาราง ดู `28-import-export-each-table.md`
+1. **คอลัมน์ใหม่**: `PAS_Employees.app_role/work_email` · `PAS_Assignment.acknowledged/ack_at/priority`
 2. **App.OnStart**: เติม varPriv/varMyCode/varMyTeam (A-2)
 3. **scrRoster**: เติม 6 คอนโทรลโหมดเปลี่ยนกะ (C) + gate ปุ่มด้วย varPriv (A-3)
 4. **scrAssign/scrFlights**: gate ปุ่มแก้ด้วย varPriv (A-3) + ใส่ acknowledged:false ตอนลงงาน + ไฮไลต์วีลแชร์ (B-1,B-4)
