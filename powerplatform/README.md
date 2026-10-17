@@ -28,6 +28,33 @@
 > ✅ ทดสอบด้วยข้อมูลจริง: อ่าน MANPOWER ของ 19SEP จาก Drive → import เข้า DB ได้ตัวเลขตรงชีต
 > (SQ 29 คน · QR OT 85 · WYWK OT 72.5 · PORTER 51) · Office Script util ให้ผลตรงกับ backend module
 
+## แผนที่เอกสารทั้งหมด (index)
+
+**พื้นฐาน / นำเข้า**
+- `01` schema · `02` Power Fx · `03` Power Automate · `04` Power BI · `05` import-source · `06` canvas-build
+
+**สิทธิ์ · OT · งานของฉัน**
+- `07` access-roles · `08` powerfx-ot-actual · `09` powerfx-mywork · `10`/`11` flow-getactualot(-range) · `12` ot-daily-summary · `13` load-into-system
+
+**Roster · Assignment · ลา · ไฟลท์**
+- `14` powerfx-roster · `15` powerfx-assignment · `16` powerfx-swap (แลกเวร) · `17` powerfx-hours-ack · `18` notify-steps · `19` powerfx-leave · `20` powerfx-flights · `21` auto-run · `22` assign-team-view
+
+**นำเข้า/ส่งออก · กะจริง · ประวัติ**
+- `23` flow-import-export · `24` real-manning-shifts · `25` shift-catalog · `26` daily-roster-import · `28` import-export-each-table (รายตารางครบ)
+
+**เติมฟีเจอร์ · เมนู · generate**
+- `27` fill-gaps (varPriv · acknowledge/scrMy · เปลี่ยนกะ) · `29` home-menu (scrHome ตามสิทธิ์) · `30` generate-auto-manual (ปุ่มจัดอัตโนมัติ + แก้มือ)
+
+**วีลแชร์ / พอตเตอร์ (WC)**
+- `wc-01` schema-import · `wc-02` lp-dispatch (จ่ายงาน + พอตเตอร์รับทราบ) · `wc-03` porter-app (canvas/จอรวม) · `wc-04` porter-powerpages (มือถือส่วนตัว) · `wc-05` porter-flows (HTTP flow) · `wc-06` porter-custom-api · `wc-07` porter-plugin (C#) · `porter-wc-migration` ภาพรวม
+
+**กฎ/วิธีคิด**
+- `hr-rules` (เวลาทำงาน · หมุนกะไม่ย้อน · OT · ลา) · `staffing-method-notes` · `assignment-real-method` · `tables.def.json` (สคีมา)
+
+**สคริปต์ (`tools/`)**
+- `build_int_roster.py` ไฟลท์→req/sizing · `build_roster.py` 4-หยุด-2 + หมุนกะ + OT · `import_daily_roster.py` นำเข้าเวรเดิม
+- `extract_staffing.py` กะจริง/manning · `gen_porter_staff.py` เคสพอตเตอร์/วัน · `gen_manpower.py` สรุป manpower · `gen_teamairline.py` ทีม↔สายการบิน · `extract_wc_data.py` staff/รถเข็น · `run_month.sh` รันรายเดือน
+
 ## ไลเซนส์ (ต้องรู้ก่อน)
 - Dataverse + Power Apps ใช้ตาราง Dataverse = **premium** → ต้อง **Power Apps per-user** (หรือ per-app) ต่อผู้ใช้ที่เปิดแอป
 - Power Automate: flow ที่แตะ Dataverse ครอบด้วยไลเซนส์ Power Apps ที่มากับแอปได้ (ตรวจ use rights กับ IT)

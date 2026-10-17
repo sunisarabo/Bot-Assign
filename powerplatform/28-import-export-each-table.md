@@ -25,9 +25,9 @@
 | **PAS Assignment** `pas_assignment` | `pas_name` (Flight Code) | แอปสร้างเอง (scrAssign) | ปกติไม่ import (แอปเขียน) · seed = IMP-X | EXP-L (สำรอง) | task "/"-joined · is_flight/is_activity |
 | **PAS Flight** `pas_flight` | `pas_name` = `pas_flightkey` | `build_int_roster.py --dataverse` → `pas_flight_int.csv` · แอปแก้ (scrFlights) | IMP-DF (`23` B) | EXP-L | direction=choice · status ADDED/CHANGED/CANCELLED |
 | **PAS Porter Job** `pas_porter_job` | `pas_name` (Flight No) | `OCT PORTER SUMMARY` → `extract_wc_data.py` | IMP-X · IMP-DF | EXP-L | service=choice · porter_names = text |
-| **PAS Porter Staff Day** `pas_porter_staff` | `pas_name` = `Name_date` | จาก porter summary (สรุปเคส/คน/วัน) | IMP-X · IMP-DF | EXP-L | cases = number |
+| **PAS Porter Staff Day** `pas_porter_staff` | `pas_name` = `Name_date` | PORTER SUMMARY → **`gen_porter_staff.py`** | IMP-X · IMP-DF | EXP-L | cases = number |
 | **PAS Pre-Wheelchair** `pas_prewc` | `pas_name` (Flight No) | `OCT PRE-WHEELCHAIR` → `office-script-prewc.ts` | IMP-X · IMP-DF | EXP-L | service/direction=choice |
-| **PAS Manpower Report** `pas_manpower` | `pas_name` = `date` (หรือ `team_date`) | คำนวณจาก duty (สรุป) | IMP-X · หรือ **Office Script/Flow สรุป** | EXP-L (ป้อน Power BI) | ตัวเลขรวมต่อวัน |
+| **PAS Manpower Report** `pas_manpower` | `pas_name` = `date` (หรือ `team_date` ด้วย `--by-team`) | duty CSV → **`gen_manpower.py`** | IMP-X · IMP-DF | EXP-L (ป้อน Power BI) | ตัวเลขรวมต่อวัน |
 
 ---
 
@@ -39,7 +39,7 @@
 | **PAS SwapLog** `pas_swaplog` | `Title` = `ka\|ca <> kb\|cb` | แอปเขียน (scrRoster แลกเวร) | ไม่ import | EXP-L (audit) |
 | **PAS LeaveLog** `pas_leavelog` | `Title` = `day\|emp\|code` | แอปเขียน (scrRoster ลา) · นำเข้าโควตาเดิม = IMP-X | IMP-X (seed โควตา) | EXP-L → `leave_YYYY-MM.csv` (`23` A) |
 | **PAS TeamPosition** `pas_teamposition` | `Team\|Position` | `manning_positions.csv` | IMP-X | EXP-L |
-| **PAS TeamAirline** `pas_teamairline` | `Team\|IATA` | map ทีม↔สายการบิน | IMP-X | EXP-L |
+| **PAS TeamAirline** `pas_teamairline` | `Team\|IATA` | **`gen_teamairline.py`** (ทีม↔สายการบิน) | IMP-X | EXP-L |
 | **PAS FlightExtraPos** `pas_flightextrapos` | `day\|flight\|position` | แอปเขียน (scrAssign เพิ่มตำแหน่ง) | ไม่ import | EXP-L |
 
 ## ตาราง WC/Porter (ดู `wc-01-schema-import.md`)
