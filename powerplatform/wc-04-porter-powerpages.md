@@ -65,6 +65,8 @@ async function ackCase(caseId){
 }
 ```
 
+> 📄 **flow 3 ตัวแบบ step-by-step ละเอียด** (ทุก action, OData filter, expression, request/response, error→HTTP) อยู่ที่ **`wc-05-porter-flows.md`**
+
 **Flow `wc-ack` (HTTP → Dataverse)** ทำ server-side ตาม `wc-03` §3 ทุกข้อ:
 1. ตรวจ `staffId` + PIN ตรง · caseporter ของเคสนี้เป็นของ staffId จริง (กันรับแทนคนอื่น)
 2. เคสยังไม่ `COMPLETED/CANCELLED` · ยังไม่ `pas_acknowledged`
