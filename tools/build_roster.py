@@ -20,8 +20,45 @@ from collections import defaultdict
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 
-# เวลาเข้า-ออกมาตรฐานต่อกะ (นาที) → เขียนลง pas_duty ตอน import
+# เวลาเข้า-ออกมาตรฐานต่อกะ (นาที) → fallback เมื่อทีมไม่มี shift template
 SHIFT_TIME = {'M': (5*60, 14*60), 'A': (13*60, 22*60), 'N': (21*60, 30*60)}
+
+# map ทีมในไฟล์วิเคราะห์ → ชื่อทีม ADV
+ST_TEAM_MAP = {'CHN': ['CHN'], 'EY': ['EY'], 'KE': ['KE'], 'PG': ['PG'], 'QR': ['QR'],
+               'SQ': ['SQ'], 'TR': ['TR'], 'CHARTER': ['CHARTER'], 'PVT': ['PVT'],
+               'JQ/TK': ['JQ', 'TK'], 'SU/AK': ['SU', 'AK'], 'WY/EK': ['EK'], 'WK/SV': ['WY/WK']}
+
+
+def load_shift_templates(path=None, period='ต.ค.'):
+    """อ่าน shift_templates.csv → {my_team: [{code,ss,se,people,night}]} (ลงกะจริงต่อทีม)"""
+    path = path or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shift_templates.csv')
+    if not os.path.exists(path):
+        return {}
+    raw = {}
+    for r in csv.DictReader(open(path, encoding='utf-8')):
+        if r['Period'] != period:
+            continue
+        st, ln, pp = int(r['StartHour']), int(r['LenHrs']), int(r['People'])
+        code = '%02d-%02d' % (st, (st + ln) % 24)
+        ss, se = st * 60, (st + ln) * 60
+        sh = {'code': code, 'ss': ss, 'se': se, 'people': pp, 'night': (se > 1440 or st < 5)}
+        for mt in ST_TEAM_MAP.get(r['Team'], []):
+            raw.setdefault(mt, []).append(dict(sh))
+    for t in raw:
+        raw[t].sort(key=lambda s: s['ss'])
+    return raw
+
+
+def _distribute(nworkers, shifts):
+    """แบ่ง nworkers ลงกะตามสัดส่วน people ของ template"""
+    tot = sum(s['people'] for s in shifts) or 1
+    tgt = [int(nworkers * s['people'] / tot) for s in shifts]
+    rem = nworkers - sum(tgt)
+    frac = sorted(range(len(shifts)),
+                  key=lambda i: -((nworkers * shifts[i]['people'] / tot) - int(nworkers * shifts[i]['people'] / tot)))
+    for k in range(rem):
+        tgt[frac[k % len(frac)]] += 1
+    return tgt
 
 
 def celltxt(c):
@@ -143,7 +180,7 @@ def load_prev_offsets(path, cycle=CYCLE, sheet='CODE กะงาน'):
     return off
 
 
-def roster_team(staff, req_by_date, dates, leave=None, prev_off=None):
+def roster_team(staff, req_by_date, dates, leave=None, prev_off=None, shifts=None):
     """ตารางเวร 'ทำ 4 หยุด 2 ต่อเนื่อง' (สลับ offset ให้คนครบทุกวัน) + กลบวันขาดด้วยบันได OT
     leave = {emp_id: {date: leave_code}} → คนลาถูกข้าม (ไม่จัดงาน/ไม่นับ off-cycle)
     คืน assign[date][id]={'sh','ot','bucket'} + coverage[date]"""
@@ -182,15 +219,26 @@ def roster_team(staff, req_by_date, dates, leave=None, prev_off=None):
             off = [i for i in off if i not in called_ids]
             workers = on + called_ids
             cn = min(n, len(workers)); cm = min(m, len(workers) - cn); ca = len(workers) - cn - cm
-        # แจกกะ: N ก่อน (เฉลี่ยดึก) แล้ว M, A
+        # แจกกะ: ถ้ามี template ของทีม → ลงกะจริงตามสัดส่วน · ไม่งั้น fallback M/A/N
         pool = sorted(workers, key=lambda i: (night_cnt[i], i))
-        for i in pool[:cn]:
-            day[i] = {'sh': 'N', 'ot': 0, 'bucket': 'WORKING'}; night_cnt[i] += 1
-        rest = [i for i in pool if i not in day]
-        for i in rest[:cm]:
-            day[i] = {'sh': 'M', 'ot': 0, 'bucket': 'WORKING'}
-        for i in rest[cm:cm + ca]:
-            day[i] = {'sh': 'A', 'ot': 0, 'bucket': 'WORKING'}
+        if shifts:
+            tgt = _distribute(len(workers), shifts)
+            k = 0
+            for si in sorted(range(len(shifts)), key=lambda x: (not shifts[x]['night'])):   # กะดึกก่อน
+                s = shifts[si]
+                for _ in range(tgt[si]):
+                    if k >= len(pool): break
+                    w = pool[k]; k += 1
+                    day[w] = {'sh': s['code'], 'ot': 0, 'bucket': 'WORKING', 'ss': s['ss'], 'se': s['se']}
+                    if s['night']: night_cnt[w] += 1
+        else:
+            for i in pool[:cn]:
+                day[i] = {'sh': 'N', 'ot': 0, 'bucket': 'WORKING', 'ss': SHIFT_TIME['N'][0], 'se': SHIFT_TIME['N'][1]}; night_cnt[i] += 1
+            rest = [i for i in pool if i not in day]
+            for i in rest[:cm]:
+                day[i] = {'sh': 'M', 'ot': 0, 'bucket': 'WORKING', 'ss': SHIFT_TIME['M'][0], 'se': SHIFT_TIME['M'][1]}
+            for i in rest[cm:cm + ca]:
+                day[i] = {'sh': 'A', 'ot': 0, 'bucket': 'WORKING', 'ss': SHIFT_TIME['A'][0], 'se': SHIFT_TIME['A'][1]}
         for i in set(workers) - set(on):                       # คนถูกเรียกจากวันหยุด → OT_OFF
             if i in day:
                 day[i]['bucket'] = 'OT_OFF'; day[i]['ot'] = CALLED_OT_H
@@ -208,7 +256,7 @@ def roster_team(staff, req_by_date, dates, leave=None, prev_off=None):
                 avl = i in av
                 assign.setdefault(d, {})[i] = {'sh': ('OFF' if avl else '-'), 'ot': 0,
                                                'bucket': ('OFF' if avl else 'X')}
-        coverage[d] = {'tgt': (m, a, n), 'asg': (cm, ca, cn), 'ext': ext_used, 'called': called, 'short': max(residual, 0)}
+        coverage[d] = {'need': need, 'asg': len(workers), 'ext': ext_used, 'called': called, 'short': max(residual, 0)}
     return assign, coverage
 
 
@@ -230,6 +278,9 @@ def main():
     args = ap.parse_args()
     duty_rows = []
     prev_off = load_prev_offsets(args.prev) if args.prev else {}
+    shift_tmpl = load_shift_templates()
+    if shift_tmpl:
+        print('shift templates:', len(shift_tmpl), 'teams (ลงกะจริงต่อทีม)')
     if prev_off:
         print('prev-month continuity:', len(prev_off), 'emps')
     leave = {}
@@ -248,13 +299,13 @@ def main():
 
     wb = Workbook(); wb.remove(wb.active)
     cov = wb.create_sheet('Coverage')
-    cov.append(['Team', 'Date', 'DOW', 'Tgt_M', 'Tgt_A', 'Tgt_N', 'Asg_M', 'Asg_A', 'Asg_N', 'ยืดกะ(ext)', 'เรียกวันหยุด(OT)', 'ยังขาด'])
+    cov.append(['Team', 'Date', 'DOW', 'ต้องการ', 'จัดได้', 'ยืดกะ(ext)', 'เรียกวันหยุด(OT)', 'ยังขาด'])
 
     teams_with = [t for t in req if team_staff.get(t)]
     order = sorted(teams_with, key=lambda t: -len(team_staff[t]))
     for t in order:
         staff = team_staff[t]
-        assign, coverage = roster_team(staff, req[t], dates, leave, prev_off)
+        assign, coverage = roster_team(staff, req[t], dates, leave, prev_off, shift_tmpl.get(t))
         ws = wb.create_sheet(t.replace('/', '-')[:28])
         head = ['รหัส', 'ชื่อ'] + ['%d\n%s' % (d.day, WD[d.weekday()]) for d in dates]
         ws.append(head)
@@ -263,7 +314,7 @@ def main():
             ws.append(row)
             for d in dates:
                 c = assign[d][s['id']]
-                st, en = SHIFT_TIME.get(c['sh'], (None, None))
+                st, en = c.get('ss'), c.get('se')
                 duty_rows.append([d.isoformat(), s['id'], s['nick'], t, c['bucket'],
                                   ('' if c['sh'] in ('OFF', '-') else c['sh']),
                                   st if st is not None else '', en if en is not None else '', c['ot']])
@@ -282,13 +333,13 @@ def main():
         ws.row_dimensions[1].height = 30
         # coverage rows
         for d in dates:
-            cv = coverage[d]; (tm, ta, tn) = cv['tgt']; (am, aa, an) = cv['asg']
-            cov.append([t, d, WD[d.weekday()], tm, ta, tn, am, aa, an, cv['ext'], cv['called'], cv['short']])
+            cv = coverage[d]
+            cov.append([t, d, WD[d.weekday()], cv['need'], cv['asg'], cv['ext'], cv['called'], cv['short']])
 
     # เน้นแดงช่องยังขาด (คอลัมน์ 12)
     for ri in range(2, cov.max_row + 1):
-        if (cov.cell(ri, 12).value or 0) > 0:
-            cov.cell(ri, 12).fill = PatternFill('solid', fgColor='FFC9C9')
+        if (cov.cell(ri, 8).value or 0) > 0:
+            cov.cell(ri, 8).fill = PatternFill('solid', fgColor='FFC9C9')
     hdr(cov, 12)
     for col in cov.columns:
         cov.column_dimensions[col[0].column_letter].width = 10
@@ -314,8 +365,8 @@ def main():
             for r in duty_rows:
                 w.writerow([r[1] + '_' + r[0]] + r)   # pas_name = EmpCode_date (คีย์ต่อแถว)
         print('dataverse pas_duty:', fp, '(%d rows)' % len(duty_rows))
-    tot_short = sum(1 for ri in range(2, cov.max_row + 1) if (cov.cell(ri, 12).value or 0) > 0)
-    tot_ot = sum((cov.cell(ri, 10).value or 0) + (cov.cell(ri, 11).value or 0) for ri in range(2, cov.max_row + 1))
+    tot_short = sum(1 for ri in range(2, cov.max_row + 1) if (cov.cell(ri, 8).value or 0) > 0)
+    tot_ot = sum((cov.cell(ri, 6).value or 0) + (cov.cell(ri, 7).value or 0) for ri in range(2, cov.max_row + 1))
     print('saved', args.out)
     print('teams rostered:', len(teams_with), '| team-days residual-short:', tot_short, '| OT slots (ext+called):', tot_ot)
     print('teams w/o staff:', [t for t in req if not team_staff.get(t)])
