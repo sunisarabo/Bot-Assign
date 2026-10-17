@@ -100,66 +100,67 @@ def _avail(s, d):
     return True
 
 
+CYCLE = 6          # รอบ: ทำ 4 หยุด 2
+ON_IN_CYCLE = 4
+
+
 def roster_team(staff, req_by_date, dates):
-    """จับกะตาม 'บันได OT': ยืดกะคนที่อยู่ก่อน → เรียกคนวันหยุด → ถ้ายังขาดค่อยแจ้ง
+    """ตารางเวร 'ทำ 4 หยุด 2 ต่อเนื่อง' (สลับ offset ให้คนครบทุกวัน) + กลบวันขาดด้วยบันได OT
     คืน assign[date][id]={'sh','ot','bucket'} + coverage[date]"""
     byid = {s['id']: s for s in staff}
     ids = [s['id'] for s in staff]
-    work_cnt = {i: 0 for i in ids}
+    offset = {sid: k % CYCLE for k, sid in enumerate(ids)}     # กระจายวันหยุดให้ไม่ตรงกันหมด
     night_cnt = {i: 0 for i in ids}
     assign, coverage = {}, {}
-    for d in dates:
-        av = [i for i in ids if _avail(byid[i], d)]
-        N = len(av)
+    for di, d in enumerate(dates):
+        av = set(i for i in ids if _avail(byid[i], d))
         m, a, n = req_by_date.get(d, (0, 0, 0))
         need = m + a + n
+        # 4-on / 2-off baseline
+        on = [i for i in ids if i in av and (di + offset[i]) % CYCLE < ON_IN_CYCLE]
+        off = [i for i in ids if i in av and i not in on]
         day = {}
-        # วันหยุดพื้นฐานเพื่อพัก ~1/7
-        base_off = round(N / 7) if N else 0
-        off = set(sorted(av, key=lambda i: (-work_cnt[i], i))[:base_off])
-        on = [i for i in av if i not in off]
         ext_used = called = residual = 0
-        if need <= len(on):
-            # คนพอ: ส่วนเกินให้พักเพิ่ม
-            extra = sorted(on, key=lambda i: (-work_cnt[i], i))[:len(on) - need]
-            off |= set(extra); on = [i for i in on if i not in off]
+        if len(on) >= need:
             workers = on
+            cm, ca, cn = m, a, n
+            extra = len(workers) - need                        # เกินก็ให้ขึ้นงาน (ตามรอบ) กระจายลงกะ
+            for k in range(extra):
+                b = k % 3
+                if b == 0: ca += 1
+                elif b == 1: cm += 1
+                else: cn += 1
         else:
             shortfall = need - len(on)
-            ext_used = min(shortfall, len(on))                 # บันได 1: ยืดกะ
-            called_ids = sorted(off, key=lambda i: (work_cnt[i], i))[:max(0, shortfall - ext_used)]
+            ext_used = min(shortfall, len(on))                 # บันได 1: ยืดกะคนที่อยู่
+            called_ids = sorted(off)[:max(0, shortfall - ext_used)]
             called = len(called_ids)                           # บันได 2: เรียกคนวันหยุด
             residual = shortfall - ext_used - called
-            off -= set(called_ids)
+            off = [i for i in off if i not in called_ids]
             workers = on + called_ids
-        # แจกกะให้ workers: N ก่อน (เฉลี่ยดึก) แล้ว M, A
-        cn = min(n, len(workers)); cm = min(m, len(workers) - cn); ca = min(a, len(workers) - cn - cm)
-        pool = sorted(workers, key=lambda i: (night_cnt[i], work_cnt[i], i))
+            cn = min(n, len(workers)); cm = min(m, len(workers) - cn); ca = len(workers) - cn - cm
+        # แจกกะ: N ก่อน (เฉลี่ยดึก) แล้ว M, A
+        pool = sorted(workers, key=lambda i: (night_cnt[i], i))
         for i in pool[:cn]:
             day[i] = {'sh': 'N', 'ot': 0, 'bucket': 'WORKING'}; night_cnt[i] += 1
-        rest = sorted([i for i in pool if i not in day], key=lambda i: (work_cnt[i], i))
+        rest = [i for i in pool if i not in day]
         for i in rest[:cm]:
             day[i] = {'sh': 'M', 'ot': 0, 'bucket': 'WORKING'}
         for i in rest[cm:cm + ca]:
             day[i] = {'sh': 'A', 'ot': 0, 'bucket': 'WORKING'}
-        # คนที่ถูกเรียกจากวันหยุด → OT_OFF
-        called_set = set(workers) - set(on)
-        for i in called_set:
+        for i in set(workers) - set(on):                       # คนถูกเรียกจากวันหยุด → OT_OFF
             if i in day:
                 day[i]['bucket'] = 'OT_OFF'; day[i]['ot'] = CALLED_OT_H
-        # ยืดกะ: ให้ ext_used คน (on-duty ที่ ot น้อย) ได้ OT ก่อน/หลัง
-        ext_pool = sorted([i for i in on if i in day], key=lambda i: (work_cnt[i], i))[:ext_used]
-        for i in ext_pool:
-            if day[i]['ot'] == 0:
-                day[i]['ot'] = EXTEND_OT_H
+        for i in [x for x in on if x in day and day[x]['ot'] == 0][:ext_used]:   # ยืดกะ → OT
+            day[i]['ot'] = EXTEND_OT_H
         for i in ids:
             cell = day.get(i)
             if cell:
-                work_cnt[i] += 1
                 assign.setdefault(d, {})[i] = cell
             else:
-                assign.setdefault(d, {})[i] = {'sh': ('OFF' if _avail(byid[i], d) else '-'), 'ot': 0,
-                                               'bucket': ('OFF' if _avail(byid[i], d) else 'X')}
+                avl = i in av
+                assign.setdefault(d, {})[i] = {'sh': ('OFF' if avl else '-'), 'ot': 0,
+                                               'bucket': ('OFF' if avl else 'X')}
         coverage[d] = {'tgt': (m, a, n), 'asg': (cm, ca, cn), 'ext': ext_used, 'called': called, 'short': max(residual, 0)}
     return assign, coverage
 
