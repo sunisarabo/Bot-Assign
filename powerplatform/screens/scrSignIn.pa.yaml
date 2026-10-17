@@ -1,0 +1,98 @@
+Screens:
+  scrSignIn:
+    Properties:
+      Fill: =RGBA(29, 66, 138, 1)
+      OnVisible: |-
+        =If(IsBlank(colSIStaff),
+          ClearCollect(colSIStaff, ForAll(SortByColumns(Filter(PAS_Employees, status.Value = "ACTIVE"), "emp_code") As s, { lbl: s.emp_name & " · " & s.emp_code, code: s.emp_code })));
+        Set(varSIErr, "")
+    Children:
+      - recSICard:
+          Control: Rectangle@2.3.0
+          Properties:
+            Fill: =RGBA(255, 255, 255, 1)
+            X: =(Parent.Width - Min(420, Parent.Width - 32)) / 2
+            Y: =(Parent.Height - 360) / 2
+            Width: =Min(420, Parent.Width - 32)
+            Height: =360
+      - lblSITitle:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="เข้าใช้งาน (พนักงาน)"
+            Color: =RGBA(29, 66, 138, 1)
+            FontWeight: =FontWeight.Bold
+            Size: =20
+            Align: =Align.Center
+            X: =recSICard.X
+            Y: =recSICard.Y + 24
+            Width: =recSICard.Width
+            Height: =36
+      - lblSIHint:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="เลือกชื่อของคุณ แล้วใส่ PIN 4-6 หลัก"
+            Color: =RGBA(120, 120, 120, 1)
+            Size: =12
+            Align: =Align.Center
+            X: =recSICard.X
+            Y: =recSICard.Y + 64
+            Width: =recSICard.Width
+            Height: =24
+      - ddSIWho:
+          Control: Classic/DropDown@2.3.1
+          Properties:
+            Items: =colSIStaff
+            X: =recSICard.X + 30
+            Y: =recSICard.Y + 104
+            Width: =recSICard.Width - 60
+            Height: =40
+      - txtSIPin:
+          Control: Classic/TextInput@2.3.2
+          Properties:
+            HintText: ="PIN"
+            Mode: =TextMode.Password
+            X: =recSICard.X + 30
+            Y: =recSICard.Y + 156
+            Width: =recSICard.Width - 60
+            Height: =40
+      - lblSIErr:
+          Control: Label@2.5.1
+          Properties:
+            Text: =varSIErr
+            Color: =RGBA(192, 54, 44, 1)
+            Size: =11
+            Align: =Align.Center
+            X: =recSICard.X
+            Y: =recSICard.Y + 202
+            Width: =recSICard.Width
+            Height: =22
+      - btnSIGo:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="เข้าใช้งาน"
+            Fill: =RGBA(29, 66, 138, 1)
+            Color: =RGBA(255, 255, 255, 1)
+            Size: =14
+            X: =recSICard.X + 30
+            Y: =recSICard.Y + 232
+            Width: =recSICard.Width - 60
+            Height: =44
+            OnSelect: |-
+              =With({e: LookUp(PAS_Employees, emp_code = ddSIWho.Selected.code)},
+                 If(IsBlank(e) || Coalesce(e.pas_pin, "") = "" || e.pas_pin <> txtSIPin.Text,
+                    Set(varSIErr, "PIN ไม่ถูกต้อง หรือยังไม่ได้ตั้ง PIN (แจ้งแอดมิน)"),
+                    Set(varMe, { display_name: e.emp_name, emp_code: e.emp_code, role: { Value: "Viewer" }, active: true });
+                    Set(varRole, "Viewer"); Set(varPriv, false); Set(varAdmin, false);
+                    Set(varMyCode, e.emp_code); Set(varMyTeam, e.team); Set(varHWho, e.emp_name);
+                    Reset(txtSIPin); Navigate(scrHome)))
+      - lblSIAdmin:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="ผู้ดูแล/หัวหน้า เข้าด้วยบัญชี M365 (ไม่ต้องใช้หน้านี้)"
+            Color: =RGBA(150, 150, 150, 1)
+            Size: =10
+            Align: =Align.Center
+            X: =recSICard.X
+            Y: =recSICard.Y + 292
+            Width: =recSICard.Width
+            Height: =40
