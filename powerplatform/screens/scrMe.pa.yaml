@@ -1,0 +1,202 @@
+Screens:
+  scrMe:
+    Properties:
+      Fill: =RGBA(244, 246, 248, 1)
+      OnVisible: |-
+        =Set(varMyKey, Text(Today(), "yyyy-mm-dd"));
+        If(IsBlank(varMyCode), Set(varMyCode, Coalesce(varMe.emp_code, "")));
+        If(IsBlank(varMeTab), Set(varMeTab, "flight"));
+        If(IsBlank(varMyCode) && IsBlank(colMeStaff),
+          ClearCollect(colMeStaff, ForAll(SortByColumns(Filter(PAS_Employees, status.Value = "ACTIVE"), "emp_code") As s, { lbl: s.emp_name & " · " & s.emp_code, code: s.emp_code })));
+        Select(btnMeLoad)
+    Children:
+      - recMeHead:
+          Control: Rectangle@2.3.0
+          Properties:
+            Fill: =RGBA(29, 66, 138, 1)
+            Height: =64
+            Width: =Parent.Width
+      - lblMeTitle:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="งานของฉันวันนี้"
+            Color: =RGBA(255, 255, 255, 1)
+            FontWeight: =FontWeight.Bold
+            Size: =18
+            X: =20
+            Y: =12
+            Width: =Parent.Width - 260
+            Height: =40
+      - btnMeBack:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="← กลับเมนู"
+            OnSelect: =Navigate(scrHome)
+            Fill: =RGBA(255, 255, 255, 1)
+            Color: =RGBA(29, 66, 138, 1)
+            X: =Parent.Width - 130
+            Y: =14
+            Width: =110
+            Height: =36
+      - ddMeWho:
+          Control: Classic/DropDown@2.3.1
+          Properties:
+            Visible: =IsBlank(varMe.emp_code)
+            Items: =colMeStaff
+            X: =20
+            Y: =76
+            Width: =260
+            Height: =36
+      - btnMeLoad:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="ดูงานของฉัน"
+            Fill: =RGBA(29, 66, 138, 1)
+            Color: =RGBA(255, 255, 255, 1)
+            X: =290
+            Y: =76
+            Width: =120
+            Height: =36
+            OnSelect: |-
+              =Set(varMyCode, Coalesce(varMe.emp_code, ddMeWho.Selected.code));
+              ClearCollect(colMe, Filter(PAS_Assignment, day_key = varMyKey, emp_code = varMyCode));
+              ClearCollect(colMeWC,
+                AddColumns(
+                  Filter(pas_wc_caseporters, Staff.StaffId = varMyCode, DateValue(AssignedAt) = Today()),
+                  "case", LookUp(pas_wc_cases, CaseId = Case.CaseId)))
+      - btnMeTabFlight:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="งานไฟลท์ (" & CountRows(colMe) & ")"
+            Fill: =If(varMeTab = "flight", RGBA(29, 66, 138, 1), RGBA(255, 255, 255, 1))
+            Color: =If(varMeTab = "flight", RGBA(255, 255, 255, 1), RGBA(29, 66, 138, 1))
+            X: =20
+            Y: =120
+            Width: =180
+            Height: =34
+            OnSelect: =Set(varMeTab, "flight")
+      - btnMeTabWC:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="งานวีลแชร์ (" & CountRows(Filter(colMeWC, case.Status.Value in ["STANDBY", "ASSIGNED", "ON_PROCESS"])) & ")"
+            Fill: =If(varMeTab = "wc", RGBA(45, 106, 79, 1), RGBA(255, 255, 255, 1))
+            Color: =If(varMeTab = "wc", RGBA(255, 255, 255, 1), RGBA(45, 106, 79, 1))
+            X: =206
+            Y: =120
+            Width: =190
+            Height: =34
+            OnSelect: =Set(varMeTab, "wc")
+      - lblMeWarn:
+          Control: Label@2.5.1
+          Properties:
+            Text: |-
+              =With({n: CountRows(Filter(colMe, !acknowledged)) + CountRows(Filter(colMeWC, case.pas_acknowledged <> true, case.Status.Value in ["STANDBY", "ASSIGNED", "ON_PROCESS"]))},
+                 If(n > 0, "⚠ ยังไม่รับทราบ " & n & " งาน — กดรับทราบก่อนเริ่มงาน", "รับทราบครบแล้ว ✓"))
+            Fill: |-
+              =If(CountRows(Filter(colMe, !acknowledged)) + CountRows(Filter(colMeWC, case.pas_acknowledged <> true, case.Status.Value in ["STANDBY", "ASSIGNED", "ON_PROCESS"])) > 0, RGBA(253, 226, 226, 1), RGBA(226, 239, 218, 1))
+            Align: =Align.Center
+            Size: =12
+            X: =410
+            Y: =120
+            Width: =Parent.Width - 430
+            Height: =34
+      - galMe:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Visible: =varMeTab = "flight"
+            Items: =SortByColumns(colMe, "sta")
+            TemplateSize: =74
+            TemplatePadding: =6
+            X: =16
+            Y: =164
+            Width: =Parent.Width - 32
+            Height: =Parent.Height - 174
+            TemplateFill: =RGBA(0, 0, 0, 0)
+          Children:
+            - recMeCard:
+                Control: Rectangle@2.3.0
+                Properties:
+                  Fill: =Switch(ThisItem.priority.Value, "WHEELCHAIR", RGBA(255, 224, 178, 1), "SUPPORT", RGBA(255, 236, 179, 1), RGBA(255, 255, 255, 1))
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 12
+                  Height: =Parent.TemplateHeight - 10
+            - lblMeFlt:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.Title & " · " & Coalesce(ThisItem.task, "") & "   " & ThisItem.sta & "–" & ThisItem.std
+                  FontWeight: =FontWeight.Semibold
+                  Size: =13
+                  X: =16
+                  Y: =10
+                  Width: =Parent.TemplateWidth - 180
+                  Height: =48
+            - btnMeAck:
+                Control: Classic/Button@2.2.0
+                Properties:
+                  Text: =If(ThisItem.acknowledged, "✓ รับทราบแล้ว", "กดรับทราบ")
+                  Fill: =If(ThisItem.acknowledged, RGBA(198, 224, 180, 1), RGBA(29, 66, 138, 1))
+                  Color: =If(ThisItem.acknowledged, RGBA(45, 106, 79, 1), RGBA(255, 255, 255, 1))
+                  DisplayMode: =If(ThisItem.acknowledged, DisplayMode.Disabled, DisplayMode.Edit)
+                  X: =Parent.TemplateWidth - 158
+                  Y: =16
+                  Width: =146
+                  Height: =40
+                  OnSelect: |-
+                    =With({u: Patch(PAS_Assignment, ThisItem, { acknowledged: true, ack_at: Now(), ack_by: varMyCode })},
+                       Remove(colMe, ThisItem); Collect(colMe, u));
+                     Notify("รับทราบงาน " & ThisItem.Title & " แล้ว", NotificationType.Success)
+      - galMeWC:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Visible: =varMeTab = "wc"
+            Items: =SortByColumns(Filter(colMeWC, case.Status.Value in ["STANDBY", "ASSIGNED", "ON_PROCESS"]), "AssignedAt")
+            TemplateSize: =84
+            TemplatePadding: =6
+            X: =16
+            Y: =164
+            Width: =Parent.Width - 32
+            Height: =Parent.Height - 174
+            TemplateFill: =RGBA(0, 0, 0, 0)
+          Children:
+            - recMeWCCard:
+                Control: Rectangle@2.3.0
+                Properties:
+                  Fill: =If(ThisItem.case.pas_acknowledged, RGBA(226, 239, 218, 1), RGBA(255, 224, 178, 1))
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 12
+                  Height: =Parent.TemplateHeight - 10
+            - lblMeWCInfo:
+                Control: Label@2.5.1
+                Properties:
+                  Text: |-
+                    ="🦽 " & ThisItem.case.FlightNo & " · เกท " & Coalesce(ThisItem.case.Gate, "-") & "  (" & ThisItem.case.Status.Value & ")" & If(!IsBlank(ThisItem.case.pas_assigned_wc), "  · รถเข็น " & ThisItem.case.pas_assigned_wc, "")
+                  FontWeight: =FontWeight.Semibold
+                  Size: =13
+                  X: =16
+                  Y: =10
+                  Width: =Parent.TemplateWidth - 180
+                  Height: =58
+            - btnMeWCAck:
+                Control: Classic/Button@2.2.0
+                Properties:
+                  Text: =If(ThisItem.case.pas_acknowledged, "✓ รับแล้ว", "รับเคส/รับทราบ")
+                  Fill: =If(ThisItem.case.pas_acknowledged, RGBA(198, 224, 180, 1), RGBA(45, 106, 79, 1))
+                  Color: =If(ThisItem.case.pas_acknowledged, RGBA(45, 106, 79, 1), RGBA(255, 255, 255, 1))
+                  DisplayMode: =If(ThisItem.case.pas_acknowledged, DisplayMode.Disabled, DisplayMode.Edit)
+                  X: =Parent.TemplateWidth - 168
+                  Y: =20
+                  Width: =156
+                  Height: =44
+                  OnSelect: |-
+                    =With({ c: ThisItem.case, w: LookUp(pas_wheelchairs, ControlNo = ThisItem.case.pas_assigned_wc) },
+                       Patch(pas_wc_cases, c, { pas_acknowledged: true, pas_ack_at: Now(), pas_ack_by: varMyCode });
+                       If(!IsBlank(c.pas_assigned_wc),
+                          Patch(pas_wc_trips, Defaults(pas_wc_trips),
+                            { TripDate: Today(), Wheelchair: w, Staff: LookUp(pas_wc_staffs, StaffId = varMyCode),
+                              FlightCode: c.FlightNo, StartTime: Now(), TripStatus: { Value: "กำลังบริการ" }, Case: c });
+                          Patch(pas_wc_cases, c, { Status: { Value: "ON_PROCESS" }, PickupTime: Coalesce(c.PickupTime, Text(Now(), "hh:mm")) }));
+                       Notify("รับทราบเคส " & c.FlightNo, NotificationType.Success); Select(btnMeLoad))

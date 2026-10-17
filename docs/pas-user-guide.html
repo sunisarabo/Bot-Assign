@@ -1,0 +1,356 @@
+<title>คู่มือการใช้งาน PAS — HKT Daily Manpower</title>
+<style>
+  :root{
+    --brand:#1f4e79; --brand-2:#3a78c2;
+    --ink:#12202f; --ink-soft:#3f5468; --muted:#6b7d92;
+    --paper:#f5f8fc; --card:#ffffff; --line:#e3ebf3; --line-soft:#eef3f9;
+    --good:#1f8a5b; --good-bg:#e7f5ee;
+    --warn:#a9700c; --warn-bg:#fbf1dc;
+    --bad:#c0392b;  --bad-bg:#fbeae7;
+    --code-bg:#eef2f8; --code-ink:#213a56;
+    --shadow:0 1px 2px rgba(19,32,47,.05),0 8px 24px rgba(19,32,47,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --brand:#63a2e6; --brand-2:#87b8ee;
+      --ink:#e8eff7; --ink-soft:#b7c5d6; --muted:#8497ab;
+      --paper:#0d151e; --card:#151e29; --line:#26323f; --line-soft:#1c2732;
+      --good:#4ec58c; --good-bg:#0f2c20;
+      --warn:#e2ab4a; --warn-bg:#2e2410;
+      --bad:#e97a6c;  --bad-bg:#2f1a17;
+      --code-bg:#19222d; --code-ink:#c6d6ea;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --brand:#63a2e6; --brand-2:#87b8ee;
+    --ink:#e8eff7; --ink-soft:#b7c5d6; --muted:#8497ab;
+    --paper:#0d151e; --card:#151e29; --line:#26323f; --line-soft:#1c2732;
+    --good:#4ec58c; --good-bg:#0f2c20; --warn:#e2ab4a; --warn-bg:#2e2410;
+    --bad:#e97a6c; --bad-bg:#2f1a17; --code-bg:#19222d; --code-ink:#c6d6ea;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 30px rgba(0,0,0,.35);
+  }
+  :root[data-theme="light"]{
+    --brand:#1f4e79; --brand-2:#3a78c2;
+    --ink:#12202f; --ink-soft:#3f5468; --muted:#6b7d92;
+    --paper:#f5f8fc; --card:#ffffff; --line:#e3ebf3; --line-soft:#eef3f9;
+    --good:#1f8a5b; --good-bg:#e7f5ee; --warn:#a9700c; --warn-bg:#fbf1dc;
+    --bad:#c0392b; --bad-bg:#fbeae7; --code-bg:#eef2f8; --code-ink:#213a56;
+    --shadow:0 1px 2px rgba(19,32,47,.05),0 8px 24px rgba(19,32,47,.06);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:"Noto Sans Thai","Sarabun","Segoe UI",Tahoma,-apple-system,system-ui,sans-serif;
+    font-size:16px; line-height:1.72; -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px; margin:0 auto; padding:0 20px; display:grid; grid-template-columns:250px 1fr; gap:44px;}
+  @media(max-width:860px){ .wrap{grid-template-columns:1fr; gap:0;} }
+
+  /* ── header ── */
+  .masthead{grid-column:1/-1; padding:44px 0 26px; border-bottom:2px solid var(--brand);}
+  .kicker{font-size:12.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--brand-2); font-weight:700;}
+  .masthead h1{margin:.28em 0 .18em; font-size:clamp(1.9rem,4.4vw,2.7rem); line-height:1.16; letter-spacing:-.01em; text-wrap:balance;}
+  .masthead p{margin:0; color:var(--ink-soft); max-width:60ch;}
+  .meta-row{display:flex; flex-wrap:wrap; gap:8px; margin-top:16px;}
+  .pill{font-size:12.5px; font-weight:600; padding:4px 11px; border-radius:999px; background:var(--line-soft); color:var(--ink-soft); border:1px solid var(--line);}
+
+  /* ── TOC ── */
+  nav.toc{position:sticky; top:22px; align-self:start; font-size:14.5px; padding-top:30px;}
+  @media(max-width:860px){ nav.toc{position:static; border-bottom:1px solid var(--line); padding:18px 0;} }
+  nav.toc .lbl{font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-bottom:10px;}
+  nav.toc ol{list-style:none; margin:0; padding:0; counter-reset:s;}
+  nav.toc li{counter-increment:s; margin:1px 0;}
+  nav.toc a{display:flex; gap:9px; align-items:baseline; text-decoration:none; color:var(--ink-soft); padding:5px 9px; border-radius:7px; transition:background .12s,color .12s;}
+  nav.toc a::before{content:counter(s,decimal-leading-zero); font-variant-numeric:tabular-nums; color:var(--brand-2); font-weight:700; font-size:12px; min-width:1.6em;}
+  nav.toc a:hover{background:var(--line-soft); color:var(--ink);}
+
+  /* ── content ── */
+  main{padding:30px 0 80px; min-width:0;}
+  section{padding-top:26px; margin-top:26px;}
+  section+section{border-top:1px solid var(--line);}
+  section>h2{font-size:1.5rem; letter-spacing:-.01em; margin:.1em 0 .1em; display:flex; gap:12px; align-items:baseline; text-wrap:balance;}
+  section>h2 .n{font-variant-numeric:tabular-nums; color:var(--brand-2); font-weight:800; font-size:1.05rem;}
+  section>.lead{color:var(--ink-soft); margin:.2em 0 1.1em; max-width:66ch;}
+  h3{font-size:1.08rem; margin:1.7em 0 .5em; letter-spacing:-.005em;}
+  p{max-width:68ch;}
+  a{color:var(--brand-2);}
+  strong{font-weight:700;}
+  ul,ol{padding-left:1.3em; max-width:68ch;} li{margin:.24em 0;}
+  code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace; font-size:.86em; background:var(--code-bg); color:var(--code-ink); padding:.12em .42em; border-radius:5px; border:1px solid var(--line);}
+  pre{background:var(--code-bg); color:var(--code-ink); border:1px solid var(--line); border-radius:11px; padding:15px 16px; overflow-x:auto; font-size:13px; line-height:1.55; box-shadow:var(--shadow);}
+  pre code{background:none; border:none; padding:0; font-size:inherit;}
+
+  /* feature cards */
+  .feat{display:grid; grid-template-columns:44px 1fr; gap:16px; padding:17px 18px; border:1px solid var(--line); border-radius:13px; background:var(--card); box-shadow:var(--shadow); margin:12px 0;}
+  .feat .ic{width:44px; height:44px; display:grid; place-items:center; font-size:22px; border-radius:11px; background:var(--line-soft); border:1px solid var(--line);}
+  .feat h3{margin:0 0 .25em; font-size:1.02rem;}
+  .feat p{margin:0; color:var(--ink-soft); font-size:14.5px; max-width:none;}
+  .feat .tag{display:inline-block; font-size:11.5px; font-weight:700; letter-spacing:.04em; color:var(--brand-2); background:var(--line-soft); border:1px solid var(--line); border-radius:6px; padding:1px 7px; margin-bottom:6px;}
+
+  /* callouts */
+  .note{border:1px solid var(--line); border-left:4px solid var(--brand-2); background:var(--card); border-radius:0 11px 11px 0; padding:13px 16px; margin:16px 0; box-shadow:var(--shadow);}
+  .note.warn{border-left-color:var(--warn); background:var(--warn-bg);}
+  .note.good{border-left-color:var(--good); background:var(--good-bg);}
+  .note.bad{border-left-color:var(--bad); background:var(--bad-bg);}
+  .note b{display:block; margin-bottom:2px;}
+  .note p{margin:.1em 0; max-width:none; font-size:14.5px;}
+
+  /* tables */
+  .tbl-wrap{overflow-x:auto; border:1px solid var(--line); border-radius:11px; box-shadow:var(--shadow); margin:16px 0;}
+  table{border-collapse:collapse; width:100%; font-size:14px; background:var(--card);}
+  th,td{text-align:left; padding:9px 13px; border-bottom:1px solid var(--line); vertical-align:top;}
+  thead th{background:var(--line-soft); font-size:12px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-soft); white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td code{white-space:nowrap;}
+  .tnum{font-variant-numeric:tabular-nums;}
+
+  .badge{display:inline-block; font-size:12px; font-weight:700; padding:2px 8px; border-radius:6px; white-space:nowrap;}
+  .b-good{color:var(--good); background:var(--good-bg);}
+  .b-warn{color:var(--warn); background:var(--warn-bg);}
+  .b-bad{color:var(--bad); background:var(--bad-bg);}
+
+  .foot{grid-column:1/-1; border-top:1px solid var(--line); padding:22px 0 40px; color:var(--muted); font-size:13px; text-align:center;}
+  hr.soft{border:none; border-top:1px dashed var(--line); margin:22px 0;}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="kicker">AOTGA · แผนกการโดยสาร ท่าอากาศยานภูเก็ต</div>
+    <h1>คู่มือการใช้งาน PAS<br>ระบบกำลังพลรายวัน (HKT Daily Manpower)</h1>
+    <p>ระบบอ่านตารางเวรรายวันจาก Google Sheets แล้วสรุปกำลังพล ตรวจการจัดคนตาม SLA และแนะนำการซัพพอร์ตข้ามทีม — เปิดเป็นหน้าเว็บ อ่านข้อมูลสดจากชีตจริง</p>
+    <div class="meta-row">
+      <span class="pill">Google Apps Script Web App</span>
+      <span class="pill">อ่านสดจากชีตเวร + ไฟล์ท่า + ไฟล์รายชื่อ</span>
+      <span class="pill">สำหรับ Duty / หัวหน้ากะ</span>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="สารบัญ">
+    <div class="lbl">สารบัญ</div>
+    <ol>
+      <li><a href="#overview">ภาพรวม &amp; การเปิดใช้</a></li>
+      <li><a href="#menus">เมนูทั้งหมด (แต่ละแท็บ)</a></li>
+      <li><a href="#logic">หลักการอ่านค่า &amp; SLA</a></li>
+      <li><a href="#entry">วิธีกรอกชีตให้ระบบอ่านถูก</a></li>
+      <li><a href="#setup">การตั้งค่า (สำหรับแอดมิน)</a></li>
+      <li><a href="#trouble">แก้ปัญหาที่พบบ่อย</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- 1 -->
+    <section id="overview" style="border-top:none;margin-top:0;">
+      <h2><span class="n">01</span> ภาพรวม &amp; การเปิดใช้</h2>
+      <p class="lead">ระบบไม่ได้เก็บข้อมูลเอง — ทุกอย่าง <strong>อ่านสดจากชีตต้นทาง</strong> ทุกครั้งที่เปิด แก้ที่ชีต แล้วรีเฟรช ระบบจะอัปเดตตาม</p>
+
+      <h3>ข้อมูลไหลจากไหนบ้าง</h3>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>แหล่งข้อมูล</th><th>ใช้ทำอะไร</th></tr></thead>
+        <tbody>
+          <tr><td><strong>ชีตตารางเวรรายวัน</strong> (แท็บตามวันที่)</td><td>ใครมาทำงาน/หยุด · ทำไฟลท์อะไร · กะ · OT — เป็นหัวใจหลัก</td></tr>
+          <tr><td><strong>ไฟล์ LL</strong> (ติดตามสัมภาระ)</td><td>กำลังพลฝั่ง LL (ถ้าตั้งค่า <code>LL_FILE_ID</code>)</td></tr>
+          <tr><td><strong>ไฟล์ท่า / PAS Counter Bridge</strong></td><td>จำนวนเคาน์เตอร์ที่ท่าจัดให้แต่ละไฟลท์ + เวลาเปิด-ปิด</td></tr>
+          <tr><td><strong>ไฟล์รายชื่อพนักงาน</strong> (Pax Manpower)</td><td>ยอดพนักงานทั้งหมด + ค้นทีมต้นสังกัดของคนซัพจากชื่อ</td></tr>
+        </tbody>
+      </table></div>
+
+      <h3>การเปิดใช้งานประจำวัน</h3>
+      <ol>
+        <li>เปิด <strong>Web App URL</strong> (ลงท้าย <code>/exec</code>) — เลือกวันที่ได้ที่แถบสัปดาห์ด้านบน หรือใส่ <code>?date=YYYY-MM-DD</code> ท้าย URL</li>
+        <li>ระบบแคชข้อมูล <strong>15 นาที</strong> เพื่อความเร็ว — ถ้าเพิ่งแก้ชีต ให้กดปุ่ม <strong>🔄 รีเฟรช</strong> (มุมซ้ายล่าง) เพื่อดึงข้อมูลล่าสุด</li>
+        <li>สลับธีมสว่าง/มืดได้ที่ปุ่มมุมขวาบนของเบราว์เซอร์ (หน้านี้รองรับทั้งสองธีม)</li>
+      </ol>
+    </section>
+
+    <!-- 2 -->
+    <section id="menus">
+      <h2><span class="n">02</span> เมนูทั้งหมด</h2>
+      <p class="lead">เมนูอยู่แถบซ้าย ตัวเลขสีแดงบนไอคอนคือ “จำนวนที่ต้องดู” (ไฟลท์คนไม่ครบ / รายการที่ต้องตรวจ)</p>
+
+      <div class="feat"><div class="ic">▦</div><div>
+        <span class="tag">DASHBOARD</span>
+        <h3>Dashboard</h3>
+        <p>ภาพรวมวันนี้: จำนวนคนทำงาน/ทั้งหมดต่อทีม, สรุปสถานะ, OT, ไฟลท์ที่คนไม่ครบ (urgent), กราฟสรุป และยอดพนักงาน Active รวม (จากไฟล์รายชื่อ)</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">☰</div><div>
+        <span class="tag">TIMETABLE</span>
+        <h3>Timetable — ตารางเวลา</h3>
+        <p>ไทม์ไลน์ราย­บุคคลต่อทีม: ใครทำไฟลท์ไหน ช่วงเวลาไหน กะ/OT — ใช้ดูภาพรวมว่าใครว่างช่วงใด</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">✈</div><div>
+        <span class="tag">FLIGHTS &amp; SLA</span>
+        <h3>Flights &amp; SLA</h3>
+        <p>ทุกไฟลท์ของวัน พร้อมจำนวนคนที่ <strong>ต้องการตาม SLA</strong> เทียบกับ <strong>ที่จัดจริง</strong> แยกตำแหน่ง (SUP / Check-in / Arrival / Gate) — ไฟลท์ไหนขาดจะขึ้นแดง</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">🆘</div><div>
+        <span class="tag">SUPPORT / เติมคน</span>
+        <h3>Support / เติมคน</h3>
+        <p>รวม “หาคนซัพ” + “เติม Assign เดิม” ไว้ที่เดียว: แสดงตำแหน่งที่ขาด พร้อม <strong>เมนูเลือกคน</strong> — ตั้งค่าเริ่มต้นเป็นคนที่ว่าง+รู้ระบบให้อัตโนมัติ และเลือก <strong>พนักงานอื่น</strong>ได้ · มีปุ่ม 📤 สร้างไฟล์ชีตแจ้ง Assignment, คัดลอกข้อความ SOS, ตรวจรายชื่อก่อนส่ง, และแปลงข้อความ Duty เป็นชีต</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">🧭</div><div>
+        <span class="tag">ตรวจ ASSIGN</span>
+        <h3>ตรวจ Assign</h3>
+        <p>ตรวจว่าคนที่มาทำงานถูกจัดงานเหมาะสมไหม: เวลากะครอบคลุมไฟลท์หรือเปล่า, มีช่วงว่าง (gap), OT เกินจำเป็น, หรือถูกจัดไฟลท์นอกเวลางาน</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">🤖</div><div>
+        <span class="tag">AUTO ASSIGN</span>
+        <h3>Auto Assign</h3>
+        <p>ให้ระบบ “จัดเวรใหม่ทั้งหมด” ตาม SLA เพื่อดูภาพจัดที่เหมาะสุด (คนละแนวกับ Support ที่เติมของเดิม)</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">📅</div><div>
+        <span class="tag">จัดล่วงหน้า</span>
+        <h3>จัดล่วงหน้า</h3>
+        <p>วางแผนจัดเวรของวันข้างหน้าจากลิงก์ ROSTER/FLIGHT จริง — บันทึกเป็นชีตข้อเสนอ และสร้างไฟล์แจ้ง Assignment ต่อทีมได้</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">⏱️</div><div>
+        <span class="tag">OT / ชม.สัปดาห์</span>
+        <h3>OT Dashboard &amp; ชม./สัปดาห์</h3>
+        <p>สรุป OT (รายเดือน/สัปดาห์ + กราฟ) และชั่วโมงทำงานสะสมต่อสัปดาห์รายคน — ใช้เฝ้าคนที่ชั่วโมงเกินเกณฑ์</p>
+      </div></div>
+
+      <div class="feat"><div class="ic">🩺</div><div>
+        <span class="tag">ตรวจข้อมูล</span>
+        <h3>ตรวจข้อมูล</h3>
+        <p><strong>สำคัญมาก</strong> — ฟ้องจุดที่ชีตกรอกผิด/อ่านไม่ได้ (อ่านทั้งแท็บไม่ออก, วันที่แท็บเก่า, เขียน OFF แต่มีไฟลท์, อ่านเวลากะไม่ได้, ซัพไม่ระบุทีม ฯลฯ) ให้ไปแก้ที่ต้นทาง</p>
+      </div></div>
+    </section>
+
+    <!-- 3 -->
+    <section id="logic">
+      <h2><span class="n">03</span> หลักการอ่านค่า &amp; SLA</h2>
+      <p class="lead">เข้าใจตรรกะเหล่านี้ จะอ่านผลได้ถูกและรู้ว่าทำไมระบบคิดแบบนั้น</p>
+
+      <h3>SLA — คนที่ต้องมีต่อไฟลท์</h3>
+      <p>แต่ละสายการบินมีเกณฑ์ <code>[SUP, Check-in, Arrival, Gate, รวม]</code> เก็บไว้ในระบบ (75 สาย) และบางสาย <strong>แยกตามชนิดเครื่อง</strong> (aircraft type) เช่น EY:</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>EY · ชนิดเครื่อง</th><th>Check-in ที่ต้องการ</th></tr></thead>
+        <tbody>
+          <tr><td>B787-9</td><td class="tnum">6</td></tr>
+          <tr><td>B787-10</td><td class="tnum">7</td></tr>
+          <tr><td>A321Neo</td><td class="tnum">5</td></tr>
+        </tbody>
+      </table></div>
+      <p>ระบบเลือกเกณฑ์จากแถว <strong>“A/C TYPE - CFG”</strong> ในบล็อกไฟลท์ — ถ้าไม่ระบุ จะใช้ค่ามาตรฐาน (ลำใหญ่สุด)</p>
+
+      <h3>เพดานเคาน์เตอร์ (Counter cap)</h3>
+      <div class="note good"><b>ทำไมบางไฟลท์ไม่ขึ้นเตือน “SLA ไม่ครบ” ทั้งที่คนน้อยกว่า SLA</b>
+        <p>ถ้าท่า “ตัดเคาน์เตอร์” ให้น้อยกว่าที่ SLA ต้องการ (เช่น SLA ขอเช็คอิน 6 แต่ท่าให้ 5) ระบบจะ <strong>ลดเพดานเช็คอินลงเท่าจำนวนเคาน์เตอร์จริง</strong> — ส่งคนได้เท่าที่มีเคาน์เตอร์ ไม่เตือนเกินจริง (ดึงจากไฟล์ท่า/Bridge)</p>
+      </div>
+
+      <h3>ช่วงเวลา “ครอบคลุมไฟลท์” (coverage window)</h3>
+      <p>ระบบคิดว่าคนหนึ่ง “คุมไฟลท์” ตั้งแต่ <strong>เวลาบรีฟ</strong> (ก่อนเปิดเคาน์เตอร์) จนถึง <strong>STD + งานหลังไฟลท์ (post)</strong> — ค่าต่างกันรายสาย เช่น</p>
+      <ul>
+        <li><strong>บ้าน EY</strong>: ทุกตำแหน่ง (WEL GUEST / ACA / ARR / BINGO / SUP) ทำช่วงเดียวกัน = เปิดเคาน์เตอร์ − 1 ชม.บรีฟ ถึง STD + 45 นาที (เคลียร์หลังไฟท์)</li>
+        <li>งาน <strong>“NO GATE”</strong> = ทำเช็คอินอย่างเดียว ระบบจะไม่คิดครอบคลุมถึงเกท/post-flight</li>
+      </ul>
+
+      <h3>การซัพพอร์ตข้ามทีม</h3>
+      <p>บางสายรับคนช่วยจากทีมอื่นได้เฉพาะบางตำแหน่ง (เช่น รับเฉพาะ Gate) บางสายไม่รับเลย — ระบบใช้กติกานี้ตอนแนะนำคนในแท็บ Support และไม่แนะนำคน <strong>OT-off / คนออฟ</strong> ก่อนคนกะปกติ</p>
+    </section>
+
+    <!-- 4 -->
+    <section id="entry">
+      <h2><span class="n">04</span> วิธีกรอกชีตให้ระบบอ่านถูก</h2>
+      <p class="lead">ปัญหาส่วนใหญ่มาจากการกรอก — ทำตามแนวทางนี้ ระบบจะอ่านตรงและ warning จะลดลง</p>
+
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>กรณี</th><th>กรอกแบบนี้</th><th>ผล</th></tr></thead>
+        <tbody>
+          <tr><td>คนมาช่วยจากทีมอื่น (ซัพพอร์ต)</td><td><code>สมชาย PVT</code> หรือ <code>สมชาย (PVT)</code></td><td>ระบบรู้ทีมต้นสังกัด</td></tr>
+          <tr><td>ซัพแต่ลืมใส่รหัสทีม</td><td>ใส่ชื่อให้ตรง master (ไทย/อังกฤษ)</td><td>ระบบ <strong>ค้นทีมจากชื่อ</strong>ให้อัตโนมัติ (ป้าย <span class="badge b-good">·จากรายชื่อ</span>)</td></tr>
+          <tr><td>ทำเช็คอินอย่างเดียว ไม่ไปเกท</td><td>เขียน <code>NO GATE</code> ต่อท้ายงาน</td><td>ไม่คิดครอบคลุมเกท/post</td></tr>
+          <tr><td>ระบุชนิดเครื่องเพื่อ SLA ที่ถูก</td><td>แถว <code>A/C TYPE - CFG</code> เช่น <code>B787-9</code></td><td>เลือก SLA ตามลำ</td></tr>
+          <tr><td>เวลา / ช่วงเวลา</td><td><code>0925</code>, <code>0925/1055</code>, <code>-1405/1445</code></td><td>อ่านเป็น 09:25 / ช่วง</td></tr>
+          <tr><td>คนหยุด</td><td><code>OFF</code> หรือ <code>X</code> ในช่องกะ/เวลา</td><td>นับเป็นหยุด</td></tr>
+          <tr><td>มา OT วันหยุด</td><td>กรอก <strong>ชั่วโมง OT + ช่วงเวลา</strong></td><td>นับเป็นมา OT (ไม่ใช่หยุด)</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note warn"><b>⚠️ ระวังบ่อย</b>
+        <p>เขียน <code>OFF</code>/<code>X</code> แต่ยังจัดคนลงไฟลท์ → ระบบนับเป็น “ไม่มาทำงาน” ทั้งที่นั่งไฟลท์อยู่ ทำให้ยอด/ครอบคลุมเพี้ยน · ถ้ามาทำงานให้แก้เป็น Onduty ถ้ามาช่วย OT ให้กรอกชั่วโมง OT</p>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="setup">
+      <h2><span class="n">05</span> การตั้งค่า (สำหรับแอดมิน)</h2>
+      <p class="lead">ส่วนนี้ทำครั้งเดียว/นานๆ ครั้ง — ปกติผู้ใช้ทั่วไปไม่ต้องยุ่ง</p>
+
+      <h3>PAS Counter Bridge (ข้อมูลเคาน์เตอร์ ±7 วัน)</h3>
+      <p>ไฟล์ท่าแชร์ตรงไม่ได้ จึงใช้ไฟล์ Bridge ตัวกลาง <code>IMPORTRANGE</code> ข้อมูลเข้ามาเอง — วางสูตรนี้ที่ <strong>A1 ของแท็บชื่อ <code>COUNTER</code></strong> (ดึงวันนี้ ±7 วัน เลื่อนวันอัตโนมัติ ไม่ต้องสร้างแท็บเพิ่ม):</p>
+      <pre><code>=LET(
+ src,"&lt;ID ไฟล์ COUNTER CHECK ของท่า&gt;",
+ blk,LAMBDA(off,LET(
+   d,TODAY()+off,
+   mo,CHOOSE(MONTH(d),"JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"),
+   t,DAY(d)&amp;mo&amp;RIGHT(YEAR(d),2),
+   ts,DAY(d)&amp;" "&amp;mo&amp;RIGHT(YEAR(d),2),
+   raw,IFERROR(IMPORTRANGE(src,t&amp;"!A4:F"),IMPORTRANGE(src,ts&amp;"!A4:F")),
+   IFERROR(HSTACK(raw,IF(CHOOSECOLS(raw,2)="","",
+     TEXT(DAY(d),"00")&amp;"."&amp;TEXT(MONTH(d),"00")&amp;"."&amp;YEAR(d))),{"","","","","","",""})
+ )),
+ VSTACK({"AIRLINE","FLIGHT","STD","OPEN-CLOSE TIME","NO. OF COUNTERS","COUNTER NO.","DATE"},
+   blk(-7),blk(-6),blk(-5),blk(-4),blk(-3),blk(-2),blk(-1),blk(0),
+   blk(1),blk(2),blk(3),blk(4),blk(5),blk(6),blk(7)))</code></pre>
+      <ul>
+        <li>ครั้งแรกจะขึ้น <strong>“Allow access”</strong> — กดอนุญาต 1 ครั้ง (ถ้าไม่ขึ้น ให้ทดสอบด้วย <code>=IMPORTRANGE(src,"9JUL26!A1:F5")</code> ในเซลล์ว่างก่อน)</li>
+        <li>ระบบอ่านคอลัมน์ <code>NO. OF COUNTERS</code> + <code>DATE</code> เอง และกรองตามวันที่ที่เปิดดู</li>
+        <li>ตั้ง <code>COUNTER_FILE_ID</code> ในโค้ดให้ชี้ไฟล์ Bridge นี้</li>
+      </ul>
+
+      <h3>ไฟล์รายชื่อพนักงาน (ค้นทีมอัตโนมัติ + ยอดรวม)</h3>
+      <ul>
+        <li>ตั้ง <code>MASTER_FILE_ID_RB</code> = ไฟล์ Pax Manpower (ต้องมีชีต <code>Total</code>)</li>
+        <li>บัญชีที่รัน Apps Script ต้องมีสิทธิ์ <strong>เปิดดู</strong>ไฟล์นี้ — ทดสอบด้วยฟังก์ชัน <code>debugDumpMaster</code></li>
+      </ul>
+
+      <h3>อัปเดตโค้ด (deploy)</h3>
+      <ol>
+        <li><strong>clasp</strong>: <code>git pull</code> → <code>clasp push</code> (push ไฟล์ย่อย .gs — <code>Code.gs</code> ถูก ignore) — อย่าให้มีทั้ง Code.gs รวม + ไฟล์ย่อยพร้อมกัน</li>
+        <li><strong>หรือวางมือ</strong>: คัดลอก <code>Code.gs</code> ทั้งไฟล์ วางทับใน editor (ไฟล์เดียว)</li>
+        <li>เสร็จแล้ว: <em>Deploy → Manage deployments → New version</em> เพื่อให้ <code>/exec</code> รันของใหม่ → เปิดเว็บกด 🔄</li>
+      </ol>
+      <div class="note"><b>หมายเหตุ build</b><p>โปรเจกต์เขียนเป็นไฟล์ย่อย (.gs) แล้วรวมเป็น <code>Code.gs</code> ด้วย <code>python3 build_code.py</code> — แก้ที่ไฟล์ย่อยเสมอ ไม่แก้ Code.gs ตรงๆ</p></div>
+    </section>
+
+    <!-- 6 -->
+    <section id="trouble">
+      <h2><span class="n">06</span> แก้ปัญหาที่พบบ่อย</h2>
+      <p class="lead">อาการ → สาเหตุ → วิธีแก้</p>
+
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>อาการ</th><th>วิธีแก้</th></tr></thead>
+        <tbody>
+          <tr><td>แก้ชีตแล้วเว็บไม่เปลี่ยน</td><td>กด <strong>🔄 รีเฟรช</strong> (แคช 15 นาที) · ถ้าเพิ่ง deploy โค้ด ต้อง <em>New version</em> ก่อน</td></tr>
+          <tr><td><span class="badge b-warn">ตรวจข้อมูล</span> ขึ้น “ซัพพอร์ตไม่ระบุทีม”</td><td>ใส่ <code>ชื่อ + รหัสทีม</code> หรือ <code>(รหัส)</code> ท้ายชื่อ · หรือเช็คว่าชื่อสะกดตรงกับไฟล์รายชื่อ (ระบบจะค้นทีมให้เอง)</td></tr>
+          <tr><td>“มาทำงาน/มีไฟลท์ แต่อ่านเวลากะไม่ได้”</td><td>กรอกเวลากะ (เช่น <code>08:00-17:00</code>) หรือช่วง OT ให้อ่านได้</td></tr>
+          <tr><td>“อ่านไม่ได้ทั้งแท็บ”</td><td>หัวตาราง/คอลัมน์ ID ไม่ตรงแบบมาตรฐาน — จัดหัวชีตให้ตรงเทมเพลต</td></tr>
+          <tr><td>Bridge ขึ้น <code>#REF!</code></td><td>ยังไม่กด <strong>Allow access</strong> — ทดสอบด้วยสูตร IMPORTRANGE ง่ายๆ ก่อน แล้วกดอนุญาต</td></tr>
+          <tr><td>Bridge ขึ้น <code>#N/A</code> (ชื่อแท็บไม่ตรง)</td><td>เกิดจาก locale ไทย (เดือน/ปี พ.ศ.) — สูตรในคู่มือใช้ <code>DAY/MONTH/CHOOSE/YEAR</code> แก้ให้แล้ว</td></tr>
+          <tr><td>ค้นทีมจากไฟล์รายชื่อไม่ทำงาน</td><td>เช็ค 3 อย่าง: deploy โค้ดใหม่แล้ว? · บัญชีเข้าไฟล์ได้? (<code>debugDumpMaster</code>) · กด 🔄 แล้ว?</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="note good"><b>หลักคิดเวลาเจอผลแปลก</b>
+        <p>ระบบอ่านสดจากชีตเสมอ — ผลที่เห็นสะท้อน “สิ่งที่กรอกในชีต” เกือบทั้งหมด ถ้าผลผิด ให้เริ่มจากดูแท็บ <strong>ตรวจข้อมูล</strong> ก่อน แล้วไปแก้ที่ต้นทาง จะแก้ได้ตรงจุดกว่าการไปแก้สรุปทีหลัง</p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    คู่มือการใช้งาน PAS — HKT Daily Manpower · แผนกการโดยสาร ท่าอากาศยานภูเก็ต · บริษัท บริการภาคพื้น ท่าอากาศยานไทย จำกัด (AOTGA)
+  </footer>
+
+</div>

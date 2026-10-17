@@ -1,0 +1,126 @@
+{
+  "publisherPrefix": "pas",
+  "languageCode": 1033,
+  "optionSets": [
+    { "name": "pas_bucket",    "options": ["WORKING", "OT_OFF", "OFF", "SICK", "VACATION", "LEAVE", "TRAINING"] },
+    { "name": "pas_source",    "options": ["HKT", "BKK", "GLOBEX", "OUTSOURCE"] },
+    { "name": "pas_direction", "options": ["ARR", "DEP", "TURN"] },
+    { "name": "pas_service",   "options": ["WCHR", "WCHS", "WCHC", "MAAS", "AVIH", "ETC"] },
+    { "name": "pas_status",    "options": ["ACTIVE", "RESIGNED"] }
+  ],
+  "tables": [
+    { "schema": "pas_team", "display": "PAS Team", "displayCollection": "PAS Teams", "primary": { "schema": "pas_name", "display": "Team Code" },
+      "columns": [
+        { "schema": "pas_label_th", "display": "Label TH", "type": "string" },
+        { "schema": "pas_is_float", "display": "Is Float", "type": "boolean" },
+        { "schema": "pas_is_doc",   "display": "Is Doc",   "type": "boolean" },
+        { "schema": "pas_skip_sla", "display": "Skip SLA", "type": "boolean" }
+      ] },
+
+    { "schema": "pas_employee", "display": "PAS Employee", "displayCollection": "PAS Employees", "primary": { "schema": "pas_name", "display": "Emp Code" },
+      "columns": [
+        { "schema": "pas_name_th",   "display": "Name TH", "type": "string" },
+        { "schema": "pas_name_en",   "display": "Name EN", "type": "string" },
+        { "schema": "pas_position",  "display": "Position", "type": "string" },
+        { "schema": "pas_pos_group", "display": "Pos Group", "type": "string" },
+        { "schema": "pas_source",    "display": "Source",   "type": "choice", "optionSet": "pas_source" },
+        { "schema": "pas_status",    "display": "Status",   "type": "choice", "optionSet": "pas_status" },
+        { "schema": "pas_start_date","display": "Start Date","type": "dateonly" },
+        { "schema": "pas_resign_date","display": "Resign Date","type": "dateonly" }
+      ] },
+
+    { "schema": "pas_duty", "display": "PAS Duty", "displayCollection": "PAS Duties", "primary": { "schema": "pas_name", "display": "Duty" },
+      "columns": [
+        { "schema": "pas_work_date",  "display": "Work Date",  "type": "dateonly" },
+        { "schema": "pas_emp_name",   "display": "Emp Name",   "type": "string" },
+        { "schema": "pas_bucket",     "display": "Bucket",     "type": "choice", "optionSet": "pas_bucket" },
+        { "schema": "pas_shift_code", "display": "Shift Code", "type": "string" },
+        { "schema": "pas_shift_start","display": "Shift Start (min)", "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_shift_end",  "display": "Shift End (min)",   "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_shift_hours","display": "Shift Hours", "type": "decimal", "precision": 1 },
+        { "schema": "pas_ot_hours",   "display": "OT Hours",   "type": "decimal", "precision": 1 },
+        { "schema": "pas_is_support", "display": "Is Support", "type": "boolean" },
+        { "schema": "pas_is_bkk",     "display": "Is BKK",     "type": "boolean" },
+        { "schema": "pas_is_training","display": "Is Training","type": "boolean" },
+        { "schema": "pas_duty_min",   "display": "Duty Min",   "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_busy_min",   "display": "Busy Min",   "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_source_file","display": "Source File","type": "string" }
+      ] },
+
+    { "schema": "pas_assignment", "display": "PAS Assignment", "displayCollection": "PAS Assignments", "primary": { "schema": "pas_name", "display": "Flight Code" },
+      "columns": [
+        { "schema": "pas_flight_leg",    "display": "Flight Leg",    "type": "string" },
+        { "schema": "pas_airline_iata",  "display": "Airline IATA",  "type": "string" },
+        { "schema": "pas_task",          "display": "Task",          "type": "string" },
+        { "schema": "pas_sta",           "display": "STA (min)",     "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_std",           "display": "STD (min)",     "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_counter_open",  "display": "Counter Open (min)",  "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_counter_close", "display": "Counter Close (min)", "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_is_flight",     "display": "Is Flight",     "type": "boolean" },
+        { "schema": "pas_is_activity",   "display": "Is Activity",   "type": "boolean" }
+      ] },
+
+    { "schema": "pas_flight", "display": "PAS Flight", "displayCollection": "PAS Flights", "primary": { "schema": "pas_name", "display": "Flight No" },
+      "columns": [
+        { "schema": "pas_flight_date",  "display": "Flight Date", "type": "dateonly" },
+        { "schema": "pas_airline_iata", "display": "Airline IATA","type": "string" },
+        { "schema": "pas_direction",    "display": "Direction",   "type": "choice", "optionSet": "pas_direction" },
+        { "schema": "pas_sta",          "display": "STA (min)",   "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_std",          "display": "STD (min)",   "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_aircraft_type","display": "Aircraft",    "type": "string" },
+        { "schema": "pas_gate",         "display": "Gate",        "type": "string" }
+      ] },
+
+    { "schema": "pas_porter_job", "display": "PAS Porter Job", "displayCollection": "PAS Porter Jobs", "primary": { "schema": "pas_name", "display": "Flight No" },
+      "columns": [
+        { "schema": "pas_work_date",    "display": "Work Date",   "type": "dateonly" },
+        { "schema": "pas_airline_iata", "display": "Airline IATA","type": "string" },
+        { "schema": "pas_porter_names", "display": "Porter Names","type": "memo" },
+        { "schema": "pas_service",      "display": "Service",     "type": "choice", "optionSet": "pas_service" },
+        { "schema": "pas_is_arrival",   "display": "Is Arrival",  "type": "boolean" },
+        { "schema": "pas_is_departure", "display": "Is Departure","type": "boolean" },
+        { "schema": "pas_pickup_at",    "display": "Pickup (min)","type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_delivered_at", "display": "Delivered (min)","type": "int", "min": 0, "max": 2880 }
+      ] },
+
+    { "schema": "pas_porter_staff", "display": "PAS Porter Staff Day", "displayCollection": "PAS Porter Staff Days", "primary": { "schema": "pas_name", "display": "Name" },
+      "columns": [
+        { "schema": "pas_work_date", "display": "Work Date", "type": "dateonly" },
+        { "schema": "pas_cases",     "display": "Cases",     "type": "int", "min": 0, "max": 999 }
+      ] },
+
+    { "schema": "pas_prewc", "display": "PAS Pre-Wheelchair", "displayCollection": "PAS Pre-Wheelchairs", "primary": { "schema": "pas_name", "display": "Flight No" },
+      "columns": [
+        { "schema": "pas_work_date",    "display": "Work Date",   "type": "dateonly" },
+        { "schema": "pas_airline_iata", "display": "Airline IATA","type": "string" },
+        { "schema": "pas_routing",      "display": "Routing",     "type": "string" },
+        { "schema": "pas_direction",    "display": "Direction",   "type": "choice", "optionSet": "pas_direction" },
+        { "schema": "pas_service",      "display": "Service",     "type": "choice", "optionSet": "pas_service" },
+        { "schema": "pas_qty",          "display": "Qty",         "type": "int", "min": 0, "max": 999 },
+        { "schema": "pas_sta",          "display": "STA (min)",   "type": "int", "min": 0, "max": 2880 },
+        { "schema": "pas_std",          "display": "STD (min)",   "type": "int", "min": 0, "max": 2880 }
+      ] },
+
+    { "schema": "pas_manpower", "display": "PAS Manpower Report", "displayCollection": "PAS Manpower Reports", "primary": { "schema": "pas_name", "display": "Report" },
+      "columns": [
+        { "schema": "pas_work_date",      "display": "Work Date",      "type": "dateonly" },
+        { "schema": "pas_working_actual", "display": "Working Actual", "type": "int", "min": 0, "max": 9999 },
+        { "schema": "pas_ot_hours",       "display": "OT Hours",       "type": "decimal", "precision": 1 },
+        { "schema": "pas_scheduled",      "display": "Scheduled",      "type": "int", "min": 0, "max": 9999 },
+        { "schema": "pas_sick",           "display": "Sick",           "type": "int", "min": 0, "max": 9999 },
+        { "schema": "pas_annual",         "display": "Annual Leave",   "type": "int", "min": 0, "max": 9999 },
+        { "schema": "pas_training",       "display": "Training",       "type": "int", "min": 0, "max": 9999 }
+      ] }
+  ],
+  "relationships": [
+    { "schemaName": "pas_team_employee",   "referenced": "pas_team",     "referencing": "pas_employee",   "lookup": { "schema": "pas_team",     "display": "Team" } },
+    { "schemaName": "pas_team_duty",       "referenced": "pas_team",     "referencing": "pas_duty",       "lookup": { "schema": "pas_team",     "display": "Team" } },
+    { "schemaName": "pas_employee_duty",   "referenced": "pas_employee", "referencing": "pas_duty",       "lookup": { "schema": "pas_employee", "display": "Employee" } },
+    { "schemaName": "pas_duty_assignment", "referenced": "pas_duty",     "referencing": "pas_assignment", "lookup": { "schema": "pas_duty",     "display": "Duty" }, "cascadeDelete": true },
+    { "schemaName": "pas_team_manpower",   "referenced": "pas_team",     "referencing": "pas_manpower",   "lookup": { "schema": "pas_team",     "display": "Team" } }
+  ],
+  "keys": [
+    { "entity": "pas_duty",     "name": "pas_duty_ak",     "display": "Duty AK",     "attributes": ["pas_work_date", "pas_employee", "pas_team"] },
+    { "entity": "pas_manpower", "name": "pas_manpower_ak", "display": "Manpower AK", "attributes": ["pas_work_date", "pas_team"] }
+  ]
+}

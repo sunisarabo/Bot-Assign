@@ -3,14 +3,19 @@ name: Push to Apps Script
 # Auto-deploy the .gs modules to the linked Apps Script project on every push.
 #
 # ONE-TIME SETUP (no secret is committed to the repo):
-#   1) on your computer:   npm i -g @google/clasp@2.4.2   then   clasp login
+#   1) on your computer:   npm install -g @google/clasp@3   then   clasp login
 #   2) open the file it created and copy ALL of its contents:
 #        macOS/Linux:  cat ~/.clasprc.json
 #        Windows:      type %USERPROFILE%\.clasprc.json
-#      (it must be valid JSON starting with {"token": ... } )
+#      clasp v3 writes the NEW format starting with  {"tokens": {"default": ... }}
+#      (clasp v2 wrote {"token": ... } — both are accepted below)
 #   3) GitHub repo -> Settings -> Secrets and variables -> Actions -> New repository secret
 #        Name:  CLASPRC_JSON
 #        Value: <paste the full ~/.clasprc.json contents>
+#
+#   NOTE: the Google account you `clasp login` with must have EDIT access to the
+#         Apps Script project (the scriptId in .clasp.json). The GitHub account /
+#         email is unrelated — clasp authenticates to Google via this token only.
 #
 # After that, every push that touches the .gs files redeploys them automatically.
 
@@ -36,20 +41,23 @@ jobs:
           fi
           case "$CLASPRC_JSON" in
             '~/'*|'cat '*|'%USERPROFILE%'*|*.clasprc.json)
-              echo "::error::secret มีค่าเป็น 'ชื่อ path' ไม่ใช่ 'เนื้อหาไฟล์'. ต้องวางผลลัพธ์ของ 'cat ~/.clasprc.json' (เริ่มด้วย {\"token\":...) ไม่ใช่ตัวอักษร ~/.clasprc.json"
+              echo "::error::secret มีค่าเป็น 'ชื่อ path' ไม่ใช่ 'เนื้อหาไฟล์'. ต้องวางผลลัพธ์ของ 'cat ~/.clasprc.json' ไม่ใช่ตัวอักษร ~/.clasprc.json"
               exit 1;;
           esac
           printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
-          node -e "var o=JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8')); if(!o.token&&!o.tokens)throw new Error('no token field')" \
-            || { echo "::error::CLASPRC_JSON ไม่ใช่ JSON ของ ~/.clasprc.json — ต้อง copy เนื้อหาทั้งไฟล์ (ขึ้นต้นด้วย {\"token\":...}) จากเครื่องที่ clasp login แล้ว"; exit 1; }
+          node -e "var o=JSON.parse(require('fs').readFileSync(process.env.HOME+'/.clasprc.json','utf8')); if(!o.tokens&&!o.token)throw new Error('no token/tokens field')" \
+            || { echo "::error::CLASPRC_JSON ไม่ใช่ JSON ของ ~/.clasprc.json — ต้อง copy เนื้อหาทั้งไฟล์ (clasp v3 ขึ้นต้น {\"tokens\":..., clasp v2 ขึ้นต้น {\"token\":...) จากเครื่องที่ clasp login แล้ว"; exit 1; }
           echo "✅ creds JSON OK"
 
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install clasp (pinned)
-        run: npm install -g @google/clasp@2.4.2
+      - name: Install clasp (v3)
+        run: npm install -g @google/clasp@3
+
+      - name: clasp version
+        run: clasp --version
 
       - name: Push to Apps Script
         run: clasp push --force

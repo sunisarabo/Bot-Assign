@@ -71,6 +71,61 @@ def parse_time_pair(s):
     return f"{m.group(1).zfill(2)}:{m.group(2)}" if m else ''
 
 
+def _hhmm(s):
+    m = re.search(r'(\d{1,2})(\d{2})$', str(s or ''))
+    return f"{m.group(1).zfill(2)}:{m.group(2)}" if m else ''
+
+
+def parse_job_text(text):
+    """ทีม LP: "GATE SU660/661 0925/1055 STBY0930, ARR AK822/823 1530/1600"
+       → [{flight,task,STA,STD}]"""
+    out = []
+    if not text:
+        return out
+    for chunk in re.split(r'[,;\n]+', str(text)):
+        c = cv(chunk)
+        if not c:
+            continue
+        flight, role, times = '', [], ''
+        for t in c.split():
+            if not flight and re.fullmatch(r'(?:[A-Z]{1,3}|\d[A-Z])\d{2,4}(?:/\d{2,4})?', t, re.I):
+                flight = t
+            elif flight and not times and re.fullmatch(r'\d{3,4}/\d{3,4}', t):
+                times = t
+            elif not flight and re.fullmatch(r'[A-Za-z][A-Za-z/().-]*', t):
+                role.append(t.upper())
+        if not flight or not _ac_is_flight(flight):
+            continue
+        sta = std = ''
+        if times:
+            p = times.split('/')
+            sta, std = _hhmm(p[0]), _hhmm(p[1])
+        out.append(dict(flight=flight, task=' '.join(role), STA=sta, STD=std, OP='', CL=''))
+    return out
+
+
+def is_training_task(task):
+    """task อบรม/ประชุม (ไม่ใช่งานไฟลท์)"""
+    return bool(re.search(r'TRAINING|LOAD CONTROL|IN.?HOUSE|MEETING|E-?LEARN|SEMINAR|MANDATORY|\bCOURSE\b|WORKSHOP', str(task or ''), re.I))
+
+
+def extract_flights(txt):
+    """ดึงรหัสไฟลท์จากข้อความรกๆ (Admin Doc/Crewsign) — เฉพาะที่ผ่าน _ac_is_flight, ตัดซ้ำด้วยเลขไฟลท์"""
+    out, seen = [], set()
+    if not txt:
+        return out
+    for code in re.findall(r'[A-Z0-9]{2,3}\s?\d{2,4}(?:\s?[/-]\s?\d{2,4})?', str(txt), re.I):
+        code = re.sub(r'\s+', '', cv(code))
+        if not _ac_is_flight(code):
+            continue
+        key = '/'.join(re.findall(r'\d{2,4}', code))
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(dict(flight=code, task='', STA='', STD='', OP='', CL=''))
+    return out
+
+
 def hours_from_range(s):
     s = cv(s).replace('.', ':')
     m = re.match(r'^(\d{1,2}):?(\d{2})?\s*[-–]\s*(\d{1,2}):?(\d{2})?', s)
@@ -160,7 +215,8 @@ def find_header(rows):
         cm['shift']  = u.index('SHIFT') if 'SHIFT' in u else -1
         cm['time']   = u.index('TIME') if 'TIME' in u else -1
         cm['pos']    = u.index('POSITION') if 'POSITION' in u else (u.index('POS.') if 'POS.' in u else -1)
-        cm['remark'] = u.index('REMARK') if 'REMARK' in u else -1
+        cm['remark'] = u.index('STATUS') if 'STATUS' in u else (u.index('REMARK') if 'REMARK' in u else -1)
+        cm['jobtext'] = next((i for i, h in enumerate(u) if 'SUPPORT' in h and re.search(r'\bFL', h)), -1)
         cm['resked'] = u.index('RE-SKED') if 'RE-SKED' in u else (u.index('RESKED') if 'RESKED' in u else -1)
         cm['ot']     = u.index('OT') if 'OT' in u else -1
         # OT total-hours column = a "Total Hrs" header within 3 cols after OT
@@ -212,20 +268,20 @@ def parse_standard(rows, team):
             for cc in range(c, c1):
                 sc = cv(sta[cc]) if cc < len(sta) else ''
                 tv = parse_time_pair(sc)
-                if tv:
+                if tv and tv != '00:00':          # ข้าม placeholder 00:00 + ไม่เขียนทับค่าที่อ่านได้แล้ว
                     if re.match(r'\s*D', sc, re.I):
-                        std_v = tv
+                        if not std_v: std_v = tv
                     elif re.match(r'\s*A', sc, re.I):
-                        sta_v = tv
+                        if not sta_v: sta_v = tv
                     else:
                         pos_s.append(tv)
                 oc_ = cv(opn[cc]) if cc < len(opn) else ''
                 ov = parse_time_pair(oc_)
-                if ov:
+                if ov and ov != '00:00':
                     if re.match(r'\s*C', oc_, re.I):
-                        cl_v = ov
+                        if not cl_v: cl_v = ov
                     elif re.match(r'\s*O', oc_, re.I):
-                        op_v = ov
+                        if not op_v: op_v = ov
                     else:
                         pos_o.append(ov)
             if not sta_v and pos_s:
@@ -275,9 +331,26 @@ def parse_standard(rows, team):
                 info = dict(flights.get(nm, {}))
                 if times and not info.get('OP') and not info.get('CL'):
                     info['OP'], info['CL'] = times[0], times[-1]
-                assigns.append(dict(flight=nm, task='/'.join(tasks),
-                                    STA=info.get('STA', ''), STD=info.get('STD', ''),
-                                    OP=info.get('OP', ''), CL=info.get('CL', '')))
+                # คนไปเทรน/ประชุม = ไม่ได้ทำไฟลท์นั้น → แสดงเป็นกิจกรรมอบรม ไม่นับเป็นไฟลท์
+                if is_training_task(' '.join(tasks)):
+                    assigns.append(dict(flight=' '.join(tasks), task='', STA='', STD='', OP='', CL=''))
+                    continue
+                # หัวคอลัมน์เป็น "ป้ายไฟลท์ทั่วไป" (หมายเลขไฟลท์/Job/FLIGHT) → รหัสไฟลท์จริงฝังในข้อความ → ดึง
+                codes = extract_flights(' '.join(tasks)) if re.search(r'หมายเลขไฟลท์|JOB|FLIGHT', nm, re.I) else None
+                if codes:
+                    assigns.extend(codes)
+                else:
+                    assigns.append(dict(flight=nm, task='/'.join(tasks),
+                                        STA=info.get('STA', ''), STD=info.get('STD', ''),
+                                        OP=info.get('OP', ''), CL=info.get('CL', '')))
+                    # common check-in (SU): "FC661" = FC ของ SU661 → เพิ่ม assignment ไฟลท์ของทีม
+                    if re.fullmatch(r'[A-Z]{2}', str(team).upper()) and not _ac_is_flight(nm):
+                        air = str(team).upper()
+                        for tk in tasks:
+                            mm = re.fullmatch(r'([A-Z]{1,3})(\d{3,4})', str(tk))   # ต้องมี role นำหน้า (กัน "0835")
+                            if mm and _ac_is_flight(air + mm.group(2)):
+                                assigns.append(dict(flight=air + mm.group(2), task=mm.group(1) or '',
+                                                    STA='', STD='', OP='', CL=''))
         # บางเทมเพลต (เช่น REV.01 TK) เขียนไฟลท์เป็นข้อความในคอลัมน์ "FLIGHT" (เช่น VJ808/OD543)
         # → เพิ่มรหัสไฟลท์ที่ยังไม่มี (กันนับซ้ำด้วยเลขไฟลท์)
         if cm['flt'] - 1 >= 0:
@@ -292,10 +365,22 @@ def parse_standard(rows, team):
                     if cn and not all(n in nums for n in cn) and _ac_is_flight(code):
                         assigns.append(dict(flight=code, task='', STA='', STD='', OP='', CL=''))
                         nums.update(cn)
+        # ทีม LP/Support: จ็อบงานเป็นข้อความในคอลัมน์ "REMARK FOR SUPPORT OTHER FLT"
+        if cm.get('jobtext', -1) >= 0 and cm['jobtext'] < len(row):
+            jnums = set()
+            for a in assigns:
+                jnums.update(re.findall(r'\d{2,4}', a['flight']))
+            for a in parse_job_text(cv(row[cm['jobtext']])):
+                cn = re.findall(r'\d{2,4}', a['flight'])
+                if cn and not any(n in jnums for n in cn):
+                    assigns.append(a)
+                    jnums.update(cn)
         oth = ot_hours(otv)
         bkt = classify(shift or timev, remark)
         if bkt == 'off' and oth > 0:            # SHIFT=X แต่มี OT = ทำ OT วันหยุด
             bkt = 'ot_off'
+        if bkt == 'ot_off' and not (oth > 0):   # REMARK="OT OFF" แต่ไม่มีชั่วโมง OT จริง = ยังไม่ได้มาทำ → หยุด
+            bkt = 'off'
         # เวลากะ: ปกติอยู่คอลัมน์ TIME; ถ้าไม่มี → อ่านช่วงจากคอลัมน์ SHIFT เอง (เช่น "09-17")
         srng = _range_cells(row, cm['time']) if cm['time'] >= 0 else _range_str(shift)
         re_time = ''
@@ -317,7 +402,32 @@ def parse_standard(rows, team):
                          shift=shift or timev, shift_time=srng_s or (shift or timev),
                          shift_start=srng[0] if srng[0] is not None else 99999,
                          bucket=bkt, ot=oth, ot_type=otype, ot_time=orng_s, assigns=assigns))
+    apply_training_notes(rows, recs)
     return recs
+
+
+def apply_training_notes(rows, recs):
+    """โน้ตใต้ตาราง '…TRAINING… : ชื่อ' → ผูกกับพนักงานที่ชื่อตรง (ถ้ายังไม่มีไฟลท์จริง)"""
+    notes = []
+    for row in rows:
+        for cell in (row or []):
+            c = cv(cell)
+            if not c or ':' not in c or not is_training_task(c):
+                continue
+            act, who = c.split(':', 1)
+            if act.strip() and who.strip():
+                notes.append((act.strip(), who.strip().upper()))
+    if not notes:
+        return
+    for r in recs:
+        first = re.split(r'[\s(]', str(r['name'] or '').upper())[0]
+        if len(first) < 3:
+            continue
+        if any(_ac_is_flight(a['flight']) for a in r.get('assigns', [])):
+            continue
+        for act, who in notes:
+            if first in who:
+                r['assigns'] = [dict(flight=act, task='', STA='', STD='', OP='', CL='')]
 
 
 def parse_porter(rows, team):
@@ -497,12 +607,16 @@ def parse_sheet(ws, name):
         return None
     rows = list(ws.iter_rows(values_only=True))
     if 'PORTER' in n and 'CREW' in n:
-        return parse_crewsign(rows, name)
+        # Crewsign แบบใหม่ใช้เลย์เอาต์มาตรฐาน (ID/Position/NAME/SHIFT) — นับครบทุกคน; เก่า 2 คอลัมน์ → fallback
+        std = parse_standard(rows, name)
+        return std if std else parse_crewsign(rows, name)
     if n == 'PORTER':
         std = parse_standard(rows, name)
         return std if std else parse_porter(rows, name)
     if 'ADMIN' in n and 'DOC' in n:
-        return parse_admindoc(rows, name)
+        # Admin Doc แบบใหม่ใช้เลย์เอาต์มาตรฐาน (อ่านสถานะ Onduty/Off ถูก) · เก่า → fallback
+        std = parse_standard(rows, name)
+        return std if std else parse_admindoc(rows, name)
     if n == 'SU' or n.startswith('SU '):
         std = parse_standard(rows, name)          # new SU template = standard table
         return std if std else parse_su(rows, name)  # else old counter-rotation grid
@@ -753,7 +867,8 @@ def _ac_is_flight(name):
         return False
     if re.match(r'(COUNTER|GATE|CHECK|ZONE|BELT|PIER|STBY|STAND|POOL|OFFICE|BRIEF|NIL|OFF\b|LP\s+(MORNING|AFTERNOON|NIGHT|DAY))', s):
         return False
-    return bool(re.search(r'[A-Z]{1,3}\s*\d{2,4}', s))
+    # ต้องขึ้นต้นด้วยรหัสสายการบิน IATA 2 ตัว (ตัวอักษร+ตัวอักษร/เลข หรือ เลข+ตัวอักษร) ตามด้วยเลขไฟลท์
+    return bool(re.match(r'(?:[A-Z][A-Z0-9]|[0-9][A-Z])\s*\d{2,4}', s))
 
 
 def _ac_flight_win(a):

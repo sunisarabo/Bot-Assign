@@ -1,0 +1,2 @@
+work_date,emp_code,team,flight_code,flight_leg,airline_iata,task,sta,std,counter_open,counter_close,is_flight,is_activity
+2026-09-19,2607384,EY,EY410/411,EY410,EY,CI,,09:30,07:30,08:45,TRUE,FALSE

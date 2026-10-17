@@ -1,7 +1,7 @@
 # Push to Apps Script with clasp (one command)
 
 This repo is already linked to the Apps Script project
-`1KqqXTuQonXJoaaNxRdO9vgL0N10U8QfFqAJnw87kKwiwXQejjq-tdTK-` (see `.clasp.json`).
+`1wyFAhwvsEmAZ0wxk_4i9NbsyKoDYAuK2xZj3UsdZmFtLlEdnr0G2w8pr` (see `.clasp.json`).
 
 ```bash
 npm install -g @google/clasp      # once

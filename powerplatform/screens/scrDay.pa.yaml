@@ -1,0 +1,210 @@
+Screens:
+  scrDay:
+    Properties:
+      Fill: =RGBA(244, 246, 248, 1)
+      OnVisible: |-
+        =If(IsBlank(varDayDate), Set(varDayDate, Today()));
+        Select(btnDayLoad)
+    Children:
+      - recDayHead:
+          Control: Rectangle@2.3.0
+          Properties:
+            Fill: =RGBA(29, 66, 138, 1)
+            Height: =64
+            Width: =Parent.Width
+      - lblDayTitle:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="แดชบอร์ดรายวัน"
+            Color: =RGBA(255, 255, 255, 1)
+            FontWeight: =FontWeight.Bold
+            Size: =18
+            X: =20
+            Y: =12
+            Width: =Parent.Width - 300
+            Height: =40
+      - btnDayBack:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="← กลับเมนู"
+            OnSelect: =Navigate(scrHome)
+            Fill: =RGBA(255, 255, 255, 1)
+            Color: =RGBA(29, 66, 138, 1)
+            X: =Parent.Width - 130
+            Y: =14
+            Width: =110
+            Height: =36
+      - btnDayPrev:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="◀"
+            Fill: =RGBA(255, 255, 255, 1)
+            Color: =RGBA(29, 66, 138, 1)
+            X: =20
+            Y: =76
+            Width: =40
+            Height: =34
+            OnSelect: =Set(varDayDate, DateAdd(varDayDate, -1)); Select(btnDayLoad)
+      - lblDayDate:
+          Control: Label@2.5.1
+          Properties:
+            Text: =Text(varDayDate, "ddd d mmm yyyy")
+            Align: =Align.Center
+            FontWeight: =FontWeight.Semibold
+            Size: =13
+            X: =64
+            Y: =76
+            Width: =160
+            Height: =34
+      - btnDayNext:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="▶"
+            Fill: =RGBA(255, 255, 255, 1)
+            Color: =RGBA(29, 66, 138, 1)
+            X: =228
+            Y: =76
+            Width: =40
+            Height: =34
+            OnSelect: =Set(varDayDate, DateAdd(varDayDate, 1)); Select(btnDayLoad)
+      - btnDayLoad:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="รีเฟรช"
+            Fill: =RGBA(29, 66, 138, 1)
+            Color: =RGBA(255, 255, 255, 1)
+            X: =280
+            Y: =76
+            Width: =100
+            Height: =34
+            OnSelect: |-
+              =Set(varDayKey, Text(varDayDate, "yyyy-mm-dd"));
+              Concurrent(
+                ClearCollect(colDayDuty, Filter(PAS_Duty, day_key = varDayKey)),
+                ClearCollect(colDayAsg, Filter(PAS_Assignment, day_key = varDayKey)),
+                ClearCollect(colDayFlt, Filter(PAS_Flights, day_key = varDayKey))
+              );
+              ClearCollect(colDayStat,
+                { label: "คนทำงาน", val: CountRows(Filter(colDayDuty, bucket.Value in ["WORKING", "OT_OFF"])), accent: RGBA(29, 66, 138, 1) },
+                { label: "OT (ชม.)", val: Round(Sum(colDayDuty, ot_hours), 1), accent: RGBA(176, 58, 46, 1) },
+                { label: "ไฟลท์", val: CountRows(colDayFlt), accent: RGBA(45, 106, 79, 1) },
+                { label: "ลงงานแล้ว", val: CountRows(colDayAsg), accent: RGBA(90, 50, 140, 1) },
+                { label: "ยังไม่รับทราบ", val: CountRows(Filter(colDayAsg, !acknowledged)), accent: RGBA(168, 99, 0, 1) }
+              );
+              ClearCollect(colDayTeam, ForAll(Distinct(colDayDuty, team) As t,
+                { team: t.Value,
+                  working: CountRows(Filter(colDayDuty, team = t.Value, bucket.Value in ["WORKING", "OT_OFF"])),
+                  ot: Round(Sum(Filter(colDayDuty, team = t.Value), ot_hours), 1),
+                  off: CountRows(Filter(colDayDuty, team = t.Value, bucket.Value = "OFF")) }))
+      - galDayStat:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Items: =colDayStat
+            TemplateSize: =96
+            TemplatePadding: =8
+            WrapCount: =Max(2, RoundDown(Self.Width / 200, 0))
+            X: =16
+            Y: =122
+            Width: =Parent.Width - 32
+            Height: =108
+            TemplateFill: =RGBA(0, 0, 0, 0)
+          Children:
+            - recStatCard:
+                Control: Rectangle@2.3.0
+                Properties:
+                  Fill: =RGBA(255, 255, 255, 1)
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 12
+                  Height: =Parent.TemplateHeight - 10
+            - recStatBar:
+                Control: Rectangle@2.3.0
+                Properties:
+                  Fill: =ThisItem.accent
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 12
+                  Height: =6
+            - lblStatVal:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =Text(ThisItem.val)
+                  FontWeight: =FontWeight.Bold
+                  Size: =26
+                  Color: =ThisItem.accent
+                  X: =16
+                  Y: =18
+                  Width: =Parent.TemplateWidth - 40
+                  Height: =40
+            - lblStatLbl:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.label
+                  Size: =12
+                  Color: =RGBA(100, 100, 100, 1)
+                  X: =16
+                  Y: =60
+                  Width: =Parent.TemplateWidth - 40
+                  Height: =24
+      - lblDayTeamH:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="ต่อทีม (ทำงาน · OT · หยุด)"
+            FontWeight: =FontWeight.Semibold
+            Size: =13
+            X: =20
+            Y: =240
+            Width: =Parent.Width - 40
+            Height: =24
+      - galDayTeam:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Items: =SortByColumns(colDayTeam, "team")
+            TemplateSize: =40
+            X: =16
+            Y: =270
+            Width: =Parent.Width - 32
+            Height: =Parent.Height - 282
+            TemplateFill: =RGBA(255, 255, 255, 1)
+          Children:
+            - lblDTTeam:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.team
+                  FontWeight: =FontWeight.Semibold
+                  Size: =12
+                  X: =12
+                  Y: =2
+                  Width: =160
+                  Height: =36
+            - lblDTWork:
+                Control: Label@2.5.1
+                Properties:
+                  Text: ="ทำงาน " & ThisItem.working
+                  Size: =12
+                  X: =180
+                  Y: =2
+                  Width: =140
+                  Height: =36
+            - lblDTOt:
+                Control: Label@2.5.1
+                Properties:
+                  Text: ="OT " & ThisItem.ot
+                  Size: =12
+                  Color: =RGBA(176, 58, 46, 1)
+                  X: =320
+                  Y: =2
+                  Width: =120
+                  Height: =36
+            - lblDTOff:
+                Control: Label@2.5.1
+                Properties:
+                  Text: ="หยุด " & ThisItem.off
+                  Size: =12
+                  Color: =RGBA(120, 120, 120, 1)
+                  X: =440
+                  Y: =2
+                  Width: =120
+                  Height: =36
