@@ -14,12 +14,13 @@
 ```powerapps
 // scrHome.OnVisible
 ClearCollect(colHMenu,
-  { key:"my",      title:"งานของฉันวันนี้", sub:"ดูงาน + กดรับทราบ",        icon:"📋", needEdit:false, accent:RGBA(29,66,138,1) },
-  { key:"roster",  title:"ตารางเวร (Roster)", sub:"คน × วัน · แลกเวร/ลา/เปลี่ยนกะ", icon:"🗓", needEdit:false, accent:RGBA(29,66,138,1) },
-  { key:"assign",  title:"มอบหมายงาน (Assign)", sub:"ลงตำแหน่งต่อไฟลท์",        icon:"🧭", needEdit:false, accent:RGBA(45,106,79,1) },
-  { key:"flights", title:"ไฟลท์",             sub:"เพิ่ม/แก้/ยกเลิก",            icon:"✈", needEdit:true,  accent:RGBA(168,99,0,1) },
-  { key:"wh",      title:"ชม.ทำงาน/OT",       sub:"รายสัปดาห์ · cap 48/36",      icon:"⏱", needEdit:false, accent:RGBA(90,50,140,1) },
-  { key:"ot",      title:"ตรวจ OT",           sub:"OT ขอจริง",                  icon:"💰", needEdit:false, accent:RGBA(176,58,46,1) }
+  { key:"my",      title:"งานของฉันวันนี้", sub:"ดูงาน + กดรับทราบ",        icon:"📋", needEdit:false, needAdmin:false, accent:RGBA(29,66,138,1) },
+  { key:"roster",  title:"ตารางเวร (Roster)", sub:"คน × วัน · แลกเวร/ลา/เปลี่ยนกะ", icon:"🗓", needEdit:false, needAdmin:false, accent:RGBA(29,66,138,1) },
+  { key:"assign",  title:"มอบหมายงาน (Assign)", sub:"ลงตำแหน่งต่อไฟลท์",        icon:"🧭", needEdit:false, needAdmin:false, accent:RGBA(45,106,79,1) },
+  { key:"flights", title:"ไฟลท์",             sub:"เพิ่ม/แก้/ยกเลิก",            icon:"✈", needEdit:true,  needAdmin:false, accent:RGBA(168,99,0,1) },
+  { key:"wh",      title:"ชม.ทำงาน/OT",       sub:"รายสัปดาห์ · cap 48/36",      icon:"⏱", needEdit:false, needAdmin:false, accent:RGBA(90,50,140,1) },
+  { key:"ot",      title:"ตรวจ OT",           sub:"OT ขอจริง",                  icon:"💰", needEdit:false, needAdmin:false, accent:RGBA(176,58,46,1) },
+  { key:"admin",   title:"จัดการระบบ",         sub:"สิทธิ์ · import/export · generate", icon:"⚙", needEdit:true, needAdmin:true, accent:RGBA(60,60,60,1) }
 );
 Set(varHWho, Coalesce(varMe.emp_name, User().FullName, "ผู้ใช้"))
 ```
@@ -45,7 +46,7 @@ lblHRole.Size  = =11
 
 ## 3) galHMenu — การ์ด + กรองตามสิทธิ์ + responsive
 ```powerapps
-galHMenu.Items     = =Filter(colHMenu, !needEdit || varPriv)
+galHMenu.Items     = =Filter(colHMenu, (!needEdit || varPriv) && (!needAdmin || varAdmin))
 // การ์ดกว้าง ~300 → จำนวนคอลัมน์ตามจอ
 galHMenu.WrapCount = =Max(1, RoundDown((Parent.Width - 32) / 300, 0))
 galHMenu.TemplateSize = =120
@@ -76,7 +77,8 @@ btnHGo.OnSelect =
      "assign",  Navigate(scrAssign),
      "flights", Navigate(scrFlights),
      "wh",      Navigate(scrWH),
-     "ot",      Navigate(scrOT)
+     "ot",      Navigate(scrOT),
+     "admin",   Navigate(scrAdminRoles)
      /* , "wc", Navigate(scrWC) */ )
 ```
 > ใช้ปุ่มใสคลุมการ์ดแทน `Gallery.OnSelect` เพื่อให้ hover/กดชัด · ถ้าถนัดใช้ `galHMenu.OnSelect = Switch(galHMenu.Selected.key, ...)` ก็ได้

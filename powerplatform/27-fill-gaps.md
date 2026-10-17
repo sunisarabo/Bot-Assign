@@ -15,8 +15,9 @@
 ## ขั้นที่ 0 · เพิ่มคอลัมน์ทั้งหมดก่อน (ทำทีเดียว)
 | ตาราง | คอลัมน์ | ชนิด | ใช้ใน |
 |---|---|---|---|
-| `PAS_Employees` | `app_role` | Choice `STAFF`/`SUP`/`ADMIN` (default STAFF) | A |
-| `PAS_Employees` | `work_email` | Text (ถ้ายังไม่มีฟิลด์อีเมล) | A |
+| `PAS_Employees` | `app_role` | Choice `ADMIN`/`EDITOR`/`USER` (default USER) | A · 31 |
+| `PAS_Employees` | `work_email` | Text (ถ้ายังไม่มีฟิลด์อีเมล) | A · 31 |
+| `PAS_Employees` | `pas_pin` | Text 4-6 หลัก (sign-in USER ไม่มี M365) | 31 |
 | `PAS_Assignment` | `acknowledged` | Yes/No (default No) | B |
 | `PAS_Assignment` | `ack_at` | Date and Time | B |
 | `PAS_Assignment` | `priority` | Choice `NORMAL`/`WHEELCHAIR`/`SUPPORT` (default NORMAL) | B |
@@ -30,20 +31,22 @@
 เป้า: คนไม่มี M365 / พนักงานทั่วไป = **ดูอย่างเดียว** · หัวหน้าทีม(ซุป)/แอดมิน = **แก้ได้**
 ทำครั้งเดียวที่ `App.OnStart` แล้วเอา `varPriv` ไป gate ปุ่มแก้ทุกจุด
 
+> 🔁 **โมเดลสิทธิ์เต็ม (3 ระดับ ADMIN/EDITOR/USER) + sign-in + sync รายชื่อ อยู่ที่ `31-roles-signin-sync.md`** — ส่วนนี้คือสรุปย่อ (`varPriv` = แก้ได้ ใช้ gate เดิมได้ทั้งหมด)
+
 ### 1) ตาราง/คอลัมน์สิทธิ์
-ใช้ `PAS_Employees` ที่มีอยู่ — เพิ่มคอลัมน์ **`app_role`** (Choice: `STAFF` / `SUP` / `ADMIN`) ให้คนที่ล็อกอินด้วยอีเมล M365
-> คนไม่มี M365 ไม่ได้ล็อกอิน → ไม่มีสิทธิ์แก้โดยอัตโนมัติ (ค่าปริยาย STAFF)
+ใช้ `PAS_Employees` — เพิ่ม **`app_role`** (Choice: `ADMIN` / `EDITOR` / `USER`, default USER) · **`work_email`** · **`pas_pin`** (ดู `31`)
+> คนเข้าใหม่จาก PS-Manpower = USER อัตโนมัติ (ดู `31` A) · ADMIN เลื่อนขั้นทีหลัง
 
 ### 2) App → OnStart (วางต่อท้ายของเดิม)
 ```powerapps
-// สิทธิ์ของผู้ใช้ที่ล็อกอิน — ซุป/แอดมินเท่านั้นที่แก้ได้
 Set(varMe, LookUp(PAS_Employees, Lower(work_email) = Lower(User().Email)));
-Set(varPriv, !IsBlank(varMe) && varMe.app_role.Value in ["SUP", "ADMIN"]);
+Set(varRole, Coalesce(varMe.app_role.Value, "USER"));
+Set(varPriv,  varRole in ["ADMIN", "EDITOR"]);   // แก้ได้
+Set(varAdmin, varRole = "ADMIN");                 // หลังบ้าน/จัดการสิทธิ์
 Set(varMyCode, Coalesce(varMe.emp_code, ""));
 Set(varMyTeam, Coalesce(varMe.team, ""))
 ```
-> ถ้ายังไม่มีคอลัมน์ `work_email` ให้แม็ปกับฟิลด์อีเมลที่มี หรือชั่วคราวใช้รายชื่อซุป:
-> `Set(varPriv, User().Email in ["sup1@aotga.com","sup2@aotga.com"])`
+> USER ไม่มี M365 → sign-in ด้วยเลือกชื่อ+PIN (scrSignIn, ดู `31` B)
 
 ### 3) gate ปุ่มแก้ (เปลี่ยน `DisplayMode`/`Visible` — ไม่ต้องรื้อสูตรเดิม)
 
