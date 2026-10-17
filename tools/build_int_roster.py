@@ -323,15 +323,16 @@ def write_dataverse(flights, outdir, scope):
     fp = os.path.join(outdir, 'pas_flight_%s.csv' % scope.lower())
     with open(fp, 'w', newline='', encoding='utf-8-sig') as fh:
         w = csv.writer(fh)
-        w.writerow(['pas_name', 'pas_flight_date', 'pas_airline_iata', 'pas_direction',
-                    'pas_sta', 'pas_std', 'pas_aircraft_type', 'Team(helper)'])
+        w.writerow(['pas_flightkey', 'pas_name', 'pas_flight_date', 'pas_airline_iata', 'pas_direction',
+                    'pas_sta', 'pas_std', 'pas_aircraft_type', 'pas_status', 'Team(helper)'])
         for f in flights:
             direction = 'TURN' if f['type'] == 'Turnaround' else ('ARR' if f['type'] == 'Arrival only' else 'DEP')
             name = f['arr'] or f['dep']
-            w.writerow([name, f['date'].isoformat(), f['code'], direction,
+            key = (name or '') + '_' + f['date'].isoformat() + '_' + direction      # คีย์ upsert ตอน re-import
+            w.writerow([key, name, f['date'].isoformat(), f['code'], direction,
                         to_min(f['sta']) if to_min(f['sta']) is not None else '',
                         to_min(f['std']) if to_min(f['std']) is not None else '',
-                        f['ac'] or '', team_of(f['code'])])
+                        f['ac'] or '', 'SCHEDULED', team_of(f['code'])])
     # team↔airline map (เผื่อทำตาราง/คอลัมน์ mapping ใน Dataverse)
     mp = os.path.join(outdir, 'team_airline_map.csv')
     with open(mp, 'w', newline='', encoding='utf-8-sig') as fh:
