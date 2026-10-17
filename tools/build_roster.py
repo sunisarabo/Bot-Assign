@@ -104,16 +104,21 @@ CYCLE = 6          # รอบ: ทำ 4 หยุด 2
 ON_IN_CYCLE = 4
 
 
-def roster_team(staff, req_by_date, dates):
+LEAVE_BUCKET = {'SL': 'SICK', 'VL': 'VACATION'}     # ที่เหลือ (BL/ML/PL/…) → LEAVE
+
+
+def roster_team(staff, req_by_date, dates, leave=None):
     """ตารางเวร 'ทำ 4 หยุด 2 ต่อเนื่อง' (สลับ offset ให้คนครบทุกวัน) + กลบวันขาดด้วยบันได OT
+    leave = {emp_id: {date: leave_code}} → คนลาถูกข้าม (ไม่จัดงาน/ไม่นับ off-cycle)
     คืน assign[date][id]={'sh','ot','bucket'} + coverage[date]"""
+    leave = leave or {}
     byid = {s['id']: s for s in staff}
     ids = [s['id'] for s in staff]
     offset = {sid: k % CYCLE for k, sid in enumerate(ids)}     # กระจายวันหยุดให้ไม่ตรงกันหมด
     night_cnt = {i: 0 for i in ids}
     assign, coverage = {}, {}
     for di, d in enumerate(dates):
-        av = set(i for i in ids if _avail(byid[i], d))
+        av = set(i for i in ids if _avail(byid[i], d) and d not in leave.get(i, {}))
         m, a, n = req_by_date.get(d, (0, 0, 0))
         need = m + a + n
         # 4-on / 2-off baseline
@@ -154,6 +159,10 @@ def roster_team(staff, req_by_date, dates):
         for i in [x for x in on if x in day and day[x]['ot'] == 0][:ext_used]:   # ยืดกะ → OT
             day[i]['ot'] = EXTEND_OT_H
         for i in ids:
+            if d in leave.get(i, {}):                           # คนลา → ลงรหัสลา
+                lt = leave[i][d]
+                assign.setdefault(d, {})[i] = {'sh': lt, 'ot': 0, 'bucket': LEAVE_BUCKET.get(lt, 'LEAVE')}
+                continue
             cell = day.get(i)
             if cell:
                 assign.setdefault(d, {})[i] = cell
@@ -178,8 +187,18 @@ def main():
     ap.add_argument('--reg', required=True)
     ap.add_argument('-o', '--out', default='Roster.xlsx')
     ap.add_argument('--dataverse', default=None, help='โฟลเดอร์ output CSV pas_duty สำหรับ import')
+    ap.add_argument('--leave', default=None, help='CSV วันลา (EmpCode,LeaveDate,LeaveType) → ข้ามคนลา')
     args = ap.parse_args()
     duty_rows = []
+    leave = {}
+    if args.leave and os.path.exists(args.leave):
+        for r in csv.DictReader(open(args.leave, encoding='utf-8-sig')):
+            try:
+                dd = __import__('datetime').date.fromisoformat(str(r['LeaveDate'])[:10])
+            except Exception:
+                continue
+            leave.setdefault(str(r['EmpCode']).strip(), {})[dd] = str(r.get('LeaveType', 'PL')).strip() or 'PL'
+        print('leave loaded:', sum(len(v) for v in leave.values()), 'day-records')
 
     team_staff = load_staff(args.reg)
     req, dates = load_req(args.req)
@@ -193,7 +212,7 @@ def main():
     order = sorted(teams_with, key=lambda t: -len(team_staff[t]))
     for t in order:
         staff = team_staff[t]
-        assign, coverage = roster_team(staff, req[t], dates)
+        assign, coverage = roster_team(staff, req[t], dates, leave)
         ws = wb.create_sheet(t.replace('/', '-')[:28])
         head = ['รหัส', 'ชื่อ'] + ['%d\n%s' % (d.day, WD[d.weekday()]) for d in dates]
         ws.append(head)
