@@ -32,7 +32,14 @@ lblQState.Text = ThisItem.State.Value & " · เคสวันนี้ " & Coa
 galQueue.TemplateFill = If(ThisItem.Staff.StaffId = varNextP.Staff.StaffId, RGBA(226,239,218,1), White)
 ```
 
-## 3) เคสรอจ่าย (galCases) → จ่ายงาน
+## 3) เคสรอจ่าย (galCases) → จ่ายงาน (พอตเตอร์ต้อง "รับทราบ" ก่อนเริ่มจริง)
+
+LP จ่ายงาน = **มอบหมาย + จองรถเข็น** → เคสเป็น `ASSIGNED` (รอรับทราบ) · ยัง **ไม่** เริ่ม trip / ยัง **ไม่** ON_PROCESS
+พอตเตอร์กด **รับทราบ** ที่หน้า `wc-03` ก่อน งานถึงจะ "เริ่มจริง" (จับเวลา + ล็อกรถเข็น) — ตรงเจตนา "ให้พอตเตอร์กด acknowledge ตอน LP assign"
+
+> ต้องเพิ่มคอลัมน์บน `pas_wc_cases`: **`pas_acknowledged`**(Yes/No) · **`pas_ack_at`**(DateTime) · **`pas_ack_by`**(Text) · **`pas_assigned_wc`**(Lookup→`pas_wheelchairs` หรือ Text ControlNo)
+> และเพิ่ม choice: `pas_wc_cases.Status` += **`ASSIGNED`** · `pas_wc_queues.State` += **`รอรับทราบ`**
+
 ```powerapps
 galCases.Items = SortByColumns(Filter(colCases, Status.Value = "STANDBY"), "NotifiedTime")
 // เลือกรถเข็น: ddWC.Items = colWCFree (แสดง ShortNo + Type)
@@ -48,20 +55,34 @@ btnAssign.OnSelect = |-
        // (1) ผูกคน-เคส
        Patch(pas_wc_caseporters, Defaults(pas_wc_caseporters),
          { Case: c, Staff: p.Staff, AssignedAt: Now(), AssignedBy: User().Email });
-       // (2) เริ่ม trip (ล็อกรถเข็น)
-       Patch(pas_wc_trips, Defaults(pas_wc_trips),
-         { TripId: "TRP-" & Text(Now(),"yyyymmdd") & "-" & Text(CountRows(Filter(pas_wc_trips, TripDate=varWDate))+1, "000"),
-           TripDate: varWDate, Wheelchair: w, Staff: p.Staff, FlightCode: c.FlightNo,
-           StartTime: Now(), TripStatus: { Value: "กำลังบริการ" }, Case: c });
-       // (3) เคส → ON_PROCESS + เวลารับ (ไม่ทับถ้ามีแล้ว)
-       Patch(pas_wc_cases, c, { Status: { Value: "ON_PROCESS" },
-           PickupTime: Coalesce(c.PickupTime, Text(Now(),"hh:mm")) });
-       // (4) คิว: คนนั้นไม่ว่าง + เคส+1 + ดัน SortOrder ท้ายสุด
+       // (2) เคส → ASSIGNED (รอรับทราบ) · จองรถเข็นไว้บนเคส · ยังไม่สร้าง trip / ยังไม่ ON_PROCESS
+       Patch(pas_wc_cases, c,
+         { Status: { Value: "ASSIGNED" }, pas_acknowledged: false,
+           pas_assigned_wc: w });              // Text: w.ControlNo
+       // (3) คิว: คนนั้น "รอรับทราบ" + ดัน SortOrder ท้ายสุด (ยังไม่ +เคส จนกว่าจะรับทราบจริง)
        Patch(pas_wc_queues, LookUp(colQ, Staff.StaffId = p.Staff.StaffId),
-         { State: { Value: "กำลังบริการ" }, TripsToday: Coalesce(p.TripsToday,0)+1,
-           SortOrder: Max(colQ, SortOrder) + 1, UpdatedAt: Now() });
-       Notify("จ่ายงานเคส " & c.FlightNo & " → " & p.Staff.NickTh & " (" & w.ShortNo & ")", NotificationType.Success);
+         { State: { Value: "รอรับทราบ" }, SortOrder: Max(colQ, SortOrder) + 1, UpdatedAt: Now() });
+       Notify("มอบหมายเคส " & c.FlightNo & " → " & p.Staff.NickTh & " (" & w.ShortNo & ") · รอพอตเตอร์กดรับทราบ", NotificationType.Success);
        Select(btnWLoad)))
+```
+> รถเข็นที่ LP เลือก "จองไว้" บนเคส (`pas_assigned_wc`) แต่ยังไม่ถือว่าใช้งานจนพอตเตอร์รับทราบ → ถ้าพอตเตอร์ไม่รับทราบนาน LP จ่ายใหม่/เปลี่ยนรถเข็นได้ (ดู §3b)
+
+## 3b) LP เห็นสถานะรับทราบ + เตือนเคสค้างรับทราบ
+```powerapps
+// ในแถว galCases/แถวเคส ASSIGNED: โชว์ว่ารับทราบหรือยัง
+lblCaseAck.Text = If(ThisItem.Status.Value = "ASSIGNED",
+    If(ThisItem.pas_acknowledged, "✓ พอตเตอร์รับทราบแล้ว", "⏳ รอพอตเตอร์รับทราบ"), "")
+lblCaseAck.Color = If(ThisItem.pas_acknowledged, RGBA(45,106,79,1), RGBA(192,86,0,1))
+// เคสที่มอบหมายแล้วแต่ยังไม่รับทราบเกิน N นาที = เตือน LP จ่ายใหม่
+galStuckAck.Items = Filter(colCases, Status.Value = "ASSIGNED", pas_acknowledged <> true,
+    DateDiff(NotifiedTime, Now(), TimeUnit.Minutes) >= 5)
+// ปุ่ม "จ่ายใหม่": คืนเคสเป็น STANDBY + เคลียร์คิวคนเดิม
+btnReassign.OnSelect =
+  =With({ c: galStuckAck.Selected },
+    Patch(pas_wc_cases, c, { Status: { Value: "STANDBY" }, pas_assigned_wc: Blank() });
+    Set(varOldP, LookUp(pas_wc_caseporters, Case.CaseId = c.CaseId).Staff);
+    If(!IsBlank(varOldP), Patch(pas_wc_queues, LookUp(colQ, Staff.StaffId = varOldP.StaffId), { State: { Value: "ว่าง" }, UpdatedAt: Now() }));
+    Notify("คืนเคส " & c.FlightNo & " ไปคิวรอจ่ายใหม่", NotificationType.Information); Select(btnWLoad))
 ```
 
 ## 4) จบงาน (galActive — trip ที่กำลังบริการ)
@@ -94,11 +115,13 @@ btnStale.OnSelect =
 | กติกา | ทำที่ |
 |---|---|
 | เคสน้อยสุดขึ้นก่อน (ไม่ FIFO) | `colQueue` sort TripsToday↑ |
+| **LP จ่าย = มอบหมาย · พอตเตอร์ต้องรับทราบก่อนเริ่มจริง** | §3 case→`ASSIGNED` + `pas_acknowledged:false` · เริ่ม trip ที่ `wc-03` btnAck |
 | รถเข็นใช้อยู่ เริ่มซ้ำไม่ได้ + บอกใครใช้ | เช็ก `colTripAct` ก่อน Patch |
 | งานค้าง >12 ชม. ไม่นับว่าทำ + ปิดได้ | `colWCFree` filter <12h · ปุ่มปิดค้าง |
 | สถานะไม่ถอยหลัง | เช็ก `Status.Value in [COMPLETED,CANCELLED]` ก่อนจ่าย |
 | ไม่เขียนทับเวลาที่กรอกแล้ว | `Coalesce(c.PickupTime, …)` |
 | LP ปิดค้างได้ พอตเตอร์ไม่ได้ | `btnStale.Visible = varPrivLP` |
+| เคสมอบแล้วไม่รับทราบ >5 นาที จ่ายใหม่ได้ | §3b `galStuckAck` + `btnReassign` |
 
 > งาน "เพิ่มคนช่วย" (เคสเดียวหลายคน) = เพิ่มแถว `pas_wc_caseporter` ได้ แต่ **ถอดคนที่ทำอยู่ไม่ได้** (ปุ่มลบปิดถ้า trip เริ่มแล้ว)
 > ฝั่งพอตเตอร์กด "รับเคส/เริ่ม/จบ" เอง (ไม่ล็อกอิน) → หน้า `wc-03` + แจ้งเตือน `18`
