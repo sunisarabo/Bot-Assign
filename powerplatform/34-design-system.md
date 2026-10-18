@@ -5,31 +5,26 @@
 
 ---
 
-## 1) Theme tokens — วางที่ `App.Formulas` (ครั้งเดียว)
-Power Apps → **App → Formulas** วางชุดนี้ (named formulas = ค่าคงที่ทั่วแอป เร็ว ไม่ต้อง Set):
+## 1) Theme tokens — ใช้ `T` ที่แอปมีอยู่แล้ว (อย่าสร้าง Theme/Sz/Sp ใหม่)
+แอปนี้นิยาม theme **`T`** ไว้ที่ `App.Formulas` แล้ว (scrSignIn/scrAdminRoles/scrAssign ใช้ `T.*` อยู่) → **ยึด `T` ตัวเดียว** ทุกหน้า
+> ⚠️ เวอร์ชันก่อนหน้าของ doc นี้เสนอ `Theme/Sz/Sp` — **เลิกใช้** ให้ใช้ `T` ของจริงแทน
+
+token `T` ที่ใช้จริง (สี) — อ้างด้วย `T.<ชื่อ>`:
+| กลุ่ม | token |
+|---|---|
+| พื้น/พื้นผิว | `T.bg` (พื้นจอ) · `T.surface` · `T.surface2` · `T.line` (เส้น) |
+| หลัก | `T.brand` (น้ำเงินหลัก/หัวจอ/ปุ่มหลัก) · `T.font` (ฟอนต์) |
+| ตัวอักษร | `T.ink` (หลัก) · `T.ink2` (รอง) · `Color.White` (บนพื้นเข้ม) |
+| สถานะ | `T.ok`/`T.okSoft` · `T.bad`/`T.badSoft` · `T.warn`/`T.warnSoft` · `T.info`/`T.infoSoft` · `T.sky`/`T.skySoft` |
+
+**ขนาดตัวอักษร / ความสูง:** หน้าจริงใช้เลขตรง ๆ + responsive `If(Parent.Width < 760, เล็ก, ใหญ่)` (ไม่มี Sz/Sp token)
+ยึดสเกลให้สม่ำเสมอ: หัวจอ 14–17 · หัวการ์ด 12–15 · body 10–13 · caption 8.5–9 · ปุ่มสูง 36–48 · หัวแถบ 64 · มุมโค้ง 9 (ปุ่มกลม 18–22)
 ```powerapps
-// ── สี (มินิมอล: น้ำเงินเป็นหลัก + เทากลาง) ──
-Theme = {
-  Navy:   RGBA(29, 66, 138, 1),    // หลัก/หัวจอ/ปุ่มหลัก
-  Green:  RGBA(45, 106, 79, 1),    // สำเร็จ/WC
-  Amber:  RGBA(168, 99, 0, 1),     // เตือน/OT
-  Red:    RGBA(176, 58, 46, 1),    // อันตราย/ขาด
-  Purple: RGBA(90, 50, 140, 1),
-  Bg:     RGBA(247, 248, 250, 1),  // พื้นจอ
-  Card:   RGBA(255, 255, 255, 1),  // การ์ด
-  Line:   RGBA(230, 232, 236, 1),  // เส้นคั่น
-  Ink:    RGBA(33, 37, 43, 1),     // ตัวอักษรหลัก
-  Sub:    RGBA(120, 124, 130, 1),  // ตัวอักษรรอง
-  OnDark: RGBA(255, 255, 255, 1)   // ตัวอักษรบนพื้นเข้ม
-};
-// ── ขนาดตัวอักษร (คงที่ ทั้งแอป — กันตัวเลื่อน/ไม่เท่ากัน) ──
-Sz = { H1: 20, H2: 15, Body: 13, Cap: 11, Num: 26 };
-// ── ระยะ/ความสูง (กริด 8) ──
-Sp = { Gutter: 16, Gap: 8, Head: 64, HeadTall: 84, Row: 44, Btn: 40, BtnSm: 34, Tile: 108, Radius: 10 };
-// ── ความกว้างการ์ดเมนู/ไทล์ (responsive) ──
-ColW = 300;
+// ปุ่มหลักมาตรฐาน (คัดจาก scrSignIn)
+Fill = T.brand · Color = Color.White · Font = T.font · FontWeight = Semibold
+HoverFill = ColorFade(T.brand,-10%) · PressedFill = ColorFade(T.brand,-20%)
+Radius(ทุกมุม) = 9 · BorderThickness = 0 · Height = 44
 ```
-> ใช้แล้วอ้าง `Theme.Navy`, `Sz.H1`, `Sp.Gutter` แทนการพิมพ์ค่าดิบ → ทุกหน้าหน้าตาเท่ากัน
 
 ---
 
