@@ -33,19 +33,25 @@ ddATeam.DisplayMode = =If(varPriv, DisplayMode.Edit, DisplayMode.Disabled)
 
 ---
 
-## 2 · พอตเตอร์ "รับงาน" ที่ scrMe (ไม่ใช่หน้าแยก)
+## 2 · พอตเตอร์ "รับงาน" ที่ `scrLP` โหมด porter (ตามที่ build จริง)
 
-**เดิม:** พอตเตอร์รับเคสที่หน้า porter แยก (`wc-03`) · **ใหม่:** รวมที่ `scrMe` แท็บ **"งานวีลแชร์"**
-- `scrMe` โหลด `colMeWC` = เคสวีลแชร์ที่มอบให้คนนี้ (จาก `pas_wc_caseporters` ของ `varMyCode`) วันนี้
+**หน้าเดียว 2 โหมด** คุมด้วย `varLPMode`:
+- **`varLPMode = "lp"`** (ค่าปริยาย เข้าจากเมนู) = LP จ่ายงาน (คิว + เคส STANDBY + มอบหมาย) · gate `varPriv`
+- **`varLPMode = "porter"`** = พอตเตอร์ดูเคสของตัวเอง + กดรับทราบ · ไม่ต้อง `varPriv` (Kiosk/Viewer เข้าได้)
+
+**ทางเข้าโหมด porter:** หน้า `scrSignIn` ปุ่ม **"♿ โหมดพอตเตอร์ (รับงาน LP)"** → `Set(varLPMode, "porter"); Navigate(scrLP)`
+(เครื่องกลางเลือกชื่อ+PIN ก่อน แล้วเข้าโหมดพอตเตอร์)
+
+ในโหมด porter (`scrLP`):
+- โหลด `colMyWC` = เคสที่มอบให้คนนี้วันนี้ (จาก `pas_wc_caseporter` ที่ `Staff.StaffId = varMyCode`) + join `pas_wc_case`
 - ปุ่ม **"รับเคส/รับทราบ"**: เซ็ต `pas_acknowledged` · ถ้าเป็นเคส LP จ่าย (มี `pas_assigned_wc`) → เริ่ม trip ด้วยรถเข็นที่ LP จองไว้ (ตรรกะเดียวกับ `wc-03` §3)
-- `scrLP` = **LP จ่ายงานอย่างเดียว** (ตาม `wc-02`) — ส่วน "พอตเตอร์กดรับทราบ" อยู่ที่ scrMe
+- กลับ/ออก: `varLPMode="porter"` → ปุ่ม 🔒 ออก กลับ `scrSignIn`
 
-> ธง/คอลัมน์เหมือนเดิม: `pas_wc_cases.pas_acknowledged/pas_ack_at/pas_ack_by/pas_assigned_wc` · `pas_wc_trips` · ดู `wc-02`/`wc-03`
-> โปรดักชันแนะนำให้ปุ่มรับทราบ WC เรียก **Custom API/flow** (`wc-06`/`wc-07`) เพื่อบังคับกติกา (รถเข็นไม่ซ้ำ/สถานะไม่ถอย) ฝั่งเซิร์ฟเวอร์ แทน Patch ตรงในแอป
+> ธง/คอลัมน์เหมือนเดิม: `pas_wc_case.pas_acknowledged/pas_ack_at/pas_ack_by/pas_assigned_wc` · `pas_wc_trip` · ดู `wc-02`/`wc-03`
+> โปรดักชันแนะนำให้ปุ่มรับทราบ WC เรียก **Custom API/flow** (`wc-06`/`wc-07`) บังคับกติกาฝั่งเซิร์ฟเวอร์ แทน Patch ตรง
 
 ### การ์ดบนเมนู (scrHome)
-- tile `lpp` (♿ LP จ่ายงาน Porter) → `scrLP` · ให้ **needEdit:true** (เฉพาะ LP = EDITOR/ADMIN) ถ้าต้องการให้เฉพาะ LP เห็น
-  ```
-  // ใน colHMenu แถว lpp: เปลี่ยน needEdit: false → true (LP จ่ายงาน = สิทธิ์แก้)
-  ```
-- พอตเตอร์ (USER) เข้า **การ์ด "งานของฉัน" (scrMe)** → แท็บงานวีลแชร์ รับเคสเอง
+- tile `lpp` (♿ LP จ่ายงาน Porter) → `scrLP` (โหมด lp) · `needEdit:true` → เห็นเฉพาะ LP (Supervisor/Duty/Admin)
+- พอตเตอร์ (ไม่มี M365) ไม่เข้าทางเมนู — เข้าผ่าน `scrSignIn` → ปุ่มโหมดพอตเตอร์ → `scrLP` porter
+
+> ส่วน **`scrMe`** = งานไฟลท์/กิจกรรมของตัวเอง + รับทราบ (ไม่รวมเคสวีลแชร์แล้ว) — เคสวีลแชร์อยู่ที่ scrLP porter
