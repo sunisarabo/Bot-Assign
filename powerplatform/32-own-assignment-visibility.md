@@ -42,13 +42,12 @@ ddATeam.DisplayMode = =If(varPriv, DisplayMode.Edit, DisplayMode.Disabled)
 **ทางเข้าโหมด porter:** หน้า `scrSignIn` ปุ่ม **"♿ โหมดพอตเตอร์ (รับงาน LP)"** → `Set(varLPMode, "porter"); Navigate(scrLP)`
 (เครื่องกลางเลือกชื่อ+PIN ก่อน แล้วเข้าโหมดพอตเตอร์)
 
-ในโหมด porter (`scrLP`):
-- โหลด `colMyWC` = เคสที่มอบให้คนนี้วันนี้ (จาก `pas_wc_caseporter` ที่ `Staff.StaffId = varMyCode`) + join `pas_wc_case`
-- ปุ่ม **"รับเคส/รับทราบ"**: เซ็ต `pas_acknowledged` · ถ้าเป็นเคส LP จ่าย (มี `pas_assigned_wc`) → เริ่ม trip ด้วยรถเข็นที่ LP จองไว้ (ตรรกะเดียวกับ `wc-03` §3)
+ในโหมด porter (`scrLP`) — **ของจริงใช้ `PAS_Porter` (lp_*)**, ระบุตัวด้วยชื่อ `varLPMe` (emp_name):
+- โหลดเคสของพอตเตอร์วันนี้จาก `PAS_Porter` (filter `day_key = วันนี้` + `lp_porter = varLPMe`)
+- ปุ่ม **"รับเคส/รับทราบ"**: `Patch(PAS_Porter, …, { lp_state: "ACK", lp_ack_at: Now() })` · เริ่ม→ON_PROCESS+pickup_at · จบ→DONE+delivered_at (ดู `wc-11`)
 - กลับ/ออก: `varLPMode="porter"` → ปุ่ม 🔒 ออก กลับ `scrSignIn`
 
-> ธง/คอลัมน์เหมือนเดิม: `pas_wc_case.pas_acknowledged/pas_ack_at/pas_ack_by/pas_assigned_wc` · `pas_wc_trip` · ดู `wc-02`/`wc-03`
-> โปรดักชันแนะนำให้ปุ่มรับทราบ WC เรียก **Custom API/flow** (`wc-06`/`wc-07`) บังคับกติกาฝั่งเซิร์ฟเวอร์ แทน Patch ตรง
+> **ดึงเข้า "งานของฉัน" (scrMe) ให้แม่น:** เพิ่ม `PAS_Porter.lp_porter_code` (เขียน emp_code ตอนจ่ายงาน) แล้ว scrMe filter `lp_porter_code = varMyCode` — ดู `wc-11` §1 · ของจริงใช้ `PAS_Porter` ไม่ใช่ `pas_wc_*`
 
 ### การ์ดบนเมนู (scrHome)
 - tile `lpp` (♿ LP จ่ายงาน Porter) → `scrLP` (โหมด lp) · `needEdit:true` → เห็นเฉพาะ LP (Supervisor/Duty/Admin)

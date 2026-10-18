@@ -171,7 +171,7 @@ Screens:
                   Y: =2
                   Width: =Parent.TemplateWidth - 4
                   Height: =Parent.TemplateHeight - 6
-                  Fill: =Switch(ThisItem.priority.Value, "WHEELCHAIR", T.warnSoft, "SUPPORT", T.skySoft, Color.White)
+                  Fill: =Switch(ThisItem.priority, "WHEELCHAIR", T.warnSoft, "SUPPORT", T.skySoft, Color.White)
                   BorderColor: =T.line
                   BorderThickness: =1
             - lblMeFlt:
@@ -195,7 +195,7 @@ Screens:
                   Width: =148
                   Height: =42
                   OnSelect: |-
-                    =With({u: Patch(PAS_Assignment, ThisItem, { acknowledged: true, ack_at: Now(), ack_by: varMyCode })},
+                    =With({u: Patch(PAS_Assignment, ThisItem, { acknowledged: true, ack_at: Now() })},
                        Remove(colMe, ThisItem); Collect(colMe, u));
                      Notify("รับทราบงาน " & ThisItem.Title & " แล้ว", NotificationType.Success)
                   DisplayMode: =If(ThisItem.acknowledged, DisplayMode.Disabled, DisplayMode.Edit)
