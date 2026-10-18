@@ -1,63 +1,65 @@
 Screens:
   scrHome:
     Properties:
-      Fill: =RGBA(244, 246, 248, 1)
+      Fill: =Theme.Bg
       OnVisible: |-
         =If(IsBlank(varRole), Set(varMe, LookUp(PAS_Users, Title = Lower(User().Email))); Set(varRole, If(IsBlank(varMe) || !varMe.active, "Viewer", varMe.role.Value)));
         Set(varPriv, !(varRole in ["Viewer", "Staff", "Employee"]));
         Set(varAdmin, varRole = "Admin");
         Set(varMyCode, Coalesce(varMe.emp_code, varMyCode, ""));
         ClearCollect(colHMenu,
-          { key: "day",     title: "แดชบอร์ดรายวัน",    sub: "Dashboard · SLA · Gantt · Util · Support", icon: "📊", needEdit: false, needAdmin: false, accent: RGBA(29, 66, 138, 1) },
-          { key: "my",      title: "งานของฉันวันนี้",   sub: "ดูงาน + กดรับทราบ",            icon: "📋", needEdit: false, needAdmin: false, accent: RGBA(29, 66, 138, 1) },
-          { key: "roster",  title: "ตารางเวร (Roster)", sub: "คน × วัน · แลกเวร/ลา/เปลี่ยนกะ", icon: "🗓", needEdit: false, needAdmin: false, accent: RGBA(29, 66, 138, 1) },
-          { key: "assign",  title: "มอบหมายงาน (Assign)", sub: "ลงตำแหน่งต่อไฟลท์",           icon: "🧭", needEdit: false, needAdmin: false, accent: RGBA(45, 106, 79, 1) },
-          { key: "flights", title: "ไฟลท์",             sub: "เพิ่ม/แก้/ยกเลิก",              icon: "✈", needEdit: true,  needAdmin: false, accent: RGBA(168, 99, 0, 1) },
-          { key: "wh",      title: "ชม.ทำงาน/OT",        sub: "รายสัปดาห์ · cap 48/36",       icon: "⏱", needEdit: false, needAdmin: false, accent: RGBA(90, 50, 140, 1) },
-          { key: "ot",      title: "ตรวจ OT",            sub: "OT ขอจริง",                    icon: "💰", needEdit: false, needAdmin: false, accent: RGBA(176, 58, 46, 1) },
-          { key: "lpp",     title: "LP จ่ายงาน Porter",  sub: "LP จ่ายงาน · พอตเตอร์กดรับทราบ", icon: "♿", needEdit: false, needAdmin: false, accent: RGBA(45, 106, 79, 1) },
-          { key: "admin",   title: "จัดการระบบ",         sub: "สิทธิ์ · PIN · ผู้ใช้",         icon: "⚙", needEdit: true,  needAdmin: true,  accent: RGBA(60, 60, 60, 1) }
+          { key: "day",     title: "แดชบอร์ดรายวัน",    sub: "Dashboard · SLA · Util",       icon: "📊", needEdit: false, needAdmin: false, accent: Theme.Navy },
+          { key: "my",      title: "งานของฉันวันนี้",   sub: "ดูงาน + กดรับทราบ",            icon: "📋", needEdit: false, needAdmin: false, accent: Theme.Navy },
+          { key: "roster",  title: "ตารางเวร (Roster)", sub: "คน × วัน · แลกเวร/ลา/เปลี่ยนกะ", icon: "🗓", needEdit: false, needAdmin: false, accent: Theme.Navy },
+          { key: "assign",  title: "มอบหมายงาน (Assign)", sub: "ลงตำแหน่งต่อไฟลท์",           icon: "🧭", needEdit: false, needAdmin: false, accent: Theme.Green },
+          { key: "flights", title: "ไฟลท์",             sub: "เพิ่ม/แก้/ยกเลิก",              icon: "✈", needEdit: true,  needAdmin: false, accent: Theme.Amber },
+          { key: "wh",      title: "ชม.ทำงาน/OT",        sub: "รายสัปดาห์ · cap 48/36",       icon: "⏱", needEdit: false, needAdmin: false, accent: Theme.Purple },
+          { key: "ot",      title: "ตรวจ OT",            sub: "OT ขอจริง",                    icon: "💰", needEdit: false, needAdmin: false, accent: Theme.Red },
+          { key: "lpp",     title: "LP จ่ายงาน Porter",  sub: "จ่ายงาน · พอตเตอร์รับทราบ",     icon: "♿", needEdit: true,  needAdmin: false, accent: Theme.Green },
+          { key: "admin",   title: "จัดการระบบ",         sub: "สิทธิ์ · PIN · ผู้ใช้",         icon: "⚙", needEdit: true,  needAdmin: true,  accent: Theme.Ink }
         );
         Set(varHWho, Coalesce(varMe.display_name, User().FullName, "ผู้ใช้"))
     Children:
       - recHHead:
           Control: Rectangle@2.3.0
           Properties:
-            Fill: =RGBA(29, 66, 138, 1)
-            Height: =84
+            Fill: =Theme.Navy
+            Height: =Sp.HeadTall
             Width: =Parent.Width
+            X: =0
+            Y: =0
       - lblHTitle:
           Control: Label@2.5.1
           Properties:
-            Color: =RGBA(255, 255, 255, 1)
-            FontWeight: =FontWeight.Bold
-            Height: =34
-            Size: =20
             Text: ="PAS · ระบบจัดกำลังพล PSA-HKT"
-            Width: =Parent.Width - 200
-            X: =20
+            Color: =Theme.OnDark
+            FontWeight: =FontWeight.Bold
+            Size: =Sz.H1
+            X: =Sp.Gutter
             Y: =14
+            Width: =Parent.Width - 210
+            Height: =34
       - lblHWho:
           Control: Label@2.5.1
           Properties:
-            Color: =RGBA(220, 230, 250, 1)
-            Height: =24
-            Size: =12
             Text: ="สวัสดี " & varHWho
-            Width: =Parent.Width - 360
-            X: =20
+            Color: =RGBA(220, 230, 250, 1)
+            Size: =Sz.Body
+            X: =Sp.Gutter
             Y: =50
+            Width: =Parent.Width - 400
+            Height: =24
       - btnHSignIn:
           Control: Classic/Button@2.2.0
           Properties:
-            Text: ="เข้าด้วย PIN (พนักงาน) / เปลี่ยนผู้ใช้"
+            Text: ="เข้าด้วย PIN / เปลี่ยนผู้ใช้"
             Fill: =RGBA(0, 0, 0, 0)
             Color: =RGBA(220, 230, 250, 1)
             BorderColor: =RGBA(120, 150, 210, 1)
-            Size: =10
-            X: =Parent.Width - 380
+            Size: =Sz.Cap
+            X: =Parent.Width - 210 - Sp.Gutter
             Y: =50
-            Width: =180
+            Width: =210
             Height: =26
             OnSelect: |-
               =Set(varRole, Blank()); Set(varPriv, Blank()); Set(varAdmin, Blank()); Set(varMe, Blank()); Set(varMyCode, Blank());
@@ -66,82 +68,87 @@ Screens:
           Control: Label@2.5.1
           Properties:
             Align: =Align.Center
-            Color: =RGBA(255, 255, 255, 1)
-            Fill: =If(varAdmin, RGBA(60, 60, 60, 1), If(varPriv, RGBA(45, 106, 79, 1), RGBA(90, 90, 90, 1)))
-            Height: =32
-            Size: =11
-            Text: |-
-              =If(varAdmin, "ADMIN · หลังบ้าน", If(varPriv, "แก้ไขได้ (" & varRole & ")", "👁 ดูอย่างเดียว"))
+            Color: =Theme.OnDark
+            Fill: =If(varAdmin, Theme.Ink, If(varPriv, Theme.Green, Theme.Sub))
+            Size: =Sz.Cap
+            Text: =If(varAdmin, "ADMIN · หลังบ้าน", If(varPriv, "แก้ไขได้ · " & varRole, "ดูอย่างเดียว"))
             Width: =170
-            X: =Parent.Width - 190
-            Y: =26
+            Height: =30
+            X: =Parent.Width - 170 - Sp.Gutter
+            Y: =16
       - galHMenu:
           Control: Gallery@2.15.0
           Variant: Vertical
           Properties:
-            Height: =Parent.Height - 116
             Items: =Filter(colHMenu, (!needEdit || varPriv) && (!needAdmin || varAdmin))
-            TemplatePadding: =8
-            TemplateSize: =120
-            Width: =Parent.Width - 32
-            WrapCount: =Max(1, RoundDown((Self.Width) / 300, 0))
-            X: =16
-            Y: =100
+            TemplateSize: =Sp.Tile + 12
+            TemplatePadding: =Sp.Gap
+            WrapCount: =Max(1, RoundDown(Self.Width / ColW, 0))
+            X: =Sp.Gutter
+            Y: =Sp.HeadTall + Sp.Gap * 2
+            Width: =Parent.Width - Sp.Gutter * 2
+            Height: =Parent.Height - Sp.HeadTall - Sp.Gap * 3
+            TemplateFill: =RGBA(0, 0, 0, 0)
           Children:
             - recHCard:
                 Control: Rectangle@2.3.0
                 Properties:
-                  Fill: =RGBA(255, 255, 255, 1)
-                  Height: =Parent.TemplateHeight - 12
-                  Width: =Parent.TemplateWidth - 16
+                  Fill: =Theme.Card
                   X: =4
                   Y: =4
+                  Width: =Parent.TemplateWidth - Sp.Gap * 2
+                  Height: =Parent.TemplateHeight - Sp.Gap - 4
             - recHBar:
                 Control: Rectangle@2.3.0
                 Properties:
                   Fill: =ThisItem.accent
-                  Height: =Parent.TemplateHeight - 12
-                  Width: =6
                   X: =4
                   Y: =4
+                  Width: =6
+                  Height: =Parent.TemplateHeight - Sp.Gap - 4
             - lblHIcon:
                 Control: Label@2.5.1
                 Properties:
-                  Height: =48
-                  Size: =28
                   Text: =ThisItem.icon
-                  Width: =44
+                  Size: =28
                   X: =20
                   Y: =14
+                  Width: =44
+                  Height: =48
             - lblHCardT:
                 Control: Label@2.5.1
                 Properties:
-                  Color: =RGBA(29, 66, 138, 1)
-                  FontWeight: =FontWeight.Bold
-                  Height: =26
-                  Size: =15
                   Text: =ThisItem.title
-                  Width: =Parent.TemplateWidth - 90
+                  Color: =Theme.Ink
+                  FontWeight: =FontWeight.Bold
+                  Size: =Sz.H2
                   X: =70
                   Y: =20
+                  Width: =Parent.TemplateWidth - 90
+                  Height: =26
             - lblHCardS:
                 Control: Label@2.5.1
                 Properties:
-                  Color: =RGBA(120, 120, 120, 1)
-                  Height: =22
-                  Size: =11
                   Text: =ThisItem.sub
-                  Width: =Parent.TemplateWidth - 90
+                  Color: =Theme.Sub
+                  Size: =Sz.Cap
                   X: =70
                   Y: =48
+                  Width: =Parent.TemplateWidth - 90
+                  Height: =22
             - btnHGo:
                 Control: Classic/Button@2.2.0
                 Properties:
+                  Text: =""
+                  Fill: =RGBA(0, 0, 0, 0)
+                  HoverFill: =RGBA(29, 66, 138, 0.06)
+                  PressedFill: =RGBA(29, 66, 138, 0.12)
                   BorderColor: =RGBA(0, 0, 0, 0)
                   Color: =RGBA(0, 0, 0, 0)
-                  Fill: =RGBA(0, 0, 0, 0)
-                  Height: =Parent.TemplateHeight - 12
-                  HoverFill: =RGBA(29, 66, 138, 0.06)
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - Sp.Gap * 2
+                  Height: =Parent.TemplateHeight - Sp.Gap - 4
                   OnSelect: |-
                     =Switch(ThisItem.key,
                       "day",     Navigate(scrDay),
@@ -154,8 +161,3 @@ Screens:
                       "lpp",     Navigate(scrLP),
                       "admin",   Navigate(scrAdminRoles)
                     )
-                  PressedFill: =RGBA(29, 66, 138, 0.12)
-                  Text: =""
-                  Width: =Parent.TemplateWidth - 16
-                  X: =4
-                  Y: =4
