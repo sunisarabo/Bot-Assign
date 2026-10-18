@@ -44,11 +44,13 @@
 
 **เติมฟีเจอร์ · เมนู · generate · สิทธิ์ · ดีไซน์**
 - `27` fill-gaps (varPriv · acknowledge/scrMe · เปลี่ยนกะ) · `29` home-menu (scrHome ตามสิทธิ์) · `30` generate-auto-manual (ปุ่มจัดอัตโนมัติ + แก้มือ)
-- `31` roles-signin-sync (ADMIN/EDITOR/USER + sign-in + sync รายชื่อ) · `32` own-assignment-visibility (USER เห็นของตัวเอง) · `33` copilot-agent · `34` design-system (มินิมอล · token · กันตัวอักษรเลื่อน)
+- `31` roles-signin-sync (ADMIN/EDITOR/USER + sign-in + sync รายชื่อ) · `32` own-assignment-visibility (USER เห็นของตัวเอง) · `33` copilot-agent · `34` design-system (token T · กันตัวอักษรเลื่อน)
+- `35` test-safely (ทดลองไม่กระทบจริง) · `36` copy-env-to-prod (วงจรทดสอบ→prod) · `37` backup-restore (versioning + Daily Backup flow + กู้คืน)
 - หน้า `.pa.yaml` พร้อม paste อยู่ใน `screens/`: scrHome · scrMe · scrSignIn · scrAdminRoles · scrLP · scrDay
 
 **วีลแชร์ / พอตเตอร์ (WC)**
-- `wc-01` schema-import · `wc-02` lp-dispatch (จ่ายงาน + พอตเตอร์รับทราบ) · `wc-03` porter-app (canvas/จอรวม) · `wc-04` porter-powerpages (มือถือส่วนตัว) · `wc-05` porter-flows (HTTP flow) · `wc-06` porter-custom-api · `wc-07` porter-plugin (C#) · `wc-08` precase-to-case (pre-booking → cases แหล่งเดียว) · `wc-09` flow-build-cases (flow `WC Build Cases`) · `porter-wc-migration` ภาพรวม
+- `wc-01` schema-import · `wc-02` lp-dispatch (จ่ายงาน + พอตเตอร์รับทราบ) · `wc-03` porter-app (canvas/จอรวม) · `wc-04` porter-powerpages (มือถือส่วนตัว) · `wc-05` porter-flows (HTTP flow) · `wc-06` porter-custom-api · `wc-07` porter-plugin (C#) · `wc-08` precase-to-case · `wc-09` flow-build-cases · `wc-10` prebooking-table · `wc-11` pas-porter-integration (สคีมาจริง lp_*) · `wc-12` scrMe-porter-tab · `wc-13` porter-server-rules · `porter-wc-migration` ภาพรวม
+> ⚠️ ของจริงใช้ **`PAS_Porter` (lp_*)** — `wc-11/12/13` คือฉบับตรงสคีมา · `wc-01..10` (pas_wc_*) เป็นดีไซน์คู่ขนาน
 
 **กฎ/วิธีคิด**
 - `hr-rules` (เวลาทำงาน · หมุนกะไม่ย้อน · OT · ลา) · `staffing-method-notes` · `assignment-real-method` · `tables.def.json` (สคีมา)
