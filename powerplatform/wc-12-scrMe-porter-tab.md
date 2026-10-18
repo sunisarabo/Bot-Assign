@@ -1,4 +1,7 @@
-# WC/Porter · 12 · snippet แท็บ "งานวีลแชร์" สำหรับ scrMe จริง (PAS_Porter)
+# WC/Porter · 12 · snippet แท็บ "งานวีลแชร์" สำหรับ scrMe (PAS_Porter)
+
+> ✅ **แอปจริง implement แล้ว (วิธีที่ดีกว่า):** scrMe โหลด `colMeWC = Filter(PAS_Porter, day_key=วันนี้, lp_porter_code=varMyCode)` แล้ว **โชว์จำนวน/เตือน** + ปุ่ม **"♿ พอตเตอร์"** `Set(varLPMode,"porter"); Navigate(scrLP)` → ไปทำ รับทราบ/เริ่ม/จบ ที่ **scrLP โหมด porter** (ที่เดียว ไม่ทำ action ซ้ำสองจอ) · scrLP จ่ายงานเขียน `lp_porter_code`/`lp_state="ASSIGNED"` แล้ว
+> เอกสารนี้ (action inline ใน scrMe) เป็น **ทางเลือก/สำรอง** — ถ้าอยากให้กดจบในหน้า scrMe เลยไม่ต้องเด้งไป scrLP
 
 เอาไป **เสียบในหน้า scrMe ที่มีอยู่** (ไม่ใช่วางทับทั้งหน้า) · ใช้ `PAS_Porter` (lp_*) ตาม `wc-11` · สไตล์ `T.*`
 พอตเตอร์เห็นเคสที่ตัวเองได้รับ/ต้องทำ ในหน้า "งานของฉัน" + กดรับทราบ/เริ่ม/จบ ได้ที่นี่ (ตารางเดียวกับ scrLP porter)
