@@ -14,11 +14,15 @@
 | `arr_wchr` | WCHR | ARR |
 | `arr_wchs` | WCHS | ARR |
 | `arr_wchc` | WCHC | ARR |
+| `arr_avih` | AVIH | ARR |
 | `arr_maas` | MAAS | ARR |
 | `dep_wchr` | WCHR | DEP |
 | `dep_wchs` | WCHS | DEP |
 | `dep_wchc` | WCHC | DEP |
+| `dep_avih` | AVIH | DEP |
 | `dep_maas` | MAAS | DEP |
+
+> คอลัมน์จริงมาจาก `gen_prebooking.py`/ตาราง `pas_wc_prebooking` (ดู `wc-10`) — 5 บริการ × 2 ทิศ (รวม AVIH)
 
 ---
 

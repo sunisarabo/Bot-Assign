@@ -103,5 +103,16 @@ ddARRole.OnChange =
 
 ---
 
+## ผูก M365 ↔ รหัสพนักงาน: เพิ่ม `emp_code` ใน PAS_Users (แนะนำ)
+ปัจจุบันแอปเดา emp_code จากชื่อในอีเมล → บางคนหาไม่เจอ · แก้โดยเพิ่มคอลัมน์ **`PAS_Users.emp_code`** (Text) แล้ว resolve ตรง ๆ:
+```powerapps
+// App.OnStart / scrMe / scrAssign — เอา emp_code จาก PAS_Users ก่อน ค่อย fallback เดาจากอีเมล
+Set(varMyCode, Coalesce(varMe.emp_code, varMyCode,
+   LookUp(PAS_Employees, Lower(name_en) = Lower(Left(User().Email, Find("@", User().Email) - 1))).emp_code, ""))
+```
+- **scrAdminRoles:** เพิ่มช่องกรอก `emp_code` ในฟอร์มผู้ใช้ → Patch `PAS_Users.emp_code`
+- **scrMe/scrAssign (doc 32):** ใช้ `varMyCode` ที่ resolve แล้ว → หาตัวคนแม่นขึ้น
+> นี่คือไอเดียเดียวจากชุดร่าง token ที่ควรนำมาใช้จริง (ที่เหลืออย่าวางทับ — ดู `screens/README.md`)
+
 ## สรุปคอลัมน์ที่ต้องมีบน PAS_Employee (รวมกับ 27 ขั้น 0)
 `app_role` (Choice ADMIN/EDITOR/USER, default USER) · `work_email` (Text) · `pas_pin` (Text 4-6 หลัก) · `status` (ACTIVE/RESIGNED) · `emp_code`/`emp_name`/`team` (มีแล้ว)
