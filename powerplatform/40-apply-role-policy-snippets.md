@@ -1,12 +1,12 @@
 # 40 · snippet ใช้นโยบายสิทธิ์ (doc 39) — พร้อมเสียบ scrHome / scrAdminRoles
 
-ฟรักเมนต์พร้อมวางในหน้าจริง · ตามนโยบาย `39` (Editor=Director/Manager/AsstMgr/Supervisor · Viewer=Senior/Agent/Officer · Porter=เฉพาะวีลแชร์ · Admin=3 เมล)
+ฟรักเมนต์พร้อมวางในหน้าจริง · ตามนโยบาย `39` (Editor=Director/Manager/AsstMgr/Supervisor · Viewer=Senior/Agent/Officer · Porter=เฉพาะวีลแชร์ · Admin=4 เมล)
 
-## 1) App → OnStart (วางต่อท้ายของเดิม · ล็อก Admin 3 เมล)
+## 1) App → OnStart (วางต่อท้ายของเดิม · ล็อก Admin 4 เมล)
 ```powerapps
 Set(varMe, LookUp(PAS_Users, Title = Lower(User().Email)));
 Set(varRole, If(IsBlank(varMe) || !varMe.active, "Viewer", varMe.role.Value));
-Set(varAdmin, Lower(User().Email) in ["hktadminpsa@aotga.com", "hktadminll@aotga.com", "sunisara.bo@aotga.com"]);
+Set(varAdmin, Lower(User().Email) in ["hktadminpsa@aotga.com", "hktadminll@aotga.com", "sunisara.bo@aotga.com", "dutyhkt@aotga.com"]);
 If(varAdmin, Set(varRole, "Admin"));
 Set(varPriv, varRole in ["Admin", "Editor"]);
 Set(varIsPorter, varRole = "Porter");
@@ -46,18 +46,18 @@ ddARURole.Items = ["Admin", "Editor", "Viewer", "Porter", "Kiosk"]
 ```powerapps
 lblARURoleTh.Text =
   Switch(ddARURole.Selected.Value,
-    "Admin", "ADMIN · หลังบ้านทั้งหมด (เฉพาะ 3 เมล)",
+    "Admin", "ADMIN · หลังบ้านทั้งหมด (เฉพาะ 4 เมล)",
     "Editor", "ดู+แก้ตามฟังก์ชัน (Director/Manager/Asst/Supervisor)",
     "Viewer", "ดูอย่างเดียว (Senior/Agent/Officer)",
     "Porter", "ดูเฉพาะงานวีลแชร์",
     "Kiosk", "เครื่องกลาง · เลือกชื่อ+PIN",
     ddARURole.Selected.Value)
 ```
-### 4.3 บล็อกตั้ง Admin ให้คนนอก 3 เมล (ครอบ btnARUSave.OnSelect)
+### 4.3 บล็อกตั้ง Admin ให้คนนอก 4 เมล (ครอบ btnARUSave.OnSelect)
 ```powerapps
 =With({e: Lower(Trim(txtARUEmail.Text))},
-  If(ddARURole.Selected.Value = "Admin" && !(e in ["hktadminpsa@aotga.com", "hktadminll@aotga.com", "sunisara.bo@aotga.com"]),
-     Notify("ตั้ง Admin ได้เฉพาะ 3 เมลที่กำหนด", NotificationType.Error),
+  If(ddARURole.Selected.Value = "Admin" && !(e in ["hktadminpsa@aotga.com", "hktadminll@aotga.com", "sunisara.bo@aotga.com", "dutyhkt@aotga.com"]),
+     Notify("ตั้ง Admin ได้เฉพาะ 4 เมลที่กำหนด", NotificationType.Error),
      /* ...โค้ด Patch PAS_Users เดิม... */ ))
 ```
 
@@ -65,7 +65,7 @@ lblARURoleTh.Text =
 ```powerapps
 Set(varSuggestRole,
   Switch(true,
-    Lower(Trim(txtARUEmail.Text)) in ["hktadminpsa@aotga.com","hktadminll@aotga.com","sunisara.bo@aotga.com"], "Admin",
+    Lower(Trim(txtARUEmail.Text)) in ["hktadminpsa@aotga.com","hktadminll@aotga.com","sunisara.bo@aotga.com","dutyhkt@aotga.com"], "Admin",
     varARUPos in ["Director","Manager","Assistant Manager","Supervisor"], "Editor",
     varARUPos = "Porter", "Porter",
     "Viewer"))
@@ -73,7 +73,7 @@ Set(varSuggestRole,
 ```
 
 ## เช็กหลังเสียบ
-- เข้าด้วย 3 เมล → badge "ADMIN" · เห็นการ์ดจัดการระบบ
+- เข้าด้วย 4 เมล → badge "ADMIN" · เห็นการ์ดจัดการระบบ
 - Supervisor/Manager → แก้ได้ (varPriv) · ไม่เห็นหลังบ้าน
 - Senior/Agent/Officer → ดูได้ ปุ่มแก้เทา
 - Porter → เห็นแค่ งานของฉัน(วีลแชร์) + ♿ · หน้าอื่นเด้งกลับ
