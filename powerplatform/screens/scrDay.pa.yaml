@@ -1,0 +1,263 @@
+Screens:
+  scrDay:
+    Properties:
+      Fill: =T.bg
+      OnVisible: |-
+        =If(IsBlank(varDayDate), Set(varDayDate, Today()));
+        Select(btnDayLoad)
+    Children:
+      - recDayTop:
+          Control: Rectangle@2.3.0
+          Properties:
+            X: =0
+            Y: =0
+            Width: =Parent.Width
+            Height: =64
+            Fill: =T.brand
+      - lblDayTitle:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="📊 แดชบอร์ดรายวัน"
+            X: =16
+            Y: =16
+            Width: =Parent.Width - 280
+            Height: =32
+            Size: =If(Parent.Width < 760, 14, 17)
+            Color: =Color.White
+            Font: =T.font
+            FontWeight: =FontWeight.Bold
+      - btnDayBack:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="← เมนู"
+            X: =Parent.Width - 112
+            Y: =14
+            Width: =100
+            Height: =36
+            OnSelect: =Navigate(scrHome)
+            Fill: =RGBA(255, 255, 255, 0.12)
+            Color: =Color.White
+            HoverFill: =ColorFade(RGBA(255, 255, 255, 0.12), -10%)
+            HoverColor: =Color.White
+            BorderThickness: =1
+            BorderColor: =RGBA(255, 255, 255, 0.5)
+            Font: =T.font
+            Size: =10
+            FontWeight: =FontWeight.Semibold
+            RadiusTopLeft: =9
+            RadiusTopRight: =9
+            RadiusBottomLeft: =9
+            RadiusBottomRight: =9
+      - btnDayPrev:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="◀"
+            X: =16
+            Y: =76
+            Width: =40
+            Height: =36
+            OnSelect: =Set(varDayDate, DateAdd(varDayDate, -1)); Select(btnDayLoad)
+            Fill: =Color.White
+            Color: =T.brand
+            BorderThickness: =1
+            BorderColor: =T.line
+            Font: =T.font
+            RadiusTopLeft: =9
+            RadiusTopRight: =9
+            RadiusBottomLeft: =9
+            RadiusBottomRight: =9
+      - lblDayDate:
+          Control: Label@2.5.1
+          Properties:
+            Text: =Text(varDayDate, "ddd d mmm yyyy")
+            X: =60
+            Y: =76
+            Width: =170
+            Height: =36
+            Align: =Align.Center
+            Size: =12
+            Color: =T.ink
+            Font: =T.font
+            FontWeight: =FontWeight.Semibold
+      - btnDayNext:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="▶"
+            X: =234
+            Y: =76
+            Width: =40
+            Height: =36
+            OnSelect: =Set(varDayDate, DateAdd(varDayDate, 1)); Select(btnDayLoad)
+            Fill: =Color.White
+            Color: =T.brand
+            BorderThickness: =1
+            BorderColor: =T.line
+            Font: =T.font
+            RadiusTopLeft: =9
+            RadiusTopRight: =9
+            RadiusBottomLeft: =9
+            RadiusBottomRight: =9
+      - btnDayLoad:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="รีเฟรช"
+            X: =286
+            Y: =76
+            Width: =100
+            Height: =36
+            OnSelect: |-
+              =Set(varDayKey, Text(varDayDate, "yyyy-mm-dd"));
+              Concurrent(
+                ClearCollect(colDayDuty, Filter(PAS_Duty, day_key = varDayKey)),
+                ClearCollect(colDayAsg, Filter(PAS_Assignment, day_key = varDayKey)),
+                ClearCollect(colDayFlt, Filter(PAS_Flights, day_key = varDayKey))
+              );
+              ClearCollect(colDayStat,
+                { label: "คนทำงาน", val: CountRows(Filter(colDayDuty, bucket.Value in ["WORKING", "OT_OFF"])), accent: T.brand },
+                { label: "OT (ชม.)", val: Round(Sum(colDayDuty, ot_hours), 1), accent: T.bad },
+                { label: "ไฟลท์", val: CountRows(colDayFlt), accent: T.ok },
+                { label: "ลงงานแล้ว", val: CountRows(colDayAsg), accent: T.info },
+                { label: "ยังไม่รับทราบ", val: CountRows(Filter(colDayAsg, !acknowledged)), accent: T.warn }
+              );
+              ClearCollect(colDayTeam, ForAll(Distinct(colDayDuty, team) As t,
+                { team: t.Value,
+                  working: CountRows(Filter(colDayDuty, team = t.Value, bucket.Value in ["WORKING", "OT_OFF"])),
+                  ot: Round(Sum(Filter(colDayDuty, team = t.Value), ot_hours), 1),
+                  off: CountRows(Filter(colDayDuty, team = t.Value, bucket.Value = "OFF")) }))
+            Fill: =T.brand
+            Color: =Color.White
+            HoverFill: =ColorFade(T.brand, -10%)
+            HoverColor: =Color.White
+            BorderThickness: =0
+            Font: =T.font
+            Size: =11
+            FontWeight: =FontWeight.Semibold
+            RadiusTopLeft: =9
+            RadiusTopRight: =9
+            RadiusBottomLeft: =9
+            RadiusBottomRight: =9
+      - galDayStat:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Items: =colDayStat
+            X: =16
+            Y: =122
+            Width: =Parent.Width - 32
+            Height: =104
+            TemplateSize: =100
+            TemplatePadding: =8
+            WrapCount: =Max(2, RoundDown(Self.Width / 200, 0))
+            TemplateFill: =RGBA(0, 0, 0, 0)
+          Children:
+            - recStatCard:
+                Control: Rectangle@2.3.0
+                Properties:
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 12
+                  Height: =Parent.TemplateHeight - 10
+                  Fill: =Color.White
+                  BorderColor: =T.line
+                  BorderThickness: =1
+            - recStatBar:
+                Control: Rectangle@2.3.0
+                Properties:
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 12
+                  Height: =5
+                  Fill: =ThisItem.accent
+            - lblStatVal:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =Text(ThisItem.val)
+                  X: =16
+                  Y: =18
+                  Width: =Parent.TemplateWidth - 40
+                  Height: =40
+                  Size: =24
+                  Color: =ThisItem.accent
+                  Font: =T.font
+                  FontWeight: =FontWeight.Bold
+            - lblStatLbl:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.label
+                  X: =16
+                  Y: =60
+                  Width: =Parent.TemplateWidth - 40
+                  Height: =24
+                  Size: =10
+                  Color: =T.ink2
+                  Font: =T.font
+      - lblDayTeamH:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="ต่อทีม (ทำงาน · OT · หยุด)"
+            X: =16
+            Y: =236
+            Width: =Parent.Width - 32
+            Height: =24
+            Size: =12
+            Color: =T.ink
+            Font: =T.font
+            FontWeight: =FontWeight.Semibold
+      - galDayTeam:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Items: =SortByColumns(colDayTeam, "team")
+            X: =16
+            Y: =266
+            Width: =Parent.Width - 32
+            Height: =Parent.Height - 278
+            TemplateSize: =40
+            TemplatePadding: =2
+            TemplateFill: =Color.White
+          Children:
+            - lblDTTeam:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.team
+                  X: =12
+                  Y: =2
+                  Width: =150
+                  Height: =36
+                  Size: =11
+                  Color: =T.ink
+                  Font: =T.font
+                  FontWeight: =FontWeight.Semibold
+            - lblDTWork:
+                Control: Label@2.5.1
+                Properties:
+                  Text: ="ทำงาน " & ThisItem.working
+                  X: =170
+                  Y: =2
+                  Width: =130
+                  Height: =36
+                  Size: =11
+                  Color: =T.ink
+                  Font: =T.font
+            - lblDTOt:
+                Control: Label@2.5.1
+                Properties:
+                  Text: ="OT " & ThisItem.ot
+                  X: =300
+                  Y: =2
+                  Width: =110
+                  Height: =36
+                  Size: =11
+                  Color: =T.bad
+                  Font: =T.font
+            - lblDTOff:
+                Control: Label@2.5.1
+                Properties:
+                  Text: ="หยุด " & ThisItem.off
+                  X: =410
+                  Y: =2
+                  Width: =110
+                  Height: =36
+                  Size: =11
+                  Color: =T.ink2
+                  Font: =T.font

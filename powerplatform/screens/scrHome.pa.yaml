@@ -1,0 +1,176 @@
+Screens:
+  scrHome:
+    Properties:
+      Fill: =T.bg
+      OnVisible: |-
+        =If(IsBlank(varRole), Set(varMe, LookUp(PAS_Users, Title = Lower(User().Email))); Set(varRole, If(IsBlank(varMe) || !varMe.active, "Viewer", varMe.role.Value)));
+        Set(varPriv, !(varRole in ["Viewer", "Staff", "Employee", "Kiosk"]));
+        Set(varAdmin, varRole = "Admin");
+        Set(varMyCode, Coalesce(varMe.emp_code, varMyCode, ""));
+        ClearCollect(colHMenu,
+          { key: "day",     title: "แดชบอร์ดรายวัน",    sub: "Dashboard · SLA · Util",       icon: "📊", needEdit: false, needAdmin: false, accent: T.brand },
+          { key: "my",      title: "งานของฉันวันนี้",   sub: "ดูงาน + กดรับทราบ",            icon: "📋", needEdit: false, needAdmin: false, accent: T.brand },
+          { key: "roster",  title: "ตารางเวร (Roster)", sub: "คน × วัน · แลกเวร/ลา/เปลี่ยนกะ", icon: "🗓", needEdit: false, needAdmin: false, accent: T.brand },
+          { key: "assign",  title: "มอบหมายงาน (Assign)", sub: "ลงตำแหน่งต่อไฟลท์",           icon: "🧭", needEdit: false, needAdmin: false, accent: T.ok },
+          { key: "flights", title: "ไฟลท์",             sub: "เพิ่ม/แก้/ยกเลิก",              icon: "✈", needEdit: true,  needAdmin: false, accent: T.warn },
+          { key: "wh",      title: "ชม.ทำงาน/OT",        sub: "รายสัปดาห์ · cap 48/36",       icon: "⏱", needEdit: false, needAdmin: false, accent: T.info },
+          { key: "ot",      title: "ตรวจ OT",            sub: "OT ขอจริง",                    icon: "💰", needEdit: false, needAdmin: false, accent: T.bad },
+          { key: "lpp",     title: "LP จ่ายงาน Porter",  sub: "จ่ายงาน · พอตเตอร์รับทราบ",     icon: "♿", needEdit: true,  needAdmin: false, accent: T.ok },
+          { key: "admin",   title: "จัดการระบบ",         sub: "สิทธิ์ · PIN · ผู้ใช้",         icon: "⚙", needEdit: true,  needAdmin: true,  accent: T.ink }
+        );
+        Set(varHWho, Coalesce(varMe.display_name, User().FullName, "ผู้ใช้"))
+    Children:
+      - recHTop:
+          Control: Rectangle@2.3.0
+          Properties:
+            X: =0
+            Y: =0
+            Width: =Parent.Width
+            Height: =84
+            Fill: =T.brand
+      - lblHTitle:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="PAS · ระบบจัดกำลังพล PSA-HKT"
+            X: =16
+            Y: =14
+            Width: =Parent.Width - 210
+            Height: =30
+            Size: =If(Parent.Width < 760, 15, 18)
+            Color: =Color.White
+            Font: =T.font
+            FontWeight: =FontWeight.Bold
+      - lblHWho:
+          Control: Label@2.5.1
+          Properties:
+            Text: ="สวัสดี " & varHWho
+            X: =16
+            Y: =48
+            Width: =Parent.Width - 400
+            Height: =22
+            Size: =10
+            Color: =RGBA(220, 230, 250, 1)
+            Font: =T.font
+      - btnHSignIn:
+          Control: Classic/Button@2.2.0
+          Properties:
+            Text: ="🔒 เข้าด้วย PIN / เปลี่ยนผู้ใช้"
+            X: =Parent.Width - 210 - 16
+            Y: =48
+            Width: =210
+            Height: =26
+            OnSelect: |-
+              =Set(varRole, Blank()); Set(varPriv, Blank()); Set(varAdmin, Blank()); Set(varMe, Blank()); Set(varMyCode, Blank());
+              Navigate(scrSignIn)
+            Fill: =RGBA(255, 255, 255, 0.12)
+            Color: =Color.White
+            HoverFill: =ColorFade(RGBA(255, 255, 255, 0.12), -10%)
+            HoverColor: =Color.White
+            BorderThickness: =1
+            BorderColor: =RGBA(255, 255, 255, 0.5)
+            Font: =T.font
+            Size: =9
+            FontWeight: =FontWeight.Semibold
+            RadiusTopLeft: =9
+            RadiusTopRight: =9
+            RadiusBottomLeft: =9
+            RadiusBottomRight: =9
+      - lblHRole:
+          Control: Label@2.5.1
+          Properties:
+            Text: =If(varAdmin, "ADMIN · หลังบ้าน", If(varPriv, "แก้ไขได้ · " & varRole, "ดูอย่างเดียว"))
+            X: =Parent.Width - 170 - 16
+            Y: =14
+            Width: =170
+            Height: =28
+            Align: =Align.Center
+            Size: =9
+            Color: =Color.White
+            Fill: =If(varAdmin, T.bad, If(varPriv, T.ok, RGBA(255, 255, 255, 0.18)))
+            Font: =T.font
+            FontWeight: =FontWeight.Semibold
+            RadiusTopLeft: =13
+            RadiusTopRight: =13
+            RadiusBottomLeft: =13
+            RadiusBottomRight: =13
+      - galHMenu:
+          Control: Gallery@2.15.0
+          Variant: Vertical
+          Properties:
+            Items: =Filter(colHMenu, (!needEdit || varPriv) && (!needAdmin || varAdmin))
+            X: =16
+            Y: =100
+            Width: =Parent.Width - 32
+            Height: =Parent.Height - 116
+            TemplateSize: =116
+            TemplatePadding: =8
+            WrapCount: =Max(1, RoundDown(Self.Width / 300, 0))
+            TemplateFill: =RGBA(0, 0, 0, 0)
+          Children:
+            - btnHCard:
+                Control: Classic/Button@2.2.0
+                Properties:
+                  Text: =""
+                  X: =4
+                  Y: =4
+                  Width: =Parent.TemplateWidth - 16
+                  Height: =Parent.TemplateHeight - 12
+                  OnSelect: |-
+                    =Switch(ThisItem.key,
+                      "day", Navigate(scrDay), "my", Navigate(scrMe), "roster", Navigate(scrRoster),
+                      "assign", Navigate(scrAssign), "flights", Navigate(scrFlights), "wh", Navigate(scrWH),
+                      "ot", Navigate(scrOT), "lpp", Navigate(scrLP), "admin", Navigate(scrAdminRoles))
+                  Fill: =Color.White
+                  HoverFill: =ColorFade(Color.White, -5%)
+                  PressedFill: =ColorFade(Color.White, -10%)
+                  BorderColor: =T.line
+                  BorderThickness: =1
+                  Color: =T.ink
+                  RadiusTopLeft: =12
+                  RadiusTopRight: =12
+                  RadiusBottomLeft: =12
+                  RadiusBottomRight: =12
+            - recHBar:
+                Control: Rectangle@2.3.0
+                Properties:
+                  Fill: =ThisItem.accent
+                  X: =4
+                  Y: =4
+                  Width: =6
+                  Height: =Parent.TemplateHeight - 12
+            - lblHIcon:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.icon
+                  X: =20
+                  Y: =14
+                  Width: =44
+                  Height: =48
+                  Size: =26
+                  Font: =T.font
+                  OnSelect: =Select(Parent)
+            - lblHCardT:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.title
+                  X: =72
+                  Y: =20
+                  Width: =Parent.TemplateWidth - 92
+                  Height: =26
+                  Size: =14
+                  Color: =T.ink
+                  Font: =T.font
+                  FontWeight: =FontWeight.Bold
+                  OnSelect: =Select(Parent)
+            - lblHCardS:
+                Control: Label@2.5.1
+                Properties:
+                  Text: =ThisItem.sub
+                  X: =72
+                  Y: =48
+                  Width: =Parent.TemplateWidth - 92
+                  Height: =22
+                  Size: =9
+                  Color: =T.ink2
+                  Font: =T.font
+                  OnSelect: =Select(Parent)
