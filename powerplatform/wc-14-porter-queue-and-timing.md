@@ -62,27 +62,58 @@ ClearCollect(colDue,
 ```
 > อัปเดตเรียลไทม์: ใส่ **Timer** (Duration 30000, Repeat) สั่ง `Set(varNowMin, ...)` + รีคำนวณ (หรือ Select ปุ่มโหลด) ให้ตัวเลขเดินทุก 30 วิ
 
-## 4) คิวพอตเตอร์รับเคส (ใครควรได้งานถัดไป)
-เป็นธรรม = **เคสน้อยสุดก่อน · คนที่ว่าง (ไม่มีงานค้าง) ก่อน · จบงานล่าสุดนานสุดก่อน**
+## 4) คิวพอตเตอร์รับเคส — **1 คนรับได้หลายเคส ถ้าเวลาไม่ชน**
+หลัก: **ไม่บล็อกคนที่มีงานอยู่** · จ่ายเคสใหม่ให้ได้ถ้า **ช่วงเวลาเซอร์วิสไม่ทับ** กับเคสเดิมของคนนั้น (เผื่อเวลาต่อเคส)
+> `HANDLE_MIN` = เวลาทำ 1 เคสโดยประมาณ (เช่น 25 นาที) · `GAP_MIN` = เผื่อเดินทาง/คั่นระหว่างเคส (เช่น 10 นาที)
+> เคส A กับ B "ชนกัน" เมื่อ `|dueA − dueB| < HANDLE_MIN + GAP_MIN`
+
+### 4.1 เช็กว่าพอตเตอร์ "รับเคสที่เลือกได้ไหม" (ไม่ชนเวลา)
 ```powerapps
-// รายชื่อพอตเตอร์ที่ขึ้นเวรวันนี้ (team = PORTER) + นับงาน/สถานะ
+// dueNew = dueMin ของเคสที่กำลังจะจ่าย (varLPCase) — คำนวณเหมือนข้อ 1
+Set(varDueNew, With({ due: If(varLPCase.is_arrival, hhmmToMin(varLPCase.eta), hhmmToMin(varLPCase.etd) - 40) },
+                    Mod(due - (Hour(Now())*60+Minute(Now())) + 720, 1440) - 720));
+// รายชื่อพอตเตอร์ขึ้นเวรวันนี้ + คำนวณว่าชนเวลาไหม
 ClearCollect(colPorterQ,
   AddColumns(
     Filter(PAS_Duty, day_key = varWDate, team = "PORTER", bucket.Value in ["WORKING","OT_OFF"]),
-    "cases",  CountRows(Filter(PAS_Porter, day_key = varWDate, lp_porter_code = emp_code)),
-    "busy",   CountRows(Filter(PAS_Porter, day_key = varWDate, lp_porter_code = emp_code,
-                 If(!IsBlank(lp_state), lp_state, Len(delivered_at)>=4,"DONE", Len(pickup_at)>=4,"ON_PROCESS","NEW") in ["ACK","ON_PROCESS"])) > 0,
-    "lastDone", Max(Filter(PAS_Porter, day_key = varWDate, lp_porter_code = emp_code), lp_done_at)));
-// เรียงคิว: ว่างก่อน (busy=false) → เคสน้อย → จบงานนานแล้ว
-ClearCollect(colQueue,
-  SortByColumns(colPorterQ, "busy", Ascending, "cases", Ascending, "lastDone", Ascending));
-Set(varNextPorter, First(Filter(colQueue, !busy)))   // คนถัดไปที่ควรได้งาน
+    "cases", CountRows(Filter(PAS_Porter, day_key = varWDate, lp_porter_code = emp_code)),
+    "lastDone", Max(Filter(PAS_Porter, day_key = varWDate, lp_porter_code = emp_code), lp_done_at),
+    // ชน = มีเคสของคนนี้ (ยังไม่จบ) ที่เวลาเซอร์วิสห่างจากเคสใหม่ < HANDLE_MIN+GAP_MIN
+    "conflict",
+      CountRows(
+        Filter(
+          AddColumns(
+            Filter(PAS_Porter, day_key = varWDate, lp_porter_code = emp_code,
+              If(!IsBlank(lp_state), lp_state, Len(delivered_at)>=4,"DONE", Len(pickup_at)>=4,"ON_PROCESS","NEW") in ["ASSIGNED","ACK","ON_PROCESS"]),
+            "dd", With({ due: If(is_arrival, hhmmToMin(eta), hhmmToMin(etd) - 40) },
+                       Mod(due - (Hour(Now())*60+Minute(Now())) + 720, 1440) - 720)),
+          Abs(dd - varDueNew) < 35)) > 0   // 35 = HANDLE_MIN(25) + GAP_MIN(10)
+  ));
 ```
-แสดง + ใช้ตอนจ่ายงาน:
+### 4.2 คิว: คนที่ "รับได้" (ไม่ชน) ก่อน → เคสน้อยสุด → จบงานนานสุด
 ```powerapps
-lblNext.Text = "ถัดไป: " & Coalesce(varNextPorter.emp_name, "-") & " (เคสวันนี้ " & Coalesce(varNextPorter.cases,0) & ")"
-// ปุ่มจ่ายงาน default พอตเตอร์ = varNextPorter (กดจ่ายให้คนถัดไปได้เลย) แต่เลือกเองได้
+ClearCollect(colQueue,
+  SortByColumns(colPorterQ, "conflict", Ascending, "cases", Ascending, "lastDone", Ascending));
+// คนถัดไปที่ควรได้เคสนี้ = ไม่ชนเวลา + เคสน้อยสุด
+Set(varNextPorter, First(Filter(colQueue, !conflict)))
+```
+แสดง + จ่ายงาน:
+```powerapps
+lblNext.Text = If(IsBlank(varNextPorter),
+  "⚠ ไม่มีพอตเตอร์ว่างช่วงเวลานี้ (ทุกคนมีเคสชนเวลา)",
+  "ถัดไป: " & varNextPorter.emp_name & " (เคสวันนี้ " & Coalesce(varNextPorter.cases,0) & ")")
 ddLPPorter.Default = varNextPorter.emp_name
+// ในดรอปดาวน์เลือกพอตเตอร์: โชว์สถานะชนเวลา เพื่อ LP ตัดสินใจ
+// galLPPorter row: emp_name & " · เคส " & cases & If(conflict, " · ⚠ เวลาชน", " · ว่างช่วงนี้")
+```
+> LP เลือกจ่ายให้คนที่ "ชนเวลา" ก็ยังได้ (ระบบเตือนแต่ไม่ห้าม) เผื่อกรณีจำเป็น · ค่าปริยายคือคนที่ว่างช่วงนั้น
+
+### 4.3 งานของพอตเตอร์ 1 คน (หลายเคส) เรียงตามเวลา
+ในหน้าพอตเตอร์/งานของฉัน: โหลดทุกเคสของคนนั้น (ไม่จำกัด 1 เคส) แล้ว **เรียงตาม dueMin** → เห็นลำดับว่าเคสไหนต้องไปก่อน
+```powerapps
+// galMyWC.Items = SortByColumns(colMeWC-with-dueMin, "dueMin")  // เคสใกล้ถึงเวลาขึ้นก่อน
+// ป้ายเตือนถ้ามี 2 เคสใกล้กันเกินไป: If(Abs(dueA-dueB) < 35, "⚠ สองเคสเวลาใกล้กัน")
+```
 // ถ้าจ่ายให้คนถัดไป → Patch PAS_Porter {lp_porter: varNextPorter.emp_name, lp_porter_code: varNextPorter.emp_code, lp_state:"ASSIGNED", ...}
 ```
 
