@@ -1,35 +1,44 @@
-# 32 · USER เห็น assignment เฉพาะของตัวเอง + พอตเตอร์ "รับงาน" ที่งานของฉัน
+# 32 · ขอบเขตการเห็น assignment (ทีมตัวเอง) + พอตเตอร์ "รับงาน"
 
 2 กติกาตามที่ขอ:
-1. **USER เห็น assignment เฉพาะของตัวเอง** · EDITOR/ADMIN เห็นหมด
-2. **พอตเตอร์ "รับงาน" ย้ายมารวมที่ `scrMe` (งานของฉัน)** — กดรับทราบในนั้น · `scrLP` เหลือเฉพาะ LP จ่ายงาน
+1. **USER เห็น assignment ทั้งทีมของตัวเองในวันนั้น** (เพื่อนในทีม · คนทำไฟลท์เดียวกัน · ภาพรวมทีม) แต่ **เห็นเฉพาะทีมตัวเอง** · EDITOR/ADMIN เห็นทุกทีม
+2. **พอตเตอร์ "รับงาน" ที่ `scrLP` โหมด porter** — กดรับทราบในนั้น · `scrLP` lp = LP จ่ายงาน
 
 ---
 
-## 1 · เห็นเฉพาะของตัวเอง (scrAssign)
+## 1 · USER เห็น "ทั้งทีมของตัวเอง" (scrAssign)
 
-หลัก: ถ้า **ไม่ใช่สิทธิ์แก้** (`!varPriv` = USER) → กรองทุก collection ให้เหลือ `emp_code = varMyCode`
-EDITOR/ADMIN (`varPriv`) → เห็นทั้งทีมเหมือนเดิม
+หลัก: USER ดู assignment **ทั้งทีมของตัวเอง** ได้ (เห็นเพื่อนร่วมทีม + คนทำไฟลท์เดียวกัน + ภาพรวมทีมวันนั้น) — จำกัดแค่ **ล็อกทีมไว้ที่ทีมตัวเอง** (เปลี่ยนไปทีมอื่นไม่ได้) · ส่วนปุ่ม **แก้ไข** ยังปิดสำหรับ USER (gate `varPriv`)
 
-แก้ที่ **btnALoad.OnSelect** ของ scrAssign — เติมเงื่อนไข `emp_code` ตาม `varPriv`:
+### 1.1 ไม่ต้องกรองรายคน — colADuty/colAAsg โหลดทั้งทีมเหมือนเดิม
 ```powerapps
-// เดิม:  ClearCollect(colADuty, Filter(PAS_Duty, day_key = varAKey, team = varAT)),
-//        ClearCollect(colAAsg,  Filter(PAS_Assignment, day_key = varAKey, team = varAT)),
-// ใหม่ (USER เห็นเฉพาะตัวเอง):
-ClearCollect(colADuty, Filter(PAS_Duty, day_key = varAKey, team = varAT, (varPriv || emp_code = varMyCode))),
-ClearCollect(colAAsg,  Filter(PAS_Assignment, day_key = varAKey, team = varAT, (varPriv || emp_code = varMyCode))),
+// คงเดิม (กรองตามทีมที่เลือก = เห็นทั้งทีม) — ไม่ต้องเติม emp_code = varMyCode
+ClearCollect(colADuty, Filter(PAS_Duty, day_key = varAKey, team = varAT)),
+ClearCollect(colAAsg,  Filter(PAS_Assignment, day_key = varAKey, team = varAT)),
 ```
-> galleries ที่อ่านจาก colADuty/colAAsg จะเหลือเฉพาะของ USER เอง · ปุ่มแก้ยังถูก gate ด้วย `varPriv` อยู่แล้ว (`27` A-3) → USER ดูได้ แก้ไม่ได้
-> ใช้แพทเทิร์นเดียวกันกับหน้าอื่นที่อยากจำกัด (เช่น ถ้าต้องการให้ roster ก็เห็นเฉพาะแถวตัวเอง — แต่ roster เป็นภาพรวมทีม ปกติให้ดูทั้งทีม)
+> USER จึงเห็นงานของทุกคนในทีม + ใครทำไฟลท์เดียวกัน · ปุ่มลง/แก้ตำแหน่งถูก gate `varPriv` (`27` A-3) → ดูได้ แก้ไม่ได้
 
-**เลือกทีม/วัน:** USER ปกติดูทีมตัวเอง → ตั้ง default `ddATeam` = `varMyTeam`:
+### 1.2 ล็อกทีม = ทีมตัวเอง (USER เห็นเฉพาะทีมตัวเอง)
 ```powerapps
 ddATeam.Default = =Coalesce(varMyTeam, First(colAAir).team)
-// ถ้าอยากล็อกไม่ให้ USER เปลี่ยนทีม:
+// USER เปลี่ยนทีมไม่ได้ (เห็นเฉพาะทีมตัวเอง) · EDITOR/ADMIN สลับทีมได้
 ddATeam.DisplayMode = =If(varPriv, DisplayMode.Edit, DisplayMode.Disabled)
+// กันเผลอโหลดทีมอื่นถ้า USER พยายามข้าม:
+// ใน btnALoad: Set(varAT, If(varPriv, ddATeam.Selected.Value, Coalesce(varMyTeam, ddATeam.Selected.Value)))
+```
+> ถ้าอยากไฮไลต์ "งานของฉัน" ในกริดทีม: ให้แถวที่ `emp_code = varMyCode` ขึ้นสีเน้น (ไม่ซ่อนคนอื่น)
+
+### 1.3 อยากเน้นเฉพาะไฟลท์เดียวกับฉัน (ออปชัน)
+ปุ่มสลับ "ทั้งทีม / ไฟลท์ของฉัน":
+```powerapps
+// varAMineOnly toggle → กรองเฉพาะไฟลท์ที่ฉันอยู่
+galAAsg.Items = If(varAMineOnly,
+  With({myFl: Distinct(Filter(colAAsg, emp_code = varMyCode), Title)},
+       Filter(colAAsg, Title in myFl.Value)),   // คนที่ทำไฟลท์เดียวกับฉัน
+  colAAsg)
 ```
 
-> หน้า **scrMe** เห็นเฉพาะของตัวเองอยู่แล้ว (filter `emp_code = varMyCode`) → เป็นช่องทางหลักของ USER
+> หน้า **scrMe** = งานของฉันล้วน ๆ (เฉพาะ `emp_code = varMyCode`) · ส่วน scrAssign = ภาพรวมทีม (ตามข้อนี้)
 
 ---
 
