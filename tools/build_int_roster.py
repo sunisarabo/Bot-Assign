@@ -33,8 +33,9 @@ TEAMS = [
     ('TK',    ['OD', 'VJ', 'SG', 'HY', 'TK', 'N0', 'VN']),
     ('EY',    ['EY', 'DV', 'AY']),
     ('WY/WK', ['WY', 'G9', '9C', 'DK', 'SV', 'WK', 'KA']),
-    ('DOM',   ['TG', 'VZ', 'FD', 'SL']),
+    # ในประเทศ (TG/VZ/FD/SL/DD) = ไม่ให้บริการ → ไม่จัดทีม/ไม่นับ sizing (ภาพรวมเท่านั้น)
 ]
+NOT_SERVICED = ['FD', 'VZ', 'SL', 'TG', 'DD']   # ตรงกับ gen_teamairline.NOT_SERVICED
 A2T = {a: n for n, al in TEAMS for a in al}
 
 # กฎกำลังพลต่อไฟลท์ [SUP, CI, ARR, GATE, TOTAL] (จาก SLA_RQ + ประมาณการ 7 สายที่เพิ่ม)

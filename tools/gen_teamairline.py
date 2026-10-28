@@ -13,25 +13,26 @@ import argparse, csv
 
 # ทีม → รายชื่อสายการบิน (IATA) · ★ แก้ให้ตรงการจัดทีมจริงได้
 TEAM_AIRLINES = {
-    'QR':    ['QR', 'MH', 'OM', 'DE'],
-    'TR':    ['TR', '6E', 'QP'],
-    'EK':    ['EK', 'UO', '6B', 'BY', 'FY'],
+    # ★ ชุดเดียวตรงกับ build_int_roster.TEAMS (ยืนยันแล้ว) — ในประเทศไม่ให้บริการ (ดู NOT_SERVICED)
     'EY':    ['EY', 'DV', 'AY'],
-    'SQ':    ['SQ', 'CX', 'LY'],
-    'KE':    ['KC', 'LJ', 'KE', 'OZ', 'NO', 'AF'],
-    'SU':    ['SU', 'B2', 'W5'],
-    'TK':    ['TK', 'VJ', 'SG', 'HY', 'OD'],
-    'JQ':    ['JQ', 'IT', 'IX', 'AI', 'N0'],
-    'PG':    ['PG'],
+    'QR':    ['QR', 'MH', 'DE', 'OM'],
+    'EK':    ['UO', 'EK', 'FY', '6B', 'BY', 'KU'],
+    'SQ':    ['SQ', 'CX', 'LY', 'IZ'],
+    'TK':    ['OD', 'VJ', 'SG', 'HY', 'TK', 'N0', 'VN'],
+    'JQ':    ['JQ', 'AI', 'IX', 'IT', 'VS'],
+    'KE':    ['KC', 'KE', 'OZ', 'NO', 'AF', 'LJ', 'OV'],
+    'SU':    ['SU', 'W5', 'B2'],
     'AK':    ['AK', 'QZ', '8M'],
-    'WY/WK': ['WY', 'G9', '9C', 'DK', 'SV', 'KA', 'WK'],
-    'CHN':   ['CA', 'MU', 'CZ', 'FM', 'SC', 'HO', '3U', '8L', 'GS', 'GJ', 'HU', 'MF'],   # ★ กลุ่มจีน (รวม Hainan/Xiamen)
-    'PVT':   [],   # เที่ยวบินส่วนตัว/เช่าเหมา — ไม่ผูก IATA ตายตัว
+    'TR':    ['TR', '6E', 'QP', '3K'],
+    'PG':    ['PG'],
+    'WY/WK': ['WY', 'WK', 'G9', '9C', 'DK', 'SV', 'KA'],
+    'CHN':   ['CA', '3U', 'MU', 'FM', 'HU', 'HO', 'HX', 'AQ', 'CZ', 'ZH', 'PN', '9H', 'OQ', 'BK', 'GX', 'MF'],
+    'ZF':    ['ZF', 'LO', 'HH', 'EO', 'N4', 'G2', 'H4', 'S7', 'C6', 'WZ', 'HB'],   # เช่าเหมา/charter
 }
 
 # สายที่ PSA "ไม่ได้ให้บริการ" → ไม่มีทีม · แสดงเป็นภาพรวมสนามบินเท่านั้น
 # (ส่วนมากในประเทศ) — ปรับได้ถ้าภายหลังรับบริการเพิ่ม
-NOT_SERVICED = ['FD', 'VZ', 'SL', 'TG', 'DD', 'HX', 'VN', 'S7', 'C6', 'KU', 'VS', 'HH', 'IZ']
+NOT_SERVICED = ['FD', 'VZ', 'SL', 'TG', 'DD']   # ในประเทศ — PSA ไม่ให้บริการ (ภาพรวมเท่านั้น)
 
 
 def main():
